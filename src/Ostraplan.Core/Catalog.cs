@@ -1,3 +1,5 @@
+using System.Collections.Concurrent;
+
 namespace Ostraplan.Core;
 
 /// <summary>One palette entry: an installable build job joined to its placed item def.</summary>
@@ -57,6 +59,33 @@ public sealed class Catalog
         if (!visited.Add(name) || !Loots.TryGetValue(name, out var loot)) return;
         acc.AddRange(loot.Conds);
         foreach (var child in loot.Loots) GatherConds(child, acc, visited);
+    }
+
+    // Render z-order (bottom -> top). The game leaves nLayer at 0 for every item and
+    // Y-sorts sprites over a floor tile-layer; Ostraplan's own renderer instead ranks
+    // each part by what it contributes to its tiles, so floors never occlude what sits
+    // on them. Ties within a layer keep the existing Y-then-insertion order.
+    public const int LayerFloor = 0;      // IsFloor / IsFloorSealed / IsFloorFlex
+    public const int LayerWall = 1;       // IsWall / IsPortal (doors carry both wall and floor conds — checked first)
+    public const int LayerFixture = 2;    // beds, appliances, sensors, and everything unclassified
+    public const int LayerConduit = 3;    // IsPowerConduit — thin power runs, drawn on top
+
+    private static readonly HashSet<string> WallConds = new(StringComparer.Ordinal) { "IsWall", "IsPortal" };
+    private static readonly HashSet<string> FloorConds = new(StringComparer.Ordinal) { "IsFloor", "IsFloorSealed", "IsFloorFlex" };
+    private readonly ConcurrentDictionary<string, int> _renderLayer = new(StringComparer.Ordinal);
+
+    /// <summary>The z-layer a part draws in, from the conditions its sockets add (memoized by def name).</summary>
+    public int RenderLayer(PartDef? part)
+    {
+        if (part is null) return LayerFixture;
+        return _renderLayer.GetOrAdd(part.DefName, _ =>
+        {
+            var conds = part.Item.SocketAdds.SelectMany(LootConds).ToHashSet(StringComparer.Ordinal);
+            if (conds.Overlaps(WallConds)) return LayerWall;        // walls & doors (a door also seals floor — resolve here)
+            if (conds.Overlaps(FloorConds)) return LayerFloor;
+            if (conds.Contains("IsPowerConduit")) return LayerConduit;
+            return LayerFixture;
+        });
     }
 
     public static Catalog Build(DataIndex index)

@@ -51,9 +51,14 @@ public sealed class ShipDocument
         return x >= p.X && x < p.X + w && y >= p.Y && y < p.Y + h;
     }
 
-    /// <summary>Placements sorted for painting: layer, then top-left Y, then insertion order.</summary>
+    /// <summary>
+    /// Placements sorted bottom-to-top for painting: render layer (floor → wall →
+    /// fixture → conduit), then any explicit item nLayer, then top-left Y, then
+    /// insertion order. Floors sort under whatever is placed on them.
+    /// </summary>
     public IEnumerable<Placement> DrawOrder() =>
-        _placements.OrderBy(p => Part(p)?.Item.NLayer ?? 0)
+        _placements.OrderBy(p => Catalog.RenderLayer(Part(p)))
+                   .ThenBy(p => Part(p)?.Item.NLayer ?? 0)
                    .ThenBy(p => p.Y)
                    .ThenBy(p => _order.GetValueOrDefault(p.Id));
 

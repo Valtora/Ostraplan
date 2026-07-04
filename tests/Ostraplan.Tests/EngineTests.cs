@@ -76,6 +76,23 @@ public class EngineTests
     }
 
     [Fact]
+    public void Draw_order_layers_floor_under_wall_under_fixture_under_conduit()
+    {
+        var cat = Fake(
+            [Part("F", 1, 1, "FloorLoot"), Part("W", 1, 1, "WallLoot"),
+             Part("X", 1, 1, "FixLoot"), Part("C", 1, 1, "CondLoot")],
+            [new LootDef("FloorLoot", ["IsFloorSealed"], []), new LootDef("WallLoot", ["IsWall"], []),
+             new LootDef("FixLoot", ["IsFixture"], []), new LootDef("CondLoot", ["IsPowerConduit"], [])]);
+        var doc = new ShipDocument(cat);
+        // scrambled insertion order: the render layer must re-sort them regardless
+        foreach (var def in new[] { "X", "C", "F", "W" })
+            new PlaceCommand(new Placement { DefName = def, X = 0, Y = 0 }).Do(doc);
+
+        Assert.Equal(["F", "W", "X", "C"], doc.DrawOrder().Select(p => p.DefName));
+        Assert.Equal("C", doc.HitTest(0, 0)!.DefName);   // topmost layer wins the hit-test
+    }
+
+    [Fact]
     public void Trigger_forbids_block()
     {
         var cat = Fake([Part("X", 1, 1)],
