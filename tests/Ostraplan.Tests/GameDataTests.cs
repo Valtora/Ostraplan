@@ -162,4 +162,21 @@ public class GameDataTests
 
         Assert.True(CheckFit.Check(doc, wall, 2, 5, 0, includeEnvelope: true).Ok);   // inside the hull
     }
+
+    [Fact]
+    public void Large_tank_footprint_is_the_7x7_socket_grid_not_the_3x3_sprite()
+    {
+        if (TestData.Game is not { } g) return;
+        var tank = ItemDef.Parse(g.Index.Type("items")["ItmCanisterLH02"].El);
+
+        // The footprint IS 7x7 (nCols=7, 49 adds): the game requires a 7x7 sealed-floor
+        // area to place it, so the placement/CheckFit footprint must stay 7x7 or Ostraplan
+        // would allow tanks the game refuses. The visible tank is only the center 3x3
+        // (TIL2DeckAdds); the outer ring is TILSubfloorAdds — abstracted storage under the floor.
+        Assert.Equal((7, 7), (tank.Width, tank.Height));
+        Assert.Equal(49, tank.SocketAdds.Length);
+        Assert.Contains("TILSubfloorAdds", tank.SocketAdds);
+        Assert.Contains("TIL2DeckAdds", tank.SocketAdds);
+        Assert.All(tank.SocketReqs.Where(r => r != "Blank"), r => Assert.Equal("TILFloor", r));
+    }
 }

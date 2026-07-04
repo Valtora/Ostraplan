@@ -22,6 +22,20 @@ public sealed class SpriteCache
     public BitmapSource Sprite(PartDef part) =>
         (part.SpriteAbs is null ? null : Load(part.SpriteAbs)) ?? Missing;
 
+    /// <summary>
+    /// A non-sheet sprite's own size in tiles = round(texturePx / 16), min 1 —
+    /// Item.SetData's vScale (Assembly-CSharp). This is the sprite's visual size,
+    /// which for the large fuel tanks is smaller than the socket footprint
+    /// (nCols x adds/nCols): the tank's 3x3 canister sprite sits centered in a 7x7
+    /// footprint whose outer ring is abstracted sub-floor storage, not the tank.
+    /// </summary>
+    public (int W, int H) SpriteTiles(PartDef part)
+    {
+        var bmp = Sprite(part);
+        return (Math.Max(1, (int)Math.Round(bmp.PixelWidth / 16.0)),
+                Math.Max(1, (int)Math.Round(bmp.PixelHeight / 16.0)));
+    }
+
     /// <summary>Cell size in px follows GetMaterialSheet: footprint tiles x 16.</summary>
     public (int Cols, int Rows) SheetDims(PartDef part)
     {

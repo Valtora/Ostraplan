@@ -779,20 +779,19 @@ public sealed class ShipCanvas : FrameworkElement
             return;
         }
 
-        var (defW, defH) = (part.Item.Width, part.Item.Height);
-        var (effW, effH) = GridMath.Size(defW, defH, rot);
-        var target = CellRect(gx, gy, effW, effH);
-        var bmp = Sprites!.Sprite(part);
+        // Draw the sprite at its OWN texture size (round(px/16) tiles — Item.SetData's
+        // vScale), centered on the socket footprint. For most parts the sprite fills the
+        // footprint; for the large tanks a 3x3 canister sprite sits centered in a 7x7
+        // footprint whose outer ring is abstracted sub-floor storage, not the tank body.
+        var (effW, effH) = GridMath.Size(part.Item.Width, part.Item.Height, rot);
+        var (visW, visH) = Sprites!.SpriteTiles(part);
+        var bmp = Sprites.Sprite(part);
+        var center = new Point(_pan.X + (gx + effW / 2.0) * Zoom, _pan.Y + (gy + effH / 2.0) * Zoom);
+        var sprite = new Rect(center.X - visW * Zoom / 2, center.Y - visH * Zoom / 2, visW * Zoom, visH * Zoom);
 
-        if (GridMath.Norm(rot) == 0)
-        {
-            dc.DrawImage(bmp, target);
-            return;
-        }
-
-        var center = new Point(target.X + target.Width / 2, target.Y + target.Height / 2);
-        dc.PushTransform(new RotateTransform(GridMath.Norm(rot), center.X, center.Y));
-        dc.DrawImage(bmp, new Rect(center.X - defW * Zoom / 2, center.Y - defH * Zoom / 2, defW * Zoom, defH * Zoom));
-        dc.Pop();
+        var norm = GridMath.Norm(rot);
+        if (norm != 0) dc.PushTransform(new RotateTransform(norm, center.X, center.Y));
+        dc.DrawImage(bmp, sprite);
+        if (norm != 0) dc.Pop();
     }
 }

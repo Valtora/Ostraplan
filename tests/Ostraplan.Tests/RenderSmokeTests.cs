@@ -86,6 +86,49 @@ public class RenderSmokeTests
         });
     }
 
+    [Fact]
+    public void Large_tank_sprite_is_3x3_inside_its_7x7_footprint()
+    {
+        if (TestData.Game is not { } g) return;
+        var def = ItemDef.Parse(g.Index.Type("items")["ItmCanisterLH02"].El);
+        var part = new PartDef("ItmCanisterLH02", "D2O Tank", "POWR", "core", def,
+            g.Index.ResolveImage(def.Img), [], [], [], new Dictionary<string, (double, double)>());
+
+        Assert.Equal((7, 7), (part.Item.Width, part.Item.Height));   // socket/placement footprint
+        Assert.Equal((3, 3), new SpriteCache().SpriteTiles(part));   // 48x48 sprite -> drawn 3x3, centered
+    }
+
+    [Fact]
+    public void Render_large_tank_sprite_centered_in_footprint()
+    {
+        if (TestData.Game is not { } g) return;
+        var tank = g.Catalog.Parts.FirstOrDefault(p => p.Item.Width == 7 && p.Item.Height == 7);
+        if (tank is null || !g.Catalog.ByDefName.ContainsKey("ItmFloorGrate01")) return;
+        RunSta(() =>
+        {
+            var doc = new ShipDocument(g.Catalog);
+            for (var y = 0; y < 7; y++)                       // a 7x7 sealed-floor pad...
+                for (var x = 0; x < 7; x++)
+                    new PlaceCommand(new Placement { DefName = "ItmFloorGrate01", X = x, Y = y }).Do(doc);
+            new PlaceCommand(new Placement { DefName = tank.DefName, X = 0, Y = 0 }).Do(doc);   // ...the tank sits centered on it
+
+            var canvas = new ShipCanvas { Sprites = new SpriteCache() };
+            canvas.SetDocument(doc);
+            canvas.Measure(new Size(700, 700));
+            canvas.Arrange(new Rect(0, 0, 700, 700));
+            canvas.FitContent();
+            canvas.UpdateLayout();
+
+            var bitmap = new RenderTargetBitmap(700, 700, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(canvas);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            var path = Path.Combine(AppContext.BaseDirectory, "smoke-tank.png");
+            using (var stream = File.Create(path)) encoder.Save(stream);
+            Assert.True(new FileInfo(path).Length > 5000);
+        });
+    }
+
     private static void RunSta(Action action)
     {
         Exception? failure = null;
