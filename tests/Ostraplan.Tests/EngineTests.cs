@@ -93,6 +93,21 @@ public class EngineTests
     }
 
     [Fact]
+    public void HitTestStack_lists_covering_parts_topmost_first()
+    {
+        var cat = Fake(
+            [Part("F", 1, 1, "FloorLoot"), Part("X", 1, 1, "FixLoot"), Part("C", 1, 1, "CondLoot")],
+            [new LootDef("FloorLoot", ["IsFloorSealed"], []), new LootDef("FixLoot", ["IsFixture"], []),
+             new LootDef("CondLoot", ["IsPowerConduit"], [])]);
+        var doc = new ShipDocument(cat);
+        foreach (var def in new[] { "F", "X", "C" })
+            new PlaceCommand(new Placement { DefName = def, X = 0, Y = 0 }).Do(doc);
+
+        Assert.Equal(["C", "X", "F"], doc.HitTestStack(0, 0).Select(p => p.DefName));   // conduit, fixture, floor
+        Assert.Empty(doc.HitTestStack(9, 9));
+    }
+
+    [Fact]
     public void Trigger_forbids_block()
     {
         var cat = Fake([Part("X", 1, 1)],

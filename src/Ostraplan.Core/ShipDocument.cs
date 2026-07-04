@@ -66,6 +66,14 @@ public sealed class ShipDocument
     public Placement? HitTest(int x, int y) =>
         DrawOrder().LastOrDefault(p => Covers(p, x, y));
 
+    /// <summary>Every placement covering the tile, topmost first (reverse draw order) — for layer picking.</summary>
+    public IReadOnlyList<Placement> HitTestStack(int x, int y)
+    {
+        var stack = DrawOrder().Where(p => Covers(p, x, y)).ToList();
+        stack.Reverse();
+        return stack;
+    }
+
     public (int MinX, int MinY, int MaxX, int MaxY)? Bounds()
     {
         if (_placements.Count == 0) return null;

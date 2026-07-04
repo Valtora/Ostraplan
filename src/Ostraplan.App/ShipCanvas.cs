@@ -104,7 +104,7 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action<(int X, int Y)?>? HoverChanged;
     public event Action? Disarmed;
     public event Action? ViewChanged;
-    public event Action<Placement>? ContextMenuRequested;
+    public event Action<(int X, int Y)>? ContextMenuRequested;   // right-clicked tile; window builds the layer picker
     public event Action<string?>? GhostReasonChanged;   // the armed ghost's illegality reason, null when legal/disarmed
 
     public ShipCanvas()
@@ -163,6 +163,15 @@ public sealed class ShipCanvas : FrameworkElement
 
     public List<Placement> SelectedPlacements() =>
         Doc is null ? [] : Doc.Placements.Where(p => SelectedIds.Contains(p.Id)).ToList();
+
+    /// <summary>Replace the selection with a single placement (the layer picker's row click).</summary>
+    public void SelectOnly(Placement p)
+    {
+        SelectedIds.Clear();
+        SelectedIds.Add(p.Id);
+        SelectionChanged?.Invoke();
+        InvalidateVisual();
+    }
 
     /// <summary>
     /// Off -> Vertical -> Horizontal -> Both -> Off. When switching on from Off,
@@ -341,17 +350,19 @@ public sealed class ShipCanvas : FrameworkElement
             else if (Doc is not null)
             {
                 var rmbCell = CellAt(screen);
-                var rmbHit = Doc.HitTest(rmbCell.X, rmbCell.Y);
-                if (rmbHit is not null)
+                var stack = Doc.HitTestStack(rmbCell.X, rmbCell.Y);
+                if (stack.Count > 0)
                 {
-                    if (!SelectedIds.Contains(rmbHit.Id))
+                    // if nothing in this stack is already selected, grab the topmost so a
+                    // plain right-click + Delete still acts on the visible part
+                    if (!stack.Any(p => SelectedIds.Contains(p.Id)))
                     {
                         SelectedIds.Clear();
-                        SelectedIds.Add(rmbHit.Id);
+                        SelectedIds.Add(stack[0].Id);
                         SelectionChanged?.Invoke();
                         InvalidateVisual();
                     }
-                    ContextMenuRequested?.Invoke(rmbHit);
+                    ContextMenuRequested?.Invoke(rmbCell);
                 }
             }
             e.Handled = true;

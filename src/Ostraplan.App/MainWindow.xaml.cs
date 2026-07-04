@@ -439,15 +439,11 @@ public partial class MainWindow : Window
         UpdateInspector();
     }
 
-    private void OnContextMenuRequested(Placement hit)
+    private void OnContextMenuRequested((int X, int Y) cell)
     {
         if (_doc is null) return;
-        var selected = Board.SelectedPlacements();
-        if (selected.Count == 0) return;
-        var unlocked = selected.Where(p => !_doc.IsLocked(p)).ToList();
-        var canAct = unlocked.Count > 0;
-        var canRotate = unlocked.Any(p => _doc.Part(p)?.Item.HasSpriteSheet != true);
-        var suffix = unlocked.Count > 1 ? $" ({unlocked.Count})" : "";
+        var stack = _doc.HitTestStack(cell.X, cell.Y);   // topmost first
+        if (stack.Count == 0) return;
 
         static MenuItem Item(string header, string gesture, RoutedEventHandler onClick, bool enabled = true)
         {
@@ -457,12 +453,44 @@ public partial class MainWindow : Window
         }
 
         var menu = new ContextMenu { PlacementTarget = Board };
-        menu.Items.Add(new MenuItem
+
+        if (stack.Count > 1)
         {
-            Header = (_doc.Part(hit)?.Friendly ?? hit.DefName) + (_doc.IsLocked(hit) ? "  · fixed to the ship" : ""),
-            IsEnabled = false,
-            FontWeight = FontWeights.SemiBold,
-        });
+            // layer picker — floors sit under what's on them, so this is how you reach
+            // the part underneath. Click a row to select that layer (● marks the current one).
+            menu.Items.Add(new MenuItem
+            {
+                Header = $"{stack.Count} stacked here — click to select:",
+                IsEnabled = false,
+                FontWeight = FontWeights.SemiBold,
+            });
+            foreach (var p in stack)
+            {
+                var target = p;
+                var isSel = Board.SelectedIds.Count == 1 && Board.SelectedIds.Contains(p.Id);
+                var label = (isSel ? "●  " : "○  ") + (_doc.Part(p)?.Friendly ?? p.DefName)
+                            + (_doc.IsLocked(p) ? "   · fixed" : "");
+                menu.Items.Add(Item(label, "", (_, _) => Board.SelectOnly(target)));
+            }
+        }
+        else
+        {
+            var only = stack[0];
+            menu.Items.Add(new MenuItem
+            {
+                Header = (_doc.Part(only)?.Friendly ?? only.DefName) + (_doc.IsLocked(only) ? "  · fixed to the ship" : ""),
+                IsEnabled = false,
+                FontWeight = FontWeights.SemiBold,
+            });
+        }
+
+        // actions on the current selection (the layer picker above re-points it)
+        var selected = Board.SelectedPlacements();
+        var unlocked = selected.Where(p => !_doc.IsLocked(p)).ToList();
+        var canAct = unlocked.Count > 0;
+        var canRotate = unlocked.Any(p => _doc.Part(p)?.Item.HasSpriteSheet != true);
+        var suffix = unlocked.Count > 1 ? $" ({unlocked.Count})" : "";
+
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("Duplicate" + suffix, "", (_, _) => DuplicateSelection(), canAct));
         menu.Items.Add(Item("Rotate CW" + suffix, "R", (_, _) => RotateSelection(90), canRotate));
@@ -625,7 +653,7 @@ public partial class MainWindow : Window
             ("Ctrl + Shift + drag (part armed)", "Hollow box: only the outline is placed — walls, in practice"),
             ("LMB", "Select a part · Ctrl+click adds/removes · drag empty space to box-select"),
             ("Drag selection", "Move the selected parts"),
-            ("RMB", "Context menu (Duplicate, Rotate, Delete) · cancels placement while armed"),
+            ("RMB", "Context menu (Duplicate, Rotate, Delete) · on stacked tiles, lists every layer so you can select the part underneath · cancels placement while armed"),
             ("R / Shift+R", "Rotate the armed part or the selection CW / CCW (walls & floors auto-tile instead)"),
             ("M", "Cycle symmetry Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on"),
             ("Del", "Delete the selection"),
