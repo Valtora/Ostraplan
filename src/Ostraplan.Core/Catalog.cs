@@ -36,6 +36,29 @@ public sealed class Catalog
     public required IReadOnlyDictionary<string, CondTriggerDef> Triggers { get; init; }
     public required List<string> Warnings { get; init; }
 
+    /// <summary>
+    /// A loot's condition names — its own aCOs plus, recursively, nested aLoots,
+    /// flattened. This is Loot.GetLootNames for the deterministic "Cond=1.0x1"
+    /// units socket masks use, and the same expansion <see cref="TileConds"/> runs
+    /// when accumulating. "Blank"/empty/unresolved → none (an unconstrained cell).
+    /// Recomputed per call (expansions are shallow); no cache, so it's safe to
+    /// share one Catalog across threads.
+    /// </summary>
+    public IReadOnlyList<string> LootConds(string? lootName)
+    {
+        var acc = new List<string>();
+        if (!string.IsNullOrEmpty(lootName) && lootName != "Blank")
+            GatherConds(lootName, acc, []);
+        return acc;
+    }
+
+    private void GatherConds(string name, List<string> acc, HashSet<string> visited)
+    {
+        if (!visited.Add(name) || !Loots.TryGetValue(name, out var loot)) return;
+        acc.AddRange(loot.Conds);
+        foreach (var child in loot.Loots) GatherConds(child, acc, visited);
+    }
+
     public static Catalog Build(DataIndex index)
     {
         var warnings = new List<string>();

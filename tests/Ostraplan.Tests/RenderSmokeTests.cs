@@ -52,6 +52,40 @@ public class RenderSmokeTests
         });
     }
 
+    [Fact]
+    public void Render_illegal_placement_hazard_tint()
+    {
+        if (TestData.Game is not { } g) return;
+        RunSta(() =>
+        {
+            var doc = new ShipDocument(g.Catalog);
+            new PlaceCommand(new Placement { DefName = Catalog.PrimaryDocksysDef, X = 0, Y = 0 }).Do(doc);
+            // a bed dropped straight onto bare space (Do bypasses the placement law) is illegal - it needs floor + a headboard wall
+            var stray = g.Catalog.ByDefName.ContainsKey("ItmBed01Off") ? "ItmBed01Off" : "ItmWall1x1";
+            new PlaceCommand(new Placement { DefName = stray, X = 3, Y = 4 }).Do(doc);
+
+            var cells = ProblemScan.Scan(doc, g.Catalog)
+                .Where(p => p.Cells is not null).SelectMany(p => p.Cells!).Distinct().ToList();
+            Assert.NotEmpty(cells);   // the stray placement produced hazard cells to tint
+
+            var canvas = new ShipCanvas { Sprites = new SpriteCache() };
+            canvas.SetDocument(doc);
+            canvas.SetIllegalCells(cells);
+            canvas.Measure(new Size(900, 640));
+            canvas.Arrange(new Rect(0, 0, 900, 640));
+            canvas.FitContent();
+            canvas.UpdateLayout();
+
+            var bitmap = new RenderTargetBitmap(900, 640, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(canvas);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            var path = Path.Combine(AppContext.BaseDirectory, "smoke-illegal.png");
+            using (var stream = File.Create(path)) encoder.Save(stream);
+            Assert.True(new FileInfo(path).Length > 5000);
+        });
+    }
+
     private static void RunSta(Action action)
     {
         Exception? failure = null;

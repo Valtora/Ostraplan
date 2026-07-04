@@ -1,0 +1,156 @@
+namespace Ostraplan.Core;
+
+/// <summary>
+/// Outcome of a placement legality test: whether the pose fits, the world tiles
+/// that failed (for the red ghost / hazard tint), and a one-line human reason.
+/// </summary>
+public sealed record FitResult(bool Ok, IReadOnlyList<(int X, int Y)> FailedCells, string? Reason)
+{
+    public static readonly FitResult Legal = new(true, [], null);
+}
+
+/// <summary>
+/// Port of <c>Item.CheckFit</c> (Assembly-CSharp, verified against game 0.15.1.6):
+/// can this part occupy this pose given the ship's accumulated tile conditions?
+///
+/// <para>Model (traced from CheckFit + CondTrigger.Triggered + Loot.GetLootNames):</para>
+/// <list type="bullet">
+///   <item>Footprint is W×H from the item; <c>aSocketReqs</c>/<c>aSocketForbids</c>
+///   are per-cell loot names over the (W+2)×(H+2) <b>ring</b> (footprint + 1-tile
+///   border); <c>aSocketAdds</c> covers only the W×H footprint. "Blank"/empty/
+///   unresolved = unconstrained.</item>
+///   <item>Each ring cell builds a throwaway AND-CondTrigger from the loots'
+///   expanded condition names and tests it against the tile: <b>every</b> req
+///   condition present (count &gt; 0) and <b>no</b> forbid condition present.
+///   Presence-only — CheckFit never reaches CondTrigger's count/nested/OR paths.</item>
+///   <item>A ring cell with no accumulated conditions (off-ship / empty space)
+///   therefore fails any requirement and passes a forbid-only cell — the game's
+///   "must attach to structure / needs floor beneath" encoding.</item>
+///   <item>Rotation rotates the ring masks (TileUtils.RotateTilesCW ≡
+///   <see cref="GridMath.Rotate"/>); sheet items (walls/floors) never rotate.</item>
+///   <item>Envelope (opt-in): no ring cell may fall beyond a docking port's mating
+///   face. The game bounds only the first port; Ostraplan bounds <b>all</b> ports
+///   (ring-inclusive) — provably never allows what the game refuses, identical to
+///   the game on the single-port ships that are the norm.</item>
+/// </list>
+///
+/// <para>Excluded by design (in-game only, cannot occur in a planner): crew
+/// proximity/LOS (GUIInventory selection), docked-ship WouldConnectShips, and
+/// station-zone (JsonZone) restrictions.</para>
+/// </summary>
+public static class CheckFit
+{
+    /// <summary>
+    /// Check <paramref name="part"/> at top-left tile (<paramref name="x"/>,
+    /// <paramref name="y"/>) with rotation <paramref name="rot"/>.
+    /// Pass <paramref name="self"/> when re-validating an already-placed part so
+    /// its own tile contribution is excluded (walls/fixtures add IsObstruction and
+    /// forbid it on their own footprint — otherwise every placed part fails itself).
+    /// </summary>
+    public static FitResult Check(ShipDocument doc, PartDef part, int x, int y, int rot,
+        Placement? self = null, bool includeEnvelope = true)
+    {
+        var item = part.Item;
+        var effRot = item.HasSpriteSheet ? 0 : GridMath.Norm(rot);   // sheet items never rotate
+        var (rw, rh, reqs) = GridMath.Rotate(item.SocketReqs, item.Width + 2, item.Height + 2, effRot);
+        var (_, _, forbids) = GridMath.Rotate(item.SocketForbids, item.Width + 2, item.Height + 2, effRot);
+
+        // re-validating a placed part: lift its own conditions so it doesn't fail
+        // against itself, restore them no matter what (UI thread only; no re-entrancy
+        // since TileConds.Apply raises no events).
+        var selfItem = self is not null ? doc.Part(self)?.Item : null;
+        if (selfItem is not null) doc.Conds.Apply(self!, selfItem, -1);
+        try
+        {
+            var failed = new List<(int, int)>();
+            string? reason = null;
+
+            for (var r = 0; r < rh; r++)
+                for (var c = 0; c < rw; c++)
+                {
+                    // ring cell (r,c) -> world tile: footprint interior sits at c,r in 1..W/1..H
+                    var wx = x - 1 + c;
+                    var wy = y - 1 + r;
+
+                    if (includeEnvelope && BeyondAnyFace(doc, wx, wy))
+                    {
+                        failed.Add((wx, wy));
+                        reason ??= "beyond the airlock's mating face";
+                        continue;
+                    }
+
+                    var idx = r * rw + c;
+                    var reqConds = idx < reqs.Length ? doc.Catalog.LootConds(reqs[idx]) : [];
+                    var forbidConds = idx < forbids.Length ? doc.Catalog.LootConds(forbids[idx]) : [];
+                    if (reqConds.Count == 0 && forbidConds.Count == 0) continue;   // unconstrained
+
+                    if (!CellPasses(doc.Conds, reqConds, forbidConds, wx, wy, out var why))
+                    {
+                        failed.Add((wx, wy));
+                        reason ??= why;
+                    }
+                }
+
+            return failed.Count == 0 ? FitResult.Legal : new FitResult(false, failed, reason);
+        }
+        finally
+        {
+            if (selfItem is not null) doc.Conds.Apply(self!, selfItem, +1);
+        }
+    }
+
+    /// <summary>Every req condition present, no forbid condition present (CondTrigger.Triggered, bAND path).</summary>
+    private static bool CellPasses(TileConds conds, IReadOnlyList<string> reqConds, IReadOnlyList<string> forbidConds,
+        int x, int y, out string? why)
+    {
+        why = null;
+        var at = conds.At(x, y);   // null == off-ship / empty tile (empty entries are pruned, never a non-null empty dict)
+        foreach (var rc in reqConds)
+            if (at is null || !at.ContainsKey(rc))
+            {
+                why = ReasonForReq(rc);
+                return false;
+            }
+        if (at is not null)
+            foreach (var fc in forbidConds)
+                if (at.ContainsKey(fc))
+                {
+                    why = ReasonForForbid(fc);
+                    return false;
+                }
+        return true;
+    }
+
+    /// <summary>True if the tile lies beyond any installed docking port's mating face (all ports, ring-inclusive).</summary>
+    private static bool BeyondAnyFace(ShipDocument doc, int x, int y)
+    {
+        foreach (var p in doc.Placements)
+        {
+            var part = doc.Part(p);
+            if (part is null || !ProblemScan.IsDocksys(part, doc.Catalog)) continue;
+            if (!ProblemScan.TryGetFace(part, p, out var axisY, out var dir, out var face)) continue;
+            var center = (axisY ? y : x) + 0.5;
+            if ((center - face) * dir > 0.01) return true;
+        }
+        return false;
+    }
+
+    // Friendly reasons for the ghost / problem grouping. Socket masks lean on a
+    // small vocabulary of tile conditions; anything unmapped falls back to the raw
+    // condition so the reason is never empty.
+    private static string ReasonForReq(string cond) => cond switch
+    {
+        "IsFloor" or "IsFloorSealed" => "needs a sealed floor beneath",
+        "IsWall" => "needs a wall alongside",
+        "IsHull" => "needs hull structure",
+        "IsPortal" => "needs a doorway",
+        _ => $"needs {cond}",
+    };
+
+    private static string ReasonForForbid(string cond) => cond switch
+    {
+        "IsObstruction" or "IsFixture" or "IsFixtureExt" or "IsItemTile" or "IsFloorFlex" => "tile is already occupied",
+        "IsWall" => "blocked by a wall",
+        _ => $"blocked by {cond}",
+    };
+}

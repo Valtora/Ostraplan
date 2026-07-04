@@ -6,7 +6,7 @@ Out-of-game ship planner for **Ostranauts** (Blue Bottle Games). Drag-and-drop e
 
 > **The Law:** if you can build it in Ostraplan, you can build it in Ostranauts, and it will be a valid ship.
 
-**Status:** P0 foundation — mod-aware data index, palette (game's own 8 install tabs + search), tile canvas with real sprites and game-exact wall autotiling, place/move/rotate (`R`, like in-game), undo/redo, `.oplan` save/load. Spec: [docs/SPEC.md](docs/SPEC.md).
+**Status:** P1 placement law — the foundation (mod-aware data index, palette over the game's 8 install tabs, sprite canvas with game-exact autotiling, drag-paint/box-fill/symmetry, undo/redo, `.oplan`) plus a faithful `Item.CheckFit` port: you cannot place anything the game would refuse. The ghost glows green/red with the failing tiles and reason; moves and rotations into an illegal spot are flagged (red hazard tint + grouped PROBLEMS); construction beyond an airlock's mating face is unplaceable. Rooms, airtightness, and Ship Rating land in P2. Spec: [docs/SPEC.md](docs/SPEC.md).
 
 ```powershell
 dotnet run --project src\Ostraplan.App     # launch (finds the game via Steam automatically)

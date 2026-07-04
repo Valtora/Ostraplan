@@ -109,4 +109,68 @@ public class ProblemScanTests
         Assert.Equal(-1, dir);        // outward = up (toward negative doc y)
         Assert.Equal(0, face, 3);     // exactly the footprint's top edge
     }
+
+    // ---- per-placement legality (P1) ----
+
+    private const string B = "Blank";
+
+    // 1x1 fixture that needs a sealed floor on its own tile (idx 4 of the 3x3 ring)
+    private static PartDef Fixture() => new(
+        "Fix", "Bunk", "FURN", "core",
+        new ItemDef("Fix", "", false, null, 0, 1, ["FixAdds"],
+            [B, B, B, B, "Floor", B, B, B, B], [B, B, B, B, B, B, B, B, B]),
+        null, [], [], [], new Dictionary<string, (double, double)>());
+
+    // 1x1 sealed floor: no requirements
+    private static PartDef FloorTile() => new(
+        "FloorTile", "Floor", "HULL", "core",
+        new ItemDef("FloorTile", "", false, null, 0, 1, ["Floor"], [B, B, B, B, B, B, B, B, B], [B, B, B, B, B, B, B, B, B]),
+        null, [], [], [], new Dictionary<string, (double, double)>());
+
+    private static Catalog FixtureCat() => new()
+    {
+        Parts = [],
+        ByDefName = new[] { Docksys(), Fixture(), FloorTile() }.ToDictionary(p => p.DefName),
+        Loots = new Dictionary<string, LootDef>
+        {
+            ["Floor"] = new("Floor", ["IsFloor", "IsFloorSealed"], []),
+            ["FixAdds"] = new("FixAdds", ["IsFixture", "IsObstruction"], []),
+        },
+        Triggers = new Dictionary<string, CondTriggerDef>
+        {
+            [ProblemScan.DocksysTrigger] = new(ProblemScan.DocksysTrigger, ["IsDockSys", "IsInstalled"], [], false),
+        },
+        Warnings = [],
+    };
+
+    [Fact]
+    public void Illegal_placements_are_flagged_grouped_by_reason_with_their_cells()
+    {
+        var cat = FixtureCat();
+        // two fixtures dropped on bare space, below the mating face so only the socket rule bites
+        var doc = Doc(cat,
+            new Placement { DefName = "Dock", X = 0, Y = 5 },
+            new Placement { DefName = "Fix", X = 3, Y = 10 },
+            new Placement { DefName = "Fix", X = 6, Y = 10 });
+
+        var illegal = Assert.Single(ProblemScan.Scan(doc, cat), p => p.Title.Contains("floor"));
+        Assert.Equal(ProblemSeverity.Blocking, illegal.Severity);
+        Assert.Contains("2 part", illegal.Title);         // both share a reason -> one grouped entry
+        Assert.NotNull(illegal.Cells);
+        Assert.Contains((3, 10), illegal.Cells!);
+        Assert.Contains((6, 10), illegal.Cells!);
+    }
+
+    [Fact]
+    public void A_fixture_over_its_own_floor_is_legal_and_unflagged()
+    {
+        var cat = FixtureCat();
+        // floor first, then the fixture on top of it -> legal, and self-exclusion keeps it that way
+        var doc = Doc(cat,
+            new Placement { DefName = "Dock", X = 0, Y = 5 },
+            new Placement { DefName = "FloorTile", X = 3, Y = 10 },
+            new Placement { DefName = "Fix", X = 3, Y = 10 });
+
+        Assert.Empty(ProblemScan.Scan(doc, cat));   // no socket breach, envelope clear, and it is constructible
+    }
 }

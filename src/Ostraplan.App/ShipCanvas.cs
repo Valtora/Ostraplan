@@ -31,6 +31,10 @@ public sealed class ShipCanvas : FrameworkElement
     private static readonly Pen OriginPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xC0, 0xD8, 0xA0, 0x3C)), 1.5));
     private static readonly Brush OriginBrush = Frozen(new SolidColorBrush(Color.FromArgb(0xB0, 0xD8, 0xA0, 0x3C)));
     private static readonly Typeface OriginTypeface = new("Segoe UI");
+    private static readonly Pen GhostOkPen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0x5A, 0xD0, 0x6A)), 2));
+    private static readonly Pen GhostBadPen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0xE0, 0x5B, 0x5B)), 2));
+    // per-cell hazard fill for both a ghost's failing cells and existing illegal placements (same red vocabulary)
+    private static readonly Brush HazardFill = Frozen(new SolidColorBrush(Color.FromArgb(0x66, 0xD6, 0x45, 0x45)));
 
     private static T Frozen<T>(T freezable) where T : Freezable
     {
@@ -90,6 +94,8 @@ public sealed class ShipCanvas : FrameworkElement
     private (int X, int Y) _moveDelta;
     private (int X, int Y)? _hoverCell;
     private readonly List<IDocCommand> _stroke = [];   // live placements of the current paint/fill stroke
+    private IReadOnlyList<(int X, int Y)> _illegalCells = [];   // tiles of existing illegal placements (from ProblemScan)
+    private string? _lastGhostReason;                          // dedupe GhostReasonChanged
 
     public event Action<IReadOnlyList<IDocCommand>>? StrokeCommitted;
     public event Action? SymmetryChanged;
@@ -99,6 +105,7 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action? Disarmed;
     public event Action? ViewChanged;
     public event Action<Placement>? ContextMenuRequested;
+    public event Action<string?>? GhostReasonChanged;   // the armed ghost's illegality reason, null when legal/disarmed
 
     public ShipCanvas()
     {
@@ -130,6 +137,20 @@ public sealed class ShipCanvas : FrameworkElement
             SelectionChanged?.Invoke();
         }
         InvalidateVisual();
+    }
+
+    /// <summary>Tiles of existing illegal placements to hazard-tint; pushed by the window after each ProblemScan.</summary>
+    public void SetIllegalCells(IReadOnlyList<(int X, int Y)> cells)
+    {
+        _illegalCells = cells;
+        InvalidateVisual();
+    }
+
+    private void RaiseGhostReason(string? reason)
+    {
+        if (reason == _lastGhostReason) return;
+        _lastGhostReason = reason;
+        GhostReasonChanged?.Invoke(reason);
     }
 
     public void RotateArmed(int delta)
@@ -496,6 +517,9 @@ public sealed class ShipCanvas : FrameworkElement
         {
             if (!seen.Add(pose)) continue;
             if (SameDefCovers(pose.X, pose.Y, w, h, ArmedPart.DefName)) continue;   // no stacking while painting
+            // the placement law: silently skip any pose the game's Item.CheckFit would refuse
+            // (each symmetry mirror is judged independently — legal ones land, illegal ones don't)
+            if (!CheckFit.Check(Doc, ArmedPart, pose.X, pose.Y, pose.Rot, includeEnvelope: true).Ok) continue;
             var cmd = new PlaceCommand(new Placement
             {
                 DefName = ArmedPart.DefName,
@@ -568,6 +592,7 @@ public sealed class ShipCanvas : FrameworkElement
             DrawPlacement(dc, p, offset);
         }
 
+        DrawIllegalCells(dc);
         DrawOutOfBounds(dc, view);
         DrawOriginMarker(dc);
         if (SymMode != SymmetryMode.Off) DrawSymmetryAxes(dc, view);
@@ -583,14 +608,21 @@ public sealed class ShipCanvas : FrameworkElement
         {
             var (w, h) = GridMath.Size(ArmedPart.Item.Width, ArmedPart.Item.Height, ArmedRot);
             var (gx, gy) = (hover.X - (w - 1) / 2, hover.Y - (h - 1) / 2);
+            var fit = CheckFit.Check(Doc!, ArmedPart, gx, gy, ArmedRot, includeEnvelope: true);
+            RaiseGhostReason(fit.Ok ? null : fit.Reason);
+
             dc.PushOpacity(0.55);
             DrawSprite(dc, ArmedPart, gx, gy, ArmedRot, ghost: true);
             dc.Pop();
-            dc.DrawRectangle(null, HoverPen, CellRect(gx, gy, w, h));
+            foreach (var (cx, cy) in fit.FailedCells)   // pinpoint the cells the game would refuse
+                dc.DrawRectangle(HazardFill, null, CellRect(cx, cy, 1, 1));
+            dc.DrawRectangle(null, fit.Ok ? GhostOkPen : GhostBadPen, CellRect(gx, gy, w, h));
         }
-        else if (_hoverCell is { } cell && _drag == Drag.None)
+        else
         {
-            dc.DrawRectangle(null, HoverPen, CellRect(cell.X, cell.Y, 1, 1));
+            RaiseGhostReason(null);
+            if (_hoverCell is { } cell && _drag == Drag.None)
+                dc.DrawRectangle(null, HoverPen, CellRect(cell.X, cell.Y, 1, 1));
         }
 
         if (_drag == Drag.Band && _hoverCell is { } bandEnd)
@@ -621,6 +653,13 @@ public sealed class ShipCanvas : FrameworkElement
         }
 
         if (rotated) dc.Pop();
+    }
+
+    /// <summary>Hazard-tint the tiles of existing illegal placements (socket-law breaches from edits or opened files).</summary>
+    private void DrawIllegalCells(DrawingContext dc)
+    {
+        foreach (var (x, y) in _illegalCells)
+            dc.DrawRectangle(HazardFill, null, CellRect(x, y, 1, 1));
     }
 
     /// <summary>

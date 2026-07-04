@@ -41,6 +41,7 @@ public partial class MainWindow : Window
         Board.ViewChanged += UpdateZoomText;
         Board.Disarmed += ClearPaletteSelection;
         Board.ContextMenuRequested += OnContextMenuRequested;
+        Board.GhostReasonChanged += reason => TxtGhost.Text = reason is null ? "" : "⛔ can't place here — " + reason;
         _stack.StateChanged += RefreshChrome;
 
         PreviewKeyDown += OnPreviewKeyDown;
@@ -240,6 +241,9 @@ public partial class MainWindow : Window
         var blocking = problems.Where(p => p.Severity == ProblemSeverity.Blocking).ToList();
         var warnings = problems.Where(p => p.Severity == ProblemSeverity.Warning).ToList();
 
+        // hazard-tint the tiles of every socket-illegal / unconstructible placement
+        Board.SetIllegalCells([.. problems.Where(p => p.Cells is not null).SelectMany(p => p.Cells!).Distinct()]);
+
         BadgeBlocking.Visibility = blocking.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         BadgeBlockingText.Text = $"!  {blocking.Count}";
         BadgeBlocking.ToolTip = blocking.Count > 0 ? string.Join("\n", blocking.Select(p => p.Title)) : null;
@@ -257,7 +261,7 @@ public partial class MainWindow : Window
             });
             ProblemsPanel.Children.Add(new TextBlock
             {
-                Text = "Placement-law, room and airtightness checks arrive with the P1/P2 law slices.",
+                Text = "Placement law is enforced live. Room, airtightness and certification checks arrive with the P2 law milestone.",
                 Foreground = new SolidColorBrush(Color.FromRgb(0x77, 0x7E, 0x88)),
                 FontSize = 11,
                 TextWrapping = TextWrapping.Wrap,
@@ -669,10 +673,13 @@ public partial class MainWindow : Window
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         var note = new TextBlock
         {
-            Text = "Every ship owns exactly one Primary Airlock, fixed at the 0,0 origin — the game neither sells nor " +
-                   "removes it, so Ostraplan seeds it locked (no move/rotate/delete). Red-striped areas are out of " +
-                   "bounds: the game forbids construction beyond any airlock's mating face. Wall and floor sprites " +
-                   "connect automatically.",
+            Text = "The placement law is enforced: a part won't place where the game's own rules would refuse it. The ghost " +
+                   "glows green when it fits and red when it can't, with the reason (e.g. \"needs a floor beneath\") in the " +
+                   "status bar and the offending tiles tinted red. Moving or rotating a part into an illegal spot is allowed " +
+                   "but flagged — red-tinted tiles and the PROBLEMS list name what broke. Every ship owns exactly one Primary " +
+                   "Airlock, fixed at the 0,0 origin — the game neither sells nor removes it, so Ostraplan seeds it locked " +
+                   "(no move/rotate/delete). Red-striped areas are out of bounds: no construction beyond an airlock's mating " +
+                   "face. Wall and floor sprites connect automatically.",
             Foreground = new SolidColorBrush(Color.FromRgb(0x9A, 0xA3, 0xAF)),
             TextWrapping = TextWrapping.Wrap,
             MaxWidth = 660,

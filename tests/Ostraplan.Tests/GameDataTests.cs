@@ -101,4 +101,65 @@ public class GameDataTests
             Assert.Equal(2, Autotile.MaskAt(doc.Conds, "TIsWall", 1, 5));   // east only
         }
     }
+
+    [Fact]
+    public void Real_wall_is_free_standing_but_will_not_stack()
+    {
+        if (TestData.Game is not { } g) return;
+        var wall = g.Catalog.ByDefName["ItmWall1x1"];
+        var doc = new ShipDocument(g.Catalog);
+
+        Assert.True(CheckFit.Check(doc, wall, 8, 8, 0, includeEnvelope: false).Ok);   // no reqs -> free-standing
+        new PlaceCommand(new Placement { DefName = "ItmWall1x1", X = 8, Y = 8 }).Do(doc);
+
+        var stacked = CheckFit.Check(doc, wall, 8, 8, 0, includeEnvelope: false);     // onto its own obstruction
+        Assert.False(stacked.Ok);
+        Assert.Equal("tile is already occupied", stacked.Reason);
+        Assert.Contains((8, 8), stacked.FailedCells);
+    }
+
+    [Fact]
+    public void Real_bed_requires_a_sealed_floor_beneath_and_a_wall_at_its_head()
+    {
+        if (TestData.Game is not { } g) return;
+        if (!g.Catalog.ByDefName.TryGetValue("ItmBed01Off", out var bed)) return;
+        if (!g.Catalog.ByDefName.ContainsKey("ItmFloorGrate01") || !g.Catalog.ByDefName.ContainsKey("ItmWall1x1")) return;
+
+        var doc = new ShipDocument(g.Catalog);
+        void Place(string def, int x, int y) => new PlaceCommand(new Placement { DefName = def, X = x, Y = y }).Do(doc);
+
+        // ItmBed01Off is 3x5: reqs are TILFloor across the footprint + TILWall down the right (head) border.
+        // bare space -> the floor requirement can't be met
+        var bare = CheckFit.Check(doc, bed, 20, 20, 0, includeEnvelope: false);
+        Assert.False(bare.Ok);
+        Assert.Equal("needs a sealed floor beneath", bare.Reason);
+
+        // sealed floor (grate adds IsFloor+IsFloorSealed) under the whole footprint, but no headboard wall yet
+        for (var y = 20; y < 25; y++)
+            for (var x = 20; x < 23; x++)
+                Place("ItmFloorGrate01", x, y);
+        var noWall = CheckFit.Check(doc, bed, 20, 20, 0, includeEnvelope: false);
+        Assert.False(noWall.Ok);
+        Assert.Equal("needs a wall alongside", noWall.Reason);
+
+        // wall column at the bed's right edge (x = 23) -> the whole ring is now satisfied
+        for (var y = 20; y < 25; y++) Place("ItmWall1x1", 23, y);
+        Assert.True(CheckFit.Check(doc, bed, 20, 20, 0, includeEnvelope: false).Ok);
+    }
+
+    [Fact]
+    public void Real_envelope_makes_construction_beyond_the_airlock_unplaceable()
+    {
+        if (TestData.Game is not { } g) return;
+        if (!g.Catalog.ByDefName.TryGetValue("ItmDockSys03Closed", out var dock)) return;
+        var wall = g.Catalog.ByDefName["ItmWall1x1"];
+        var doc = new ShipDocument(g.Catalog);
+        new PlaceCommand(new Placement { DefName = "ItmDockSys03Closed", X = 0, Y = 0 }).Do(doc);   // face at doc y = 0, outward up
+
+        var beyond = CheckFit.Check(doc, wall, 2, -2, 0, includeEnvelope: true);
+        Assert.False(beyond.Ok);
+        Assert.Equal("beyond the airlock's mating face", beyond.Reason);
+
+        Assert.True(CheckFit.Check(doc, wall, 2, 5, 0, includeEnvelope: true).Ok);   // inside the hull
+    }
 }

@@ -71,6 +71,8 @@
             <StatusBarItem><TextBlock x:Name="TxtZoom" Text="" Width="90"/></StatusBarItem>
             <Separator/>
             <StatusBarItem><TextBlock x:Name="TxtParts" Text=""/></StatusBarItem>
+            <Separator/>
+            <StatusBarItem><TextBlock x:Name="TxtGhost" Text="" FontWeight="SemiBold" Foreground="#FFE0715B"/></StatusBarItem>
             <StatusBarItem HorizontalAlignment="Right">
                 <TextBlock x:Name="TxtHint" Opacity="0.7"
                            Text="drag paint · Shift+drag fill · Ctrl+Shift hollow · RMB menu · R rotate · Q/E view · M symmetry · WASD pan · F1 help"/>
