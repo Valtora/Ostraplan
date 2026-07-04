@@ -65,6 +65,8 @@ It is a sibling tool to Ostrasort: same stack, same "read the live install as th
 | `images/**` | game install `StreamingAssets/images/` | All sprites (~6,150 PNGs, 16 px/tile) |
 | `loading_order.json` + mod folders | `Ostranauts_Data/Mods/` + Workshop paths | Effective-data resolution |
 
+**P0 ground truth** (implemented in `Ostraplan.Core`, discovered against 0.15.1.6): `strStartInstall` names the placed *condowner* — resolved directly, or through a **cooverlay** whose `strCOBase` is the real one (the same fallback `DataHandler.LoadCO` applies; roughly half of the ~330 build-menu entries are cooverlay skins) — and that condowner's `strItemDef` names the geometry/socket item def. Tile-socket loots carry their condition payload in **`aCOs`** (`aLoots` nests further loots). State variants are themselves the menu entries: doors install as `…Open`, beds as `…Off`. One core record carries a stray `"MIS"` category — invisible in the game's own menu too, and excluded the same way.
+
 ### 5.2 Resolution (must match the game)
 
 - Install discovery: default Steam path → `settings.json` `strPathMods` override → manual folder picker (persisted).
@@ -240,9 +242,9 @@ Ostraplan.sln
 
 ## 14. Open questions (tracked, none blocking)
 
-1. Sprite-sheet index mapping — verify 4-bit autotile assumption from decompiled sprite code (P0).
-2. Mod image override semantics — confirm path-overlay behavior matches the game (P0).
-3. Game-version detection source (P0).
+1. ~~Sprite-sheet index mapping~~ **Resolved (P0):** mask bits N=8 / W=4 / E=2 / S=1 over `ctSpriteSheet`-triggered cardinal neighbours (`Item.SetSpriteSheetIndex`), the fixed 16-entry `Item.SpriteSheetIndices` table, and cell rows counted from the texture *bottom* (`GetMaterialSheet` UV offsets) — WPF flips the row. Ported in `Autotile.cs`.
+2. ~~Mod image override semantics~~ **Resolved (P0):** the game prepends each loaded mod to its image search list (`DataHandler.LoadMod` → `aModPaths.Insert(0, …)`), so the latest-loaded mod wins; `DataIndex` mirrors this with later-source-wins path indexing.
+3. ~~Game-version detection~~ **Resolved (P0):** `Application.version` sits as a plain ASCII string inside `Ostranauts_Data/globalgamemanagers` (same technique as Ostrasort's `GameEnv`).
 4. Exact `GetTotalMass` semantics for the maneuver grade (P2).
 5. One-click "deploy + register" integration (post-v1; likely by invoking Ostrasort `--headless`/ModTools rather than writing `loading_order.json` ourselves).
 6. `.oplan` file association + icon (P4).

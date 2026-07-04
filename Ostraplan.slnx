@@ -1,0 +1,9 @@
+<Solution>
+  <Folder Name="/src/">
+    <Project Path="src/Ostraplan.App/Ostraplan.App.csproj" />
+    <Project Path="src/Ostraplan.Core/Ostraplan.Core.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Ostraplan.Tests/Ostraplan.Tests.csproj" />
+  </Folder>
+</Solution>

@@ -1,0 +1,103 @@
+<Window x:Class="Ostraplan.App.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        xmlns:local="clr-namespace:Ostraplan.App"
+        Title="Ostraplan" Width="1440" Height="920"
+        WindowStartupLocation="CenterScreen" Background="#FF23262C">
+    <Window.Resources>
+        <Style x:Key="SideHeader" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#FF9AA3AF"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Margin" Value="0,10,0,4"/>
+        </Style>
+        <Style x:Key="SideValue" TargetType="TextBlock">
+            <Setter Property="Foreground" Value="#FFD8DDE4"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <DataTemplate x:Key="PartTemplate">
+            <Grid Margin="2">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="46"/>
+                    <ColumnDefinition/>
+                </Grid.ColumnDefinitions>
+                <Border Width="42" Height="42" Background="#33000000" CornerRadius="3">
+                    <Image Source="{Binding Thumb}" Stretch="Uniform" Margin="3"
+                           RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                </Border>
+                <StackPanel Grid.Column="1" Margin="7,0,0,0" VerticalAlignment="Center">
+                    <TextBlock Text="{Binding Friendly}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
+                    <TextBlock Text="{Binding Sub}" FontSize="11" Opacity="0.6" TextTrimming="CharacterEllipsis"/>
+                </StackPanel>
+            </Grid>
+        </DataTemplate>
+    </Window.Resources>
+
+    <DockPanel>
+        <Border DockPanel.Dock="Top" Background="#FF2B2F36" Padding="8,6">
+            <DockPanel>
+                <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+                    <Button x:Name="BtnNew" Content="New" Padding="10,3" Margin="0,0,4,0" Click="OnNewClick"/>
+                    <Button x:Name="BtnOpen" Content="Open…" Padding="10,3" Margin="0,0,4,0" Click="OnOpenClick"/>
+                    <Button x:Name="BtnSave" Content="Save" Padding="10,3" Margin="0,0,4,0" Click="OnSaveClick"/>
+                    <Button x:Name="BtnSaveAs" Content="Save As…" Padding="10,3" Margin="0,0,12,0" Click="OnSaveAsClick"/>
+                    <Button x:Name="BtnUndo" Content="Undo" Padding="10,3" Margin="0,0,4,0" Click="OnUndoClick"/>
+                    <Button x:Name="BtnRedo" Content="Redo" Padding="10,3" Margin="0,0,12,0" Click="OnRedoClick"/>
+                    <Button x:Name="BtnFit" Content="Fit" Padding="10,3" Click="OnFitClick"/>
+                </StackPanel>
+                <TextBlock x:Name="TxtVersion" DockPanel.Dock="Right" VerticalAlignment="Center"
+                           Foreground="#FF9AA3AF" Margin="12,0,0,0"/>
+                <TextBlock x:Name="TxtWarnings" DockPanel.Dock="Right" VerticalAlignment="Center"
+                           Foreground="#FFE0A34E" Margin="12,0,0,0"/>
+                <TextBlock x:Name="TxtDoc" VerticalAlignment="Center" HorizontalAlignment="Center"
+                           Foreground="#FFD8DDE4" FontWeight="SemiBold"/>
+            </DockPanel>
+        </Border>
+
+        <StatusBar DockPanel.Dock="Bottom" Background="#FF2B2F36" Foreground="#FFB9C0C9">
+            <StatusBarItem><TextBlock x:Name="TxtCell" Text="—" Width="110"/></StatusBarItem>
+            <Separator/>
+            <StatusBarItem><TextBlock x:Name="TxtZoom" Text="" Width="90"/></StatusBarItem>
+            <Separator/>
+            <StatusBarItem><TextBlock x:Name="TxtParts" Text=""/></StatusBarItem>
+            <StatusBarItem HorizontalAlignment="Right">
+                <TextBlock x:Name="TxtHint" Opacity="0.7"
+                           Text="LMB place/select · drag move · R rotate · Del delete · wheel zoom · MMB/Space pan · Esc cancel"/>
+            </StatusBarItem>
+        </StatusBar>
+
+        <Border DockPanel.Dock="Left" Width="330" Background="#FF2B2F36" Padding="8">
+            <DockPanel>
+                <TextBox x:Name="TxtSearch" DockPanel.Dock="Top" Margin="0,0,0,6" Padding="4,3"
+                         TextChanged="OnSearchChanged" ToolTip="Search parts by name"/>
+                <TabControl x:Name="Tabs" Background="Transparent" BorderThickness="0"/>
+            </DockPanel>
+        </Border>
+
+        <Border DockPanel.Dock="Right" Width="270" Background="#FF2B2F36" Padding="12,8">
+            <StackPanel>
+                <TextBlock Text="PART" Style="{StaticResource SideHeader}"/>
+                <TextBlock x:Name="InsFriendly" Style="{StaticResource SideValue}" FontSize="15" FontWeight="SemiBold" Text="—"/>
+                <TextBlock x:Name="InsInternal" Style="{StaticResource SideValue}" Opacity="0.6" FontSize="11"/>
+                <TextBlock Text="CATEGORY" Style="{StaticResource SideHeader}"/>
+                <TextBlock x:Name="InsCategory" Style="{StaticResource SideValue}"/>
+                <TextBlock Text="FOOTPRINT" Style="{StaticResource SideHeader}"/>
+                <TextBlock x:Name="InsSize" Style="{StaticResource SideValue}"/>
+                <TextBlock Text="SOURCE" Style="{StaticResource SideHeader}"/>
+                <TextBlock x:Name="InsOrigin" Style="{StaticResource SideValue}"/>
+                <TextBlock Text="INSTALL MATERIALS" Style="{StaticResource SideHeader}"/>
+                <TextBlock x:Name="InsInputs" Style="{StaticResource SideValue}" FontSize="12"/>
+                <TextBlock Text="TOOLS" Style="{StaticResource SideHeader}"/>
+                <TextBlock x:Name="InsTools" Style="{StaticResource SideValue}" FontSize="12"/>
+            </StackPanel>
+        </Border>
+
+        <Grid>
+            <local:ShipCanvas x:Name="Board"/>
+            <Border x:Name="LoadingOverlay" Background="#DD1A1C20">
+                <TextBlock x:Name="TxtLoading" Text="Locating Ostranauts…" Foreground="#FFD8DDE4"
+                           FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
+            </Border>
+        </Grid>
+    </DockPanel>
+</Window>
