@@ -22,6 +22,12 @@ public sealed class CommandStack
     public void Push(ShipDocument doc, IDocCommand cmd)
     {
         cmd.Do(doc);
+        PushExecuted(cmd);
+    }
+
+    /// <summary>Record a command whose Do already ran (live paint strokes commit this way).</summary>
+    public void PushExecuted(IDocCommand cmd)
+    {
         _undo.Push(cmd);
         _redo.Clear();
         if (_savedDepth > _undo.Count - 1) _savedDepth = -1;   // saved state no longer reachable

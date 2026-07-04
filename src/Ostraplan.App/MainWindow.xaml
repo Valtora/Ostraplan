@@ -37,14 +37,25 @@
         <Border DockPanel.Dock="Top" Background="#FF2B2F36" Padding="8,6">
             <DockPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
-                    <Button x:Name="BtnNew" Content="New" Padding="10,3" Margin="0,0,4,0" Click="OnNewClick"/>
-                    <Button x:Name="BtnOpen" Content="Open…" Padding="10,3" Margin="0,0,4,0" Click="OnOpenClick"/>
-                    <Button x:Name="BtnSave" Content="Save" Padding="10,3" Margin="0,0,4,0" Click="OnSaveClick"/>
-                    <Button x:Name="BtnSaveAs" Content="Save As…" Padding="10,3" Margin="0,0,12,0" Click="OnSaveAsClick"/>
-                    <Button x:Name="BtnUndo" Content="Undo" Padding="10,3" Margin="0,0,4,0" Click="OnUndoClick"/>
-                    <Button x:Name="BtnRedo" Content="Redo" Padding="10,3" Margin="0,0,12,0" Click="OnRedoClick"/>
-                    <Button x:Name="BtnFit" Content="Fit" Padding="10,3" Click="OnFitClick"/>
+                    <Button x:Name="BtnNew" Content="New" Padding="10,3" Margin="0,0,4,0" Click="OnNewClick"
+                            ToolTip="New ship (Ctrl+N) — starts with a docking port at 0,0"/>
+                    <Button x:Name="BtnOpen" Content="Open…" Padding="10,3" Margin="0,0,4,0" Click="OnOpenClick"
+                            ToolTip="Open an .oplan design (Ctrl+O)"/>
+                    <Button x:Name="BtnSave" Content="Save" Padding="10,3" Margin="0,0,4,0" Click="OnSaveClick"
+                            ToolTip="Save (Ctrl+S)"/>
+                    <Button x:Name="BtnSaveAs" Content="Save As…" Padding="10,3" Margin="0,0,12,0" Click="OnSaveAsClick"
+                            ToolTip="Save As (Ctrl+Shift+S)"/>
+                    <Button x:Name="BtnUndo" Content="Undo" Padding="10,3" Margin="0,0,4,0" Click="OnUndoClick"
+                            ToolTip="Undo (Ctrl+Z)"/>
+                    <Button x:Name="BtnRedo" Content="Redo" Padding="10,3" Margin="0,0,12,0" Click="OnRedoClick"
+                            ToolTip="Redo (Ctrl+Y)"/>
+                    <Button x:Name="BtnFit" Content="Fit" Padding="10,3" Click="OnFitClick"
+                            ToolTip="Fit the view to the ship (F)"/>
+                    <Button x:Name="BtnSym" Content="Sym: Off" Padding="10,3" Margin="12,0,0,0" Click="OnSymClick"
+                            ToolTip="Cycle symmetry: Off → Vertical → Horizontal → Both (M). Axes centre on the tile under the cursor when switching on."/>
                 </StackPanel>
+                <Button x:Name="BtnHelp" Content="Help" DockPanel.Dock="Right" Padding="10,3" Margin="12,0,0,0"
+                        Click="OnHelpClick" ToolTip="Controls &amp; keybinds (F1)"/>
                 <TextBlock x:Name="TxtVersion" DockPanel.Dock="Right" VerticalAlignment="Center"
                            Foreground="#FF9AA3AF" Margin="12,0,0,0"/>
                 <TextBlock x:Name="TxtWarnings" DockPanel.Dock="Right" VerticalAlignment="Center"
@@ -64,7 +75,7 @@
             <StatusBarItem><TextBlock x:Name="TxtDockWarn" Foreground="#FFE0A34E" FontWeight="SemiBold"/></StatusBarItem>
             <StatusBarItem HorizontalAlignment="Right">
                 <TextBlock x:Name="TxtHint" Opacity="0.7"
-                           Text="LMB place/select · drag move · RMB menu · R rotate · Del delete · wheel zoom · MMB/Space pan · Esc cancel"/>
+                           Text="drag paint · Shift+drag box fill · RMB menu · R rotate · M symmetry · WASD pan · F1 help"/>
             </StatusBarItem>
         </StatusBar>
 
@@ -89,8 +100,6 @@
                 <TextBlock x:Name="InsOrigin" Style="{StaticResource SideValue}"/>
                 <TextBlock Text="INSTALL MATERIALS" Style="{StaticResource SideHeader}"/>
                 <TextBlock x:Name="InsInputs" Style="{StaticResource SideValue}" FontSize="12"/>
-                <TextBlock Text="TOOLS" Style="{StaticResource SideHeader}"/>
-                <TextBlock x:Name="InsTools" Style="{StaticResource SideValue}" FontSize="12"/>
             </StackPanel>
         </Border>
 

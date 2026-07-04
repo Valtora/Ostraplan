@@ -30,8 +30,15 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
-        Board.PlaceRequested += OnPlaceRequested;
+        Board.StrokeCommitted += OnStrokeCommitted;
         Board.MoveRequested += OnMoveRequested;
+        Board.SymmetryChanged += () => BtnSym.Content = "Sym: " + Board.SymMode switch
+        {
+            SymmetryMode.Vertical => "V",
+            SymmetryMode.Horizontal => "H",
+            SymmetryMode.Both => "V+H",
+            _ => "Off",
+        };
         Board.SelectionChanged += UpdateInspector;
         Board.HoverChanged += cell => TxtCell.Text = cell is { } c ? $"tile {c.X}, {c.Y}" : "—";
         Board.ViewChanged += () => TxtZoom.Text = $"zoom {Board.Zoom / 16:0.#}×";
@@ -335,16 +342,11 @@ public partial class MainWindow : Window
 
     // ---- edits ----
 
-    private void OnPlaceRequested(PartDef part, int x, int y, int rot)
+    private void OnStrokeCommitted(IReadOnlyList<IDocCommand> stroke)
     {
-        if (_doc is null) return;
-        _stack.Push(_doc, new PlaceCommand(new Placement
-        {
-            DefName = part.DefName,
-            X = x,
-            Y = y,
-            Rot = part.Item.HasSpriteSheet ? 0 : rot,
-        }));
+        // the canvas already executed these live during the drag; record as ONE undo step
+        if (_doc is null || stroke.Count == 0) return;
+        _stack.PushExecuted(stroke.Count == 1 ? stroke[0] : new CompositeCommand(stroke.ToList()));
     }
 
     private void OnMoveRequested(IReadOnlyList<Placement> placements, int dx, int dy)
@@ -478,6 +480,30 @@ public partial class MainWindow : Window
                 Board.FitContent();
                 e.Handled = true;
                 break;
+            case Key.M when !ctrl:
+                Board.CycleSymmetry();
+                e.Handled = true;
+                break;
+            case Key.W when !ctrl:
+                Board.PanByTiles(0, 0.75);
+                e.Handled = true;
+                break;
+            case Key.S when !ctrl:
+                Board.PanByTiles(0, -0.75);
+                e.Handled = true;
+                break;
+            case Key.A when !ctrl:
+                Board.PanByTiles(0.75, 0);
+                e.Handled = true;
+                break;
+            case Key.D when !ctrl:
+                Board.PanByTiles(-0.75, 0);
+                e.Handled = true;
+                break;
+            case Key.F1:
+                ShowHelp();
+                e.Handled = true;
+                break;
         }
     }
 
@@ -497,7 +523,6 @@ public partial class MainWindow : Window
             InsSize.Text = "";
             InsOrigin.Text = "";
             InsInputs.Text = "";
-            InsTools.Text = "";
             return;
         }
 
@@ -508,7 +533,6 @@ public partial class MainWindow : Window
                        + (part.Item.HasSpriteSheet ? "  (auto-tiling)" : "");
         InsOrigin.Text = part.Origin;
         InsInputs.Text = part.Inputs.Length == 0 ? "none" : string.Join("\n", part.Inputs);
-        InsTools.Text = part.Tools.Length == 0 ? "none" : string.Join("\n", part.Tools);
     }
 
     // ---- toolbar ----
@@ -533,4 +557,86 @@ public partial class MainWindow : Window
     }
 
     private void OnFitClick(object sender, RoutedEventArgs e) => Board.FitContent();
+    private void OnSymClick(object sender, RoutedEventArgs e) => Board.CycleSymmetry();
+    private void OnHelpClick(object sender, RoutedEventArgs e) => ShowHelp();
+
+    // ---- help ----
+
+    private void ShowHelp()
+    {
+        (string Keys, string Does)[] rows =
+        [
+            ("LMB (part armed)", "Place the part; keep dragging to paint it along the cursor"),
+            ("Shift + drag (part armed)", "Rubber-band a box and fill it with the part"),
+            ("LMB", "Select a part · Ctrl+click adds/removes · drag empty space to box-select"),
+            ("Drag selection", "Move the selected parts"),
+            ("RMB", "Context menu (Duplicate, Rotate, Delete) · cancels placement while armed"),
+            ("R / Shift+R", "Rotate the armed part or the selection CW / CCW (walls & floors auto-tile instead)"),
+            ("M", "Cycle symmetry Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on"),
+            ("Del", "Delete the selection"),
+            ("Esc", "Cancel placement, then clear selection"),
+            ("W A S D", "Pan the view"),
+            ("MMB / Space + drag", "Pan the view"),
+            ("Mouse wheel", "Zoom (anchored at the cursor)"),
+            ("F", "Fit the view to the ship"),
+            ("Ctrl+Z / Ctrl+Y", "Undo / redo"),
+            ("Ctrl+N / Ctrl+O / Ctrl+S", "New / open / save (Ctrl+Shift+S = save as)"),
+            ("F1", "This window"),
+        ];
+
+        var grid = new Grid { Margin = new Thickness(18) };
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        var row = 0;
+        foreach (var (keys, does) in rows)
+        {
+            grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+            var k = new TextBlock
+            {
+                Text = keys,
+                FontWeight = FontWeights.SemiBold,
+                Foreground = new SolidColorBrush(Color.FromRgb(0xD8, 0xA0, 0x3C)),
+                Margin = new Thickness(0, 3, 18, 3),
+            };
+            var d = new TextBlock
+            {
+                Text = does,
+                Foreground = new SolidColorBrush(Color.FromRgb(0xD8, 0xDD, 0xE4)),
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 3, 0, 3),
+                MaxWidth = 520,
+            };
+            Grid.SetRow(k, row);
+            Grid.SetRow(d, row);
+            Grid.SetColumn(d, 1);
+            grid.Children.Add(k);
+            grid.Children.Add(d);
+            row++;
+        }
+
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        var note = new TextBlock
+        {
+            Text = "New ships start with a docking port at the 0,0 origin marker — a ship with no docking port " +
+                   "can never dock in game (the status bar warns). Wall and floor sprites connect automatically.",
+            Foreground = new SolidColorBrush(Color.FromRgb(0x9A, 0xA3, 0xAF)),
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = 660,
+            Margin = new Thickness(0, 12, 0, 0),
+        };
+        Grid.SetRow(note, row);
+        Grid.SetColumnSpan(note, 2);
+        grid.Children.Add(note);
+
+        new Window
+        {
+            Title = "Ostraplan — controls & keybinds",
+            Owner = this,
+            WindowStartupLocation = WindowStartupLocation.CenterOwner,
+            SizeToContent = SizeToContent.WidthAndHeight,
+            ResizeMode = ResizeMode.NoResize,
+            Background = new SolidColorBrush(Color.FromRgb(0x23, 0x26, 0x2C)),
+            Content = new ScrollViewer { Content = grid, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 640 },
+        }.ShowDialog();
+    }
 }
