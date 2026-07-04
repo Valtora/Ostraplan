@@ -18,7 +18,7 @@ public class EngineTests
     private static PartDef Part(string name, int w, int h, string loot = "L") => new(
         name, name, "HULL", "core",
         new ItemDef(name, "", false, null, 0, w, [.. Enumerable.Repeat(loot, w * h)], [], []),
-        null, [], []);
+        null, [], [], []);
 
     [Fact]
     public void Rotate_cw_once_maps_cells_correctly()
@@ -128,6 +128,24 @@ public class EngineTests
 
         stack.Undo(doc);
         Assert.Equal((0, 0, 0), (p.X, p.Y, p.Rot));
+    }
+
+    [Fact]
+    public void Composite_command_is_one_undo_step()
+    {
+        var cat = Fake([Part("X", 1, 1)], [new LootDef("L", ["IsX"], [])]);
+        var doc = new ShipDocument(cat);
+        var stack = new CommandStack();
+        stack.Push(doc, new PlaceCommand(new Placement { DefName = "X", X = 0, Y = 0 }));
+
+        Placement[] clones = [new() { DefName = "X", X = 1, Y = 1 }, new() { DefName = "X", X = 2, Y = 2 }];
+        stack.Push(doc, new CompositeCommand(clones.Select(c => (IDocCommand)new PlaceCommand(c)).ToList()));
+        Assert.Equal(3, doc.Placements.Count);
+
+        stack.Undo(doc);   // the whole duplicate batch reverts as one step
+        Assert.Single(doc.Placements);
+        stack.Redo(doc);
+        Assert.Equal(3, doc.Placements.Count);
     }
 
     [Fact]

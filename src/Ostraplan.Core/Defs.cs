@@ -48,12 +48,13 @@ public sealed record CoOverlayDef(string Name, string? NameFriendly, string? Img
         Json.Str(e, "strCOBase"));
 }
 
-public sealed record CondOwnerDef(string Name, string? NameFriendly, string? ItemDefName)
+public sealed record CondOwnerDef(string Name, string? NameFriendly, string? ItemDefName, string[] StartingCondNames)
 {
     public static CondOwnerDef Parse(JsonElement e) => new(
         Json.Str(e, "strName") ?? "",
         Json.Str(e, "strNameFriendly"),
-        Json.Str(e, "strItemDef"));
+        Json.Str(e, "strItemDef"),
+        Json.StrArray(e, "aStartingConds").Select(LootDef.CondName).ToArray());
 }
 
 public sealed record InstallableDef(

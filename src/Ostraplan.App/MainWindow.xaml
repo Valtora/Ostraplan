@@ -60,9 +60,11 @@
             <StatusBarItem><TextBlock x:Name="TxtZoom" Text="" Width="90"/></StatusBarItem>
             <Separator/>
             <StatusBarItem><TextBlock x:Name="TxtParts" Text=""/></StatusBarItem>
+            <Separator/>
+            <StatusBarItem><TextBlock x:Name="TxtDockWarn" Foreground="#FFE0A34E" FontWeight="SemiBold"/></StatusBarItem>
             <StatusBarItem HorizontalAlignment="Right">
                 <TextBlock x:Name="TxtHint" Opacity="0.7"
-                           Text="LMB place/select · drag move · R rotate · Del delete · wheel zoom · MMB/Space pan · Esc cancel"/>
+                           Text="LMB place/select · drag move · RMB menu · R rotate · Del delete · wheel zoom · MMB/Space pan · Esc cancel"/>
             </StatusBarItem>
         </StatusBar>
 

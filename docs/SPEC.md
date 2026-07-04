@@ -67,6 +67,8 @@ It is a sibling tool to Ostrasort: same stack, same "read the live install as th
 
 **P0 ground truth** (implemented in `Ostraplan.Core`, discovered against 0.15.1.6): `strStartInstall` names the placed *condowner* — resolved directly, or through a **cooverlay** whose `strCOBase` is the real one (the same fallback `DataHandler.LoadCO` applies; roughly half of the ~330 build-menu entries are cooverlay skins) — and that condowner's `strItemDef` names the geometry/socket item def. Tile-socket loots carry their condition payload in **`aCOs`** (`aLoots` nests further loots). State variants are themselves the menu entries: doors install as `…Open`, beds as `…Off`. One core record carries a stray `"MIS"` category — invisible in the game's own menu too, and excluded the same way.
 
+**Docking ground truth** (investigated for the origin-marker/airlock feature): there is **no** rule tying an airlock to (0,0) — of 147 core templates with a docking port, zero place it at the origin, and the Babak carries two. The real requirement is **≥1 installed docksys** (`Ship.aDocksys` collects installed COs triggering `TIsDockSysInstalled`; none ⇒ the ship loads but can never hard-dock). The "primary" port (`Ship.PrimaryDockingPortID`, persisted as `strPrimaryDockingPortID`) is a runtime-cyclable selection defaulting to the first port. Exactly one docking part is player-buildable: `ItmDockSys03Closed` (HULL). Ostraplan therefore seeds new documents with it at the origin (movable) and shows a standing "no docking port" warning, rather than enforcing a positional rule the game doesn't have.
+
 ### 5.2 Resolution (must match the game)
 
 - Install discovery: default Steam path → `settings.json` `strPathMods` override → manual folder picker (persisted).

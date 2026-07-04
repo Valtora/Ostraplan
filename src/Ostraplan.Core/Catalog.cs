@@ -9,7 +9,8 @@ public sealed record PartDef(
     ItemDef Item,
     string? SpriteAbs,       // resolved PNG, null = missing sprite
     string[] Inputs,
-    string[] Tools);
+    string[] Tools,
+    string[] StartingConds); // the placed condowner's aStartingConds cond names
 
 /// <summary>
 /// The buildable catalog, derived the way the game builds its install menu:
@@ -74,7 +75,8 @@ public sealed class Catalog
                 warnings.Add($"No sprite on disk for '{inst.StartInstall}' (strImg '{item.Img}').");
 
             parts[inst.StartInstall] = new PartDef(
-                inst.StartInstall, friendly, inst.BuildType, itemOrigin, item, sprite, inst.Inputs, inst.Tools);
+                inst.StartInstall, friendly, inst.BuildType, itemOrigin, item, sprite, inst.Inputs, inst.Tools,
+                co?.StartingCondNames ?? []);
         }
 
         return new Catalog

@@ -61,6 +61,20 @@ public sealed class CommandStack
     }
 }
 
+/// <summary>Several commands as one undo step (multi-duplicate, multi-rotate).</summary>
+public sealed class CompositeCommand(IReadOnlyList<IDocCommand> commands) : IDocCommand
+{
+    public void Do(ShipDocument doc)
+    {
+        foreach (var cmd in commands) cmd.Do(doc);
+    }
+
+    public void Undo(ShipDocument doc)
+    {
+        for (var i = commands.Count - 1; i >= 0; i--) commands[i].Undo(doc);
+    }
+}
+
 public sealed class PlaceCommand(Placement placement) : IDocCommand
 {
     public Placement Placement => placement;

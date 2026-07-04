@@ -1,5 +1,7 @@
 # Ostraplan
 
+<p align="center"><img src="Ostraplan-logo.png" alt="Ostraplan" width="180"/></p>
+
 Out-of-game ship planner for **Ostranauts** (Blue Bottle Games). Drag-and-drop every buildable part onto the game's exact tile grid, with the game's own placement, room, airtightness, and Ship Rating rules enforced live.
 
 > **The Law:** if you can build it in Ostraplan, you can build it in Ostranauts, and it will be a valid ship.

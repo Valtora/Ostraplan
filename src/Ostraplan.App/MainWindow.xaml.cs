@@ -22,6 +22,10 @@ public partial class MainWindow : Window
     private OplanMeta _meta = new();
     private bool _syncingPalette;
 
+    // the only player-buildable docking port (DockSys03ClosedInstall, HULL tab);
+    // ships need >=1 installed docksys to ever dock, so new designs start with one
+    private const string SeedDocksysDef = "ItmDockSys03Closed";
+
     public MainWindow()
     {
         InitializeComponent();
@@ -32,6 +36,7 @@ public partial class MainWindow : Window
         Board.HoverChanged += cell => TxtCell.Text = cell is { } c ? $"tile {c.X}, {c.Y}" : "—";
         Board.ViewChanged += () => TxtZoom.Text = $"zoom {Board.Zoom / 16:0.#}×";
         Board.Disarmed += ClearPaletteSelection;
+        Board.ContextMenuRequested += OnContextMenuRequested;
         _stack.StateChanged += RefreshChrome;
 
         PreviewKeyDown += OnPreviewKeyDown;
@@ -137,6 +142,10 @@ public partial class MainWindow : Window
                 BorderThickness = new Thickness(0),
                 Tag = category == "All" ? null : category,
                 HorizontalContentAlignment = HorizontalAlignment.Stretch,
+                // typeahead runs on TextInput, which fires even when the window
+                // handles PreviewKeyDown - pressing R would silently jump the
+                // palette to an R-part instead of rotating
+                IsTextSearchEnabled = false,
             };
             ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
             list.SelectionChanged += OnPaletteSelection;
@@ -175,6 +184,7 @@ public partial class MainWindow : Window
         _syncingPalette = false;
 
         Board.SetArmed(vm.Part);
+        Board.Focus();   // keys (R, Del, Esc) belong to the canvas once a part is armed
         UpdateInspector();
     }
 
@@ -193,6 +203,10 @@ public partial class MainWindow : Window
         if (_catalog is null) return;
         if (_doc is not null) _doc.Changed -= OnDocChanged;
         _doc = new ShipDocument(_catalog);
+        // seed the docking port at the origin (movable; outside the undo stack so
+        // a fresh document is not dirty and cannot be undone into nothing)
+        if (_catalog.ByDefName.ContainsKey(SeedDocksysDef))
+            new PlaceCommand(new Placement { DefName = SeedDocksysDef, X = 0, Y = 0 }).Do(_doc);
         _doc.Changed += OnDocChanged;
         _meta = new OplanMeta();
         _stack.Reset();
@@ -206,7 +220,18 @@ public partial class MainWindow : Window
         var bounds = _doc?.Bounds();
         var dims = bounds is { } b ? $" · {b.MaxX - b.MinX + 1}×{b.MaxY - b.MinY + 1} tiles" : "";
         TxtParts.Text = $"{_doc?.Placements.Count ?? 0} parts{dims}";
+        TxtDockWarn.Text = HasDocksys() ? "" : "⚠ no docking port — ship can't dock";
         RefreshChrome();
+    }
+
+    /// <summary>Ship.aDocksys collects installed COs triggering TIsDockSysInstalled; no port = can never dock.</summary>
+    private bool HasDocksys()
+    {
+        if (_doc is null || _catalog is null) return false;
+        string[] reqs = _catalog.Triggers.TryGetValue("TIsDockSysInstalled", out var ct) && ct.Reqs.Length > 0
+            ? ct.Reqs
+            : ["IsDockSysInstalled"];
+        return _doc.Placements.Any(p => _doc.Part(p)?.StartingConds.Any(reqs.Contains) == true);
     }
 
     private void RefreshChrome()
@@ -341,11 +366,58 @@ public partial class MainWindow : Window
     private void RotateSelection(int delta)
     {
         if (_doc is null) return;
-        foreach (var p in Board.SelectedPlacements())
+        var commands = Board.SelectedPlacements()
+            .Where(p => _doc.Part(p)?.Item.HasSpriteSheet != true)   // walls/floors don't rotate
+            .Select(p => (IDocCommand)new RotateCommand(_doc, p, delta))
+            .ToList();
+        if (commands.Count == 0) return;
+        _stack.Push(_doc, commands.Count == 1 ? commands[0] : new CompositeCommand(commands));
+    }
+
+    private void DuplicateSelection()
+    {
+        if (_doc is null) return;
+        var selected = Board.SelectedPlacements();
+        if (selected.Count == 0) return;
+        var clones = selected
+            .Select(p => new Placement { DefName = p.DefName, X = p.X + 1, Y = p.Y + 1, Rot = p.Rot })
+            .ToList();
+        _stack.Push(_doc, new CompositeCommand(clones.Select(c => (IDocCommand)new PlaceCommand(c)).ToList()));
+        Board.SelectedIds.Clear();
+        foreach (var clone in clones) Board.SelectedIds.Add(clone.Id);   // hand the copies to the user's cursor
+        Board.InvalidateVisual();
+        UpdateInspector();
+    }
+
+    private void OnContextMenuRequested(Placement hit)
+    {
+        if (_doc is null) return;
+        var selected = Board.SelectedPlacements();
+        if (selected.Count == 0) return;
+        var canRotate = selected.Any(p => _doc.Part(p)?.Item.HasSpriteSheet != true);
+        var suffix = selected.Count > 1 ? $" ({selected.Count})" : "";
+
+        static MenuItem Item(string header, string gesture, RoutedEventHandler onClick, bool enabled = true)
         {
-            if (_doc.Part(p)?.Item.HasSpriteSheet == true) continue;   // walls/floors don't rotate
-            _stack.Push(_doc, new RotateCommand(_doc, p, delta));
+            var item = new MenuItem { Header = header, InputGestureText = gesture, IsEnabled = enabled };
+            item.Click += onClick;
+            return item;
         }
+
+        var menu = new ContextMenu { PlacementTarget = Board };
+        menu.Items.Add(new MenuItem
+        {
+            Header = _doc.Part(hit)?.Friendly ?? hit.DefName,
+            IsEnabled = false,
+            FontWeight = FontWeights.SemiBold,
+        });
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item("Duplicate" + suffix, "", (_, _) => DuplicateSelection()));
+        menu.Items.Add(Item("Rotate CW" + suffix, "R", (_, _) => RotateSelection(90), canRotate));
+        menu.Items.Add(Item("Rotate CCW" + suffix, "Shift+R", (_, _) => RotateSelection(-90), canRotate));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item("Delete" + suffix, "Del", (_, _) => DeleteSelection()));
+        menu.IsOpen = true;
     }
 
     // ---- input ----

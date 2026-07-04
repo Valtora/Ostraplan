@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -22,6 +23,10 @@ public sealed class ShipCanvas : FrameworkElement
     private static readonly Pen SelectPen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0x4E, 0xA6, 0xFF)), 2));
     private static readonly Brush BandBrush = Frozen(new SolidColorBrush(Color.FromArgb(0x30, 0x4E, 0xA6, 0xFF)));
     private static readonly Pen BandPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x90, 0x4E, 0xA6, 0xFF)), 1));
+    private static readonly Pen FaintGridPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x16, 0xFF, 0xFF, 0xFF)), 1));
+    private static readonly Pen OriginPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xC0, 0xD8, 0xA0, 0x3C)), 1.5));
+    private static readonly Brush OriginBrush = Frozen(new SolidColorBrush(Color.FromArgb(0xB0, 0xD8, 0xA0, 0x3C)));
+    private static readonly Typeface OriginTypeface = new("Segoe UI");
 
     private static T Frozen<T>(T freezable) where T : Freezable
     {
@@ -52,6 +57,7 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action<(int X, int Y)?>? HoverChanged;
     public event Action? Disarmed;
     public event Action? ViewChanged;
+    public event Action<Placement>? ContextMenuRequested;
 
     public ShipCanvas()
     {
@@ -168,6 +174,22 @@ public sealed class ShipCanvas : FrameworkElement
             {
                 SetArmed(null);
                 Disarmed?.Invoke();
+            }
+            else if (Doc is not null)
+            {
+                var rmbCell = CellAt(screen);
+                var rmbHit = Doc.HitTest(rmbCell.X, rmbCell.Y);
+                if (rmbHit is not null)
+                {
+                    if (!SelectedIds.Contains(rmbHit.Id))
+                    {
+                        SelectedIds.Clear();
+                        SelectedIds.Add(rmbHit.Id);
+                        SelectionChanged?.Invoke();
+                        InvalidateVisual();
+                    }
+                    ContextMenuRequested?.Invoke(rmbHit);
+                }
             }
             e.Handled = true;
             return;
@@ -298,6 +320,8 @@ public sealed class ShipCanvas : FrameworkElement
             DrawPlacement(dc, p, offset);
         }
 
+        DrawOriginMarker(dc);
+
         foreach (var p in Doc.Placements.Where(p => SelectedIds.Contains(p.Id)))
         {
             var (w, h) = Doc.FootprintOf(p);
@@ -328,7 +352,7 @@ public sealed class ShipCanvas : FrameworkElement
 
     private void DrawGrid(DrawingContext dc)
     {
-        if (Zoom < 24) return;   // too dense to be useful when zoomed far out
+        var pen = Zoom < 24 ? FaintGridPen : GridPen;   // fainter when zoomed out, never gone
         var x0 = (int)Math.Floor(-_pan.X / Zoom);
         var y0 = (int)Math.Floor(-_pan.Y / Zoom);
         var x1 = (int)Math.Ceiling((RenderSize.Width - _pan.X) / Zoom);
@@ -337,12 +361,30 @@ public sealed class ShipCanvas : FrameworkElement
         for (var x = x0; x <= x1; x++)
         {
             var sx = Math.Round(_pan.X + x * Zoom) + 0.5;
-            dc.DrawLine(x == 0 ? AxisPen : GridPen, new Point(sx, 0), new Point(sx, RenderSize.Height));
+            dc.DrawLine(x == 0 ? AxisPen : pen, new Point(sx, 0), new Point(sx, RenderSize.Height));
         }
         for (var y = y0; y <= y1; y++)
         {
             var sy = Math.Round(_pan.Y + y * Zoom) + 0.5;
-            dc.DrawLine(y == 0 ? AxisPen : GridPen, new Point(0, sy), new Point(RenderSize.Width, sy));
+            dc.DrawLine(y == 0 ? AxisPen : pen, new Point(0, sy), new Point(RenderSize.Width, sy));
+        }
+    }
+
+    /// <summary>
+    /// The ship's local origin. Not a game rule about airlocks - dock positions
+    /// are free-form - but it is the coordinate anchor everything exports around,
+    /// and where Ostraplan seeds the starting docking port.
+    /// </summary>
+    private void DrawOriginMarker(DrawingContext dc)
+    {
+        var rect = CellRect(0, 0, 1, 1);
+        dc.DrawRectangle(null, OriginPen, rect);
+        if (Zoom >= 32)
+        {
+            var label = new FormattedText("0,0", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                OriginTypeface, Math.Clamp(Zoom / 4, 9, 14), OriginBrush,
+                VisualTreeHelper.GetDpi(this).PixelsPerDip);
+            dc.DrawText(label, new Point(rect.X + 3, rect.Bottom + 2));
         }
     }
 

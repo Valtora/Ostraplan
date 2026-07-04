@@ -17,6 +17,12 @@ public class GameDataTests
         Assert.True(g.Catalog.Parts.Count(p => p.Category == "HULL") >= 140, "HULL tab suspiciously small");
         foreach (var category in Catalog.Categories)
             Assert.Contains(g.Catalog.Parts, p => p.Category == category);
+
+        // new-document seeding depends on the one player-buildable docking port,
+        // and the dock warning depends on its starting conds carrying the docksys cond
+        Assert.True(g.Catalog.ByDefName.TryGetValue("ItmDockSys03Closed", out var dock), "buildable docksys missing");
+        var reqs = g.Catalog.Triggers["TIsDockSysInstalled"].Reqs;
+        Assert.True(dock!.StartingConds.Any(reqs.Contains), "docksys starting conds don't satisfy TIsDockSysInstalled");
     }
 
     [Fact]
