@@ -19,11 +19,45 @@ public class RenderSmokeTests
     public void Render_small_ship_to_png()
     {
         if (TestData.Game is not { } g) return;
+        RunSta(() => Run(g.Catalog));
+    }
 
+    [Fact]
+    public void Render_primary_airlock_stripes_and_rotated_view()
+    {
+        if (TestData.Game is not { } g) return;
+        RunSta(() =>
+        {
+            var doc = new ShipDocument(g.Catalog);
+            new PlaceCommand(new Placement { DefName = Catalog.PrimaryDocksysDef, X = 0, Y = 0 }).Do(doc);
+            for (var x = 0; x < 7; x++)
+                for (var y = 2; y < 6; y++)
+                    new PlaceCommand(new Placement { DefName = "ItmFloorGrate01", X = x, Y = y }).Do(doc);
+
+            var canvas = new ShipCanvas { Sprites = new SpriteCache() };
+            canvas.SetDocument(doc);
+            canvas.RotateView(90);
+            canvas.Measure(new Size(900, 640));
+            canvas.Arrange(new Rect(0, 0, 900, 640));
+            canvas.FitContent();
+            canvas.UpdateLayout();
+
+            var bitmap = new RenderTargetBitmap(900, 640, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(canvas);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            var path = Path.Combine(AppContext.BaseDirectory, "smoke-primary-rotated.png");
+            using (var stream = File.Create(path)) encoder.Save(stream);
+            Assert.True(new FileInfo(path).Length > 5000);
+        });
+    }
+
+    private static void RunSta(Action action)
+    {
         Exception? failure = null;
         var thread = new Thread(() =>
         {
-            try { Run(g.Catalog); }
+            try { action(); }
             catch (Exception ex) { failure = ex; }
         });
         thread.SetApartmentState(ApartmentState.STA);

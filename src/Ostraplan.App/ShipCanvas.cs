@@ -27,6 +27,7 @@ public sealed class ShipCanvas : FrameworkElement
     private static readonly Pen BandPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x90, 0x4E, 0xA6, 0xFF)), 1));
     private static readonly Pen FaintGridPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x16, 0xFF, 0xFF, 0xFF)), 1));
     private static readonly Pen SymPen = MakeSymPen();
+    private static readonly Brush OobBrush = MakeOobBrush();
     private static readonly Pen OriginPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xC0, 0xD8, 0xA0, 0x3C)), 1.5));
     private static readonly Brush OriginBrush = Frozen(new SolidColorBrush(Color.FromArgb(0xB0, 0xD8, 0xA0, 0x3C)));
     private static readonly Typeface OriginTypeface = new("Segoe UI");
@@ -45,6 +46,29 @@ public sealed class ShipCanvas : FrameworkElement
         return pen;
     }
 
+    /// <summary>Classic red hazard stripes (screen-fixed scale) for out-of-bounds areas.</summary>
+    private static Brush MakeOobBrush()
+    {
+        var group = new DrawingGroup();
+        using (var ctx = group.Open())
+        {
+            ctx.DrawRectangle(new SolidColorBrush(Color.FromArgb(0x12, 0xD6, 0x45, 0x45)), null, new Rect(0, 0, 12, 12));
+            var pen = new Pen(new SolidColorBrush(Color.FromArgb(0x3C, 0xE0, 0x50, 0x50)), 3);
+            ctx.DrawLine(pen, new Point(-3, 9), new Point(9, -3));
+            ctx.DrawLine(pen, new Point(3, 15), new Point(15, 3));
+        }
+        var brush = new DrawingBrush(group)
+        {
+            TileMode = TileMode.Tile,
+            Viewport = new Rect(0, 0, 12, 12),
+            ViewportUnits = BrushMappingMode.Absolute,
+            Viewbox = new Rect(0, 0, 12, 12),
+            ViewboxUnits = BrushMappingMode.Absolute,
+        };
+        brush.Freeze();
+        return brush;
+    }
+
     public ShipDocument? Doc { get; private set; }
     public SpriteCache? Sprites { get; set; }
     public PartDef? ArmedPart { get; private set; }
@@ -57,6 +81,7 @@ public sealed class ShipCanvas : FrameworkElement
 
     public SymmetryMode SymMode { get; private set; }
     public (int X, int Y) SymCenter { get; private set; }
+    public int ViewRot { get; private set; }   // plan-view rotation, 90-degree steps (Q/E)
 
     private enum Drag { None, Pan, Move, Band, Paint, BoxFill }
     private Drag _drag;
@@ -137,6 +162,38 @@ public sealed class ShipCanvas : FrameworkElement
         InvalidateVisual();
     }
 
+    public void RotateView(int delta)
+    {
+        ViewRot = GridMath.Norm(ViewRot + delta);
+        ViewChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    /// <summary>Mouse point into the un-rotated (pan/zoom) space the grid math lives in.</summary>
+    private Point ScreenToPanSpace(Point s)
+    {
+        if (ViewRot == 0) return s;
+        var m = Matrix.Identity;
+        m.RotateAt(-ViewRot, RenderSize.Width / 2, RenderSize.Height / 2);
+        return m.Transform(s);
+    }
+
+    private Vector ScreenPanDelta(Vector v)
+    {
+        if (ViewRot == 0) return v;
+        var m = Matrix.Identity;
+        m.Rotate(-ViewRot);
+        return m.Transform(v);
+    }
+
+    /// <summary>Area to cover in pan-space; rotated views need the viewport's diagonal.</summary>
+    private Rect ViewportRect()
+    {
+        if (ViewRot == 0) return new Rect(RenderSize);
+        var diag = Math.Sqrt(RenderSize.Width * RenderSize.Width + RenderSize.Height * RenderSize.Height);
+        return new Rect((RenderSize.Width - diag) / 2, (RenderSize.Height - diag) / 2, diag, diag);
+    }
+
     // ---- smooth WASD panning (per-frame while keys are held) ----
 
     private readonly HashSet<Key> _panKeys = [];
@@ -179,7 +236,7 @@ public sealed class ShipCanvas : FrameworkElement
         if (v.LengthSquared == 0) return;
         if (v.LengthSquared > 1) v.Normalize();
 
-        _pan += v * (PanTilesPerSecond * Zoom * dt);
+        _pan += ScreenPanDelta(v * (PanTilesPerSecond * Zoom * dt));
         ViewChanged?.Invoke();
         InvalidateVisual();
     }
@@ -211,8 +268,11 @@ public sealed class ShipCanvas : FrameworkElement
         }
     }
 
-    private (int X, int Y) CellAt(Point screen) =>
-        ((int)Math.Floor((screen.X - _pan.X) / Zoom), (int)Math.Floor((screen.Y - _pan.Y) / Zoom));
+    private (int X, int Y) CellAt(Point screen)
+    {
+        var p = ScreenToPanSpace(screen);
+        return ((int)Math.Floor((p.X - _pan.X) / Zoom), (int)Math.Floor((p.Y - _pan.Y) / Zoom));
+    }
 
     private Rect CellRect(double x, double y, double w, double h) =>
         new(_pan.X + x * Zoom, _pan.Y + y * Zoom, w * Zoom, h * Zoom);
@@ -227,7 +287,7 @@ public sealed class ShipCanvas : FrameworkElement
         if (ZoomSteps[next] == Zoom) return;
 
         // keep the tile under the cursor stationary
-        var mouse = e.GetPosition(this);
+        var mouse = ScreenToPanSpace(e.GetPosition(this));
         var world = new Point((mouse.X - _pan.X) / Zoom, (mouse.Y - _pan.Y) / Zoom);
         Zoom = ZoomSteps[next];
         _pan = new Vector(mouse.X - world.X * Zoom, mouse.Y - world.Y * Zoom);
@@ -312,10 +372,13 @@ public sealed class ShipCanvas : FrameworkElement
                 SelectedIds.Remove(hit.Id);
             }
             SelectionChanged?.Invoke();
-            _drag = Drag.Move;
-            _dragStartCell = cell;
-            _moveDelta = (0, 0);
-            CaptureMouse();
+            if (SelectedPlacements().Any(p => !Doc.IsLocked(p)))   // the primary airlock never drags
+            {
+                _drag = Drag.Move;
+                _dragStartCell = cell;
+                _moveDelta = (0, 0);
+                CaptureMouse();
+            }
         }
         else
         {
@@ -351,7 +414,7 @@ public sealed class ShipCanvas : FrameworkElement
                 InvalidateVisual();
                 break;
             case Drag.Pan:
-                _pan += screen - _dragStartScreen;
+                _pan += ScreenPanDelta(screen - _dragStartScreen);
                 _dragStartScreen = screen;
                 ViewChanged?.Invoke();
                 InvalidateVisual();
@@ -395,7 +458,7 @@ public sealed class ShipCanvas : FrameworkElement
         }
 
         if (drag == Drag.Move && Doc is not null && (_moveDelta.X != 0 || _moveDelta.Y != 0))
-            MoveRequested?.Invoke(SelectedPlacements(), _moveDelta.X, _moveDelta.Y);
+            MoveRequested?.Invoke(SelectedPlacements().Where(p => !Doc.IsLocked(p)).ToList(), _moveDelta.X, _moveDelta.Y);
 
         if (drag == Drag.Band && Doc is not null)
         {
@@ -493,21 +556,26 @@ public sealed class ShipCanvas : FrameworkElement
         dc.DrawRectangle(Background, null, new Rect(RenderSize));
         if (Doc is null || Sprites is null) return;
 
-        DrawGrid(dc);
+        var rotated = ViewRot != 0;
+        if (rotated) dc.PushTransform(new RotateTransform(ViewRot, RenderSize.Width / 2, RenderSize.Height / 2));
+        var view = ViewportRect();
+
+        DrawGrid(dc, view);
 
         foreach (var p in Doc.DrawOrder())
         {
-            var offset = _drag == Drag.Move && SelectedIds.Contains(p.Id) ? _moveDelta : (0, 0);
+            var offset = _drag == Drag.Move && SelectedIds.Contains(p.Id) && !Doc.IsLocked(p) ? _moveDelta : (0, 0);
             DrawPlacement(dc, p, offset);
         }
 
+        DrawOutOfBounds(dc, view);
         DrawOriginMarker(dc);
-        if (SymMode != SymmetryMode.Off) DrawSymmetryAxes(dc);
+        if (SymMode != SymmetryMode.Off) DrawSymmetryAxes(dc, view);
 
         foreach (var p in Doc.Placements.Where(p => SelectedIds.Contains(p.Id)))
         {
             var (w, h) = Doc.FootprintOf(p);
-            (int X, int Y) offset = _drag == Drag.Move ? _moveDelta : (0, 0);
+            (int X, int Y) offset = _drag == Drag.Move && !Doc.IsLocked(p) ? _moveDelta : (0, 0);
             dc.DrawRectangle(null, SelectPen, CellRect(p.X + offset.X, p.Y + offset.Y, w, h));
         }
 
@@ -525,10 +593,11 @@ public sealed class ShipCanvas : FrameworkElement
             dc.DrawRectangle(null, HoverPen, CellRect(cell.X, cell.Y, 1, 1));
         }
 
-        if (_drag == Drag.Band)
+        if (_drag == Drag.Band && _hoverCell is { } bandEnd)
         {
-            var cur = Mouse.GetPosition(this);
-            dc.DrawRectangle(BandBrush, BandPen, new Rect(_dragStartScreen, cur));
+            var (bx0, bx1) = (Math.Min(_dragStartCell.X, bandEnd.X), Math.Max(_dragStartCell.X, bandEnd.X));
+            var (by0, by1) = (Math.Min(_dragStartCell.Y, bandEnd.Y), Math.Max(_dragStartCell.Y, bandEnd.Y));
+            dc.DrawRectangle(BandBrush, BandPen, CellRect(bx0, by0, bx1 - bx0 + 1, by1 - by0 + 1));
         }
 
         if (_drag == Drag.BoxFill && _hoverCell is { } fillEnd)
@@ -550,36 +619,64 @@ public sealed class ShipCanvas : FrameworkElement
                 dc.DrawRectangle(BandBrush, BandPen, CellRect(fx0, fy0, fw, fh));
             }
         }
+
+        if (rotated) dc.Pop();
     }
 
-    private void DrawSymmetryAxes(DrawingContext dc)
+    /// <summary>
+    /// Hazard-stripe every area beyond a docking port's mating face - the game's
+    /// GetAirlockBounds envelope, made visible.
+    /// </summary>
+    private void DrawOutOfBounds(DrawingContext dc, Rect view)
+    {
+        var zones = new GeometryGroup { FillRule = FillRule.Nonzero };
+        foreach (var p in Doc!.Placements)
+        {
+            var part = Doc.Part(p);
+            if (part is null || !ProblemScan.IsDocksys(part, Doc.Catalog)) continue;
+            if (!ProblemScan.TryGetFace(part, p, out var axisY, out var dir, out var face)) continue;
+
+            var faceScreen = (axisY ? _pan.Y : _pan.X) + face * Zoom;
+            var zone = axisY
+                ? dir < 0
+                    ? new Rect(view.X, view.Y, view.Width, Math.Max(0, faceScreen - view.Y))
+                    : new Rect(view.X, faceScreen, view.Width, Math.Max(0, view.Bottom - faceScreen))
+                : dir < 0
+                    ? new Rect(view.X, view.Y, Math.Max(0, faceScreen - view.X), view.Height)
+                    : new Rect(faceScreen, view.Y, Math.Max(0, view.Right - faceScreen), view.Height);
+            if (zone.Width > 0 && zone.Height > 0) zones.Children.Add(new RectangleGeometry(zone));
+        }
+        if (zones.Children.Count > 0) dc.DrawGeometry(OobBrush, null, zones);
+    }
+
+    private void DrawSymmetryAxes(DrawingContext dc, Rect view)
     {
         var cx = Math.Round(_pan.X + (SymCenter.X + 0.5) * Zoom) + 0.5;
         var cy = Math.Round(_pan.Y + (SymCenter.Y + 0.5) * Zoom) + 0.5;
         if (SymMode is SymmetryMode.Vertical or SymmetryMode.Both)
-            dc.DrawLine(SymPen, new Point(cx, 0), new Point(cx, RenderSize.Height));
+            dc.DrawLine(SymPen, new Point(cx, view.Y), new Point(cx, view.Bottom));
         if (SymMode is SymmetryMode.Horizontal or SymmetryMode.Both)
-            dc.DrawLine(SymPen, new Point(0, cy), new Point(RenderSize.Width, cy));
+            dc.DrawLine(SymPen, new Point(view.X, cy), new Point(view.Right, cy));
         dc.DrawRectangle(null, SymPen, CellRect(SymCenter.X, SymCenter.Y, 1, 1));
     }
 
-    private void DrawGrid(DrawingContext dc)
+    private void DrawGrid(DrawingContext dc, Rect view)
     {
         var pen = Zoom < 24 ? FaintGridPen : GridPen;   // fainter when zoomed out, never gone
-        var x0 = (int)Math.Floor(-_pan.X / Zoom);
-        var y0 = (int)Math.Floor(-_pan.Y / Zoom);
-        var x1 = (int)Math.Ceiling((RenderSize.Width - _pan.X) / Zoom);
-        var y1 = (int)Math.Ceiling((RenderSize.Height - _pan.Y) / Zoom);
+        var x0 = (int)Math.Floor((view.X - _pan.X) / Zoom);
+        var y0 = (int)Math.Floor((view.Y - _pan.Y) / Zoom);
+        var x1 = (int)Math.Ceiling((view.Right - _pan.X) / Zoom);
+        var y1 = (int)Math.Ceiling((view.Bottom - _pan.Y) / Zoom);
 
         for (var x = x0; x <= x1; x++)
         {
             var sx = Math.Round(_pan.X + x * Zoom) + 0.5;
-            dc.DrawLine(x == 0 ? AxisPen : pen, new Point(sx, 0), new Point(sx, RenderSize.Height));
+            dc.DrawLine(x == 0 ? AxisPen : pen, new Point(sx, view.Y), new Point(sx, view.Bottom));
         }
         for (var y = y0; y <= y1; y++)
         {
             var sy = Math.Round(_pan.Y + y * Zoom) + 0.5;
-            dc.DrawLine(y == 0 ? AxisPen : pen, new Point(0, sy), new Point(RenderSize.Width, sy));
+            dc.DrawLine(y == 0 ? AxisPen : pen, new Point(view.X, sy), new Point(view.Right, sy));
         }
     }
 
@@ -597,7 +694,10 @@ public sealed class ShipCanvas : FrameworkElement
             var label = new FormattedText("0,0", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
                 OriginTypeface, Math.Clamp(Zoom / 4, 9, 14), OriginBrush,
                 VisualTreeHelper.GetDpi(this).PixelsPerDip);
-            dc.DrawText(label, new Point(rect.X + 3, rect.Bottom + 2));
+            var at = new Point(rect.X + 3, rect.Bottom + 2);
+            if (ViewRot != 0) dc.PushTransform(new RotateTransform(-ViewRot, at.X, at.Y));   // keep text upright
+            dc.DrawText(label, at);
+            if (ViewRot != 0) dc.Pop();
         }
     }
 

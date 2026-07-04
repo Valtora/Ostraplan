@@ -73,7 +73,7 @@
             <StatusBarItem><TextBlock x:Name="TxtParts" Text=""/></StatusBarItem>
             <StatusBarItem HorizontalAlignment="Right">
                 <TextBlock x:Name="TxtHint" Opacity="0.7"
-                           Text="drag paint · Shift+drag fill · Ctrl+Shift+drag hollow · RMB menu · R rotate · M symmetry · WASD pan · F1 help"/>
+                           Text="drag paint · Shift+drag fill · Ctrl+Shift hollow · RMB menu · R rotate · Q/E view · M symmetry · WASD pan · F1 help"/>
             </StatusBarItem>
         </StatusBar>
 

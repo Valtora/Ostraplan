@@ -22,9 +22,6 @@ public partial class MainWindow : Window
     private OplanMeta _meta = new();
     private bool _syncingPalette;
 
-    // the only player-buildable docking port (DockSys03ClosedInstall, HULL tab);
-    // ships need >=1 installed docksys to ever dock, so new designs start with one
-    private const string SeedDocksysDef = "ItmDockSys03Closed";
 
     public MainWindow()
     {
@@ -41,7 +38,7 @@ public partial class MainWindow : Window
         };
         Board.SelectionChanged += UpdateInspector;
         Board.HoverChanged += cell => TxtCell.Text = cell is { } c ? $"tile {c.X}, {c.Y}" : "—";
-        Board.ViewChanged += () => TxtZoom.Text = $"zoom {Board.Zoom / 16:0.#}×";
+        Board.ViewChanged += UpdateZoomText;
         Board.Disarmed += ClearPaletteSelection;
         Board.ContextMenuRequested += OnContextMenuRequested;
         _stack.StateChanged += RefreshChrome;
@@ -133,9 +130,12 @@ public partial class MainWindow : Window
             TxtWarnings.ToolTip = string.Join("\n", warnings.Take(40));
         }
 
-        TxtZoom.Text = $"zoom {Board.Zoom / 16:0.#}×";
+        UpdateZoomText();
         LoadingOverlay.Visibility = Visibility.Collapsed;
     }
+
+    private void UpdateZoomText() =>
+        TxtZoom.Text = $"zoom {Board.Zoom / 16:0.#}×" + (Board.ViewRot != 0 ? $" · view {Board.ViewRot}°" : "");
 
     // ---- palette ----
 
@@ -212,10 +212,11 @@ public partial class MainWindow : Window
         if (_catalog is null) return;
         if (_doc is not null) _doc.Changed -= OnDocChanged;
         _doc = new ShipDocument(_catalog);
-        // seed the docking port at the origin (movable; outside the undo stack so
-        // a fresh document is not dirty and cannot be undone into nothing)
-        if (_catalog.ByDefName.ContainsKey(SeedDocksysDef))
-            new PlaceCommand(new Placement { DefName = SeedDocksysDef, X = 0, Y = 0 }).Do(_doc);
+        // every ship owns exactly one Primary Airlock, fixed at the root - seeded
+        // outside the undo stack so it can't be undone into nothing, and locked
+        // against move/rotate/delete like the game's own
+        if (_catalog.ByDefName.ContainsKey(Catalog.PrimaryDocksysDef))
+            new PlaceCommand(new Placement { DefName = Catalog.PrimaryDocksysDef, X = 0, Y = 0 }).Do(_doc);
         _doc.Changed += OnDocChanged;
         _meta = new OplanMeta();
         _stack.Reset();
@@ -356,6 +357,10 @@ public partial class MainWindow : Window
             return;
         }
 
+        // designs saved before the primary-airlock convention gain one at the origin
+        if (_catalog.ByDefName.ContainsKey(Catalog.PrimaryDocksysDef) && !doc.Placements.Any(doc.IsLocked))
+            new PlaceCommand(new Placement { DefName = Catalog.PrimaryDocksysDef, X = 0, Y = 0 }).Do(doc);
+
         if (_doc is not null) _doc.Changed -= OnDocChanged;
         _doc = doc;
         _doc.FilePath = dlg.FileName;
@@ -397,7 +402,7 @@ public partial class MainWindow : Window
     private void DeleteSelection()
     {
         if (_doc is null) return;
-        var selected = Board.SelectedPlacements();
+        var selected = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
         if (selected.Count == 0) return;
         _stack.Push(_doc, new RemoveCommand(selected));
         Board.SelectedIds.Clear();
@@ -408,7 +413,7 @@ public partial class MainWindow : Window
     {
         if (_doc is null) return;
         var commands = Board.SelectedPlacements()
-            .Where(p => _doc.Part(p)?.Item.HasSpriteSheet != true)   // walls/floors don't rotate
+            .Where(p => !_doc.IsLocked(p) && _doc.Part(p)?.Item.HasSpriteSheet != true)   // walls/floors auto-tile; the primary is fixed
             .Select(p => (IDocCommand)new RotateCommand(_doc, p, delta))
             .ToList();
         if (commands.Count == 0) return;
@@ -418,7 +423,7 @@ public partial class MainWindow : Window
     private void DuplicateSelection()
     {
         if (_doc is null) return;
-        var selected = Board.SelectedPlacements();
+        var selected = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
         if (selected.Count == 0) return;
         var clones = selected
             .Select(p => new Placement { DefName = p.DefName, X = p.X + 1, Y = p.Y + 1, Rot = p.Rot })
@@ -435,8 +440,10 @@ public partial class MainWindow : Window
         if (_doc is null) return;
         var selected = Board.SelectedPlacements();
         if (selected.Count == 0) return;
-        var canRotate = selected.Any(p => _doc.Part(p)?.Item.HasSpriteSheet != true);
-        var suffix = selected.Count > 1 ? $" ({selected.Count})" : "";
+        var unlocked = selected.Where(p => !_doc.IsLocked(p)).ToList();
+        var canAct = unlocked.Count > 0;
+        var canRotate = unlocked.Any(p => _doc.Part(p)?.Item.HasSpriteSheet != true);
+        var suffix = unlocked.Count > 1 ? $" ({unlocked.Count})" : "";
 
         static MenuItem Item(string header, string gesture, RoutedEventHandler onClick, bool enabled = true)
         {
@@ -448,16 +455,16 @@ public partial class MainWindow : Window
         var menu = new ContextMenu { PlacementTarget = Board };
         menu.Items.Add(new MenuItem
         {
-            Header = _doc.Part(hit)?.Friendly ?? hit.DefName,
+            Header = (_doc.Part(hit)?.Friendly ?? hit.DefName) + (_doc.IsLocked(hit) ? "  · fixed to the ship" : ""),
             IsEnabled = false,
             FontWeight = FontWeights.SemiBold,
         });
         menu.Items.Add(new Separator());
-        menu.Items.Add(Item("Duplicate" + suffix, "", (_, _) => DuplicateSelection()));
+        menu.Items.Add(Item("Duplicate" + suffix, "", (_, _) => DuplicateSelection(), canAct));
         menu.Items.Add(Item("Rotate CW" + suffix, "R", (_, _) => RotateSelection(90), canRotate));
         menu.Items.Add(Item("Rotate CCW" + suffix, "Shift+R", (_, _) => RotateSelection(-90), canRotate));
         menu.Items.Add(new Separator());
-        menu.Items.Add(Item("Delete" + suffix, "Del", (_, _) => DeleteSelection()));
+        menu.Items.Add(Item("Delete" + suffix, "Del", (_, _) => DeleteSelection(), canAct));
         menu.IsOpen = true;
     }
 
@@ -527,6 +534,14 @@ public partial class MainWindow : Window
                 Board.SetPanKey(e.Key, true);   // smooth per-frame pan until KeyUp
                 e.Handled = true;
                 break;
+            case Key.E when !ctrl && !e.IsRepeat:   // rotate the view, like in-game
+                Board.RotateView(90);
+                e.Handled = true;
+                break;
+            case Key.Q when !ctrl && !e.IsRepeat:
+                Board.RotateView(-90);
+                e.Handled = true;
+                break;
             case Key.F1 when !e.IsRepeat:
                 ShowHelp();
                 e.Handled = true;
@@ -558,7 +573,10 @@ public partial class MainWindow : Window
             return;
         }
 
-        InsFriendly.Text = part.Friendly;
+        var lockedNote = Board.ArmedPart is null && selected.Count == 1 && _doc?.IsLocked(selected[0]) == true
+            ? "  · fixed to the ship"
+            : "";
+        InsFriendly.Text = part.Friendly + lockedNote;
         InsInternal.Text = part.DefName;
         InsCategory.Text = part.Category;
         InsSize.Text = $"{part.Item.Width} × {part.Item.Height} tiles"
@@ -608,7 +626,8 @@ public partial class MainWindow : Window
             ("M", "Cycle symmetry Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on"),
             ("Del", "Delete the selection"),
             ("Esc", "Cancel placement, then clear selection"),
-            ("W A S D", "Pan the view"),
+            ("W A S D", "Pan the view (smooth while held)"),
+            ("Q / E", "Rotate the view CCW / CW, like in-game"),
             ("MMB / Space + drag", "Pan the view"),
             ("Mouse wheel", "Zoom (anchored at the cursor)"),
             ("F", "Fit the view to the ship"),
@@ -650,8 +669,10 @@ public partial class MainWindow : Window
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         var note = new TextBlock
         {
-            Text = "New ships start with a docking port at the 0,0 origin marker — a ship with no docking port " +
-                   "can never dock in game (the status bar warns). Wall and floor sprites connect automatically.",
+            Text = "Every ship owns exactly one Primary Airlock, fixed at the 0,0 origin — the game neither sells nor " +
+                   "removes it, so Ostraplan seeds it locked (no move/rotate/delete). Red-striped areas are out of " +
+                   "bounds: the game forbids construction beyond any airlock's mating face. Wall and floor sprites " +
+                   "connect automatically.",
             Foreground = new SolidColorBrush(Color.FromRgb(0x9A, 0xA3, 0xAF)),
             TextWrapping = TextWrapping.Wrap,
             MaxWidth = 660,

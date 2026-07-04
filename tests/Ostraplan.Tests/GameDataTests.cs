@@ -33,6 +33,17 @@ public class GameDataTests
         Assert.True(axisY);
         Assert.Equal(-1, dir);
         Assert.Equal(0, face, 3);
+
+        // the Primary Airlock: resolvable for documents, absent from the palette, locked in docs
+        Assert.True(g.Catalog.ByDefName.TryGetValue(Catalog.PrimaryDocksysDef, out var primary), "primary airlock unresolved");
+        Assert.DoesNotContain(g.Catalog.Parts, p => p.DefName == Catalog.PrimaryDocksysDef);
+        Assert.Contains("Primary", primary!.Friendly);
+        Assert.True(ProblemScan.IsDocksys(primary, g.Catalog));
+        Assert.True(primary.MapPoints.ContainsKey("DockA") && primary.MapPoints.ContainsKey("DockB"));
+        Assert.Equal(7, primary.Item.Width);
+        var doc = new ShipDocument(g.Catalog);
+        Assert.True(doc.IsLocked(new Placement { DefName = Catalog.PrimaryDocksysDef }));
+        Assert.False(doc.IsLocked(new Placement { DefName = "ItmDockSys03Closed" }));
     }
 
     [Fact]

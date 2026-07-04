@@ -23,6 +23,13 @@ public sealed class Catalog
 {
     public static readonly string[] Categories = ["HULL", "HVAC", "POWR", "SENS", "CTRL", "FURN", "APPS", "MISC"];
 
+    /// <summary>
+    /// "Primary Exterior Airlock": every ship owns exactly one - IsIndestructable,
+    /// no install job, never sold - so it resolves for documents but stays out of
+    /// the palette. Ostraplan seeds it at the origin, locked.
+    /// </summary>
+    public const string PrimaryDocksysDef = "ItmDockSys02Closed";
+
     public required IReadOnlyList<PartDef> Parts { get; init; }
     public required IReadOnlyDictionary<string, PartDef> ByDefName { get; init; }
     public required IReadOnlyDictionary<string, LootDef> Loots { get; init; }
@@ -81,10 +88,27 @@ public sealed class Catalog
                 co?.MapPoints ?? new Dictionary<string, (double, double)>());
         }
 
+        // resolvable-but-not-buildable defs (the primary airlock) join ByDefName only
+        var byDefName = new Dictionary<string, PartDef>(parts, StringComparer.Ordinal);
+        if (!byDefName.ContainsKey(PrimaryDocksysDef) && items.TryGetValue(PrimaryDocksysDef, out var primaryItem))
+        {
+            owners.TryGetValue(PrimaryDocksysDef, out var primaryCo);
+            byDefName[PrimaryDocksysDef] = new PartDef(
+                PrimaryDocksysDef,
+                primaryCo?.NameFriendly ?? "Primary Exterior Airlock",
+                "HULL",
+                index.Type("items").TryGetValue(PrimaryDocksysDef, out var primaryRaw) ? primaryRaw.Origin : "core",
+                primaryItem,
+                index.ResolveImage(primaryItem.Img),
+                [], [],
+                primaryCo?.StartingCondNames ?? [],
+                primaryCo?.MapPoints ?? new Dictionary<string, (double, double)>());
+        }
+
         return new Catalog
         {
             Parts = parts.Values.OrderBy(p => p.Category).ThenBy(p => p.Friendly, StringComparer.OrdinalIgnoreCase).ToList(),
-            ByDefName = parts,
+            ByDefName = byDefName,
             Loots = loots,
             Triggers = trigs,
             Warnings = warnings,
