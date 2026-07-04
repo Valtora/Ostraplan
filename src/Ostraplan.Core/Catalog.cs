@@ -10,7 +10,8 @@ public sealed record PartDef(
     string? SpriteAbs,       // resolved PNG, null = missing sprite
     string[] Inputs,
     string[] Tools,
-    string[] StartingConds); // the placed condowner's aStartingConds cond names
+    string[] StartingConds,  // the placed condowner's aStartingConds cond names
+    IReadOnlyDictionary<string, (double X, double Y)> MapPoints);  // condowner mapPoints (DockA/DockB, RoomA/B, ...)
 
 /// <summary>
 /// The buildable catalog, derived the way the game builds its install menu:
@@ -76,7 +77,8 @@ public sealed class Catalog
 
             parts[inst.StartInstall] = new PartDef(
                 inst.StartInstall, friendly, inst.BuildType, itemOrigin, item, sprite, inst.Inputs, inst.Tools,
-                co?.StartingCondNames ?? []);
+                co?.StartingCondNames ?? [],
+                co?.MapPoints ?? new Dictionary<string, (double, double)>());
         }
 
         return new Catalog

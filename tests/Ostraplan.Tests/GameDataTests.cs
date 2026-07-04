@@ -18,11 +18,21 @@ public class GameDataTests
         foreach (var category in Catalog.Categories)
             Assert.Contains(g.Catalog.Parts, p => p.Category == category);
 
-        // new-document seeding depends on the one player-buildable docking port,
-        // and the dock warning depends on its starting conds carrying the docksys cond
+        // new-document seeding and the problems scan depend on the buildable docking port
         Assert.True(g.Catalog.ByDefName.TryGetValue("ItmDockSys03Closed", out var dock), "buildable docksys missing");
-        var reqs = g.Catalog.Triggers["TIsDockSysInstalled"].Reqs;
-        Assert.True(dock!.StartingConds.Any(reqs.Contains), "docksys starting conds don't satisfy TIsDockSysInstalled");
+        Assert.True(ProblemScan.IsDocksys(dock, g.Catalog), "docksys part not recognized (ALL-reqs trigger match)");
+        Assert.True(g.Catalog.ByDefName.TryGetValue("ItmFloorGrate01", out var floorPart)
+                    && !ProblemScan.IsDocksys(floorPart, g.Catalog),
+            "floor grate wrongly recognized as a docking port (the Any-match bug)");
+        Assert.True(dock!.MapPoints.ContainsKey("DockA") && dock.MapPoints.ContainsKey("DockB"),
+            "DockA/DockB map points missing from the docksys condowner");
+
+        // seeded pose: rot 0 at origin -> mating face along doc y = 0, outward up
+        Assert.True(ProblemScan.TryGetFace(dock, new Placement { DefName = dock.DefName, X = 0, Y = 0 },
+            out var axisY, out var dir, out var face));
+        Assert.True(axisY);
+        Assert.Equal(-1, dir);
+        Assert.Equal(0, face, 3);
     }
 
     [Fact]

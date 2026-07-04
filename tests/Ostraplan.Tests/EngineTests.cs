@@ -18,7 +18,7 @@ public class EngineTests
     private static PartDef Part(string name, int w, int h, string loot = "L") => new(
         name, name, "HULL", "core",
         new ItemDef(name, "", false, null, 0, w, [.. Enumerable.Repeat(loot, w * h)], [], []),
-        null, [], [], []);
+        null, [], [], [], new Dictionary<string, (double, double)>());
 
     [Fact]
     public void Rotate_cw_once_maps_cells_correctly()

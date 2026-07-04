@@ -137,9 +137,49 @@ public sealed class ShipCanvas : FrameworkElement
         InvalidateVisual();
     }
 
-    public void PanByTiles(double tx, double ty)
+    // ---- smooth WASD panning (per-frame while keys are held) ----
+
+    private readonly HashSet<Key> _panKeys = [];
+    private long _lastPanTick;
+    private const double PanTilesPerSecond = 14;
+
+    public void SetPanKey(Key key, bool down)
     {
-        _pan += new Vector(tx * Zoom, ty * Zoom);
+        var changed = down ? _panKeys.Add(key) : _panKeys.Remove(key);
+        if (!changed) return;
+        if (down && _panKeys.Count == 1)
+        {
+            _lastPanTick = System.Diagnostics.Stopwatch.GetTimestamp();
+            CompositionTarget.Rendering += OnPanFrame;
+        }
+        else if (!down && _panKeys.Count == 0)
+        {
+            CompositionTarget.Rendering -= OnPanFrame;
+        }
+    }
+
+    /// <summary>Call on window deactivation - a KeyUp we never see would leave the view drifting.</summary>
+    public void ClearPanKeys()
+    {
+        if (_panKeys.Count == 0) return;
+        _panKeys.Clear();
+        CompositionTarget.Rendering -= OnPanFrame;
+    }
+
+    private void OnPanFrame(object? sender, EventArgs e)
+    {
+        var now = System.Diagnostics.Stopwatch.GetTimestamp();
+        var dt = (now - _lastPanTick) / (double)System.Diagnostics.Stopwatch.Frequency;
+        _lastPanTick = now;
+        if (dt <= 0 || dt > 0.25) return;
+
+        var v = new Vector(
+            (_panKeys.Contains(Key.A) ? 1 : 0) - (_panKeys.Contains(Key.D) ? 1 : 0),
+            (_panKeys.Contains(Key.W) ? 1 : 0) - (_panKeys.Contains(Key.S) ? 1 : 0));
+        if (v.LengthSquared == 0) return;
+        if (v.LengthSquared > 1) v.Normalize();
+
+        _pan += v * (PanTilesPerSecond * Zoom * dt);
         ViewChanged?.Invoke();
         InvalidateVisual();
     }
@@ -339,12 +379,18 @@ public sealed class ShipCanvas : FrameworkElement
         if (drag == Drag.BoxFill && Doc is not null && ArmedPart is not null)
         {
             var end = CellAt(e.GetPosition(this));
+            var hollow = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);   // Ctrl at release = outline only
             var (w, h) = GridMath.Size(ArmedPart.Item.Width, ArmedPart.Item.Height, ArmedRot);
             var (x0, x1) = (Math.Min(_dragStartCell.X, end.X), Math.Max(_dragStartCell.X, end.X));
             var (y0, y1) = (Math.Min(_dragStartCell.Y, end.Y), Math.Max(_dragStartCell.Y, end.Y));
             for (var y = y0; y + h - 1 <= y1; y += h)
                 for (var x = x0; x + w - 1 <= x1; x += w)
+                {
+                    // border = touches the rect edge, or is the last footprint step on its axis
+                    if (hollow && x != x0 && y != y0 && x + 2 * w - 1 <= x1 && y + 2 * h - 1 <= y1)
+                        continue;
                     TryPlacePose(x, y, ArmedRot);
+                }
             CommitStroke();
         }
 
@@ -489,7 +535,20 @@ public sealed class ShipCanvas : FrameworkElement
         {
             var (fx0, fx1) = (Math.Min(_dragStartCell.X, fillEnd.X), Math.Max(_dragStartCell.X, fillEnd.X));
             var (fy0, fy1) = (Math.Min(_dragStartCell.Y, fillEnd.Y), Math.Max(_dragStartCell.Y, fillEnd.Y));
-            dc.DrawRectangle(BandBrush, BandPen, CellRect(fx0, fy0, fx1 - fx0 + 1, fy1 - fy0 + 1));
+            var (fw, fh) = (fx1 - fx0 + 1, fy1 - fy0 + 1);
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && fw > 2 && fh > 2)
+            {
+                // hollow preview: four border strips
+                dc.DrawRectangle(BandBrush, null, CellRect(fx0, fy0, fw, 1));
+                dc.DrawRectangle(BandBrush, null, CellRect(fx0, fy1, fw, 1));
+                dc.DrawRectangle(BandBrush, null, CellRect(fx0, fy0 + 1, 1, fh - 2));
+                dc.DrawRectangle(BandBrush, null, CellRect(fx1, fy0 + 1, 1, fh - 2));
+                dc.DrawRectangle(null, BandPen, CellRect(fx0, fy0, fw, fh));
+            }
+            else
+            {
+                dc.DrawRectangle(BandBrush, BandPen, CellRect(fx0, fy0, fw, fh));
+            }
         }
     }
 

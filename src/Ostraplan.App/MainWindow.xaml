@@ -71,11 +71,9 @@
             <StatusBarItem><TextBlock x:Name="TxtZoom" Text="" Width="90"/></StatusBarItem>
             <Separator/>
             <StatusBarItem><TextBlock x:Name="TxtParts" Text=""/></StatusBarItem>
-            <Separator/>
-            <StatusBarItem><TextBlock x:Name="TxtDockWarn" Foreground="#FFE0A34E" FontWeight="SemiBold"/></StatusBarItem>
             <StatusBarItem HorizontalAlignment="Right">
                 <TextBlock x:Name="TxtHint" Opacity="0.7"
-                           Text="drag paint · Shift+drag box fill · RMB menu · R rotate · M symmetry · WASD pan · F1 help"/>
+                           Text="drag paint · Shift+drag fill · Ctrl+Shift+drag hollow · RMB menu · R rotate · M symmetry · WASD pan · F1 help"/>
             </StatusBarItem>
         </StatusBar>
 
@@ -89,6 +87,9 @@
 
         <Border DockPanel.Dock="Right" Width="270" Background="#FF2B2F36" Padding="12,8">
             <StackPanel>
+                <TextBlock Text="PROBLEMS" Style="{StaticResource SideHeader}" Margin="0,0,0,4"/>
+                <StackPanel x:Name="ProblemsPanel"/>
+                <Separator Margin="0,10,0,0" Background="#FF3A3F47"/>
                 <TextBlock Text="PART" Style="{StaticResource SideHeader}"/>
                 <TextBlock x:Name="InsFriendly" Style="{StaticResource SideValue}" FontSize="15" FontWeight="SemiBold" Text="—"/>
                 <TextBlock x:Name="InsInternal" Style="{StaticResource SideValue}" Opacity="0.6" FontSize="11"/>
@@ -105,6 +106,18 @@
 
         <Grid>
             <local:ShipCanvas x:Name="Board"/>
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,10,14,0">
+                <Border x:Name="BadgeWarning" Background="#F0E0A34E" CornerRadius="14" Height="28" MinWidth="28"
+                        Visibility="Collapsed" Margin="8,0,0,0">
+                    <TextBlock x:Name="BadgeWarningText" Foreground="#FF23262C" FontWeight="Bold" FontSize="14"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" Margin="9,0"/>
+                </Border>
+                <Border x:Name="BadgeBlocking" Background="#F0D64545" CornerRadius="14" Height="28" MinWidth="28"
+                        Visibility="Collapsed" Margin="8,0,0,0">
+                    <TextBlock x:Name="BadgeBlockingText" Foreground="White" FontWeight="Bold" FontSize="14"
+                               HorizontalAlignment="Center" VerticalAlignment="Center" Margin="9,0"/>
+                </Border>
+            </StackPanel>
             <Border x:Name="LoadingOverlay" Background="#DD1A1C20">
                 <TextBlock x:Name="TxtLoading" Text="Locating Ostranauts…" Foreground="#FFD8DDE4"
                            FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>

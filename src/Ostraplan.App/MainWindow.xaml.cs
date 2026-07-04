@@ -47,6 +47,8 @@ public partial class MainWindow : Window
         _stack.StateChanged += RefreshChrome;
 
         PreviewKeyDown += OnPreviewKeyDown;
+        PreviewKeyUp += OnPreviewKeyUp;
+        Deactivated += (_, _) => Board.ClearPanKeys();   // a KeyUp we never receive must not leave the view drifting
         Loaded += async (_, _) => await LoadDataAsync();
         Closing += (_, e) =>
         {
@@ -227,18 +229,55 @@ public partial class MainWindow : Window
         var bounds = _doc?.Bounds();
         var dims = bounds is { } b ? $" · {b.MaxX - b.MinX + 1}×{b.MaxY - b.MinY + 1} tiles" : "";
         TxtParts.Text = $"{_doc?.Placements.Count ?? 0} parts{dims}";
-        TxtDockWarn.Text = HasDocksys() ? "" : "⚠ no docking port — ship can't dock";
+        if (_doc is not null && _catalog is not null)
+            UpdateProblems(ProblemScan.Scan(_doc, _catalog));
         RefreshChrome();
     }
 
-    /// <summary>Ship.aDocksys collects installed COs triggering TIsDockSysInstalled; no port = can never dock.</summary>
-    private bool HasDocksys()
+    private void UpdateProblems(List<Problem> problems)
     {
-        if (_doc is null || _catalog is null) return false;
-        string[] reqs = _catalog.Triggers.TryGetValue("TIsDockSysInstalled", out var ct) && ct.Reqs.Length > 0
-            ? ct.Reqs
-            : ["IsDockSysInstalled"];
-        return _doc.Placements.Any(p => _doc.Part(p)?.StartingConds.Any(reqs.Contains) == true);
+        var blocking = problems.Where(p => p.Severity == ProblemSeverity.Blocking).ToList();
+        var warnings = problems.Where(p => p.Severity == ProblemSeverity.Warning).ToList();
+
+        BadgeBlocking.Visibility = blocking.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        BadgeBlockingText.Text = $"!  {blocking.Count}";
+        BadgeBlocking.ToolTip = blocking.Count > 0 ? string.Join("\n", blocking.Select(p => p.Title)) : null;
+        BadgeWarning.Visibility = warnings.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+        BadgeWarningText.Text = $"⚠  {warnings.Count}";
+        BadgeWarning.ToolTip = warnings.Count > 0 ? string.Join("\n", warnings.Select(p => p.Title)) : null;
+
+        ProblemsPanel.Children.Clear();
+        if (problems.Count == 0)
+        {
+            ProblemsPanel.Children.Add(new TextBlock
+            {
+                Text = "None found.",
+                Foreground = new SolidColorBrush(Color.FromRgb(0x8A, 0xC9, 0x8A)),
+            });
+            ProblemsPanel.Children.Add(new TextBlock
+            {
+                Text = "Placement-law, room and airtightness checks arrive with the P1/P2 law slices.",
+                Foreground = new SolidColorBrush(Color.FromRgb(0x77, 0x7E, 0x88)),
+                FontSize = 11,
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 3, 0, 0),
+            });
+            return;
+        }
+
+        foreach (var problem in problems.OrderByDescending(p => p.Severity))
+        {
+            ProblemsPanel.Children.Add(new TextBlock
+            {
+                Text = "●  " + problem.Title,
+                Foreground = new SolidColorBrush(problem.Severity == ProblemSeverity.Blocking
+                    ? Color.FromRgb(0xE0, 0x5B, 0x5B)
+                    : Color.FromRgb(0xE0, 0xA3, 0x4E)),
+                ToolTip = new ToolTip { Content = new TextBlock { Text = problem.Detail, MaxWidth = 380, TextWrapping = TextWrapping.Wrap } },
+                TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(0, 1, 0, 1),
+            });
+        }
     }
 
     private void RefreshChrome()
@@ -463,16 +502,16 @@ public partial class MainWindow : Window
                 if (_doc is not null) _stack.Redo(_doc);
                 e.Handled = true;
                 break;
-            case Key.S when ctrl:
+            case Key.S when ctrl && !e.IsRepeat:
                 if (shift) SaveAs();
                 else Save();
                 e.Handled = true;
                 break;
-            case Key.O when ctrl:
+            case Key.O when ctrl && !e.IsRepeat:
                 OpenFile();
                 e.Handled = true;
                 break;
-            case Key.N when ctrl:
+            case Key.N when ctrl && !e.IsRepeat:
                 if (ConfirmDiscardChanges()) NewDocument();
                 e.Handled = true;
                 break;
@@ -480,31 +519,24 @@ public partial class MainWindow : Window
                 Board.FitContent();
                 e.Handled = true;
                 break;
-            case Key.M when !ctrl:
+            case Key.M when !ctrl && !e.IsRepeat:
                 Board.CycleSymmetry();
                 e.Handled = true;
                 break;
-            case Key.W when !ctrl:
-                Board.PanByTiles(0, 0.75);
+            case Key.W or Key.A or Key.S or Key.D when !ctrl:
+                Board.SetPanKey(e.Key, true);   // smooth per-frame pan until KeyUp
                 e.Handled = true;
                 break;
-            case Key.S when !ctrl:
-                Board.PanByTiles(0, -0.75);
-                e.Handled = true;
-                break;
-            case Key.A when !ctrl:
-                Board.PanByTiles(0.75, 0);
-                e.Handled = true;
-                break;
-            case Key.D when !ctrl:
-                Board.PanByTiles(-0.75, 0);
-                e.Handled = true;
-                break;
-            case Key.F1:
+            case Key.F1 when !e.IsRepeat:
                 ShowHelp();
                 e.Handled = true;
                 break;
         }
+    }
+
+    private void OnPreviewKeyUp(object sender, KeyEventArgs e)
+    {
+        if (e.Key is Key.W or Key.A or Key.S or Key.D) Board.SetPanKey(e.Key, false);
     }
 
     // ---- inspector ----
@@ -568,6 +600,7 @@ public partial class MainWindow : Window
         [
             ("LMB (part armed)", "Place the part; keep dragging to paint it along the cursor"),
             ("Shift + drag (part armed)", "Rubber-band a box and fill it with the part"),
+            ("Ctrl + Shift + drag (part armed)", "Hollow box: only the outline is placed — walls, in practice"),
             ("LMB", "Select a part · Ctrl+click adds/removes · drag empty space to box-select"),
             ("Drag selection", "Move the selected parts"),
             ("RMB", "Context menu (Duplicate, Rotate, Delete) · cancels placement while armed"),

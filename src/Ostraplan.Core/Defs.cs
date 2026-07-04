@@ -48,13 +48,31 @@ public sealed record CoOverlayDef(string Name, string? NameFriendly, string? Img
         Json.Str(e, "strCOBase"));
 }
 
-public sealed record CondOwnerDef(string Name, string? NameFriendly, string? ItemDefName, string[] StartingCondNames)
+public sealed record CondOwnerDef(
+    string Name, string? NameFriendly, string? ItemDefName, string[] StartingCondNames,
+    IReadOnlyDictionary<string, (double X, double Y)> MapPoints)
 {
     public static CondOwnerDef Parse(JsonElement e) => new(
         Json.Str(e, "strName") ?? "",
         Json.Str(e, "strNameFriendly"),
         Json.Str(e, "strItemDef"),
-        Json.StrArray(e, "aStartingConds").Select(LootDef.CondName).ToArray());
+        Json.StrArray(e, "aStartingConds").Select(LootDef.CondName).ToArray(),
+        ParseMapPoints(Json.StrArray(e, "mapPoints")));
+
+    /// <summary>"DockA,0,8" entries: name, x, y in pixels around the item centre, +y up.</summary>
+    public static IReadOnlyDictionary<string, (double X, double Y)> ParseMapPoints(string[] entries)
+    {
+        var map = new Dictionary<string, (double, double)>(StringComparer.Ordinal);
+        foreach (var entry in entries)
+        {
+            var parts = entry.Split(',');
+            if (parts.Length == 3
+                && double.TryParse(parts[1], System.Globalization.CultureInfo.InvariantCulture, out var x)
+                && double.TryParse(parts[2], System.Globalization.CultureInfo.InvariantCulture, out var y))
+                map[parts[0].Trim()] = (x, y);
+        }
+        return map;
+    }
 }
 
 public sealed record InstallableDef(
