@@ -224,12 +224,14 @@ Ostraplan.sln
 
 | Phase | Version | Delivers | Acceptance |
 |---|---|---|---|
-| P0 Foundation | 0.1 | Mod-aware data index; palette (8 tabs + search); grid canvas; place/remove/move/rotate; sprites incl. wall autotile; `.oplan` save/load; undo/redo; zoom/pan | Rebuild the Vagabond by eye; it renders correctly and round-trips |
-| P1 Placement law | 0.2 | CheckFit port + tile accumulator; live ghost validity with per-cell reasons | Cannot place anything the game would refuse (spot-checked against in-game attempts) |
-| P2 **Law milestone** | 0.3 | Rooms/airtightness, certification, rating, law report + leak tracing; parity suite | Parity corpus green |
-| P3 Interop | 0.4 | Template browser/import; export-as-mod; save-game import | An exported design spawns in-game with matching rating; a save ship imports cleanly |
-| P4 QoL | 0.5+ | Bill of materials + install-work totals; cooverlay theme picker; PNG export; power/O₂ budget summaries; polish | — |
+| **P0 — SHIPPED 2026-07-04** | 0.1 | Everything originally planned (mod-aware index, palette, canvas, sprites/autotile, `.oplan`, undo/redo, zoom/pan) **plus** a full editing suite and several law elements pulled forward — see the delivered-beyond-plan note below | Met — real parts render game-correctly and round-trip; 23 tests incl. two visual smoke renders |
+| P1 Placement law | 0.2 | Full `Item.CheckFit` port on top of the already-shipped tile-condition accumulator: complete `CondTrigger` semantics (count multiplicity, nested `aTriggers`, `bAND` — the current presence-only subset must remain autotile-compatible), ring-grid reqs/forbids over (W+2)×(H+2), the off-grid rule, snap parity; live green/red ghost with per-cell failure reasons; **hard placement rejection on every path** (click, paint, box/hollow fill, symmetry mirrors, moves, rotations) including the airlock envelope, which today only warns; `ProblemScan` gains per-placement legality entries so designs that become illegal after an edit are listed; constructibility pass (canonical-order re-simulation, warn-only) | Cannot place anything the game would refuse (spot-checked in-game); envelope violations are unplaceable, not just flagged |
+| P2 **Law milestone** | 0.3 | Rooms/airtightness flood fill, certification, rating, law report + leak tracing; parity suite against the 214 core templates | Parity corpus green |
+| P3 Interop | 0.4 | Template browser/import; export-as-mod (precomputed `aRooms`/`aRating`); save-game import. The primary-airlock lock carries over for free (it keys on the def name) | An exported design spawns in-game with matching rating; a save ship imports cleanly |
+| P4 QoL | 0.5+ | Bill of materials + install-work totals; cooverlay theme picker; PNG snapshot export; power/O₂ budget summaries; per-mod palette toggles; copy/paste; polish | — |
 | v1.0 | 1.0 | Hardening, docs, in-game E2E checklist run; **public-flip decision point** | — |
+
+**Delivered beyond plan in v0.1** (three QoL iterations on top of the foundation): drag-paint, Shift box fill and Ctrl+Shift hollow fill (strokes = one undo step); symmetry mode (M: V/H/Both, mirrored positions *and* rotations); right-click context menu (duplicate/rotate/delete, composite undo); smooth WASD panning; Q/E plan-view rotation with rotation-aware input throughout; grid visible at all zooms; gold origin marker; toolbar tooltips + F1 help modal; app icon. Most significantly, the **docking ground truth was researched and shipped early**: the Primary Airlock convention (one per ship, seeded at the origin, locked, outside the palette), the `GetAirlockBounds` construction envelope rendered as red hazard stripes, and the `ProblemScan` engine with canvas badges + inspector panel (checks so far: *no docking port*, *construction beyond an airlock*). The P1 prerequisite "tile-condition accumulator" also shipped in v0.1 — it is what drives faithful autotiling.
 
 ## 12. Risks & mitigations
 
