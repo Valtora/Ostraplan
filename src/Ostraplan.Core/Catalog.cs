@@ -88,6 +88,19 @@ public sealed class Catalog
         });
     }
 
+    /// <summary>
+    /// True if a socket-add loot marks a tile as <b>under-floor</b> reservation —
+    /// sub-floor storage projected beneath walkable floor (IsSubTile) with no solid
+    /// body there (no IsObstruction). The large tanks lay TIL2DeckAdds (obstruction,
+    /// the visible 3x3 tank) over a TILSubfloorAdds ring (IsSubTile only), so the ring
+    /// is under-floor and the core is above-floor — the distinction the build ghost draws.
+    /// </summary>
+    public bool IsUnderFloorLoot(string? lootName)
+    {
+        var conds = LootConds(lootName);
+        return conds.Contains("IsSubTile") && !conds.Contains("IsObstruction");
+    }
+
     public static Catalog Build(DataIndex index)
     {
         var warnings = new List<string>();

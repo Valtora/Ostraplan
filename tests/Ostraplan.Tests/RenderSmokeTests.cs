@@ -129,6 +129,38 @@ public class RenderSmokeTests
         });
     }
 
+    [Fact]
+    public void Render_tank_ghost_shades_the_under_floor_reservation()
+    {
+        if (TestData.Game is not { } g) return;
+        var tank = g.Catalog.Parts.FirstOrDefault(p => p.Item.Width == 7 && p.Item.Height == 7);
+        if (tank is null || !g.Catalog.ByDefName.ContainsKey("ItmFloorGrate01")) return;
+        RunSta(() =>
+        {
+            var doc = new ShipDocument(g.Catalog);
+            for (var y = 0; y < 7; y++)                       // a 7x7 sealed-floor pad the tank fits on
+                for (var x = 0; x < 7; x++)
+                    new PlaceCommand(new Placement { DefName = "ItmFloorGrate01", X = x, Y = y }).Do(doc);
+
+            var canvas = new ShipCanvas { Sprites = new SpriteCache() };
+            canvas.SetDocument(doc);
+            canvas.Measure(new Size(700, 700));
+            canvas.Arrange(new Rect(0, 0, 700, 700));
+            canvas.FitContent();
+            canvas.SetArmed(tank);
+            canvas.SetHover((3, 3));   // ghost footprint (0,0)-(6,6) lands on the pad -> green, ring shaded
+            canvas.UpdateLayout();
+
+            var bitmap = new RenderTargetBitmap(700, 700, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(canvas);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            var path = Path.Combine(AppContext.BaseDirectory, "smoke-tank-ghost.png");
+            using (var stream = File.Create(path)) encoder.Save(stream);
+            Assert.True(new FileInfo(path).Length > 5000);
+        });
+    }
+
     private static void RunSta(Action action)
     {
         Exception? failure = null;

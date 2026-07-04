@@ -108,6 +108,22 @@ public class EngineTests
     }
 
     [Fact]
+    public void Under_floor_loot_is_subtile_without_a_solid_body()
+    {
+        var cat = Fake(loots:
+        [
+            new LootDef("Deck", ["IsFixture", "IsSubTile", "IsObstruction"], []),   // TIL2DeckAdds: the visible tank body
+            new LootDef("Subfloor", ["IsSubTile"], []),                             // TILSubfloorAdds: under-floor storage
+            new LootDef("Wall", ["IsWall", "IsObstruction"], []),
+        ]);
+        Assert.True(cat.IsUnderFloorLoot("Subfloor"));    // sub-floor, no obstruction -> under-floor reservation
+        Assert.False(cat.IsUnderFloorLoot("Deck"));       // has an obstruction -> above-floor body
+        Assert.False(cat.IsUnderFloorLoot("Wall"));
+        Assert.False(cat.IsUnderFloorLoot("Blank"));
+        Assert.False(cat.IsUnderFloorLoot(null));
+    }
+
+    [Fact]
     public void Trigger_forbids_block()
     {
         var cat = Fake([Part("X", 1, 1)],

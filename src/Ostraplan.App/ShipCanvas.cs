@@ -35,6 +35,9 @@ public sealed class ShipCanvas : FrameworkElement
     private static readonly Pen GhostBadPen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0xE0, 0x5B, 0x5B)), 2));
     // per-cell hazard fill for both a ghost's failing cells and existing illegal placements (same red vocabulary)
     private static readonly Brush HazardFill = Frozen(new SolidColorBrush(Color.FromArgb(0x66, 0xD6, 0x45, 0x45)));
+    // the sub-floor reservation a part projects under walkable floor (the tanks' 7x7 ring vs their 3x3 body)
+    private static readonly Brush SubfloorFill = Frozen(new SolidColorBrush(Color.FromArgb(0x33, 0x6A, 0x8E, 0xB8)));
+    private static readonly Pen SubfloorPen = MakeSubfloorPen();
 
     private static T Frozen<T>(T freezable) where T : Freezable
     {
@@ -45,6 +48,14 @@ public sealed class ShipCanvas : FrameworkElement
     private static Pen MakeSymPen()
     {
         var pen = new Pen(new SolidColorBrush(Color.FromArgb(0xB0, 0x39, 0xC8, 0xC8)), 1)
+        { DashStyle = DashStyles.Dash };
+        pen.Freeze();
+        return pen;
+    }
+
+    private static Pen MakeSubfloorPen()
+    {
+        var pen = new Pen(new SolidColorBrush(Color.FromArgb(0xC0, 0x7A, 0x9E, 0xC8)), 1)
         { DashStyle = DashStyles.Dash };
         pen.Freeze();
         return pen;
@@ -144,6 +155,46 @@ public sealed class ShipCanvas : FrameworkElement
     {
         _illegalCells = cells;
         InvalidateVisual();
+    }
+
+    /// <summary>Set the hovered cell programmatically (drives the armed ghost; used by render tests).</summary>
+    public void SetHover((int X, int Y)? cell)
+    {
+        _hoverCell = cell;
+        HoverChanged?.Invoke(cell);
+        InvalidateVisual();
+    }
+
+    /// <summary>
+    /// World cells the part reserves as under-floor storage at this pose — sub-floor
+    /// (IsSubTile) with no solid body (the large tanks' outer ring around their 3x3 core).
+    /// </summary>
+    private IEnumerable<(int X, int Y)> UnderFloorCells(PartDef part, int gx, int gy, int rot)
+    {
+        if (Doc is null) yield break;
+        var effRot = part.Item.HasSpriteSheet ? 0 : GridMath.Norm(rot);
+        var (rw, rh, adds) = GridMath.Rotate(part.Item.SocketAdds, part.Item.Width, part.Item.Height, effRot);
+        for (var r = 0; r < rh; r++)
+            for (var c = 0; c < rw; c++)
+                if (r * rw + c < adds.Length && Doc.Catalog.IsUnderFloorLoot(adds[r * rw + c]))
+                    yield return (gx + c, gy + r);
+    }
+
+    /// <summary>Tight bounds of the part's above-floor body at this pose (the whole footprint when it has no sub-floor ring).</summary>
+    private (int X, int Y, int W, int H) AboveFloorBounds(PartDef part, int gx, int gy, int rot)
+    {
+        var (w, h) = GridMath.Size(part.Item.Width, part.Item.Height, rot);
+        var under = UnderFloorCells(part, gx, gy, rot).ToHashSet();
+        if (under.Count == 0) return (gx, gy, w, h);
+        int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+        for (var r = 0; r < h; r++)
+            for (var c = 0; c < w; c++)
+                if (!under.Contains((gx + c, gy + r)))
+                {
+                    minX = Math.Min(minX, gx + c); minY = Math.Min(minY, gy + r);
+                    maxX = Math.Max(maxX, gx + c); maxY = Math.Max(maxY, gy + r);
+                }
+        return maxX < minX ? (gx, gy, w, h) : (minX, minY, maxX - minX + 1, maxY - minY + 1);
     }
 
     private void RaiseGhostReason(string? reason)
@@ -622,12 +673,30 @@ public sealed class ShipCanvas : FrameworkElement
             var fit = CheckFit.Check(Doc!, ArmedPart, gx, gy, ArmedRot, includeEnvelope: true);
             RaiseGhostReason(fit.Ok ? null : fit.Reason);
 
+            // sub-floor reservation: the ring a part projects under walkable floor (the tanks),
+            // shaded apart from the above-floor body so the two footprints read distinctly
+            var under = UnderFloorCells(ArmedPart, gx, gy, ArmedRot).ToList();
+            foreach (var (cx, cy) in under)
+                dc.DrawRectangle(SubfloorFill, null, CellRect(cx, cy, 1, 1));
+
             dc.PushOpacity(0.55);
             DrawSprite(dc, ArmedPart, gx, gy, ArmedRot, ghost: true);
             dc.Pop();
-            foreach (var (cx, cy) in fit.FailedCells)   // pinpoint the cells the game would refuse
+
+            foreach (var (cx, cy) in fit.FailedCells)   // failing cells override the sub-floor shade
                 dc.DrawRectangle(HazardFill, null, CellRect(cx, cy, 1, 1));
-            dc.DrawRectangle(null, fit.Ok ? GhostOkPen : GhostBadPen, CellRect(gx, gy, w, h));
+
+            if (under.Count > 0)
+            {
+                // dashed outline round the whole reservation, the solid validity outline hugging the body
+                dc.DrawRectangle(null, SubfloorPen, CellRect(gx, gy, w, h));
+                var (bx, by, bw, bh) = AboveFloorBounds(ArmedPart, gx, gy, ArmedRot);
+                dc.DrawRectangle(null, fit.Ok ? GhostOkPen : GhostBadPen, CellRect(bx, by, bw, bh));
+            }
+            else
+            {
+                dc.DrawRectangle(null, fit.Ok ? GhostOkPen : GhostBadPen, CellRect(gx, gy, w, h));
+            }
         }
         else
         {

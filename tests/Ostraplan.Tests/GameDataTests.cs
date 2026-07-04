@@ -178,5 +178,10 @@ public class GameDataTests
         Assert.Contains("TILSubfloorAdds", tank.SocketAdds);
         Assert.Contains("TIL2DeckAdds", tank.SocketAdds);
         Assert.All(tank.SocketReqs.Where(r => r != "Blank"), r => Assert.Equal("TILFloor", r));
+
+        // the ghost distinguishes the two footprints: the outer TILSubfloorAdds ring is
+        // under-floor storage, the center TIL2DeckAdds body is above-floor (an obstruction)
+        Assert.True(g.Catalog.IsUnderFloorLoot("TILSubfloorAdds"));
+        Assert.False(g.Catalog.IsUnderFloorLoot("TIL2DeckAdds"));
     }
 }
