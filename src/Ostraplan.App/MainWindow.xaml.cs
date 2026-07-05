@@ -46,7 +46,6 @@ public partial class MainWindow : Window
         Board.ViewChanged += UpdateZoomText;
         Board.Disarmed += ClearPaletteSelection;
         Board.ContextMenuRequested += OnContextMenuRequested;
-        Board.ArmFromTile += OnArmFromTile;
         Board.GhostReasonChanged += reason => TxtGhost.Text = reason is null ? "" : "⛔ can't place here — " + reason;
         _stack.StateChanged += RefreshChrome;
 
@@ -213,8 +212,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Double-click on a placed part: arm the brush with it and keep drawing. Selecting
-    /// its palette entry (when visible) both arms it and syncs the highlight; if it is
+    /// Arm the brush with a placed part's def (the RMB "Use as brush" action) and keep drawing.
+    /// Selecting its palette entry (when visible) both arms it and syncs the highlight; if it is
     /// filtered out by the search, arm directly. Non-buildable parts (the primary airlock,
     /// a closed door) are not in the palette and so are silently ignored — nothing to paint.
     /// </summary>
@@ -664,6 +663,11 @@ public partial class MainWindow : Window
         var canRotate = unlocked.Count > 1 || unlocked.Any(p => _doc.Part(p)?.Item.HasSpriteSheet != true);
         var suffix = unlocked.Count > 1 ? $" ({unlocked.Count})" : "";
 
+        // "Use as brush" (the eyedropper — formerly double-click): arm the part this menu is about,
+        // if it is buildable. Uses the lone selected part, else the topmost part on the tile.
+        var brushPart = selected.Count == 1 ? selected[0] : stack[0];
+        var brushDef = _allParts.Any(v => v.Part.DefName == brushPart.DefName) ? brushPart.DefName : null;
+
         // door state — flip the selected doors between open and closed
         var toClose = unlocked.Where(p => _catalog!.DoorToggle(p.DefName) is not null && p.DefName.Contains("Open")).ToList();
         var toOpen = unlocked.Where(p => _catalog!.DoorToggle(p.DefName) is not null && p.DefName.Contains("Closed")).ToList();
@@ -677,6 +681,8 @@ public partial class MainWindow : Window
         }
 
         menu.Items.Add(new Separator());
+        if (brushDef is not null)
+            menu.Items.Add(Item("Use as brush", "", (_, _) => OnArmFromTile(brushDef)));
         menu.Items.Add(Item("Duplicate" + suffix, "Ctrl+D", (_, _) => DuplicateSelection(), canAct));
         menu.Items.Add(Item("Copy" + suffix, "Ctrl+C", (_, _) => CopySelection(), canAct));
         menu.Items.Add(Item("Paste", "Ctrl+V", (_, _) => PasteClipboard(), _clip.Count > 0));
@@ -1054,9 +1060,9 @@ public partial class MainWindow : Window
             ("Shift + drag (part armed)", "Rubber-band a box and fill it with the part"),
             ("Ctrl + Shift + drag (part armed)", "Hollow box: only the outline is placed — walls, in practice"),
             ("LMB", "Select a part · Ctrl+click adds/removes · drag empty space to box-select"),
-            ("Double-click a part", "Arm the brush with that part and keep drawing it"),
+            ("Double-click a part", "Flood-select every touching tile of the same type (for bulk delete/replace) · Ctrl+double-click adds the region"),
             ("Drag selection", "Move the selected parts"),
-            ("RMB", "Context menu · on stacked tiles lists every layer so you can select the part underneath · after a box-select, \"Select only\" narrows to one layer (e.g. just the walls) to delete · \"Close/Open door\" flips a door's state · cancels placement while armed"),
+            ("RMB", "Context menu · \"Use as brush\" arms the part to keep drawing it · on stacked tiles lists every layer so you can select the part underneath · after a box-select, \"Select only\" narrows to one layer (e.g. just the walls) to delete · \"Close/Open door\" flips a door's state · cancels placement while armed"),
             ("R / Shift+R", "Rotate CW / CCW: the armed part, a single selected part in place, or a multi-part selection as a group about its centre (walls & floors move but auto-tile rather than turn)"),
             ("M", "Cycle symmetry Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on"),
             ("Del", "Delete the selection"),

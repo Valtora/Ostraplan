@@ -120,7 +120,6 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action? ViewChanged;
     public event Action<(int X, int Y)>? ContextMenuRequested;   // right-clicked tile; window builds the layer picker
     public event Action<string?>? GhostReasonChanged;   // the armed ghost's illegality reason, null when legal/disarmed
-    public event Action<string>? ArmFromTile;   // double-clicked a placed part; window arms its palette entry
 
     public ShipCanvas()
     {
@@ -445,14 +444,26 @@ public sealed class ShipCanvas : FrameworkElement
         if (e.ChangedButton != MouseButton.Left || Doc is null) return;
         var cell = CellAt(screen);
 
-        // double-click a placed part to arm the brush with it and keep drawing (the
-        // window resolves the palette entry). Only when nothing is armed yet; the first
-        // click of the pair already selected it, this second one arms.
+        // double-click a placed part to flood-select every 1×1 tile of the same def
+        // 4-connected to it — a magic wand for bulk-deleting/replacing a run of identical
+        // tiles. Only when nothing is armed. Seed def comes from a lone selected part when
+        // it covers the tile (so the RMB layer-picker can reach a buried conduit first),
+        // else the topmost part here. Ctrl+double-click adds the region to the selection.
         if (e.ClickCount == 2 && ArmedPart is null)
         {
-            if (Doc.HitTest(cell.X, cell.Y) is { } dbl)
+            Placement? seed = null;
+            if (SelectedIds.Count == 1)
             {
-                ArmFromTile?.Invoke(dbl.DefName);
+                var sel = Doc.Placements.FirstOrDefault(p => SelectedIds.Contains(p.Id));
+                if (sel is not null && Doc.Covers(sel, cell.X, cell.Y)) seed = sel;
+            }
+            seed ??= Doc.HitTest(cell.X, cell.Y);
+            if (seed is not null)
+            {
+                if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) SelectedIds.Clear();
+                foreach (var p in FloodSelect.Collect(Doc, seed)) SelectedIds.Add(p.Id);
+                SelectionChanged?.Invoke();
+                InvalidateVisual();
                 e.Handled = true;
                 return;
             }
