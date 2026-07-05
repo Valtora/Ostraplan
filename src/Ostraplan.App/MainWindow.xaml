@@ -64,6 +64,8 @@
                     <Button x:Name="BtnRating" Content="Ship Rating" Padding="10,3" Margin="12,0,0,0" Click="OnShipRatingClick"
                             Background="#FF3A5A82" Foreground="#FFEAF2FB"
                             ToolTip="Analyse rooms, airtightness, certification and the Ship Rating for the current design"/>
+                    <Button x:Name="BtnMaterials" Content="Materials…" Padding="10,3" Margin="4,0,0,0" Click="OnMaterialsClick"
+                            ToolTip="Bill of materials — how many install kits of each part the design needs (whole ship, or the current selection)"/>
                 </StackPanel>
                 <Button x:Name="BtnHelp" Content="Help" DockPanel.Dock="Right" Padding="10,3" Margin="12,0,0,0"
                         Click="OnHelpClick" ToolTip="Controls &amp; keybinds (F1)"/>

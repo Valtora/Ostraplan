@@ -343,6 +343,28 @@ public partial class MainWindow : Window
         }
     }
 
+    // ---- Bill of materials ----
+
+    private void OnMaterialsClick(object sender, RoutedEventArgs e)
+    {
+        if (_doc is null) return;
+        if (_doc.Placements.Count == 0)
+        {
+            MessageBox.Show(this, "Place some parts before opening the bill of materials.", "Bill of Materials",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        // Scope to the current selection when one is active, else the whole ship.
+        var selection = Board.SelectedPlacements();
+        var (parts, scope) = selection.Count > 0
+            ? ((IEnumerable<Placement>)selection, $"selection · {selection.Count} part{(selection.Count == 1 ? "" : "s")}")
+            : (_doc.Placements, "whole ship");
+
+        var bom = BillOfMaterials.Compute(_doc, parts);
+        new MaterialsReportWindow(bom, scope) { Owner = this }.ShowDialog();
+    }
+
     private void UpdateProblems(List<Problem> problems)
     {
         var blocking = problems.Where(p => p.Severity == ProblemSeverity.Blocking).ToList();
