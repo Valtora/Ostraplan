@@ -9,6 +9,8 @@ public sealed class AppSettings
 {
     [JsonPropertyName("gameRootOverride")] public string? GameRootOverride { get; set; }
     [JsonPropertyName("recentFiles")] public List<string> RecentFiles { get; set; } = [];
+    [JsonPropertyName("exportAuthor")] public string? ExportAuthor { get; set; }
+    [JsonPropertyName("lastExportDir")] public string? LastExportDir { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 
     public static string Dir => Path.Combine(

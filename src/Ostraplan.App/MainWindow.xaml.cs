@@ -836,6 +836,69 @@ public partial class MainWindow : Window
     private void OnSaveClick(object sender, RoutedEventArgs e) => Save();
     private void OnSaveAsClick(object sender, RoutedEventArgs e) => SaveAs();
 
+    /// <summary>
+    /// Export the current design as a spawnable local data mod. Runs the P2 engine to bake
+    /// <c>aRooms</c>/<c>aRating</c>, reverse-maps every part to the game's centre/CCW coordinates,
+    /// and writes a mod folder — never <c>loading_order.json</c> (registration stays with
+    /// Ostrasort/ModTools; the dialog and confirmation both say so).
+    /// </summary>
+    private async void OnExportClick(object sender, RoutedEventArgs e)
+    {
+        if (_doc is null || _catalog is null || _index is null || _env is null) return;
+        if (_doc.Placements.Count == 0)
+        {
+            MessageBox.Show(this, "Place some parts before exporting.", "Export",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dlg = new ExportDialog(_meta.Name, _settings.ExportAuthor ?? _meta.Author, _env.ModsDir, _settings.LastExportDir) { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+
+        // don't silently clobber an existing mod folder we may not have created
+        var targetDir = Path.Combine(dlg.DestinationParent, ShipExport.SanitizeName(dlg.ShipName));
+        if (Directory.Exists(targetDir) && Directory.EnumerateFileSystemEntries(targetDir).Any()
+            && MessageBox.Show(this,
+                $"A folder named \"{Path.GetFileName(targetDir)}\" already exists at:\n{Path.GetDirectoryName(targetDir)}\n\n" +
+                "Overwrite its mod_info.json and ship file? Other files in the folder are left untouched.",
+                "Export", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK)
+            return;
+
+        _roomSpecs ??= RoomCertifier.LoadSpecs(_index);
+        var (doc, catalog, specs) = (_doc, _catalog, _roomSpecs);
+        var opts = new ExportOptions(dlg.ShipName, dlg.Author, dlg.Notes, dlg.ModVersion,
+            _env.InstalledVersion ?? GameEnv.VerifiedGameVersion, dlg.DestinationParent);
+
+        ExportResult result;
+        Mouse.OverrideCursor = Cursors.Wait;
+        try
+        {
+            result = await Task.Run(() => ShipExport.Write(doc, catalog, specs, opts));
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "Export failed:\n\n" + ex.Message, "Export", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        finally
+        {
+            Mouse.OverrideCursor = null;
+        }
+
+        _settings.ExportAuthor = dlg.Author;
+        if (!dlg.StagedIntoMods) _settings.LastExportDir = dlg.DestinationParent;
+        _settings.Save();
+
+        var registerNote = dlg.StagedIntoMods
+            ? "Staged into the game's Mods folder. Register it with Ostrasort (or ModTools) before it appears in-game — Ostraplan never writes loading_order.json."
+            : "Copy this folder into Ostranauts_Data/Mods and register it with Ostrasort/ModTools to spawn it in-game.";
+        MessageBox.Show(this,
+            $"Exported \"{dlg.ShipName}\".\n\n" +
+            $"{result.PartCount} parts · {result.RoomCount} certified room(s) · rating {(string.IsNullOrEmpty(result.Rating.Display) ? "None" : result.Rating.Display)}\n\n" +
+            $"Written to:\n{result.ModDir}\n\n{registerNote}",
+            "Export complete", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
     private void OnUndoClick(object sender, RoutedEventArgs e)
     {
         if (_doc is not null) _stack.Undo(_doc);
