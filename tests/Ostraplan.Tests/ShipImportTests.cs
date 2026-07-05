@@ -176,4 +176,38 @@ public class ShipImportTests(ITestOutputHelper output)
         Assert.Equal(1, r.PartCount);       // just the wall
         Assert.All(r.Doc.Placements, p => Assert.True(p.IsGiven));
     }
+
+    [Fact]
+    public void Importing_then_exporting_a_core_ship_stays_a_valid_spawnable()
+    {
+        // The P3 acceptance path end-to-end on real data: a real ship → import → export as a mod →
+        // re-parse. The exported template's baked aRooms must equal the game's recompute (no rating
+        // drift on load) and preserve the ship's compartments through the round-trip.
+        if (TestData.Game is not { } g) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        var resolver = new PartResolver(g.Index);
+
+        var checkedShips = 0;
+        foreach (var (file, ship) in CoreShips(g.Env))
+        {
+            if (ParityTests.RoomExclusions.ContainsKey(file)) continue;
+            var import = TemplateImport.FromTemplate(ship, g.Catalog);
+            var importInterior = RoomBuilder.Build(ShipGrid.FromDocument(import.Doc, g.Catalog))
+                .Rooms.Count(r => !r.Void);
+            if (importInterior == 0) continue;
+
+            var (exported, _, _) = ShipExport.Build(import.Doc, g.Catalog, specs, ship.Name);
+            var tmpl = Assert.Single(ShipTemplate.ParseFile(ShipExport.Serialize(exported)).ToList());
+            var grid = ShipGrid.FromTemplate(tmpl, resolver, g.Catalog);
+            var rooms = RoomBuilder.Build(grid);
+            RoomCertifier.CertifyAll(rooms, specs, g.Catalog);
+
+            Assert.Null(RoomParity.Compare(grid, rooms, tmpl, out _));                    // recompute == baked (no drift)
+            Assert.Equal(importInterior, rooms.Rooms.Count(r => !r.Void));                // compartments survive the round-trip
+            Assert.All(tmpl.Items, it => Assert.False(string.IsNullOrEmpty(it.StrID)));   // fresh instance ids
+
+            if (++checkedShips >= 6) break;
+        }
+        Assert.True(checkedShips > 0, "no core ships with interior compartments were checked");
+    }
 }
