@@ -47,6 +47,46 @@ public class GameDataTests
     }
 
     [Fact]
+    public void Door_open_and_closed_states_both_resolve_and_toggle()
+    {
+        if (TestData.Game is not { } g) return;
+        var cat = g.Catalog;
+        if (!cat.ByDefName.ContainsKey("ItmDoor01Open")) return;
+
+        // the buildable door is the OPEN form; the CLOSED peer is registered
+        // resolvable-but-not-buildable (like the primary airlock) so a placement can flip to it
+        Assert.Contains(cat.Parts, p => p.DefName == "ItmDoor01Open");           // in the palette
+        Assert.True(cat.ByDefName.ContainsKey("ItmDoor01Closed"), "closed door not resolvable");
+        Assert.DoesNotContain(cat.Parts, p => p.DefName == "ItmDoor01Closed");   // NOT in the palette
+
+        // toggles both ways; skinned palette doors (e.g. the blast door) map to their own closed skin
+        Assert.Equal("ItmDoor01Closed", cat.DoorToggle("ItmDoor01Open"));
+        Assert.Equal("ItmDoor01Open", cat.DoorToggle("ItmDoor01Closed"));
+        if (cat.ByDefName.ContainsKey("ItmDoor05Open"))
+        {
+            Assert.Equal("ItmDoor05Closed", cat.DoorToggle("ItmDoor05Open"));
+            Assert.True(cat.ByDefName.ContainsKey("ItmDoor05Closed"), "closed blast-door skin not resolvable");
+        }
+
+        // non-doors never toggle
+        Assert.Null(cat.DoorToggle("ItmWall1x1"));
+        Assert.Null(cat.DoorToggle("ItmFloorGrate01"));
+
+        // geometry is preserved (both 5×1) so a swapped door covers the same tiles, and the
+        // closed form still stamps IsWall+IsPortal → identical room topology (the law is state-blind)
+        var open = cat.ByDefName["ItmDoor01Open"];
+        var closed = cat.ByDefName["ItmDoor01Closed"];
+        Assert.Equal((open.Item.Width, open.Item.Height), (closed.Item.Width, closed.Item.Height));
+        var openConds = open.Item.SocketAdds.SelectMany(cat.LootConds).ToHashSet();
+        var closedConds = closed.Item.SocketAdds.SelectMany(cat.LootConds).ToHashSet();
+        foreach (var c in new[] { "IsWall", "IsPortal" })
+        {
+            Assert.Contains(c, openConds);
+            Assert.Contains(c, closedConds);
+        }
+    }
+
+    [Fact]
     public void Known_parts_have_game_exact_footprints_and_sprites()
     {
         if (TestData.Game is not { } g) return;

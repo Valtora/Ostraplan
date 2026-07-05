@@ -90,6 +90,30 @@ public sealed class Catalog
     }
 
     /// <summary>
+    /// The open/closed counterpart of a door placement's def, or null if this isn't a
+    /// toggleable door (both ends resolve via <see cref="ByDefName"/>). Door state is
+    /// cosmetic to the room/airtightness/rating law: the door's wall cells seal each side
+    /// of the hull the same open or closed, so CreateRooms gives the same room count and
+    /// airtightness either way. This swaps only the sprite and name, never the analysis.
+    /// </summary>
+    public string? DoorToggle(string defName)
+    {
+        if (!ByDefName.TryGetValue(defName, out var self) || !self.StartingConds.Contains("IsPortal")) return null;
+        var peer =
+            defName.Contains("Open") ? ReplaceLast(defName, "Open", "Closed") :
+            defName.Contains("Closed") ? ReplaceLast(defName, "Closed", "Open") :
+            null;
+        return peer is not null && ByDefName.ContainsKey(peer) ? peer : null;
+    }
+
+    /// <summary>Replace the last occurrence of <paramref name="find"/>, or null if absent.</summary>
+    private static string? ReplaceLast(string s, string find, string repl)
+    {
+        var i = s.LastIndexOf(find, StringComparison.Ordinal);
+        return i < 0 ? null : string.Concat(s.AsSpan(0, i), repl, s.AsSpan(i + find.Length));
+    }
+
+    /// <summary>
     /// True if a socket-add loot marks a tile as <b>under-floor</b> reservation —
     /// sub-floor storage projected beneath walkable floor (IsSubTile) with no solid
     /// body there (no IsObstruction). The large tanks lay TIL2DeckAdds (obstruction,
@@ -112,6 +136,38 @@ public sealed class Catalog
         var loots = index.Type("loot").ToDictionary(kv => kv.Key, kv => LootDef.Parse(kv.Value.El), StringComparer.Ordinal);
         var trigs = index.Type("condtrigs").ToDictionary(kv => kv.Key, kv => CondTriggerDef.Parse(kv.Value.El), StringComparer.Ordinal);
 
+        // Resolve a placed def (strStartInstall or a toggled variant) the way the game
+        // does: strStartInstall names the placed CONDOWNER - directly, or via a cooverlay
+        // skin whose strCOBase is the real one (DataHandler.LoadCO's fallback). Geometry
+        // /sockets come from the base's item def; the overlay swaps the sprite and name.
+        PartDef? Resolve(string defName, string category, string fallbackOrigin, string[] inputs, string[] tools, bool warnMissingSprite)
+        {
+            overlays.TryGetValue(defName, out var overlay);
+            var coName = string.IsNullOrWhiteSpace(overlay?.COBase) ? defName : overlay!.COBase!;
+            owners.TryGetValue(coName, out var co);
+            var itemName = string.IsNullOrWhiteSpace(co?.ItemDefName) ? coName : co!.ItemDefName!;
+            if (!items.TryGetValue(itemName, out var item)) return null;
+            if (!string.IsNullOrWhiteSpace(overlay?.Img))
+                item = item with { Img = overlay!.Img! };
+
+            var friendly =
+                !string.IsNullOrWhiteSpace(overlay?.NameFriendly) ? overlay!.NameFriendly! :
+                !string.IsNullOrWhiteSpace(co?.NameFriendly) ? co!.NameFriendly! :
+                defName;
+            var itemOrigin =
+                overlay is not null && index.Type("cooverlays").TryGetValue(defName, out var rawOv) ? rawOv.Origin :
+                index.Type("items").TryGetValue(itemName, out var raw) ? raw.Origin : fallbackOrigin;
+            var sprite = index.ResolveImage(item.Img);
+            if (sprite is null && warnMissingSprite)
+                warnings.Add($"No sprite on disk for '{defName}' (strImg '{item.Img}').");
+
+            return new PartDef(
+                defName, friendly, category, itemOrigin, item, sprite, inputs, tools,
+                co?.StartingCondNames ?? [],
+                co?.StartingCondValues ?? new Dictionary<string, double>(),
+                co?.MapPoints ?? new Dictionary<string, (double, double)>());
+        }
+
         var parts = new Dictionary<string, PartDef>(StringComparer.Ordinal);
         foreach (var (name, (el, origin)) in index.Type("installables"))
         {
@@ -120,57 +176,40 @@ public sealed class Catalog
             if (inst.StartInstall.Length == 0 || !Categories.Contains(inst.BuildType)) continue;
             if (parts.ContainsKey(inst.StartInstall)) continue;   // several jobs can place the same item
 
-            // strStartInstall names the placed CONDOWNER - directly, or via a
-            // cooverlay skin whose strCOBase is the real one (the same fallback
-            // DataHandler.LoadCO applies). Geometry/sockets come from the base's
-            // item def; the overlay swaps the sprite and friendly name.
-            overlays.TryGetValue(inst.StartInstall, out var overlay);
-            var coName = string.IsNullOrWhiteSpace(overlay?.COBase) ? inst.StartInstall : overlay!.COBase!;
-            owners.TryGetValue(coName, out var co);
-            var itemName = string.IsNullOrWhiteSpace(co?.ItemDefName) ? coName : co!.ItemDefName!;
-            if (!items.TryGetValue(itemName, out var item))
+            var part = Resolve(inst.StartInstall, inst.BuildType, origin, inst.Inputs, inst.Tools, warnMissingSprite: true);
+            if (part is null)
             {
-                warnings.Add($"Installable '{name}' places '{inst.StartInstall}' (item def '{itemName}') but no items def exists - skipped.");
+                warnings.Add($"Installable '{name}' places '{inst.StartInstall}' but no items def exists - skipped.");
                 continue;
             }
-            if (!string.IsNullOrWhiteSpace(overlay?.Img))
-                item = item with { Img = overlay!.Img! };
-
-            var friendly =
-                !string.IsNullOrWhiteSpace(overlay?.NameFriendly) ? overlay!.NameFriendly! :
-                !string.IsNullOrWhiteSpace(co?.NameFriendly) ? co!.NameFriendly! :
-                inst.StartInstall;
-
-            var itemOrigin =
-                overlay is not null && index.Type("cooverlays").TryGetValue(inst.StartInstall, out var rawOv) ? rawOv.Origin :
-                index.Type("items").TryGetValue(itemName, out var raw) ? raw.Origin : origin;
-            var sprite = index.ResolveImage(item.Img);
-            if (sprite is null)
-                warnings.Add($"No sprite on disk for '{inst.StartInstall}' (strImg '{item.Img}').");
-
-            parts[inst.StartInstall] = new PartDef(
-                inst.StartInstall, friendly, inst.BuildType, itemOrigin, item, sprite, inst.Inputs, inst.Tools,
-                co?.StartingCondNames ?? [],
-                co?.StartingCondValues ?? new Dictionary<string, double>(),
-                co?.MapPoints ?? new Dictionary<string, (double, double)>());
+            parts[inst.StartInstall] = part;
         }
 
-        // resolvable-but-not-buildable defs (the primary airlock) join ByDefName only
+        // resolvable-but-not-buildable defs join ByDefName only (out of the palette).
         var byDefName = new Dictionary<string, PartDef>(parts, StringComparer.Ordinal);
-        if (!byDefName.ContainsKey(PrimaryDocksysDef) && items.TryGetValue(PrimaryDocksysDef, out var primaryItem))
+
+        // The primary airlock: every ship owns one, but it has no install job.
+        if (!byDefName.ContainsKey(PrimaryDocksysDef) &&
+            Resolve(PrimaryDocksysDef, "HULL", "core", [], [], warnMissingSprite: false) is { } primary)
+            byDefName[PrimaryDocksysDef] = primary with
+            {
+                Friendly = primary.Friendly == PrimaryDocksysDef ? "Primary Exterior Airlock" : primary.Friendly,
+            };
+
+        // Closed-door counterparts: a door's buildable form is the Open state; its Closed
+        // skin/base is a real item but carries no build job, so register it here so a placed
+        // door can be toggled shut (same base geometry, its own sprite/name). Door state is
+        // cosmetic to the law: a door's wall cells seal each side of the hull the same
+        // whether it is open or closed, so the game's CreateRooms gives an identical room
+        // count and airtightness either way - toggling never changes rooms/rating. (The one
+        // per-cell difference - the centre tile is a walkable portal when open and a solid
+        // IsWall+IsPortal boundary when closed - is what AssignPortals handles.)
+        foreach (var door in parts.Values.Where(p => p.StartingConds.Contains("IsPortal") && p.DefName.Contains("Open")).ToList())
         {
-            owners.TryGetValue(PrimaryDocksysDef, out var primaryCo);
-            byDefName[PrimaryDocksysDef] = new PartDef(
-                PrimaryDocksysDef,
-                primaryCo?.NameFriendly ?? "Primary Exterior Airlock",
-                "HULL",
-                index.Type("items").TryGetValue(PrimaryDocksysDef, out var primaryRaw) ? primaryRaw.Origin : "core",
-                primaryItem,
-                index.ResolveImage(primaryItem.Img),
-                [], [],
-                primaryCo?.StartingCondNames ?? [],
-                primaryCo?.StartingCondValues ?? new Dictionary<string, double>(),
-                primaryCo?.MapPoints ?? new Dictionary<string, (double, double)>());
+            var closed = ReplaceLast(door.DefName, "Open", "Closed");
+            if (closed is null || byDefName.ContainsKey(closed)) continue;
+            if (Resolve(closed, door.Category, door.Origin, door.Inputs, door.Tools, warnMissingSprite: false) is { } cp)
+                byDefName[closed] = cp;
         }
 
         return new Catalog

@@ -120,6 +120,7 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action? ViewChanged;
     public event Action<(int X, int Y)>? ContextMenuRequested;   // right-clicked tile; window builds the layer picker
     public event Action<string?>? GhostReasonChanged;   // the armed ghost's illegality reason, null when legal/disarmed
+    public event Action<string>? ArmFromTile;   // double-clicked a placed part; window arms its palette entry
 
     public ShipCanvas()
     {
@@ -230,6 +231,15 @@ public sealed class ShipCanvas : FrameworkElement
     {
         SelectedIds.Clear();
         SelectedIds.Add(p.Id);
+        SelectionChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    /// <summary>Replace the selection with a set of placements (the context-menu layer filter).</summary>
+    public void SetSelection(IEnumerable<Placement> ps)
+    {
+        SelectedIds.Clear();
+        foreach (var p in ps) SelectedIds.Add(p.Id);
         SelectionChanged?.Invoke();
         InvalidateVisual();
     }
@@ -432,6 +442,19 @@ public sealed class ShipCanvas : FrameworkElement
 
         if (e.ChangedButton != MouseButton.Left || Doc is null) return;
         var cell = CellAt(screen);
+
+        // double-click a placed part to arm the brush with it and keep drawing (the
+        // window resolves the palette entry). Only when nothing is armed yet; the first
+        // click of the pair already selected it, this second one arms.
+        if (e.ClickCount == 2 && ArmedPart is null)
+        {
+            if (Doc.HitTest(cell.X, cell.Y) is { } dbl)
+            {
+                ArmFromTile?.Invoke(dbl.DefName);
+                e.Handled = true;
+                return;
+            }
+        }
 
         if (ArmedPart is not null)
         {

@@ -46,6 +46,7 @@ public partial class MainWindow : Window
         Board.ViewChanged += UpdateZoomText;
         Board.Disarmed += ClearPaletteSelection;
         Board.ContextMenuRequested += OnContextMenuRequested;
+        Board.ArmFromTile += OnArmFromTile;
         Board.GhostReasonChanged += reason => TxtGhost.Text = reason is null ? "" : "⛔ can't place here — " + reason;
         _stack.StateChanged += RefreshChrome;
 
@@ -209,6 +210,22 @@ public partial class MainWindow : Window
         foreach (var list in _paletteLists) list.SelectedItem = null;
         _syncingPalette = false;
         UpdateInspector();
+    }
+
+    /// <summary>
+    /// Double-click on a placed part: arm the brush with it and keep drawing. Selecting
+    /// its palette entry (when visible) both arms it and syncs the highlight; if it is
+    /// filtered out by the search, arm directly. Non-buildable parts (the primary airlock,
+    /// a closed door) are not in the palette and so are silently ignored — nothing to paint.
+    /// </summary>
+    private void OnArmFromTile(string defName)
+    {
+        var vm = _allParts.FirstOrDefault(v => v.Part.DefName == defName);
+        if (vm is null) return;
+        foreach (var list in _paletteLists)
+            if (list.Items.Contains(vm)) { list.SelectedItem = vm; Board.Focus(); return; }
+        Board.SetArmed(vm.Part);   // visible nowhere (search-filtered) — arm without a palette highlight
+        Board.Focus();
     }
 
     // ---- document lifecycle ----
@@ -488,6 +505,34 @@ public partial class MainWindow : Window
         UpdateInspector();
     }
 
+    /// <summary>
+    /// Swap each door in the set between its open and closed state (Open ↔ Closed def),
+    /// preserving tile and rotation. Purely cosmetic to the law — the game rooms an open
+    /// and a closed door identically — but it lets a design record which doors are shut,
+    /// e.g. to picture a multi-compartment ship. Implemented as remove-old + place-new so
+    /// it rides the normal undo stack; the new placements become the selection.
+    /// </summary>
+    private void ToggleDoors(IReadOnlyList<Placement> doors)
+    {
+        if (_doc is null || _catalog is null || doors.Count == 0) return;
+        var commands = new List<IDocCommand>();
+        var newIds = new List<Guid>();
+        foreach (var p in doors)
+        {
+            if (_doc.IsLocked(p) || _catalog.DoorToggle(p.DefName) is not { } peer) continue;
+            var swapped = new Placement { DefName = peer, X = p.X, Y = p.Y, Rot = p.Rot };
+            commands.Add(new RemoveCommand([p]));
+            commands.Add(new PlaceCommand(swapped));
+            newIds.Add(swapped.Id);
+        }
+        if (commands.Count == 0) return;
+        _stack.Push(_doc, new CompositeCommand(commands));
+        Board.SelectedIds.Clear();
+        foreach (var id in newIds) Board.SelectedIds.Add(id);
+        Board.InvalidateVisual();
+        UpdateInspector();
+    }
+
     /// <summary>Copy the selection to an in-memory clipboard, stored relative to its top-left tile.</summary>
     private void CopySelection()
     {
@@ -567,6 +612,40 @@ public partial class MainWindow : Window
         var canRotate = unlocked.Any(p => _doc.Part(p)?.Item.HasSpriteSheet != true);
         var suffix = unlocked.Count > 1 ? $" ({unlocked.Count})" : "";
 
+        // layer filter — narrow a box selection that spans several layers down to one
+        // (drag a section, then "Select only ▸ Walls & doors" and delete just those)
+        if (selected.Count > 1)
+        {
+            var byLayer = selected
+                .GroupBy(p => _catalog!.RenderLayer(_doc.Part(p)))
+                .Where(g => g.Count() < selected.Count)   // a group that IS the whole selection changes nothing
+                .OrderBy(g => g.Key)
+                .ToList();
+            if (byLayer.Count > 1)
+            {
+                menu.Items.Add(new Separator());
+                var pick = new MenuItem { Header = "Select only" };
+                foreach (var g in byLayer)
+                {
+                    var group = g.ToList();
+                    pick.Items.Add(Item($"{LayerName(g.Key)} ({group.Count})", "", (_, _) => Board.SetSelection(group)));
+                }
+                menu.Items.Add(pick);
+            }
+        }
+
+        // door state — flip the selected doors between open and closed
+        var toClose = unlocked.Where(p => _catalog!.DoorToggle(p.DefName) is not null && p.DefName.Contains("Open")).ToList();
+        var toOpen = unlocked.Where(p => _catalog!.DoorToggle(p.DefName) is not null && p.DefName.Contains("Closed")).ToList();
+        if (toClose.Count > 0 || toOpen.Count > 0)
+        {
+            menu.Items.Add(new Separator());
+            if (toClose.Count > 0)
+                menu.Items.Add(Item("Close door" + (toClose.Count > 1 ? $" ({toClose.Count})" : ""), "", (_, _) => ToggleDoors(toClose)));
+            if (toOpen.Count > 0)
+                menu.Items.Add(Item("Open door" + (toOpen.Count > 1 ? $" ({toOpen.Count})" : ""), "", (_, _) => ToggleDoors(toOpen)));
+        }
+
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("Duplicate" + suffix, "Ctrl+D", (_, _) => DuplicateSelection(), canAct));
         menu.Items.Add(Item("Copy" + suffix, "Ctrl+C", (_, _) => CopySelection(), canAct));
@@ -577,6 +656,15 @@ public partial class MainWindow : Window
         menu.Items.Add(Item("Delete" + suffix, "Del", (_, _) => DeleteSelection(), canAct));
         menu.IsOpen = true;
     }
+
+    /// <summary>Friendly name for a render layer, for the context-menu layer filter.</summary>
+    private static string LayerName(int layer) => layer switch
+    {
+        Catalog.LayerFloor => "Floors",
+        Catalog.LayerWall => "Walls & doors",
+        Catalog.LayerConduit => "Conduits",
+        _ => "Fixtures",
+    };
 
     // ---- input ----
 
@@ -742,8 +830,9 @@ public partial class MainWindow : Window
             ("Shift + drag (part armed)", "Rubber-band a box and fill it with the part"),
             ("Ctrl + Shift + drag (part armed)", "Hollow box: only the outline is placed — walls, in practice"),
             ("LMB", "Select a part · Ctrl+click adds/removes · drag empty space to box-select"),
+            ("Double-click a part", "Arm the brush with that part and keep drawing it"),
             ("Drag selection", "Move the selected parts"),
-            ("RMB", "Context menu (Duplicate, Rotate, Delete) · on stacked tiles, lists every layer so you can select the part underneath · cancels placement while armed"),
+            ("RMB", "Context menu · on stacked tiles lists every layer so you can select the part underneath · after a box-select, \"Select only\" narrows to one layer (e.g. just the walls) to delete · \"Close/Open door\" flips a door's state · cancels placement while armed"),
             ("R / Shift+R", "Rotate the armed part or the selection CW / CCW (walls & floors auto-tile instead)"),
             ("M", "Cycle symmetry Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on"),
             ("Del", "Delete the selection"),

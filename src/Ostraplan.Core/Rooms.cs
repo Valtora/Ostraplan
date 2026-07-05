@@ -100,58 +100,34 @@ public static class RoomBuilder
     }
 
     /// <summary>
-    /// Door tiles (IsPortal) join the preferred non-void room across the doorway.
-    /// Each door's <c>RoomA</c>/<c>RoomB</c> map points sit one tile into each side;
-    /// the game picks non-void RoomA, else non-void RoomB, else RoomA, else RoomB
-    /// (Ship.CreateRooms' portal pass). Tiles whose door has no room on either side
-    /// stay unassigned (wall / edge doors), exactly as the game leaves them.
+    /// File each door tile into a compartment. An OPEN portal (IsPortal, no IsWall) is
+    /// flooded into a room during the fill and is already claimed; a CLOSED portal
+    /// (IsPortal+IsWall — a sealed door) is a fill boundary and stays unclaimed. The game
+    /// files a door into the room across its <c>RoomA</c>/<c>RoomB</c> face; for a straight
+    /// door those are simply the two cardinal neighbours perpendicular to it, so assigning
+    /// each still-unclaimed portal tile to a non-void cardinal-neighbour room reproduces
+    /// that <b>without</b> needing the door's world centre (which a live document doesn't
+    /// carry — its parts sit at CX/CY 0). Never the exterior: a floored, sealed doorway
+    /// must not read as a hull breach — the game rooms it, it isn't open floor. Parity is
+    /// unaffected (its room comparison excludes portal tiles).
     /// </summary>
     private static void AssignPortals(ShipGrid grid, List<RoomModel> rooms, int[] tileRoom)
     {
-        foreach (var door in grid.Parts)
+        for (var t = 0; t < grid.TileCount; t++)
         {
-            if (!door.Part.MapPoints.ContainsKey("RoomA") || !door.Part.MapPoints.ContainsKey("RoomB")) continue;
-
-            var a = RoomAtMapPoint(grid, rooms, tileRoom, door, "RoomA");
-            var b = RoomAtMapPoint(grid, rooms, tileRoom, door, "RoomB");
-            var preferred =
-                a >= 0 && !rooms[a].Void ? a :
-                b >= 0 && !rooms[b].Void ? b :
-                a >= 0 ? a :
-                b >= 0 ? b : -1;
-            if (preferred < 0) continue;
-
-            var (wr, hr) = GridMath.Size(door.Part.Item.Width, door.Part.Item.Height, door.Rot);
-            for (var r = 0; r < hr; r++)
-                for (var c = 0; c < wr; c++)
+            if (tileRoom[t] >= 0 || !grid.Has(t, "IsPortal")) continue;
+            foreach (var nt in Cardinals(grid, t))
+            {
+                if (nt < 0) continue;
+                var ri = tileRoom[nt];
+                if (ri >= 0 && !rooms[ri].Void)
                 {
-                    var col = door.TopLeftCol + c;
-                    var row = door.TopLeftRow + r;
-                    if (!grid.InBounds(col, row)) continue;
-                    var idx = grid.Index(col, row);
-                    if (!grid.Has(idx, "IsPortal") || tileRoom[idx] >= 0) continue;   // only unclaimed opening tiles
-                    tileRoom[idx] = preferred;
-                    rooms[preferred].Tiles.Add(idx);
+                    tileRoom[t] = ri;
+                    rooms[ri].Tiles.Add(t);
+                    break;
                 }
+            }
         }
-    }
-
-    /// <summary>Room index at a door's RoomA/RoomB map point (pixels around the door
-    /// centre, +y up), rotated with the door — or −1 off-grid / wall.</summary>
-    private static int RoomAtMapPoint(ShipGrid grid, List<RoomModel> rooms, int[] tileRoom, PlacedPart door, string key)
-    {
-        if (!door.Part.MapPoints.TryGetValue(key, out var mp)) return -1;
-        var fRot = GridMath.Norm(-door.Rot);   // recover the game's CCW angle
-        double ox = mp.X / 16.0, oy = mp.Y / 16.0;
-        var (rx, ry) = fRot switch
-        {
-            90 => (-oy, ox),
-            180 => (-ox, -oy),
-            270 => (oy, -ox),
-            _ => (ox, oy),
-        };
-        var idx = grid.TileAtWorld(door.CX + rx, door.CY + ry);
-        return idx >= 0 ? tileRoom[idx] : -1;
     }
 
     /// <summary>N, W, E, S neighbours; −1 where the neighbour falls off the grid edge.</summary>
