@@ -160,7 +160,7 @@ Ported to `Ostraplan.Core/CheckFit.cs`. For a candidate `(part, anchor, rotation
 
 ---
 
-## 8. P2 subsystems — **ported (rooms · certification · rating)**
+## 8. P2 · P3 subsystems — **ported (rooms · certification · rating · interop)**
 
 Ported to `Ostraplan.Core` (`ShipGrid`, `ShipTemplate`, `PartResolver`, `Rooms`, `CondEval`, `RoomSpecs`, `Rating`, `ShipAnalysis`) and validated parity-first against the game's baked `aRooms`/`aRating` (`ParityTests`).
 
@@ -183,6 +183,18 @@ The corpus is **192 core ship objects** (files are top-level arrays; the ship is
 - **Rooms parity: 188/192** (4 named exclusions: malformed Coffin, two aero slant-wall hulls, one interceptor airlock).
 - **Certification: 2109/2148 rooms exact, 0 over-certifications of a real compartment.** The 39 diffs are two documented corpus-only artifacts: **contained/slotted cargo** the top-level `aItems` loader can't count (the game reaches it via `GetCOs bSubObjects` → under-certification), and the exterior over-claim (CargoRoomExterior on the unbounded Outside room). Neither reaches an Ostraplan-authored design (no sub-objects, bounded interior).
 
+### P3 interop — export & import (`ShipExport`, `TemplateImport`, `SaveImport`)
+
+**The `data/ships` file (`JsonShip`).** A ship file is a **top-level array** of ship objects. The game (de)serializes with **Newtonsoft** — proven by `Dictionary<string,string>` fields (`aDocked`, `aMarketConfigs`) that Unity's `JsonUtility` can't handle — so **missing fields default and unknown fields are ignored**. Export therefore writes a *strict superset* of a real template that loads cleanly. The "well-formed" set = the **54 top-level fields present on all 192 core templates** (surveyed) + `aRating`; unlisted DTO fields are safely omitted. Values are pristine/neutral (all wear/mass/physics caches 0 — the game recomputes on full load), `origin`/`publicName` = `"$TEMPLATE"`, `nConstructionProgress` 100. `strRegID` must be non-empty (the loader indexes `strRegID[0]`), but the game **regenerates it** and **re-derives `origin`** from a loot table when `origin == "$TEMPLATE"` (`Ship` load), and null-guards `aCrew`/`aCOs` — so a template needs no crew/cargo. `shipCO` is a minimal `ShipCO` with `aConds` = the three `Stat*ProgressMax=1.0x1000` + `DEFAULT`.
+
+**`aItems` entry** = `strName`, `fX`, `fY`, `fRotation`, `strID` for authored parts. Extras appear only for what a planner never has: `strParentID`/`strSlotParentID` (contained/slotted sub-objects), `aGPMSettings` (device settings), `aCondOverrides` (per-instance wear/damage). Export writes fresh `Guid` `strID`s and never the extras.
+
+**The coordinate inverse (export) / forward (import).** With export `vShipPos = (0,0)` the two offset terms of the loader math (§8 coordinate model) vanish, so for a grid part at top-left `(col,row)` with rotated footprint `(wr,hr)` and Ostraplan rotation `Rot`: `fX = col + (wr/2 − 0.5)`, `fY = −(row + (hr/2 − 0.5))`, `fRotation = Norm(−Rot)` (back to CCW; only 90↔270 differ). Import applies the same mapping forward via the shared `ShipGrid.TemplateTile`. A round-trip (`doc → export → parse → FromTemplate`) reproduces the same tiles/rooms/rating exactly, so the game's full-load recompute matches the baked `aRooms`/`aRating` (no visible rating change on load). `aRooms` = each room's tile indices (`col + row·nCols`, same 0-based grid) + `bVoid` + `roomSpec` + `roomValue` (= `Volume`).
+
+**Non-buildable defs.** ~half of a real ship's distinct top-level defs are **not** in the buildable palette (raw hull, `Compartment`, RCS clusters, sensors) but all resolve to geometry via the condowner→`strItemDef` hop. `Catalog.Lookup` resolves *any* placed def on demand (shared `ResolveDef` with the palette build, so overlay-skin sprite + friendly name are correct), category "—", out of the palette but rendered/analysed. Empirically every placed def across sampled ships resolves to an existing sprite (no magenta-"Missing" clutter).
+
+**Save games.** A save is a **folder** with `<name>.zip` + `saveInfo.json` (+ portrait/screenshot). Inside the zip: `ships/<RegID>.json` (one per ship in the loaded neighbourhood — dozens to ~140), a `<playerName>.json` character record, and copies of `saveInfo`/portrait/screenshot. The **player's ship** is `strShip` on that character record (a RegID). Do **not** match `saveInfo.shipName` — it's a renamed **display** name (`publicName`, e.g. "Charon") that matches no ship's `strName` (which is the RegID or stock model name). Save ships are the same `JsonShip` schema (a superset of a template), so import reads only the top-level layout and drops all runtime state for free.
+
 ---
 
 ## 9. Gotcha index (quick reference)
@@ -203,7 +215,10 @@ The corpus is **192 core ship objects** (files are top-level arrays; the ship is
 - **Only `IsWall` bounds the room fill** — a door's side cells are always `IsWall`; its centre is a walkable portal when open (flood-sinks) and an `IsWall` boundary when closed. Same two rooms either way — door state is cosmetic to the rooms/rating; a closed door's centre is filed by `AssignPortals` to a non-void neighbour, never the exterior (§8).
 - **Ship files are top-level arrays** — the ship is an element with `nCols`+`aItems`; skip non-ship files. Only ~2 carry `aRating`; all carry `aRooms` (§8).
 - **Room certification tests CondOwner conds, not tile conds** — `room.aCos` `aStartingConds`, evaluated by `CondEval`; multiplicity is the spec's `xN` (§8).
-- **Contained/slotted cargo isn't counted** — top-level `aItems` only; the game reaches sub-objects via `bSubObjects`, so cargo-laden templates under-certify (corpus-only) (§8).
+- **Contained/slotted cargo isn't counted** — top-level `aItems` only; the game reaches sub-objects via `bSubObjects`, so cargo-laden templates under-certify (corpus-only) (§8). Import **drops** these (`strParentID`/`strSlotParentID`) — layout only.
+- **A save's player ship is `strShip`, not `saveInfo.shipName`** — the latter is the renamed `publicName` and matches no `strName`; read the character record's `strShip` RegID (§8).
+- **`JsonShip` is Newtonsoft, tolerant** — export writes a superset of the 54 universal template fields; missing default, unknown ignored. Export anchors at `vShipPos (0,0)` so the coordinate inverse drops its offset terms (§8).
+- **Import must resolve non-buildable defs** — the palette is buildable-only, but ~half a real ship isn't; go through `Catalog.Lookup`, never `ByDefName` alone, for any placed def (§8).
 
 ---
 
@@ -222,7 +237,11 @@ The corpus is **192 core ship objects** (files are top-level arrays; the ship is
 | Rooms/airtightness (`CreateRooms`) | **ported (P2)** | `ShipGrid`, `RoomBuilder` |
 | Room certification (`RoomSpec.Matches`) | **ported (P2)** | `RoomSpecs` (`RoomCertifier`) |
 | Ship rating (`CalculateRating`) | **ported (P2)** | `Rating` |
-| Contained/slotted sub-objects, exterior-margin trim bound | **not modelled** (corpus-only; see §8) | — |
+| JsonShip (de)serialization — the export/template schema | **ported (P3)** | `ShipExport` (write), `ShipTemplate` (read) |
+| Coordinate/rotation inverse (grid top-left → centre/CCW) | **ported (P3)** | `ShipGrid.TemplateTile` + `ShipExport` |
+| On-demand resolution of any placed (non-buildable) def | **ported (P3)** | `Catalog.Lookup` / `Catalog.ResolveDef` |
+| Save player-ship identification (`strShip`) + layout strip | **ported (P3)** | `SaveImport` |
+| Contained/slotted sub-objects, exterior-margin trim bound | **not modelled** (corpus-only; see §8; import **drops** contained sub-objects) | — |
 | Crew LOS/proximity, docked-ship, zone rules, damage state | **excluded** (in-game only) | never ported |
 
 ---
