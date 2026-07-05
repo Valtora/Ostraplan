@@ -148,17 +148,35 @@ public sealed record LootDef(string Name, string[] Conds, string[] Loots)
 }
 
 /// <summary>
-/// The subset of a condtrigger Ostraplan evaluates today: presence of every
-/// aReqs condition, absence of every aForbids condition. Nested aTriggers and
-/// count semantics arrive with the full P1 engine port.
+/// A condtrigger. The presence-only path (every <see cref="Reqs"/> present, no
+/// <see cref="Forbids"/> present) drives autotiling and CheckFit; the full reachable
+/// evaluator (<see cref="CondEval"/>) additionally follows <see cref="Triggers"/>/
+/// <see cref="TriggersForbid"/> and the <see cref="BAnd"/>=false OR path for room
+/// certification. The <c>HasNested</c> positional flag is retained for existing
+/// callers; the richer fields are populated by <see cref="Parse"/>.
 /// </summary>
 public sealed record CondTriggerDef(string Name, string[] Reqs, string[] Forbids, bool HasNested)
 {
+    public string[] Triggers { get; init; } = [];           // nested aTriggers (AND path)
+    public string[] TriggersForbid { get; init; } = [];     // nested aTriggersForbid (OR path)
+    public bool BAnd { get; init; } = true;                 // bAND: AND of reqs vs OR of reqs
+    public double FChance { get; init; } = 1.0;             // <1 = randomised (unreachable from room specs)
+    public string? HigherCond { get; init; }                // strHigherCond / aLowerConds ranking (unreachable)
+    public string[] LowerConds { get; init; } = [];
+
     public static CondTriggerDef Parse(JsonElement e) => new(
         Json.Str(e, "strName") ?? "",
         Json.StrArray(e, "aReqs").Select(LootDef.CondName).ToArray(),
         Json.StrArray(e, "aForbids").Select(LootDef.CondName).ToArray(),
-        Json.StrArray(e, "aTriggers").Length > 0);
+        Json.StrArray(e, "aTriggers").Length > 0)
+    {
+        Triggers = Json.StrArray(e, "aTriggers"),
+        TriggersForbid = Json.StrArray(e, "aTriggersForbid"),
+        BAnd = !(e.TryGetProperty("bAND", out var b) && b.ValueKind == JsonValueKind.False),   // default true
+        FChance = Json.Dbl(e, "fChance", 1.0),
+        HigherCond = Json.Str(e, "strHigherCond"),
+        LowerConds = Json.StrArray(e, "aLowerConds").Select(LootDef.CondName).ToArray(),
+    };
 }
 
 internal static class Json

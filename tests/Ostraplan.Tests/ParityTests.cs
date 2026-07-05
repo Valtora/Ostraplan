@@ -58,7 +58,7 @@ public class ParityTests(ITestOutputHelper output)
             total++;
             var grid = ShipGrid.FromTemplate(ship, resolver, g.Catalog);
             var partition = RoomBuilder.Build(grid);
-            var diff = RoomParity.Compare(grid, partition, ship);
+            var diff = RoomParity.Compare(grid, partition, ship, out _);
             if (diff is null) passed++;
             else if (RoomExclusions.ContainsKey(file)) excludedSeen.Add($"{file}: {diff}");
             else unexpected.Add($"{file} ({ship.Name}): {diff}");
@@ -72,14 +72,69 @@ public class ParityTests(ITestOutputHelper output)
         Assert.True(excludedSeen.Count == RoomExclusions.Count,
             $"only {excludedSeen.Count}/{RoomExclusions.Count} excluded templates still fail — prune RoomExclusions");
     }
+
+    [Fact]
+    public void Certification_parity_across_all_core_templates()
+    {
+        if (TestData.Game is not { } g) return;
+        var resolver = new PartResolver(g.Index);
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        Assert.True(specs.Count >= 15, $"only {specs.Count} room specs loaded");
+        var priority = specs.ToDictionary(s => s.Name, s => s.Priority);
+        int Prio(string spec) => priority.GetValueOrDefault(spec, 0);
+
+        int checkedRooms = 0, matchedRooms = 0, underCert = 0, exteriorVoid = 0;
+        var unexpected = new List<string>();
+        foreach (var (file, ship) in CoreShips(g.Env))
+        {
+            if (RoomExclusions.ContainsKey(file)) continue;   // rooms don't match → can't compare specs
+
+            var grid = ShipGrid.FromTemplate(ship, resolver, g.Catalog);
+            var partition = RoomBuilder.Build(grid);
+            RoomCertifier.CertifyAll(partition, specs, g.Catalog);
+            if (RoomParity.Compare(grid, partition, ship, out var map) is not null) continue;   // covered by rooms test
+
+            foreach (var (m, s) in map)
+            {
+                checkedRooms++;
+                var mine = partition.Rooms[m].RoomSpec;
+                var stored = ship.Rooms[s].RoomSpec;
+                if (mine == stored) { matchedRooms++; continue; }
+
+                // Two documented corpus-only differences, neither reachable for an
+                // Ostraplan-authored design (which has no contained cargo and a bounded interior):
+                //  • under-certification of a real compartment — the game counts contained /
+                //    slotted / pre-populated cargo (GetCOs bSubObjects) that the top-level aItems
+                //    loader can't fully resolve, so a room can miss a required-part count.
+                //  • exterior over-claim — the recomputed Void/Outside room merges the far empty
+                //    margin the game leaves unroomed, so it can aggregate enough exterior cargo to
+                //    read CargoRoomExterior where the game's bounded exterior reads Blank.
+                var voidRoom = partition.Rooms[m].Void || ship.Rooms[s].Void;
+                if (Prio(mine) < Prio(stored)) underCert++;                 // never over-certifies a compartment
+                else if (voidRoom) exteriorVoid++;                          // exterior-void aggregation
+                else unexpected.Add($"{file} ({ship.Name}): room {m} ({partition.Rooms[m].TileCount} tiles, void={partition.Rooms[m].Void}) OVER-certified '{mine}' (prio {Prio(mine)}) vs stored '{stored}' (prio {Prio(stored)})");
+            }
+        }
+
+        _out.WriteLine($"certification parity: {matchedRooms}/{checkedRooms} rooms exact; " +
+            $"{underCert} under-certified (contained cargo), {exteriorVoid} exterior-void aggregation, {unexpected.Count} unexpected");
+        foreach (var f in unexpected.Take(30)) _out.WriteLine("  FAIL " + f);
+        // The Law-relevant guarantee: Ostraplan never OVER-certifies a real (non-void) compartment.
+        Assert.True(unexpected.Count == 0, $"{unexpected.Count} compartments over-certified vs the game (see test output)");
+        Assert.True(matchedRooms >= checkedRooms * 0.97,
+            $"only {matchedRooms}/{checkedRooms} rooms certify exactly — below the 97% corpus floor");
+    }
 }
 
 /// <summary>Partition-equality check between recomputed rooms and a template's baked aRooms.</summary>
 internal static class RoomParity
 {
-    /// <summary>Null if the room partition (tile sets) and Void flags match; else a one-line diff.</summary>
-    public static string? Compare(ShipGrid grid, RoomPartition partition, ShipTemplate ship)
+    /// <summary>Null if the room partition (tile sets) and Void flags match; else a one-line
+    /// diff. On success <paramref name="my2st"/> maps each recomputed room index to its
+    /// stored counterpart (for spec comparison).</summary>
+    public static string? Compare(ShipGrid grid, RoomPartition partition, ShipTemplate ship, out Dictionary<int, int> my2st)
     {
+        my2st = [];
         var n = grid.TileCount;
 
         // stored tile → room index
@@ -101,7 +156,6 @@ internal static class RoomParity
         //    to room the far empty margin around a small ship (its Outside room is bounded
         //    by trim); the Outside room is Blank and never counts toward the rating, so its
         //    exact extent is irrelevant. My interior compartments must still match exactly.
-        var my2st = new Dictionary<int, int>();
         var st2my = new Dictionary<int, int>();
         for (var t = 0; t < n; t++)
         {

@@ -79,7 +79,24 @@ public static class RoomBuilder
         }
 
         AssignPortals(grid, rooms, tileRoom);
+        AssignParts(grid, rooms, tileRoom);
         return new RoomPartition(rooms, tileRoom);
+    }
+
+    /// <summary>
+    /// Each installed part joins the room containing its anchor (centre) tile
+    /// — Ship.CreateRooms' Tile.AddToRoom pass over GetCOs(TIsInstalled). Walls
+    /// anchor on their own (room-less) tile and so join no room, which is correct:
+    /// certification only counts fixtures/systems sitting inside a compartment.
+    /// </summary>
+    private static void AssignParts(ShipGrid grid, List<RoomModel> rooms, int[] tileRoom)
+    {
+        foreach (var part in grid.Parts)
+        {
+            if (part.AnchorIndex < 0 || !part.Part.Has("IsInstalled")) continue;
+            var ri = tileRoom[part.AnchorIndex];
+            if (ri >= 0) rooms[ri].Parts.Add(part);
+        }
     }
 
     /// <summary>
