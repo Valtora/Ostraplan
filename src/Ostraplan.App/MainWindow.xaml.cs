@@ -552,6 +552,34 @@ public partial class MainWindow : Window
         UpdateInspector();
     }
 
+    /// <summary>
+    /// Replace the (unlocked) selection with a compatible buildable part — same render layer and
+    /// footprint — chosen from a picker, keeping each part's tile and rotation. One undo step; the
+    /// swapped-in parts become the selection. Illegal results aren't blocked, just flagged by the
+    /// live problem scan, consistent with moves/rotations into illegal spots.
+    /// </summary>
+    private void ReplaceSelection()
+    {
+        if (_doc is null || _catalog is null) return;
+        var parts = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
+        if (parts.Count == 0 || ReplaceOps.CommonClass(_doc, parts) is not { } cls) return;
+
+        var targetDefs = ReplaceOps.CompatibleTargets(_catalog, cls).Select(t => t.DefName).ToHashSet(StringComparer.Ordinal);
+        var vms = _allParts.Where(v => targetDefs.Contains(v.Part.DefName)).ToList();
+        if (vms.Count == 0) return;
+
+        var what = parts.Count == 1 ? $"\"{_doc.Part(parts[0])?.Friendly ?? parts[0].DefName}\"" : $"{parts.Count} parts";
+        var dlg = new ReplacePickerDialog(vms, what) { Owner = this };
+        if (dlg.ShowDialog() != true || dlg.Selected is not { } target) return;
+        if (ReplaceOps.BuildSwap(_doc, parts, target.DefName) is not { } swap) return;
+
+        _stack.Push(_doc, swap.Cmd);
+        Board.SelectedIds.Clear();
+        foreach (var p in swap.New) Board.SelectedIds.Add(p.Id);
+        Board.InvalidateVisual();
+        UpdateInspector();
+    }
+
     /// <summary>Copy the selection to an in-memory clipboard, stored relative to its top-left tile.</summary>
     private void CopySelection()
     {
@@ -668,6 +696,12 @@ public partial class MainWindow : Window
         var brushPart = selected.Count == 1 ? selected[0] : stack[0];
         var brushDef = _allParts.Any(v => v.Part.DefName == brushPart.DefName) ? brushPart.DefName : null;
 
+        // "Replace with…": enabled when the whole (unlocked) selection shares one render layer +
+        // footprint and at least one buildable part of that same kind exists to swap in.
+        var canReplace = unlocked.Count > 0
+            && ReplaceOps.CommonClass(_doc, unlocked) is { } rcls
+            && ReplaceOps.CompatibleTargets(_catalog!, rcls).Count > 0;
+
         // door state — flip the selected doors between open and closed
         var toClose = unlocked.Where(p => _catalog!.DoorToggle(p.DefName) is not null && p.DefName.Contains("Open")).ToList();
         var toOpen = unlocked.Where(p => _catalog!.DoorToggle(p.DefName) is not null && p.DefName.Contains("Closed")).ToList();
@@ -683,6 +717,8 @@ public partial class MainWindow : Window
         menu.Items.Add(new Separator());
         if (brushDef is not null)
             menu.Items.Add(Item("Use as brush", "", (_, _) => OnArmFromTile(brushDef)));
+        if (canReplace)
+            menu.Items.Add(Item("Replace with…" + suffix, "", (_, _) => ReplaceSelection()));
         menu.Items.Add(Item("Duplicate" + suffix, "Ctrl+D", (_, _) => DuplicateSelection(), canAct));
         menu.Items.Add(Item("Copy" + suffix, "Ctrl+C", (_, _) => CopySelection(), canAct));
         menu.Items.Add(Item("Paste", "Ctrl+V", (_, _) => PasteClipboard(), _clip.Count > 0));
@@ -1062,7 +1098,7 @@ public partial class MainWindow : Window
             ("LMB", "Select a part · Ctrl+click adds/removes · drag empty space to box-select"),
             ("Double-click a part", "Flood-select every touching tile of the same type (for bulk delete/replace) · Ctrl+double-click adds the region"),
             ("Drag selection", "Move the selected parts"),
-            ("RMB", "Context menu · \"Use as brush\" arms the part to keep drawing it · on stacked tiles lists every layer so you can select the part underneath · after a box-select, \"Select only\" narrows to one layer (e.g. just the walls) to delete · \"Close/Open door\" flips a door's state · cancels placement while armed"),
+            ("RMB", "Context menu · \"Use as brush\" arms the part to keep drawing it · \"Replace with…\" swaps a same-kind selection (floors for floors, walls for walls) for a compatible part · on stacked tiles lists every layer so you can select the part underneath · after a box-select, \"Select only\" narrows to one layer (e.g. just the walls) to delete · \"Close/Open door\" flips a door's state · cancels placement while armed"),
             ("R / Shift+R", "Rotate CW / CCW: the armed part, a single selected part in place, or a multi-part selection as a group about its centre (walls & floors move but auto-tile rather than turn)"),
             ("M", "Cycle symmetry Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on"),
             ("Del", "Delete the selection"),
