@@ -14,9 +14,9 @@ namespace Ostraplan.App;
 /// </summary>
 public sealed class MaterialsReportWindow : Window
 {
-    private static readonly Brush Ink = new SolidColorBrush(Color.FromRgb(0xD8, 0xDD, 0xE4));
-    private static readonly Brush Dim = new SolidColorBrush(Color.FromRgb(0x9A, 0xA3, 0xAF));
-    private static readonly Brush Accent = new SolidColorBrush(Color.FromRgb(0x6E, 0xB6, 0xFF));
+    private static Brush Ink => ThemeManager.Ink;
+    private static Brush Dim => ThemeManager.Dim;
+    private static Brush Accent => ThemeManager.Accent;
 
     private readonly Bom _bom;
     private readonly string _scope;
@@ -29,7 +29,7 @@ public sealed class MaterialsReportWindow : Window
         Title = "Bill of Materials";
         Width = 460; Height = 720;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.FromRgb(0x23, 0x26, 0x2C));
+        Background = ThemeManager.WindowBg;
 
         var body = new StackPanel { Margin = new Thickness(18) };
 

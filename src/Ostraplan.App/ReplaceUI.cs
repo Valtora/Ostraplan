@@ -14,9 +14,9 @@ namespace Ostraplan.App;
 /// </summary>
 public sealed class ReplacePickerDialog : Window
 {
-    private static readonly Brush Ink = new SolidColorBrush(Color.FromRgb(0xD8, 0xDD, 0xE4));
-    private static readonly Brush Dim = new SolidColorBrush(Color.FromRgb(0x9A, 0xA3, 0xAF));
-    private static readonly Brush FieldBg = new SolidColorBrush(Color.FromRgb(0x1C, 0x1E, 0x23));
+    private static Brush Ink => ThemeManager.Ink;
+    private static Brush Dim => ThemeManager.Dim;
+    private static Brush FieldBg => ThemeManager.FieldBg;
 
     private readonly ListBox _list;
     private readonly IReadOnlyList<PartVM> _all;
@@ -30,7 +30,7 @@ public sealed class ReplacePickerDialog : Window
         Title = "Replace with…";
         Width = 460; Height = 620;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.FromRgb(0x23, 0x26, 0x2C));
+        Background = ThemeManager.WindowBg;
 
         var root = new DockPanel { Margin = new Thickness(16) };
 
@@ -45,7 +45,7 @@ public sealed class ReplacePickerDialog : Window
         var search = new TextBox
         {
             Foreground = Ink, Background = FieldBg,
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x3F, 0x47)),
+            BorderBrush = ThemeManager.PanelBorder,
             Padding = new Thickness(5, 3, 5, 3), CaretBrush = Ink, Margin = new Thickness(0, 0, 0, 6),
         };
         search.TextChanged += (_, _) => Refresh(search.Text);

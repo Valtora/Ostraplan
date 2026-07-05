@@ -15,6 +15,9 @@ namespace Ostraplan.App;
 public partial class MainWindow : Window
 {
     private readonly AppSettings _settings = AppSettings.Load();
+    private bool _themeInit;   // suppress the theme combo's SelectionChanged during initial sync
+    private const string ReleasesUrl = "https://github.com/Valtora/Ostraplan/releases";
+    private string _updateUrl = ReleasesUrl;
     private readonly CommandStack _stack = new();
     private GameEnv? _env;
     private DataIndex? _index;
@@ -37,9 +40,15 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
+        // Reflect the saved theme in the picker (App.OnStartup already applied it). Guarded so the
+        // programmatic select doesn't re-apply/persist.
+        _themeInit = true;
+        CmbTheme.SelectedIndex = _settings.Theme switch { "light" => 1, "dark" => 2, _ => 0 };
+        _themeInit = false;
+
         Board.StrokeCommitted += OnStrokeCommitted;
         Board.MoveRequested += OnMoveRequested;
-        Board.SymmetryChanged += () => BtnSym.Content = "Sym: " + Board.SymMode switch
+        Board.SymmetryChanged += () => BtnSym.Content = "Symmetry: " + Board.SymMode switch
         {
             SymmetryMode.Vertical => "V",
             SymmetryMode.Horizontal => "H",
@@ -134,7 +143,7 @@ public partial class MainWindow : Window
         else
         {
             TxtVersion.Text = $"Game {v} — Law verified against {GameEnv.VerifiedGameVersion}";
-            TxtVersion.Foreground = new SolidColorBrush(Color.FromRgb(0xE0, 0xA3, 0x4E));
+            TxtVersion.SetResourceReference(TextBlock.ForegroundProperty, "Warn");   // tracks the theme
         }
 
         var warnings = index.Warnings.Concat(catalog.Warnings).ToList();
@@ -386,12 +395,12 @@ public partial class MainWindow : Window
             ProblemsPanel.Children.Add(new TextBlock
             {
                 Text = "None found.",
-                Foreground = new SolidColorBrush(Color.FromRgb(0x8A, 0xC9, 0x8A)),
+                Foreground = ThemeManager.Good,
             });
             ProblemsPanel.Children.Add(new TextBlock
             {
-                Text = "Placement law is enforced live. Room, airtightness and certification checks arrive with the P2 law milestone.",
-                Foreground = new SolidColorBrush(Color.FromRgb(0x77, 0x7E, 0x88)),
+                Text = "Placement legality is checked live. Run Ship Rating for the full room, airtightness and certification report.",
+                Foreground = ThemeManager.Dim,
                 FontSize = 11,
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 3, 0, 0),
@@ -404,9 +413,7 @@ public partial class MainWindow : Window
             ProblemsPanel.Children.Add(new TextBlock
             {
                 Text = "●  " + problem.Title,
-                Foreground = new SolidColorBrush(problem.Severity == ProblemSeverity.Blocking
-                    ? Color.FromRgb(0xE0, 0x5B, 0x5B)
-                    : Color.FromRgb(0xE0, 0xA3, 0x4E)),
+                Foreground = problem.Severity == ProblemSeverity.Blocking ? ThemeManager.Bad : ThemeManager.Warn,
                 ToolTip = new ToolTip { Content = new TextBlock { Text = problem.Detail, MaxWidth = 380, TextWrapping = TextWrapping.Wrap } },
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 1, 0, 1),
@@ -1237,6 +1244,21 @@ public partial class MainWindow : Window
     private void OnFitClick(object sender, RoutedEventArgs e) => Board.FitContent();
     private void OnSymClick(object sender, RoutedEventArgs e) => Board.CycleSymmetry();
     private void OnHelpClick(object sender, RoutedEventArgs e) => ShowHelp();
+
+    /// <summary>Theme picker: apply and persist. DynamicResource + Fluent ThemeMode retint the chrome live.</summary>
+    private void OnThemeModeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_themeInit) return;
+        var mode = CmbTheme.SelectedIndex switch { 1 => "light", 2 => "dark", _ => "system" };
+        _settings.Theme = mode;
+        _settings.Save();
+        ThemeManager.Apply(mode);
+    }
+
+    // The update button stays hidden until an update check finds a newer release (wired below);
+    // clicking it opens the download page.
+    private void OnUpdateClick(object sender, RoutedEventArgs e) =>
+        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(_updateUrl) { UseShellExecute = true });
 
     // ---- help ----
 

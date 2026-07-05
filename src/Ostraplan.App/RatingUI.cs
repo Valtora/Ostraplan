@@ -19,10 +19,10 @@ public sealed class RatingProgressDialog : Window
         WindowStyle = WindowStyle.ToolWindow;
         ResizeMode = ResizeMode.NoResize;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.FromRgb(0x23, 0x26, 0x2C));
+        Background = ThemeManager.WindowBg;
 
-        _status = new TextBlock { Foreground = new SolidColorBrush(Color.FromRgb(0xD8, 0xDD, 0xE4)), Margin = new Thickness(0, 0, 0, 10), Text = "Analysing…" };
-        _bar = new ProgressBar { Minimum = 0, Maximum = 1, Height = 18, Foreground = new SolidColorBrush(Color.FromRgb(0x4E, 0xA6, 0xFF)) };
+        _status = new TextBlock { Foreground = ThemeManager.Ink, Margin = new Thickness(0, 0, 0, 10), Text = "Analysing…" };
+        _bar = new ProgressBar { Minimum = 0, Maximum = 1, Height = 18, Foreground = ThemeManager.Accent };
         Content = new StackPanel { Margin = new Thickness(16), Children = { _status, _bar } };
     }
 
@@ -40,17 +40,17 @@ public sealed class RatingProgressDialog : Window
 /// </summary>
 public sealed class RatingReportWindow : Window
 {
-    private static readonly Brush Ink = new SolidColorBrush(Color.FromRgb(0xD8, 0xDD, 0xE4));
-    private static readonly Brush Dim = new SolidColorBrush(Color.FromRgb(0x9A, 0xA3, 0xAF));
-    private static readonly Brush Accent = new SolidColorBrush(Color.FromRgb(0x6E, 0xB6, 0xFF));
-    private static readonly Brush Warn = new SolidColorBrush(Color.FromRgb(0xE0, 0xA3, 0x4E));
+    private static Brush Ink => ThemeManager.Ink;
+    private static Brush Dim => ThemeManager.Dim;
+    private static Brush Accent => ThemeManager.Accent;
+    private static Brush Warn => ThemeManager.Warn;
 
     public RatingReportWindow(AnalysisReport report, Action<IReadOnlyList<(int X, int Y)>> highlightLeak)
     {
         Title = "Ship Rating";
         Width = 460; Height = 720;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = new SolidColorBrush(Color.FromRgb(0x23, 0x26, 0x2C));
+        Background = ThemeManager.WindowBg;
 
         var body = new StackPanel { Margin = new Thickness(18) };
 
@@ -103,7 +103,7 @@ public sealed class RatingReportWindow : Window
                 var breach = b;
                 var n = breach.Tiles.Count;
                 var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3) };
-                var show = new Button { Content = "Show", Padding = new Thickness(8, 1, 8, 1), Foreground = Brushes.Black, VerticalAlignment = VerticalAlignment.Top };
+                var show = new Button { Content = "Show", Padding = new Thickness(8, 1, 8, 1), VerticalAlignment = VerticalAlignment.Top };
                 showButtons.Add(show);
                 show.Click += (_, _) =>
                 {

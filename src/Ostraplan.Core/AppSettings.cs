@@ -8,6 +8,7 @@ namespace Ostraplan.Core;
 public sealed class AppSettings
 {
     [JsonPropertyName("gameRootOverride")] public string? GameRootOverride { get; set; }
+    [JsonPropertyName("theme")] public string Theme { get; set; } = "system";   // "system" | "light" | "dark"
     [JsonPropertyName("recentFiles")] public List<string> RecentFiles { get; set; } = [];
     [JsonPropertyName("exportAuthor")] public string? ExportAuthor { get; set; }
     [JsonPropertyName("lastExportDir")] public string? LastExportDir { get; set; }

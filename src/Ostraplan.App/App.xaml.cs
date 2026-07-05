@@ -11,6 +11,10 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // Theme the chrome before the first window renders (Fluent ThemeMode + the app's own
+        // brushes). Read the saved preference; the canvas stays dark regardless (ThemeManager).
+        ThemeManager.Apply(AppSettings.Load().Theme);
+
         // publish self-test: create and show a native-backed window, then exit. This is
         // what catches single-file WPF native-library load failures (the reason
         // IncludeNativeLibrariesForSelfExtract is required) — a bin\Release run can't.

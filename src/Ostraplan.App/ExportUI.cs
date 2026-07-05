@@ -13,9 +13,9 @@ namespace Ostraplan.App;
 /// </summary>
 public sealed class ExportDialog : Window
 {
-    private static readonly Brush Ink = new SolidColorBrush(Color.FromRgb(0xD8, 0xDD, 0xE4));
-    private static readonly Brush Dim = new SolidColorBrush(Color.FromRgb(0x9A, 0xA3, 0xAF));
-    private static readonly Brush FieldBg = new SolidColorBrush(Color.FromRgb(0x1C, 0x1E, 0x23));
+    private static Brush Ink => ThemeManager.Ink;
+    private static Brush Dim => ThemeManager.Dim;
+    private static Brush FieldBg => ThemeManager.FieldBg;
 
     private readonly TextBox _name, _author, _version, _notes;
     private readonly RadioButton _toMods, _toFolder;
@@ -40,7 +40,7 @@ public sealed class ExportDialog : Window
         SizeToContent = SizeToContent.Height;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         ResizeMode = ResizeMode.NoResize;
-        Background = new SolidColorBrush(Color.FromRgb(0x23, 0x26, 0x2C));
+        Background = ThemeManager.WindowBg;
 
         var body = new StackPanel { Margin = new Thickness(18) };
 
@@ -121,7 +121,7 @@ public sealed class ExportDialog : Window
             Text = value,
             Foreground = Ink,
             Background = FieldBg,
-            BorderBrush = new SolidColorBrush(Color.FromRgb(0x3A, 0x3F, 0x47)),
+            BorderBrush = ThemeManager.PanelBorder,
             Padding = new Thickness(5, 3, 5, 3),
             CaretBrush = Ink,
         };

@@ -3,17 +3,29 @@
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Ostraplan.App"
         Title="Ostraplan" Width="1440" Height="920"
-        WindowStartupLocation="CenterScreen" Background="#FF23262C">
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource WindowBg}"
+        TextElement.Foreground="{DynamicResource Ink}">
     <Window.Resources>
         <Style x:Key="SideHeader" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#FF9AA3AF"/>
+            <Setter Property="Foreground" Value="{DynamicResource Dim}"/>
             <Setter Property="FontSize" Value="11"/>
             <Setter Property="FontWeight" Value="Bold"/>
             <Setter Property="Margin" Value="0,10,0,4"/>
         </Style>
         <Style x:Key="SideValue" TargetType="TextBlock">
-            <Setter Property="Foreground" Value="#FFD8DDE4"/>
+            <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
             <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <!-- Toolbar group separator -->
+        <Style x:Key="ToolSep" TargetType="Border">
+            <Setter Property="Width" Value="1"/>
+            <Setter Property="Margin" Value="7,3"/>
+            <Setter Property="Background" Value="{DynamicResource PanelBorder}"/>
+        </Style>
+        <Style x:Key="ToolBtn" TargetType="Button">
+            <Setter Property="Padding" Value="10,3"/>
+            <Setter Property="Margin" Value="0,0,3,0"/>
         </Style>
         <DataTemplate x:Key="PartTemplate">
             <Grid Margin="2">
@@ -21,7 +33,7 @@
                     <ColumnDefinition Width="46"/>
                     <ColumnDefinition/>
                 </Grid.ColumnDefinitions>
-                <Border Width="42" Height="42" Background="#33000000" CornerRadius="3">
+                <Border Width="42" Height="42" Background="#33808080" CornerRadius="3">
                     <Image Source="{Binding Thumb}" Stretch="Uniform" Margin="3"
                            RenderOptions.BitmapScalingMode="NearestNeighbor"/>
                 </Border>
@@ -34,65 +46,96 @@
     </Window.Resources>
 
     <DockPanel>
-        <Border DockPanel.Dock="Top" Background="#FF2B2F36" Padding="8,6">
+        <Border DockPanel.Dock="Top" Background="{DynamicResource PanelBg}" Padding="8,6">
             <DockPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
-                    <Button x:Name="BtnNew" Content="New" Padding="10,3" Margin="0,0,4,0" Click="OnNewClick"
+                    <!-- File -->
+                    <Button x:Name="BtnNew" Content="New" Style="{StaticResource ToolBtn}" Click="OnNewClick"
                             ToolTip="New ship (Ctrl+N) — starts with a docking port at 0,0"/>
-                    <Button x:Name="BtnOpen" Content="Open…" Padding="10,3" Margin="0,0,4,0" Click="OnOpenClick"
+                    <Button x:Name="BtnOpen" Content="Open…" Style="{StaticResource ToolBtn}" Click="OnOpenClick"
                             ToolTip="Open an .oplan design (Ctrl+O)"/>
-                    <Button x:Name="BtnSave" Content="Save" Padding="10,3" Margin="0,0,4,0" Click="OnSaveClick"
+                    <Button x:Name="BtnSave" Content="Save" Style="{StaticResource ToolBtn}" Click="OnSaveClick"
                             ToolTip="Save (Ctrl+S)"/>
-                    <Button x:Name="BtnSaveAs" Content="Save As…" Padding="10,3" Margin="0,0,4,0" Click="OnSaveAsClick"
+                    <Button x:Name="BtnSaveAs" Content="Save As…" Style="{StaticResource ToolBtn}" Click="OnSaveAsClick"
                             ToolTip="Save As (Ctrl+Shift+S)"/>
-                    <Button x:Name="BtnImport" Content="Import ▾" Padding="10,3" Margin="0,0,4,0" Click="OnImportClick"
-                            ToolTip="Start a design from an existing ship — a core/mod template or a save game"/>
-                    <Button x:Name="BtnExport" Content="Export…" Padding="10,3" Margin="0,0,4,0" Click="OnExportClick"
+                    <Button x:Name="BtnImport" Content="Import ▾" Style="{StaticResource ToolBtn}" Click="OnImportClick"
+                            ToolTip="Start a design from an existing ship — an in-game ship or a save game"/>
+                    <Button x:Name="BtnExport" Content="Export…" Style="{StaticResource ToolBtn}" Click="OnExportClick"
                             ToolTip="Export the design as a spawnable local data mod (data/ships) with precomputed rooms &amp; rating"/>
-                    <Button x:Name="BtnTheme" Content="Theme…" Padding="10,3" Margin="0,0,4,0" Click="OnThemeClick"
-                            ToolTip="Re-skin every wall and floor to a chosen style (sprites only — rooms &amp; rating are unaffected)"/>
-                    <Button x:Name="BtnSnapshot" Content="Snapshot…" Padding="10,3" Margin="0,0,12,0" Click="OnSnapshotClick"
-                            ToolTip="Save a PNG image of the ship (no grid or UI) to share or reference"/>
-                    <Button x:Name="BtnUndo" Content="Undo" Padding="10,3" Margin="0,0,4,0" Click="OnUndoClick"
+
+                    <Border Style="{StaticResource ToolSep}"/>
+
+                    <!-- Edit -->
+                    <Button x:Name="BtnUndo" Content="Undo" Style="{StaticResource ToolBtn}" Click="OnUndoClick"
                             ToolTip="Undo (Ctrl+Z)"/>
-                    <Button x:Name="BtnRedo" Content="Redo" Padding="10,3" Margin="0,0,12,0" Click="OnRedoClick"
+                    <Button x:Name="BtnRedo" Content="Redo" Style="{StaticResource ToolBtn}" Click="OnRedoClick"
                             ToolTip="Redo (Ctrl+Y)"/>
-                    <Button x:Name="BtnFit" Content="Fit" Padding="10,3" Click="OnFitClick"
-                            ToolTip="Fit the view to the ship (F)"/>
-                    <Button x:Name="BtnSym" Content="Sym: Off" Padding="10,3" Margin="12,0,0,0" Click="OnSymClick"
-                            ToolTip="Cycle symmetry: Off → Vertical → Horizontal → Both (M). Axes centre on the tile under the cursor when switching on."/>
-                    <Button x:Name="BtnRating" Content="Ship Rating" Padding="10,3" Margin="12,0,0,0" Click="OnShipRatingClick"
-                            Background="#FF3A5A82" Foreground="#FFEAF2FB"
+
+                    <Border Style="{StaticResource ToolSep}"/>
+
+                    <!-- Design -->
+                    <Button x:Name="BtnTheme" Content="Ship Re-skin…" Style="{StaticResource ToolBtn}" Click="OnThemeClick"
+                            ToolTip="Re-skin every wall and floor to a chosen style (sprites only — rooms &amp; rating are unaffected)"/>
+                    <Button x:Name="BtnSnapshot" Content="Snapshot…" Style="{StaticResource ToolBtn}" Click="OnSnapshotClick"
+                            ToolTip="Save a PNG image of the ship (no grid or UI) to share or reference"/>
+
+                    <Border Style="{StaticResource ToolSep}"/>
+
+                    <!-- Analyse -->
+                    <Button x:Name="BtnRating" Content="Ship Rating" Style="{StaticResource ToolBtn}" Click="OnShipRatingClick"
+                            Background="{DynamicResource AccentBg}" Foreground="{DynamicResource AccentText}"
                             ToolTip="Analyse rooms, airtightness, certification and the Ship Rating for the current design"/>
-                    <Button x:Name="BtnMaterials" Content="Materials…" Padding="10,3" Margin="4,0,0,0" Click="OnMaterialsClick"
+                    <Button x:Name="BtnMaterials" Content="Bill of Materials" Style="{StaticResource ToolBtn}" Click="OnMaterialsClick"
                             ToolTip="Bill of materials — how many install kits of each part the design needs (whole ship, or the current selection)"/>
+
+                    <Border Style="{StaticResource ToolSep}"/>
+
+                    <!-- View -->
+                    <Button x:Name="BtnFit" Content="Fit" Style="{StaticResource ToolBtn}" Click="OnFitClick"
+                            ToolTip="Fit the view to the ship (F)"/>
+                    <Button x:Name="BtnSym" Content="Symmetry: Off" Style="{StaticResource ToolBtn}" Click="OnSymClick"
+                            ToolTip="Cycle symmetry: Off → Vertical → Horizontal → Both (M). Axes centre on the tile under the cursor when switching on."/>
                 </StackPanel>
-                <Button x:Name="BtnHelp" Content="Help" DockPanel.Dock="Right" Padding="10,3" Margin="12,0,0,0"
+
+                <!-- Right side (added right-to-left) -->
+                <Button x:Name="BtnHelp" Content="Help" DockPanel.Dock="Right" Padding="10,3" Margin="6,0,0,0"
                         Click="OnHelpClick" ToolTip="Controls &amp; keybinds (F1)"/>
+                <ComboBox x:Name="CmbTheme" DockPanel.Dock="Right" Width="122" Margin="6,0,0,0"
+                          VerticalAlignment="Center" SelectionChanged="OnThemeModeChanged"
+                          ToolTip="App appearance: follow Windows, or force light/dark (the ship canvas stays dark either way)">
+                    <ComboBoxItem Content="Theme: System"/>
+                    <ComboBoxItem Content="Theme: Light"/>
+                    <ComboBoxItem Content="Theme: Dark"/>
+                </ComboBox>
+                <Button x:Name="BtnUpdate" DockPanel.Dock="Right" Padding="10,3" Margin="6,0,0,0"
+                        Visibility="Collapsed" Click="OnUpdateClick"
+                        Background="{DynamicResource AccentBg}" Foreground="{DynamicResource AccentText}"
+                        ToolTip="A newer release is available — click to open the download page"/>
                 <TextBlock x:Name="TxtVersion" DockPanel.Dock="Right" VerticalAlignment="Center"
-                           Foreground="#FF9AA3AF" Margin="12,0,0,0"/>
+                           Foreground="{DynamicResource Dim}" Margin="12,0,0,0"/>
                 <TextBlock x:Name="TxtWarnings" DockPanel.Dock="Right" VerticalAlignment="Center"
-                           Foreground="#FFE0A34E" Margin="12,0,0,0"/>
+                           Foreground="{DynamicResource Warn}" Margin="12,0,0,0"/>
                 <TextBlock x:Name="TxtDoc" VerticalAlignment="Center" HorizontalAlignment="Center"
-                           Foreground="#FFD8DDE4" FontWeight="SemiBold"/>
+                           Foreground="{DynamicResource Ink}" FontWeight="SemiBold"/>
             </DockPanel>
         </Border>
 
-        <StatusBar DockPanel.Dock="Bottom" Background="#FF2B2F36" Foreground="#FFB9C0C9">
+        <StatusBar DockPanel.Dock="Bottom" Background="{DynamicResource PanelBg}" Foreground="{DynamicResource Dim}">
             <StatusBarItem><TextBlock x:Name="TxtCell" Text="—" Width="110"/></StatusBarItem>
             <Separator/>
             <StatusBarItem><TextBlock x:Name="TxtZoom" Text="" Width="90"/></StatusBarItem>
             <Separator/>
             <StatusBarItem><TextBlock x:Name="TxtParts" Text=""/></StatusBarItem>
             <Separator/>
-            <StatusBarItem><TextBlock x:Name="TxtGhost" Text="" FontWeight="SemiBold" Foreground="#FFE0715B"/></StatusBarItem>
+            <StatusBarItem><TextBlock x:Name="TxtGhost" Text="" FontWeight="SemiBold" Foreground="{DynamicResource Bad}"/></StatusBarItem>
             <StatusBarItem HorizontalAlignment="Right">
                 <TextBlock x:Name="TxtHint" Opacity="0.7"
                            Text="drag paint · Shift+drag fill · Ctrl+Shift hollow · RMB menu · R rotate · Q/E view · M symmetry · WASD pan · F1 help"/>
             </StatusBarItem>
         </StatusBar>
 
-        <Border DockPanel.Dock="Left" Width="330" Background="#FF2B2F36" Padding="8">
+        <Border DockPanel.Dock="Left" Width="330" Background="{DynamicResource PanelBg}" Padding="8"
+                BorderBrush="{DynamicResource PanelBorder}" BorderThickness="0,0,1,0">
             <DockPanel>
                 <TextBox x:Name="TxtSearch" DockPanel.Dock="Top" Margin="0,0,0,6" Padding="4,3"
                          TextChanged="OnSearchChanged" ToolTip="Search parts by name"/>
@@ -100,11 +143,12 @@
             </DockPanel>
         </Border>
 
-        <Border DockPanel.Dock="Right" Width="270" Background="#FF2B2F36" Padding="12,8">
+        <Border DockPanel.Dock="Right" Width="270" Background="{DynamicResource PanelBg}" Padding="12,8"
+                BorderBrush="{DynamicResource PanelBorder}" BorderThickness="1,0,0,0">
             <StackPanel>
                 <TextBlock Text="PROBLEMS" Style="{StaticResource SideHeader}" Margin="0,0,0,4"/>
                 <StackPanel x:Name="ProblemsPanel"/>
-                <Separator Margin="0,10,0,0" Background="#FF3A3F47"/>
+                <Separator Margin="0,10,0,0" Background="{DynamicResource PanelBorder}"/>
                 <TextBlock Text="PART" Style="{StaticResource SideHeader}"/>
                 <TextBlock x:Name="InsFriendly" Style="{StaticResource SideValue}" FontSize="15" FontWeight="SemiBold" Text="—"/>
                 <TextBlock x:Name="InsInternal" Style="{StaticResource SideValue}" Opacity="0.6" FontSize="11"/>
