@@ -1264,62 +1264,76 @@ public partial class MainWindow : Window
 
     private void ShowHelp()
     {
-        (string Keys, string Does)[] rows =
+        (string Func, string Keys, string Note)[] rows =
         [
-            ("LMB (part armed)", "Place the part; keep dragging to paint it along the cursor"),
-            ("Shift + drag (part armed)", "Rubber-band a box and fill it with the part"),
-            ("Ctrl + Shift + drag (part armed)", "Hollow box: only the outline is placed — walls, in practice"),
-            ("LMB", "Select a part · Ctrl+click adds/removes · drag empty space to box-select"),
-            ("Double-click a part", "Flood-select every touching tile of the same type (for bulk delete/replace) · Ctrl+double-click adds the region"),
-            ("Drag selection", "Move the selected parts"),
-            ("RMB", "Context menu · \"Use as brush\" arms the part to keep drawing it · \"Replace with…\" swaps a same-kind selection (floors for floors, walls for walls) for a compatible part · on stacked tiles lists every layer so you can select the part underneath · after a box-select, \"Select only\" narrows to one layer (e.g. just the walls) to delete · \"Close/Open door\" flips a door's state · cancels placement while armed"),
-            ("R / Shift+R", "Rotate CW / CCW: the armed part, a single selected part in place, or a multi-part selection as a group about its centre (walls & floors move but auto-tile rather than turn)"),
-            ("M", "Cycle symmetry Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on"),
-            ("Del", "Delete the selection"),
-            ("Ctrl+C / Ctrl+V / Ctrl+D", "Copy / paste (at the cursor) / duplicate the selection"),
-            ("Esc", "Cancel placement, then clear selection"),
-            ("W A S D", "Pan the view (smooth while held)"),
-            ("Q / E", "Rotate the view CCW / CW, like in-game"),
-            ("MMB / Space + drag", "Pan the view"),
-            ("Mouse wheel", "Zoom (anchored at the cursor)"),
-            ("F", "Fit the view to the ship"),
-            ("Ctrl+Z / Ctrl+Y", "Undo / redo"),
-            ("Ctrl+N / Ctrl+O / Ctrl+S", "New / open / save (Ctrl+Shift+S = save as)"),
-            ("F1", "This window"),
+            ("Place / paint", "LMB", "With a part armed: place it; keep dragging to paint along the cursor."),
+            ("Box fill", "Shift + drag", "With a part armed: rubber-band a box and fill it with the part."),
+            ("Hollow box", "Ctrl + Shift + drag", "With a part armed: place only the outline — walls, in practice."),
+            ("Select", "LMB", "Select a part. Ctrl+click adds/removes; drag empty space to box-select."),
+            ("Flood-select", "Double-click", "Select every touching tile of the same type (bulk delete or re-skin). Ctrl+double-click adds the region."),
+            ("Move", "Drag selection", "Move the selected parts."),
+            ("Context menu", "RMB", "Use as brush · Replace with… · pick a buried layer on stacked tiles · Select only (after a box-select) · Close/Open door. Also cancels placement while armed."),
+            ("Rotate part", "R / Shift+R", "CW / CCW — the armed part, a selected part in place, or a whole selection about its centre (walls & floors auto-tile rather than turn)."),
+            ("Symmetry", "M", "Cycle Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on."),
+            ("Delete", "Del", "Delete the selection."),
+            ("Copy / paste / duplicate", "Ctrl+C / V / D", "Copy · paste at the cursor · duplicate the selection."),
+            ("Cancel", "Esc", "Cancel placement, then clear the selection."),
+            ("Pan", "W A S D", "Pan the view (smooth while held)."),
+            ("Pan (mouse)", "MMB / Space + drag", "Pan the view by dragging."),
+            ("Rotate view", "Q / E", "Rotate the plan view CCW / CW, like the in-game camera."),
+            ("Zoom", "Mouse wheel", "Zoom, anchored at the cursor."),
+            ("Fit to ship", "F", "Fit the view to the whole ship."),
+            ("Undo / redo", "Ctrl+Z / Ctrl+Y", "Undo · redo."),
+            ("New / open / save", "Ctrl+N / O / S", "New · open · save (Ctrl+Shift+S = Save As)."),
+            ("Help", "F1", "Open this window."),
         ];
 
         var grid = new Grid { Margin = new Thickness(18) };
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
-        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                   // Function
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });                   // Keybinding
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) }); // Note
+
+        TextBlock Cell(string text, Brush fg, int r, int c, bool wrap = false, bool bold = false, double? max = null)
+        {
+            var t = new TextBlock
+            {
+                Text = text, Foreground = fg, Margin = new Thickness(0, 4, 22, 4),
+                FontWeight = bold ? FontWeights.SemiBold : FontWeights.Normal,
+            };
+            if (wrap) t.TextWrapping = TextWrapping.Wrap;
+            if (max is { } m) t.MaxWidth = m;
+            Grid.SetRow(t, r);
+            Grid.SetColumn(t, c);
+            return t;
+        }
+
         var row = 0;
-        foreach (var (keys, does) in rows)
+        // column headers
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        grid.Children.Add(Cell("FUNCTION", ThemeManager.Dim, row, 0, bold: true));
+        grid.Children.Add(Cell("KEYBINDING", ThemeManager.Dim, row, 1, bold: true));
+        grid.Children.Add(Cell("WHAT IT DOES", ThemeManager.Dim, row, 2, bold: true));
+        row++;
+
+        var zebra = new SolidColorBrush(Color.FromArgb(0x14, 0x80, 0x80, 0x80));   // faint, reads on both themes
+        foreach (var (func, keys, note) in rows)
         {
             grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-            var k = new TextBlock
+            if (row % 2 == 0)   // shade alternate rows for scan-ability (behind the cells)
             {
-                Text = keys,
-                FontWeight = FontWeights.SemiBold,
-                Foreground = new SolidColorBrush(Color.FromRgb(0xD8, 0xA0, 0x3C)),
-                Margin = new Thickness(0, 3, 18, 3),
-            };
-            var d = new TextBlock
-            {
-                Text = does,
-                Foreground = new SolidColorBrush(Color.FromRgb(0xD8, 0xDD, 0xE4)),
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 3, 0, 3),
-                MaxWidth = 520,
-            };
-            Grid.SetRow(k, row);
-            Grid.SetRow(d, row);
-            Grid.SetColumn(d, 1);
-            grid.Children.Add(k);
-            grid.Children.Add(d);
+                var band = new System.Windows.Controls.Border { Background = zebra };
+                Grid.SetRow(band, row);
+                Grid.SetColumnSpan(band, 3);
+                grid.Children.Add(band);
+            }
+            grid.Children.Add(Cell(func, ThemeManager.Ink, row, 0, bold: true));
+            grid.Children.Add(Cell(keys, ThemeManager.KeyAccent, row, 1, bold: true));
+            grid.Children.Add(Cell(note, ThemeManager.Ink, row, 2, wrap: true, max: 460));
             row++;
         }
 
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
-        var note = new TextBlock
+        var footer = new TextBlock
         {
             Text = "The placement law is enforced: a part won't place where the game's own rules would refuse it. The ghost " +
                    "glows green when it fits and red when it can't, with the reason (e.g. \"needs a floor beneath\") in the " +
@@ -1328,14 +1342,14 @@ public partial class MainWindow : Window
                    "Airlock, fixed at the 0,0 origin — the game neither sells nor removes it, so Ostraplan seeds it locked " +
                    "(no move/rotate/delete). Red-striped areas are out of bounds: no construction beyond an airlock's mating " +
                    "face. Wall and floor sprites connect automatically.",
-            Foreground = new SolidColorBrush(Color.FromRgb(0x9A, 0xA3, 0xAF)),
+            Foreground = ThemeManager.Dim,
             TextWrapping = TextWrapping.Wrap,
-            MaxWidth = 660,
-            Margin = new Thickness(0, 12, 0, 0),
+            MaxWidth = 720,
+            Margin = new Thickness(0, 14, 0, 0),
         };
-        Grid.SetRow(note, row);
-        Grid.SetColumnSpan(note, 2);
-        grid.Children.Add(note);
+        Grid.SetRow(footer, row);
+        Grid.SetColumnSpan(footer, 3);
+        grid.Children.Add(footer);
 
         new Window
         {
@@ -1344,8 +1358,8 @@ public partial class MainWindow : Window
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             SizeToContent = SizeToContent.WidthAndHeight,
             ResizeMode = ResizeMode.NoResize,
-            Background = new SolidColorBrush(Color.FromRgb(0x23, 0x26, 0x2C)),
-            Content = new ScrollViewer { Content = grid, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 640 },
+            Background = ThemeManager.WindowBg,
+            Content = new ScrollViewer { Content = grid, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 680 },
         }.ShowDialog();
     }
 }
