@@ -37,6 +37,8 @@ public sealed class ShipCanvas : FrameworkElement
     private static readonly Brush HazardFill = Frozen(new SolidColorBrush(Color.FromArgb(0x66, 0xD6, 0x45, 0x45)));
     // the sub-floor reservation a part projects under walkable floor (the tanks' 7x7 ring vs their 3x3 body)
     private static readonly Brush SubfloorFill = Frozen(new SolidColorBrush(Color.FromArgb(0x33, 0x6A, 0x8E, 0xB8)));
+    private static readonly Brush LeakFill = Frozen(new SolidColorBrush(Color.FromArgb(0x77, 0x3F, 0xC8, 0xE0)));
+    private static readonly Pen LeakPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xC8, 0x5F, 0xE0, 0xF0)), 1));
     private static readonly Pen SubfloorPen = MakeSubfloorPen();
 
     private static T Frozen<T>(T freezable) where T : Freezable
@@ -106,6 +108,7 @@ public sealed class ShipCanvas : FrameworkElement
     private (int X, int Y)? _hoverCell;
     private readonly List<IDocCommand> _stroke = [];   // live placements of the current paint/fill stroke
     private IReadOnlyList<(int X, int Y)> _illegalCells = [];   // tiles of existing illegal placements (from ProblemScan)
+    private IReadOnlyList<(int X, int Y)> _leakCells = [];      // unsealed tiles of a leaking compartment (from the Ship Rating report)
     private string? _lastGhostReason;                          // dedupe GhostReasonChanged
 
     public event Action<IReadOnlyList<IDocCommand>>? StrokeCommitted;
@@ -154,6 +157,13 @@ public sealed class ShipCanvas : FrameworkElement
     public void SetIllegalCells(IReadOnlyList<(int X, int Y)> cells)
     {
         _illegalCells = cells;
+        InvalidateVisual();
+    }
+
+    /// <summary>Highlight the unsealed tiles of a leaking compartment (from the Ship Rating law report). Empty clears it.</summary>
+    public void SetLeakCells(IReadOnlyList<(int X, int Y)> cells)
+    {
+        _leakCells = cells;
         InvalidateVisual();
     }
 
@@ -655,6 +665,7 @@ public sealed class ShipCanvas : FrameworkElement
         }
 
         DrawIllegalCells(dc);
+        DrawLeakCells(dc);
         DrawOutOfBounds(dc, view);
         DrawOriginMarker(dc);
         if (SymMode != SymmetryMode.Off) DrawSymmetryAxes(dc, view);
@@ -740,6 +751,13 @@ public sealed class ShipCanvas : FrameworkElement
     {
         foreach (var (x, y) in _illegalCells)
             dc.DrawRectangle(HazardFill, null, CellRect(x, y, 1, 1));
+    }
+
+    /// <summary>Tint the unsealed tiles of a compartment the Ship Rating report flagged as leaking to space.</summary>
+    private void DrawLeakCells(DrawingContext dc)
+    {
+        foreach (var (x, y) in _leakCells)
+            dc.DrawRectangle(LeakFill, LeakPen, CellRect(x, y, 1, 1));
     }
 
     /// <summary>

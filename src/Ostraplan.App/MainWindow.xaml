@@ -53,6 +53,9 @@
                             ToolTip="Fit the view to the ship (F)"/>
                     <Button x:Name="BtnSym" Content="Sym: Off" Padding="10,3" Margin="12,0,0,0" Click="OnSymClick"
                             ToolTip="Cycle symmetry: Off → Vertical → Horizontal → Both (M). Axes centre on the tile under the cursor when switching on."/>
+                    <Button x:Name="BtnRating" Content="Ship Rating" Padding="10,3" Margin="12,0,0,0" Click="OnShipRatingClick"
+                            Background="#FF3A5A82" Foreground="#FFEAF2FB"
+                            ToolTip="Analyse rooms, airtightness, certification and the Ship Rating for the current design"/>
                 </StackPanel>
                 <Button x:Name="BtnHelp" Content="Help" DockPanel.Dock="Right" Padding="10,3" Margin="12,0,0,0"
                         Click="OnHelpClick" ToolTip="Controls &amp; keybinds (F1)"/>

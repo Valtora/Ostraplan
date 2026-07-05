@@ -21,6 +21,8 @@ public partial class MainWindow : Window
     private ShipDocument? _doc;
     private OplanMeta _meta = new();
     private bool _syncingPalette;
+    private IReadOnlyList<RoomSpecDef>? _roomSpecs;   // lazily loaded once for the Ship Rating analysis
+    private bool _analysing;
 
 
     public MainWindow()
@@ -231,9 +233,53 @@ public partial class MainWindow : Window
         var bounds = _doc?.Bounds();
         var dims = bounds is { } b ? $" · {b.MaxX - b.MinX + 1}×{b.MaxY - b.MinY + 1} tiles" : "";
         TxtParts.Text = $"{_doc?.Placements.Count ?? 0} parts{dims}";
+        Board.SetLeakCells([]);   // any Ship Rating leak highlight is stale once the design changes
         if (_doc is not null && _catalog is not null)
             UpdateProblems(ProblemScan.Scan(_doc, _catalog));
         RefreshChrome();
+    }
+
+    // ---- Ship Rating (rooms · airtightness · certification · rating) ----
+
+    private async void OnShipRatingClick(object sender, RoutedEventArgs e)
+    {
+        if (_analysing || _doc is null || _catalog is null || _index is null) return;
+        if (_doc.Placements.Count == 0)
+        {
+            MessageBox.Show(this, "Place some parts before running the Ship Rating.", "Ship Rating",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        _analysing = true;
+        BtnRating.IsEnabled = false;
+        _roomSpecs ??= RoomCertifier.LoadSpecs(_index);
+        var (doc, catalog, specs) = (_doc, _catalog, _roomSpecs);
+
+        var progress = new RatingProgressDialog { Owner = this };
+        var reporter = new Progress<(string Stage, double Frac)>(p => progress.Update(p.Stage, p.Frac));
+        AnalysisReport? report = null;
+        progress.Show();
+        try
+        {
+            report = await Task.Run(() => ShipAnalysis.AnalyzeDocument(doc, catalog, specs, reporter));
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "Analysis failed: " + ex.Message, "Ship Rating", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
+        finally
+        {
+            progress.Close();
+            BtnRating.IsEnabled = true;
+            _analysing = false;
+        }
+
+        if (report is not null)
+        {
+            Board.SetLeakCells([]);
+            new RatingReportWindow(report, cells => Board.SetLeakCells(cells)) { Owner = this }.ShowDialog();
+        }
     }
 
     private void UpdateProblems(List<Problem> problems)

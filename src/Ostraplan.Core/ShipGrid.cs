@@ -109,4 +109,47 @@ public sealed class ShipGrid
 
         return new ShipGrid(tmpl.NCols, tmpl.NRows, tmpl.VShipPosX, tmpl.VShipPosY, conds, parts);
     }
+
+    /// <summary>
+    /// Build an analysis grid from a live document. Placement X/Y are already top-left
+    /// tile coordinates, so this just offsets them to a 0-based grid with a one-tile
+    /// exterior margin (so the surrounding void room can form) and reuses each part's
+    /// resolved <see cref="PartDef"/>. The anchor is the footprint centre tile.
+    /// </summary>
+    public static ShipGrid FromDocument(ShipDocument doc, Catalog catalog)
+    {
+        if (doc.Bounds() is not { } b)
+            return new ShipGrid(1, 1, 0, 0, new TileConds(catalog), []);
+
+        const int pad = 1;
+        var originX = b.MinX - pad;
+        var originY = b.MinY - pad;
+        var nCols = (b.MaxX - b.MinX + 1) + 2 * pad;
+        var nRows = (b.MaxY - b.MinY + 1) + 2 * pad;
+
+        var conds = new TileConds(catalog);
+        var parts = new List<PlacedPart>();
+        foreach (var p in doc.Placements)
+        {
+            if (doc.Part(p) is not { } part) continue;
+            var gx = p.X - originX;
+            var gy = p.Y - originY;
+            conds.Apply(new Placement { DefName = p.DefName, X = gx, Y = gy, Rot = p.Rot }, part.Item, +1);
+
+            var (w, h) = GridMath.Size(part.Item.Width, part.Item.Height, p.Rot);
+            var ac = gx + w / 2;
+            var ar = gy + h / 2;
+            var anchorIndex = ac >= 0 && ac < nCols && ar >= 0 && ar < nRows ? ac + ar * nCols : -1;
+
+            var resolved = new ResolvedPart(part.DefName, part.Friendly, part.Item,
+                part.StartingConds, part.StartingCondValues, part.MapPoints);
+            parts.Add(new PlacedPart(resolved, p.Id.ToString(), 0, 0, p.Rot, gx, gy, anchorIndex));
+        }
+
+        // VShipPos doubles as the grid origin in document coords (position of tile 0,0)
+        return new ShipGrid(nCols, nRows, originX, originY, conds, parts);
+    }
+
+    /// <summary>Map a grid tile index back to document tile coords (grid origin = VShipPos).</summary>
+    public (int X, int Y) GridToDoc(int index) => (Col(index) + (int)VShipPosX, Row(index) + (int)VShipPosY);
 }
