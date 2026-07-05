@@ -1,6 +1,6 @@
 # Ostraplan — Edit-your-live-ship-in-a-save: scope & design
 
-**Status:** DRAFT for sign-off (2026-07-05). Investigation complete; **no code written yet.**
+**Status:** SCOPE LOCKED (2026-07-05) — investigation complete, all decisions settled (§1, §10); **no feature code written yet**, ready to start Phase 1 on the user's go-ahead.
 This scopes the feature requested after P3: *import your active ship from a save, redesign it out-of-game, and write it back into your playthrough — keeping crew, cargo, position and ship identity* — writing to a **copy** of the save (never the original).
 
 > This is a distinct, riskier feature from P3's **layout-only** import/export. Call it **P5 (Save Edit)**; P4 (QoL) stays next unless re-prioritised.
@@ -36,7 +36,7 @@ Editing your ship, then, is a **diff of the structural layout against the origin
 | **Kept** (unchanged) | same `OriginStrID`, same pose | original `aItems` entry **verbatim** (exact `fX/fY/fRotation`, `aCondOverrides`, `aGPMSettings`, `strID`) + its `aCOs` + any cargo subtree |
 | **Moved / rotated** | same `OriginStrID`, new pose | original entry with updated `fX/fY/fRotation`; keep `strID` + `aCOs` + cargo (cargo `fX/fY` shifted by the same delta) |
 | **New** (added in Ostraplan) | no `OriginStrID` | fresh `aItems` entry (fresh `strID`, def only) — **no** `aCOs`; the game defaults it |
-| **Deleted** | `OriginStrID` present in the original, absent now | drop the `aItems` entry, its `aCOs`, **and its contained cargo subtree** (reported) |
+| **Deleted** | `OriginStrID` present in the original, absent now | drop the `aItems` entry, its `aCOs`, **and its contained cargo subtree** — if that subtree holds cargo, warn + list + confirm before injecting (§10.1) |
 
 Everything **not** structural — `shipCO`, `objSS` (world position/velocity), `aCrew`, the crew's COs, `aDocked`, economy/physics caches, `origin`, `strRegID`, `aZones`, `aLog`, `commData` — is preserved **verbatim** from the original record. Only `aItems`, `aCOs` (filtered), `aRooms`, `aRating`, `nCols`, `nRows`, `vShipPos`, `dimensions` are rewritten.
 
@@ -59,7 +59,8 @@ This threads through undo/redo (poses already round-trip), the command stack, an
 4. **Rebuild `aCOs`**: keep every CO whose `strID` still exists after the diff (kept/moved parts, **all** non-structural COs — crew, loot-spawners — and surviving cargo); drop the rest. New parts contribute none.
 5. **Recompute** `aRooms`/`aRating` (the P2 engine) + `nCols`/`nRows`/`vShipPos`/`dimensions`, in the **original ship's coordinate frame** (kept items keep world-absolute `fX/fY`; the grid may grow to contain new parts).
 6. **Validate** (see §7). Abort with a clear report on any dangling reference.
-7. **Write to a COPY**: duplicate the save folder → `"<name> (Ostraplan)"`; inside the copied zip, replace **only** `ships/<RegID>.json`; leave `saveInfo.json`, portraits, the player CO record, and every other ship untouched. Produce a **change report** (N kept / M moved / A added / D deleted / C cargo items dropped).
+7. **Confirm cargo loss** (§10.1): if the diff drops any cargo (a deleted container's contents), present the consolidated warning — the cargo listed per container, the advice to empty it in-game first to keep it, and an explicit confirm/abort. No write happens without confirmation.
+8. **Write to a COPY**: duplicate the save folder → `"<name> (Ostraplan)"`; inside the copied zip, replace **only** `ships/<RegID>.json`; leave `saveInfo.json`, portraits, the player CO record, and every other ship untouched. Produce a **change report** (N kept / M moved / A added / D deleted / C cargo items dropped).
 
 ## 6. Coordinate & index care
 
@@ -78,7 +79,7 @@ This threads through undo/redo (poses already round-trip), the command stack, an
 | Risk | Mitigation |
 |---|---|
 | **Corrupting a live save** | Copy-only (never the original); full validation; change report; user loads the copy to verify. The original is one click away. |
-| Cargo in a **deleted** container | Dropped with the subtree; each dropped item named in the report (open decision §10.1). |
+| Cargo in a **deleted** container | Warn + list the cargo + advise emptying it in-game first; require explicit confirmation before it's dropped (§10.1). |
 | Crew/cargo standing on **deleted** floor | Crew reposition is the game's job on load; flag in the report. Deleting an occupied tile warns. |
 | A **moved** container's cargo | Shift contained `fX/fY` by the same delta; unit-tested. |
 | Grid **resize** vs `nDestTile`-style indices | Recompute from `fX/fY`; validate; keep the original grid size when only appending outside it if simpler. |
@@ -93,12 +94,12 @@ This threads through undo/redo (poses already round-trip), the command stack, an
 
 Each phase: tests green, `publish.ps1` smoke, its own commit; in-game verification is user-driven.
 
-## 10. Open decisions (for sign-off — recommendations first)
+## 10. Decisions (settled 2026-07-05)
 
-1. **Cargo in a deleted container** → **drop it and list each item in the report** *(recommended)* · block the delete until emptied · drop silently.
-2. **Edit scope for v1** → **full add/move/delete, with loud warnings when deleting occupied/containered parts** *(recommended)* · add/move only (no structural deletes) for the first cut.
-3. **Which ship** → **only the player's active ship** *(recommended)* · any ship in the save (stations/derelicts — more surface area, more risk).
-4. **Re-inject after reopening a `.oplan`** → **persist the source-save `RegID` so inject re-locates it** *(recommended)* · inject only in the same session as the import.
+1. **Cargo in a deleted container** → **interactive warn + confirm.** At inject, if any deleted part (or its descendants) holds cargo, show a consolidated warning that **lists the cargo per container**, states that injecting will delete it, and advises going **in-game to remove the cargo first** if they want to keep it. Require explicit confirmation to proceed with dropping it; otherwise abort so they can empty it in-game and re-import.
+2. **Edit scope for v1** → **full add / move / delete**, with the loud delete-cargo warning above; deleting an occupied/containered part is allowed but always surfaced.
+3. **Which ship** → **only the player's active ship** (found via the character record's `strShip`). Other ships in the save are out of scope for v1.
+4. **Re-inject after reopening a `.oplan`** → **persist the source-save `RegID` + save name**; inject re-locates the ship in the chosen save by `RegID`. A design whose source can't be re-located degrades to the P3 "export as new template" path, never a broken inject.
 
 ## 11. Definition of done
 
