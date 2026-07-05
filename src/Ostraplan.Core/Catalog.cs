@@ -13,6 +13,7 @@ public sealed record PartDef(
     string[] Inputs,
     string[] Tools,
     string[] StartingConds,  // the placed condowner's aStartingConds cond names
+    IReadOnlyDictionary<string, double> StartingCondValues,  // name -> value (StatMass, StatThrustStrength, ...)
     IReadOnlyDictionary<string, (double X, double Y)> MapPoints);  // condowner mapPoints (DockA/DockB, RoomA/B, ...)
 
 /// <summary>
@@ -150,6 +151,7 @@ public sealed class Catalog
             parts[inst.StartInstall] = new PartDef(
                 inst.StartInstall, friendly, inst.BuildType, itemOrigin, item, sprite, inst.Inputs, inst.Tools,
                 co?.StartingCondNames ?? [],
+                co?.StartingCondValues ?? new Dictionary<string, double>(),
                 co?.MapPoints ?? new Dictionary<string, (double, double)>());
         }
 
@@ -167,6 +169,7 @@ public sealed class Catalog
                 index.ResolveImage(primaryItem.Img),
                 [], [],
                 primaryCo?.StartingCondNames ?? [],
+                primaryCo?.StartingCondValues ?? new Dictionary<string, double>(),
                 primaryCo?.MapPoints ?? new Dictionary<string, (double, double)>());
         }
 

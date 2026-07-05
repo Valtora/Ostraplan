@@ -92,7 +92,7 @@ public class RenderSmokeTests
         if (TestData.Game is not { } g) return;
         var def = ItemDef.Parse(g.Index.Type("items")["ItmCanisterLH02"].El);
         var part = new PartDef("ItmCanisterLH02", "D2O Tank", "POWR", "core", def,
-            g.Index.ResolveImage(def.Img), [], [], [], new Dictionary<string, (double, double)>());
+            g.Index.ResolveImage(def.Img), [], [], [], new Dictionary<string, double>(), new Dictionary<string, (double, double)>());
 
         Assert.Equal((7, 7), (part.Item.Width, part.Item.Height));   // socket/placement footprint
         Assert.Equal((3, 3), new SpriteCache().SpriteTiles(part));   // 48x48 sprite -> drawn 3x3, centered

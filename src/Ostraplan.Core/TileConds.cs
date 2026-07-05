@@ -74,5 +74,8 @@ public sealed class TileConds
     public IReadOnlyDictionary<string, double>? At(int x, int y) =>
         _tiles.GetValueOrDefault((x, y));
 
+    /// <summary>Every tile that currently carries at least one condition.</summary>
+    public IEnumerable<(int X, int Y)> Cells => _tiles.Keys;
+
     public void Clear() => _tiles.Clear();
 }

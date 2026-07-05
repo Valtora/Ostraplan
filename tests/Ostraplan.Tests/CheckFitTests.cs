@@ -41,7 +41,7 @@ public class CheckFitTests
     private static PartDef Part(string name, int w, string[] adds, string[] reqs, string[] forbids) => new(
         name, name, "HULL", "core",
         new ItemDef(name, "", false, null, 0, w, adds, reqs, forbids),
-        null, [], [], [], new Dictionary<string, (double, double)>());
+        null, [], [], [], new Dictionary<string, double>(), new Dictionary<string, (double, double)>());
 
     private static Catalog Cat(params PartDef[] parts) => new()
     {
@@ -136,6 +136,7 @@ public class CheckFitTests
         var dock = new PartDef("Dock", "Dock", "HULL", "core",
             new ItemDef("Dock", "", false, null, 0, 7, [.. Enumerable.Repeat("FloorAdds", 14)], [], []),
             null, [], [], ["IsDockSys", "IsInstalled"],
+            new Dictionary<string, double>(),
             new Dictionary<string, (double, double)> { ["DockA"] = (0, 8), ["DockB"] = (0, 24) });
         var cat = new Catalog
         {

@@ -12,6 +12,7 @@ public class ProblemScanTests
         new ItemDef("Dock", "", false, null, 0, 7, [.. Enumerable.Repeat("L", 14)], [], []),
         null, [], [],
         ["IsDockSys", "IsInstalled"],
+        new Dictionary<string, double>(),
         new Dictionary<string, (double, double)> { ["DockA"] = (0, 8), ["DockB"] = (0, 24) });
 
     private static PartDef Floor() => new(
@@ -19,6 +20,7 @@ public class ProblemScanTests
         new ItemDef("Floor", "", false, null, 0, 1, ["L"], [], []),
         null, [], [],
         ["IsInstalled"],   // installed, but NOT a docking port
+        new Dictionary<string, double>(),
         new Dictionary<string, (double, double)>());
 
     private static Catalog Cat() => new()
@@ -119,13 +121,13 @@ public class ProblemScanTests
         "Fix", "Bunk", "FURN", "core",
         new ItemDef("Fix", "", false, null, 0, 1, ["FixAdds"],
             [B, B, B, B, "Floor", B, B, B, B], [B, B, B, B, B, B, B, B, B]),
-        null, [], [], [], new Dictionary<string, (double, double)>());
+        null, [], [], [], new Dictionary<string, double>(), new Dictionary<string, (double, double)>());
 
     // 1x1 sealed floor: no requirements
     private static PartDef FloorTile() => new(
         "FloorTile", "Floor", "HULL", "core",
         new ItemDef("FloorTile", "", false, null, 0, 1, ["Floor"], [B, B, B, B, B, B, B, B, B], [B, B, B, B, B, B, B, B, B]),
-        null, [], [], [], new Dictionary<string, (double, double)>());
+        null, [], [], [], new Dictionary<string, double>(), new Dictionary<string, (double, double)>());
 
     private static Catalog FixtureCat() => new()
     {

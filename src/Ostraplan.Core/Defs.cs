@@ -50,14 +50,38 @@ public sealed record CoOverlayDef(string Name, string? NameFriendly, string? Img
 
 public sealed record CondOwnerDef(
     string Name, string? NameFriendly, string? ItemDefName, string[] StartingCondNames,
+    IReadOnlyDictionary<string, double> StartingCondValues,
     IReadOnlyDictionary<string, (double X, double Y)> MapPoints)
 {
-    public static CondOwnerDef Parse(JsonElement e) => new(
-        Json.Str(e, "strName") ?? "",
-        Json.Str(e, "strNameFriendly"),
-        Json.Str(e, "strItemDef"),
-        Json.StrArray(e, "aStartingConds").Select(LootDef.CondName).ToArray(),
-        ParseMapPoints(Json.StrArray(e, "mapPoints")));
+    public static CondOwnerDef Parse(JsonElement e)
+    {
+        var conds = Json.StrArray(e, "aStartingConds");
+        return new(
+            Json.Str(e, "strName") ?? "",
+            Json.Str(e, "strNameFriendly"),
+            Json.Str(e, "strItemDef"),
+            conds.Select(LootDef.CondName).ToArray(),
+            ParseCondValues(conds),
+            ParseMapPoints(Json.StrArray(e, "mapPoints")));
+    }
+
+    /// <summary>
+    /// "StatMass=125.0x1" -&gt; StatMass:125.0. The game's condition string is
+    /// "&lt;Cond&gt;=&lt;value&gt;x&lt;count&gt;"; the value is the amount GetCondAmount
+    /// returns (mass, thrust strength, …). A bare "IsFoo" with no "=" reads as 1.0
+    /// (present). Later entries win, matching the game's last-write accumulation.
+    /// </summary>
+    public static IReadOnlyDictionary<string, double> ParseCondValues(string[] entries)
+    {
+        var map = new Dictionary<string, double>(StringComparer.Ordinal);
+        foreach (var entry in entries)
+        {
+            var name = LootDef.CondName(entry);
+            if (name.Length == 0) continue;
+            map[name] = LootDef.CondValue(entry);
+        }
+        return map;
+    }
 
     /// <summary>"DockA,0,8" entries: name, x, y in pixels around the item centre, +y up.</summary>
     public static IReadOnlyDictionary<string, (double X, double Y)> ParseMapPoints(string[] entries)
@@ -106,6 +130,21 @@ public sealed record LootDef(string Name, string[] Conds, string[] Loots)
         var i = entry.IndexOf('=');
         return (i < 0 ? entry : entry[..i]).Trim();
     }
+
+    /// <summary>
+    /// "StatMass=125.0x1" -> 125.0 (the value between '=' and 'x'). A bare name with
+    /// no '=' reads as 1.0 (present). Ranges ("x4-6") take the low end; unparseable
+    /// values fall back to 1.0.
+    /// </summary>
+    public static double CondValue(string entry)
+    {
+        var eq = entry.IndexOf('=');
+        if (eq < 0) return 1.0;
+        var rest = entry[(eq + 1)..];
+        var x = rest.IndexOf('x');
+        var num = (x < 0 ? rest : rest[..x]).Trim();
+        return double.TryParse(num, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 1.0;
+    }
 }
 
 /// <summary>
@@ -133,6 +172,16 @@ internal static class Json
     public static int Int(JsonElement e, string name, int fallback = 0) =>
         e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i)
             ? i : fallback;
+
+    public static double Dbl(JsonElement e, string name, double fallback = 0) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetDouble(out var d)
+            ? d : fallback;
+
+    public static int[] IntArray(JsonElement e, string name) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
+            ? v.EnumerateArray().Where(x => x.ValueKind == JsonValueKind.Number && x.TryGetInt32(out _))
+                 .Select(x => x.GetInt32()).ToArray()
+            : [];
 
     public static string[] StrArray(JsonElement e, string name) =>
         e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Array
