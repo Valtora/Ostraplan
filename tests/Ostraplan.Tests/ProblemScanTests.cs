@@ -173,6 +173,8 @@ public class ProblemScanTests
             new Placement { DefName = "FloorTile", X = 3, Y = 10 },
             new Placement { DefName = "Fix", X = 3, Y = 10 });
 
-        Assert.Empty(ProblemScan.Scan(doc, cat));   // no socket breach, envelope clear, and it is constructible
+        // no legality breach — envelope clear, self-excluded, constructible. (A lone floor with no
+        // walls is legitimately "open to space", so an airtightness Warning is expected and allowed.)
+        Assert.DoesNotContain(ProblemScan.Scan(doc, cat), p => p.Severity == ProblemSeverity.Blocking);
     }
 }

@@ -87,22 +87,24 @@ public sealed class RatingReportWindow : Window
             .ToList(), null);
 
         // airtightness
-        var leaks = report.Leaks.OrderByDescending(r => r.TileCount).ToList();
+        var breaches = report.Breaches.OrderByDescending(b => b.Tiles.Count).ToList();
         body.Children.Add(Header("AIRTIGHTNESS"));
-        if (leaks.Count == 0)
+        if (breaches.Count == 0)
             body.Children.Add(new TextBlock { Text = "All compartments are sealed. ✓", Foreground = Ink, Margin = new Thickness(0, 2, 0, 8) });
         else
-            foreach (var leak in leaks)
+            foreach (var b in breaches)
             {
-                var unsealed = leak.LeakTiles.Count;
+                var n = b.Tiles.Count;
                 var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3) };
-                var show = new Button { Content = "Show", Padding = new Thickness(8, 1, 8, 1), Foreground = Ink };
-                show.Click += (_, _) => highlightLeak(leak.LeakTiles);
+                var show = new Button { Content = "Show", Padding = new Thickness(8, 1, 8, 1), Foreground = Brushes.Black };
+                show.Click += (_, _) => highlightLeak(b.Tiles);
                 DockPanel.SetDock(show, Dock.Right);
                 row.Children.Add(show);
                 row.Children.Add(new TextBlock
                 {
-                    Text = $"{leak.TileCount}-tile compartment open to space — {unsealed} unsealed tile{(unsealed == 1 ? "" : "s")}",
+                    Text = b.OpenToSpace
+                        ? $"{n} floor tile{(n == 1 ? "" : "s")} open to space — not enclosed by walls"
+                        : $"{b.RoomTileCount}-tile compartment — {n} unsealed tile{(n == 1 ? "" : "s")}",
                     Foreground = Warn, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center,
                 });
                 body.Children.Add(row);

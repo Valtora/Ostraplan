@@ -22,6 +22,7 @@ public static class ProblemScan
     public static List<Problem> Scan(ShipDocument doc, Catalog catalog)
     {
         var problems = new List<Problem>();
+        AddAirtightnessWarning(doc, catalog, problems);   // live, without pressing Ship Rating
         var ports = doc.Placements.Where(p => IsDocksys(doc.Part(p), catalog)).ToList();
 
         if (ports.Count == 0)
@@ -148,6 +149,27 @@ public static class ProblemScan
         if (conds.Contains("IsFloor") || conds.Contains("IsFloorSealed")) return 1;
         if (conds.Contains("IsWall") || conds.Contains("IsPortal")) return 2;
         return 3;
+    }
+
+    /// <summary>
+    /// A live warning (count only — the Ship Rating report has the tile-level detail and
+    /// highlight) when the design has compartments that aren't sealed: floor that isn't
+    /// enclosed by walls (open to space) or an enclosed room missing a sealed floor.
+    /// </summary>
+    private static void AddAirtightnessWarning(ShipDocument doc, Catalog catalog, List<Problem> problems)
+    {
+        var breaches = ShipAnalysis.Airtightness(doc, catalog);
+        if (breaches.Count == 0) return;
+
+        var open = breaches.Count(b => b.OpenToSpace);
+        var holes = breaches.Count - open;
+        var tiles = breaches.Sum(b => b.Tiles.Count);
+        var kinds = new List<string>();
+        if (open > 0) kinds.Add($"{open} open to space (not walled in)");
+        if (holes > 0) kinds.Add($"{holes} missing a sealed floor");
+        problems.Add(new Problem(ProblemSeverity.Warning,
+            $"{breaches.Count} unsealed compartment{(breaches.Count == 1 ? "" : "s")}",
+            $"{string.Join(", ", kinds)} — {tiles} tile{(tiles == 1 ? "" : "s")} in total. Run Ship Rating to see and highlight them."));
     }
 
     /// <summary>

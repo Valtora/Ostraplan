@@ -1,4 +1,5 @@
 using System.IO;
+using System.Linq;
 using System.Windows;
 using Ostraplan.Core;
 
@@ -9,6 +10,23 @@ public partial class App : Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+
+        // publish self-test: create and show a native-backed window, then exit. This is
+        // what catches single-file WPF native-library load failures (the reason
+        // IncludeNativeLibrariesForSelfExtract is required) — a bin\Release run can't.
+        if (e.Args.Contains("--smoke"))
+        {
+            var w = new Window
+            {
+                Width = 200, Height = 120, ShowInTaskbar = false,
+                WindowStartupLocation = WindowStartupLocation.Manual, Left = -10000, Top = -10000,
+            };
+            w.Show();
+            w.Close();
+            Shutdown(0);
+            return;
+        }
+
         DispatcherUnhandledException += (_, args) =>
         {
             try
@@ -22,5 +40,7 @@ public partial class App : Application
                 MessageBoxButton.OK, MessageBoxImage.Error);
             args.Handled = true;
         };
+
+        new MainWindow().Show();
     }
 }

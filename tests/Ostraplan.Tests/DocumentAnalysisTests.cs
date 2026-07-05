@@ -5,11 +5,14 @@ using Xunit;
 namespace Ostraplan.Tests;
 
 /// <summary>Exercises the live-document analysis path (ShipGrid.FromDocument + ShipAnalysis)
-/// that the template-based parity tests don't cover. No-ops without the install.</summary>
+/// and, in particular, the airtightness model — a compartment is sealed only when it is
+/// enclosed by walls AND fully floored. No-ops without the install.</summary>
 public class DocumentAnalysisTests
 {
-    // a 5×5 wall ring around a 3×3 sealed-floor interior
-    private static ShipDocument SealedRoom((GameEnv, DataIndex, Catalog) g, bool sealFully = true)
+    private enum Mode { Sealed, FloorHole, WallGap, FloorOnly }
+
+    // a 5×5 wall ring around a 3×3 floor interior, with a controllable defect
+    private static ShipDocument Build((GameEnv, DataIndex, Catalog) g, Mode mode)
     {
         var (_, _, catalog) = g;
         var doc = new ShipDocument(catalog);
@@ -18,42 +21,67 @@ public class DocumentAnalysisTests
         for (var x = 0; x < 5; x++)
             for (var y = 0; y < 5; y++)
             {
-                if (x is 0 or 4 || y is 0 or 4) Place("ItmWall1x1", x, y);   // perimeter wall
-                else if (sealFully || (x, y) != (2, 2)) Place("ItmFloorGrate01", x, y);   // interior floor (optionally leave (2,2) open)
+                var perimeter = x is 0 or 4 || y is 0 or 4;
+                if (perimeter)
+                {
+                    if (mode == Mode.FloorOnly) continue;               // no walls at all
+                    if (mode == Mode.WallGap && (x, y) == (0, 2)) continue;  // one wall missing on the left
+                    Place("ItmWall1x1", x, y);
+                }
+                else
+                {
+                    if (mode == Mode.FloorHole && (x, y) == (2, 2)) continue; // interior floor hole
+                    Place("ItmFloorGrate01", x, y);
+                }
             }
         return doc;
     }
 
+    private static AnalysisReport Analyse((GameEnv Env, DataIndex Index, Catalog Catalog) g, Mode mode) =>
+        ShipAnalysis.AnalyzeDocument(Build(g, mode), g.Catalog, RoomCertifier.LoadSpecs(g.Index));
+
+    private static bool Ready((GameEnv, DataIndex, Catalog)? g) =>
+        g is { } gg && gg.Item3.ByDefName.ContainsKey("ItmWall1x1") && gg.Item3.ByDefName.ContainsKey("ItmFloorGrate01");
+
     [Fact]
-    public void Sealed_interior_is_a_nonvoid_compartment_with_a_rating()
+    public void Sealed_interior_is_a_nonvoid_compartment_with_no_breaches()
     {
-        if (TestData.Game is not { } g) return;
-        if (!g.Catalog.ByDefName.ContainsKey("ItmWall1x1") || !g.Catalog.ByDefName.ContainsKey("ItmFloorGrate01")) return;
+        if (TestData.Game is not { } g || !Ready(g)) return;
+        var report = Analyse(g, Mode.Sealed);
 
-        var doc = SealedRoom(g);
-        var specs = RoomCertifier.LoadSpecs(g.Index);
-        var report = ShipAnalysis.AnalyzeDocument(doc, g.Catalog, specs);
-
-        // the 3×3 interior is one sealed (non-void) compartment; the exterior is a void/Outside room
-        Assert.Contains(report.Rooms, r => !r.Void && r.TileCount == 9);
-        Assert.Contains(report.Rooms, r => r.Outside);
-        Assert.Empty(report.Leaks);                       // nothing leaks — the interior is sealed
-        Assert.Equal("Small", report.Rating.Size);        // tiny footprint
-        Assert.Equal("A", report.Rating.Condition);       // pristine
+        Assert.Contains(report.Rooms, r => !r.Void && r.TileCount == 9);   // the enclosed 3×3
+        Assert.Contains(report.Rooms, r => r.Outside);                     // the exterior
+        Assert.Empty(report.Breaches);                                     // fully sealed
+        Assert.Equal("Small", report.Rating.Size);
+        Assert.Equal("A", report.Rating.Condition);
     }
 
     [Fact]
-    public void An_unsealed_interior_tile_is_reported_as_a_leak()
+    public void A_floor_hole_in_an_enclosed_room_is_an_unsealed_breach()
     {
-        if (TestData.Game is not { } g) return;
-        if (!g.Catalog.ByDefName.ContainsKey("ItmWall1x1") || !g.Catalog.ByDefName.ContainsKey("ItmFloorGrate01")) return;
+        if (TestData.Game is not { } g || !Ready(g)) return;
+        var breach = Assert.Single(Analyse(g, Mode.FloorHole).Breaches);
+        Assert.False(breach.OpenToSpace);                 // enclosed, just missing floor
+        Assert.Contains((2, 2), breach.Tiles);            // the hole is surfaced for the canvas highlight
+    }
 
-        var doc = SealedRoom(g, sealFully: false);         // interior (2,2) left without a sealed floor
-        var specs = RoomCertifier.LoadSpecs(g.Index);
-        var report = ShipAnalysis.AnalyzeDocument(doc, g.Catalog, specs);
+    [Fact]
+    public void A_wall_gap_makes_the_interior_open_to_space()
+    {
+        if (TestData.Game is not { } g || !Ready(g)) return;
+        var breach = Assert.Single(Analyse(g, Mode.WallGap).Breaches);
+        Assert.True(breach.OpenToSpace);                  // the interior escaped to the exterior through the gap
+        Assert.Equal(9, breach.Tiles.Count);              // all nine interior floor tiles are exposed
+    }
 
-        // the interior compartment is now void (its centre tile has no sealed floor) -> a leak
-        var leak = Assert.Single(report.Leaks);
-        Assert.NotEmpty(leak.LeakTiles);                   // the unsealed tile(s) are surfaced for the canvas highlight
+    [Fact]
+    public void Floor_with_no_walls_is_entirely_open_to_space()
+    {
+        if (TestData.Game is not { } g || !Ready(g)) return;
+        var report = Analyse(g, Mode.FloorOnly);
+        var breach = Assert.Single(report.Breaches);
+        Assert.True(breach.OpenToSpace);
+        Assert.Equal(9, breach.Tiles.Count);              // every floor tile is exposed — nothing is enclosed
+        Assert.DoesNotContain(report.Rooms, r => !r.Void);   // there is no sealed compartment at all
     }
 }

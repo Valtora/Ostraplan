@@ -23,6 +23,9 @@ public partial class MainWindow : Window
     private bool _syncingPalette;
     private IReadOnlyList<RoomSpecDef>? _roomSpecs;   // lazily loaded once for the Ship Rating analysis
     private bool _analysing;
+    private (int X, int Y)? _hoverCell;               // last hovered tile — the paste anchor
+    private List<(string Def, int X, int Y, int Rot)> _clip = [];   // copied selection, relative to its top-left
+    private (int X, int Y) _clipOrigin;               // the copied selection's original top-left (paste fallback)
 
 
     public MainWindow()
@@ -39,7 +42,7 @@ public partial class MainWindow : Window
             _ => "Off",
         };
         Board.SelectionChanged += UpdateInspector;
-        Board.HoverChanged += cell => TxtCell.Text = cell is { } c ? $"tile {c.X}, {c.Y}" : "—";
+        Board.HoverChanged += cell => { _hoverCell = cell; TxtCell.Text = cell is { } c ? $"tile {c.X}, {c.Y}" : "—"; };
         Board.ViewChanged += UpdateZoomText;
         Board.Disarmed += ClearPaletteSelection;
         Board.ContextMenuRequested += OnContextMenuRequested;
@@ -485,6 +488,33 @@ public partial class MainWindow : Window
         UpdateInspector();
     }
 
+    /// <summary>Copy the selection to an in-memory clipboard, stored relative to its top-left tile.</summary>
+    private void CopySelection()
+    {
+        if (_doc is null) return;
+        var selected = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
+        if (selected.Count == 0) return;
+        var minX = selected.Min(p => p.X);
+        var minY = selected.Min(p => p.Y);
+        _clipOrigin = (minX, minY);
+        _clip = selected.Select(p => (p.DefName, p.X - minX, p.Y - minY, p.Rot)).ToList();
+    }
+
+    /// <summary>Paste the clipboard at the hovered tile (else just off the original), selecting the copies.</summary>
+    private void PasteClipboard()
+    {
+        if (_doc is null || _clip.Count == 0) return;
+        var anchor = _hoverCell ?? (_clipOrigin.X + 1, _clipOrigin.Y + 1);
+        var clones = _clip
+            .Select(c => new Placement { DefName = c.Def, X = anchor.X + c.X, Y = anchor.Y + c.Y, Rot = c.Rot })
+            .ToList();
+        _stack.Push(_doc, new CompositeCommand(clones.Select(c => (IDocCommand)new PlaceCommand(c)).ToList()));
+        Board.SelectedIds.Clear();
+        foreach (var clone in clones) Board.SelectedIds.Add(clone.Id);
+        Board.InvalidateVisual();
+        UpdateInspector();
+    }
+
     private void OnContextMenuRequested((int X, int Y) cell)
     {
         if (_doc is null) return;
@@ -538,7 +568,9 @@ public partial class MainWindow : Window
         var suffix = unlocked.Count > 1 ? $" ({unlocked.Count})" : "";
 
         menu.Items.Add(new Separator());
-        menu.Items.Add(Item("Duplicate" + suffix, "", (_, _) => DuplicateSelection(), canAct));
+        menu.Items.Add(Item("Duplicate" + suffix, "Ctrl+D", (_, _) => DuplicateSelection(), canAct));
+        menu.Items.Add(Item("Copy" + suffix, "Ctrl+C", (_, _) => CopySelection(), canAct));
+        menu.Items.Add(Item("Paste", "Ctrl+V", (_, _) => PasteClipboard(), _clip.Count > 0));
         menu.Items.Add(Item("Rotate CW" + suffix, "R", (_, _) => RotateSelection(90), canRotate));
         menu.Items.Add(Item("Rotate CCW" + suffix, "Shift+R", (_, _) => RotateSelection(-90), canRotate));
         menu.Items.Add(new Separator());
@@ -563,6 +595,18 @@ public partial class MainWindow : Window
                 break;
             case Key.Delete:
                 DeleteSelection();
+                e.Handled = true;
+                break;
+            case Key.D when ctrl && !e.IsRepeat:   // duplicate in place, just off the original
+                DuplicateSelection();
+                e.Handled = true;
+                break;
+            case Key.C when ctrl && !e.IsRepeat:
+                CopySelection();
+                e.Handled = true;
+                break;
+            case Key.V when ctrl && !e.IsRepeat:
+                PasteClipboard();
                 e.Handled = true;
                 break;
             case Key.Escape:
@@ -703,6 +747,7 @@ public partial class MainWindow : Window
             ("R / Shift+R", "Rotate the armed part or the selection CW / CCW (walls & floors auto-tile instead)"),
             ("M", "Cycle symmetry Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on"),
             ("Del", "Delete the selection"),
+            ("Ctrl+C / Ctrl+V / Ctrl+D", "Copy / paste (at the cursor) / duplicate the selection"),
             ("Esc", "Cancel placement, then clear selection"),
             ("W A S D", "Pan the view (smooth while held)"),
             ("Q / E", "Rotate the view CCW / CW, like in-game"),

@@ -11,6 +11,7 @@ Out-of-game ship planner for **Ostranauts** (Blue Bottle Games). Drag-and-drop e
 ```powershell
 dotnet run --project src\Ostraplan.App     # launch (finds the game via Steam automatically)
 dotnet test                                # engine + live-game-data + render smoke tests
+.\publish.ps1                              # build publish\Ostraplan.exe — a single self-contained exe to double-click
 ```
 
 - Windows, WPF, .NET 10 (same stack as [Ostrasort](https://github.com/Valtora/Ostrasort)).
