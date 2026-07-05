@@ -10,10 +10,11 @@ public sealed record ShipFileEntry(string Name, string Origin, string Path);
 /// many tiles it dropped — surfaced so the user can enable the right mod and re-import.</summary>
 public sealed record SkippedDef(string DefName, int Count);
 
-/// <summary>The outcome of an import: the new document, unresolved defs, count of contained
-/// sub-objects dropped (cargo/tools — layout only), and the ship's name.</summary>
+/// <summary>The outcome of an import: the new document, unresolved defs, counts of dropped
+/// contained sub-objects (cargo/tools) and system objects (loot spawners), and the ship's name.</summary>
 public sealed record ImportResult(
-    ShipDocument Doc, IReadOnlyList<SkippedDef> Skipped, int ContainedDropped, string ShipName, int PartCount);
+    ShipDocument Doc, IReadOnlyList<SkippedDef> Skipped, int ContainedDropped, int SystemDropped,
+    string ShipName, int PartCount);
 
 /// <summary>
 /// Imports a game ship template (core or mod <c>data/ships/*.json</c>) into an editable document —
@@ -56,6 +57,7 @@ public static class TemplateImport
         var doc = new ShipDocument(catalog);
         var skipped = new Dictionary<string, int>(StringComparer.Ordinal);
         var contained = 0;
+        var systems = 0;
 
         using (doc.SuspendChanged())
         {
@@ -68,9 +70,16 @@ public static class TemplateImport
                     skipped[item.DefName] = skipped.GetValueOrDefault(item.DefName) + 1;
                     continue;
                 }
+                if (part.StartingConds.Contains("IsSystem"))   // loot spawners, fire, explosions — runtime, not structure
+                {
+                    systems++;
+                    continue;
+                }
                 var (col, row, rot) = ShipGrid.TemplateTile(
                     item.FX, item.FY, item.FRotation, part.Item.Width, part.Item.Height, tmpl.VShipPosX, tmpl.VShipPosY);
-                new PlaceCommand(new Placement { DefName = item.DefName, X = col, Y = row, Rot = rot }).Do(doc);
+                // imported structure is "given" — pre-existing, not user-authored, so the placement
+                // law (which the game applies only to new construction) doesn't re-validate it
+                new PlaceCommand(new Placement { DefName = item.DefName, X = col, Y = row, Rot = rot, IsGiven = true }).Do(doc);
             }
         }
 
@@ -78,7 +87,7 @@ public static class TemplateImport
             .Select(kv => new SkippedDef(kv.Key, kv.Value))
             .OrderByDescending(s => s.Count).ThenBy(s => s.DefName, StringComparer.Ordinal)
             .ToList();
-        return new ImportResult(doc, skippedList, contained, ShipName(tmpl), doc.Placements.Count);
+        return new ImportResult(doc, skippedList, contained, systems, ShipName(tmpl), doc.Placements.Count);
     }
 
     /// <summary>The friendliest name for an imported ship: its player-given <c>publicName</c>

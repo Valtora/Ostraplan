@@ -8,6 +8,15 @@ public sealed class Placement
     public int X { get; set; }
     public int Y { get; set; }
     public int Rot { get; set; }
+
+    /// <summary>
+    /// True for structure the user did not author — an imported ship's existing parts. The game
+    /// applies its placement law (Item.CheckFit sockets, the airlock envelope) only to <b>new</b>
+    /// construction, never re-validating what's already there; so given parts are exempt from the
+    /// legality scan (a valid imported ship must flag nothing). Cleared the moment the user moves or
+    /// rotates the part — an edit is new construction and is checked. Precursor to save-edit's origin id.
+    /// </summary>
+    public bool IsGiven { get; set; }
 }
 
 /// <summary>
@@ -144,6 +153,7 @@ public sealed class ShipDocument
         if (part is not null) Conds.Apply(p, part.Item, -1);
         p.X = x;
         p.Y = y;
+        p.IsGiven = false;   // moved = new construction; it's now the user's and gets validated
         if (part is not null) Conds.Apply(p, part.Item, +1);
         RaiseChanged();
     }
@@ -155,6 +165,7 @@ public sealed class ShipDocument
         p.X = x;
         p.Y = y;
         p.Rot = GridMath.Norm(rot);
+        p.IsGiven = false;
         if (part is not null) Conds.Apply(p, part.Item, +1);
         RaiseChanged();
     }

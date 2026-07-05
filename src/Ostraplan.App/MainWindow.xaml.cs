@@ -1015,6 +1015,8 @@ public partial class MainWindow : Window
         var notes = new List<string>();
         if (result.ContainedDropped > 0)
             notes.Add($"{result.ContainedDropped} contained item(s) — cargo, tools, installed modules — were dropped. Ostraplan imports the layout only.");
+        if (result.SystemDropped > 0)
+            notes.Add($"{result.SystemDropped} loot-spawner / system object(s) were dropped — they populate the ship at runtime and aren't buildable structure.");
         if (result.Skipped.Count > 0)
         {
             var names = string.Join("\n", result.Skipped.Take(12).Select(s => s.Count > 1 ? $"  {s.DefName} ×{s.Count}" : $"  {s.DefName}"));

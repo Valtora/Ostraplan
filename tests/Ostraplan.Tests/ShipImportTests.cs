@@ -125,4 +125,55 @@ public class ShipImportTests(ITestOutputHelper output)
         Assert.Equal("ItmDefinitelyNotARealDef_XYZ", skip.DefName);
         Assert.Equal(1, skip.Count);
     }
+
+    [Fact]
+    public void Imported_structure_is_given_and_a_valid_ship_flags_no_placement_law_problems()
+    {
+        // A real ship stacks parts (fixtures on floors, thrusters through walls) that the game
+        // built incrementally and never re-validates. Imported parts are "given" and exempt from
+        // the placement-law scan, so a valid ship must surface no socket / airlock false positives.
+        if (TestData.Game is not { } g) return;
+
+        var checkedShips = 0;
+        foreach (var (file, ship) in CoreShips(g.Env))
+        {
+            if (ParityTests.RoomExclusions.ContainsKey(file)) continue;
+            var r = TemplateImport.FromTemplate(ship, g.Catalog);
+            if (r.PartCount < 50) continue;   // a real ship with real stacking
+
+            Assert.All(r.Doc.Placements, p => Assert.True(p.IsGiven, $"{file}: an imported part isn't marked given"));
+
+            var falsePositives = ProblemScan.Scan(r.Doc, g.Catalog)
+                .Where(p => p.Title.Contains("occupied") || p.Title.Contains("blocked by") || p.Title.Contains("beyond the airlock"))
+                .ToList();
+            Assert.True(falsePositives.Count == 0,
+                $"{file}: {falsePositives.Count} placement-law false positive(s) on a valid ship: {string.Join("; ", falsePositives.Select(p => p.Title))}");
+
+            if (++checkedShips >= 10) break;
+        }
+        Assert.True(checkedShips > 0, "no core ships were checked");
+    }
+
+    [Fact]
+    public void System_objects_are_filtered_on_import()
+    {
+        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey("ItmWall1x1")) return;
+        if (g.Catalog.Lookup("SysLootSpawner") is null) return;   // needs the spawner def in this install
+
+        var tmpl = new ShipTemplate
+        {
+            Name = "Sys", Designation = null, NCols = 10, NRows = 10, VShipPosX = 0, VShipPosY = 0,
+            Items =
+            [
+                new TemplateItem("ItmWall1x1", 0, 0, 0, "a"),
+                new TemplateItem("SysLootSpawner", 1, 0, 0, "b"),   // IsSystem — a runtime loot spawner, not structure
+            ],
+            Rooms = [], Rating = [],
+        };
+
+        var r = TemplateImport.FromTemplate(tmpl, g.Catalog);
+        Assert.Equal(1, r.SystemDropped);   // the spawner
+        Assert.Equal(1, r.PartCount);       // just the wall
+        Assert.All(r.Doc.Placements, p => Assert.True(p.IsGiven));
+    }
 }

@@ -41,7 +41,7 @@ public sealed class OplanFile
                                 .ToList(),
             Meta = meta,
             Parts = doc.Placements
-                       .Select(p => new OplanPart { Def = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot })
+                       .Select(p => new OplanPart { Def = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot, Given = p.IsGiven })
                        .ToList(),
         };
         file.Meta.Modified = DateTime.UtcNow;
@@ -72,7 +72,7 @@ public sealed class OplanFile
                 missing.Add(part);
                 continue;
             }
-            doc.Add(new Placement { DefName = part.Def, X = part.X, Y = part.Y, Rot = GridMath.Norm(part.Rot) });
+            doc.Add(new Placement { DefName = part.Def, X = part.X, Y = part.Y, Rot = GridMath.Norm(part.Rot), IsGiven = part.Given });
         }
         return (doc, missing);
     }
@@ -108,5 +108,6 @@ public sealed class OplanPart
     [JsonPropertyName("x")] public int X { get; set; }
     [JsonPropertyName("y")] public int Y { get; set; }
     [JsonPropertyName("rot")] public int Rot { get; set; }
+    [JsonPropertyName("given")] public bool Given { get; set; }   // imported (pre-existing) structure — exempt from the placement-law scan
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }

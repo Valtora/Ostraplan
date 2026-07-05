@@ -42,6 +42,7 @@ public static class ProblemScan
             (int X, int Y)? sample = null;
             foreach (var q in doc.Placements)
             {
+                if (q.IsGiven) continue;   // the game bounds NEW construction, not existing hull (imported ships)
                 var (w, h) = doc.FootprintOf(q);
                 for (var r = 0; r < h; r++)
                     for (var c = 0; c < w; c++)
@@ -84,7 +85,7 @@ public static class ProblemScan
         var groups = new Dictionary<string, (List<(int, int)> Cells, List<string> Parts)>(StringComparer.Ordinal);
         foreach (var p in doc.Placements)
         {
-            if (doc.IsLocked(p)) continue;             // the seeded primary airlock isn't user-fixable
+            if (doc.IsLocked(p) || p.IsGiven) continue;   // seeded airlock isn't user-fixable; given (imported) structure isn't re-validated
             var part = doc.Part(p);
             if (part is null) continue;                // missing-def parts are surfaced by the open dialog
             var res = CheckFit.Check(doc, part, p.X, p.Y, p.Rot, self: p, includeEnvelope: false);
@@ -115,13 +116,14 @@ public static class ProblemScan
     private static void AddConstructibilityProblem(ShipDocument doc, List<Problem> problems)
     {
         var scratch = new ShipDocument(doc.Catalog);
-        // the primary airlock (and any locked part) is a ship given, not built: seed it
-        // first and unchecked so its conditions and mating face bound the sim throughout
-        foreach (var p in doc.Placements.Where(doc.IsLocked))
+        // ship givens (the locked airlock + all imported structure) are not built by the user:
+        // seed them first and unchecked so their conditions and mating face bound the sim. The
+        // sim then only tests whether the USER'S additions can be built onto that existing ship.
+        foreach (var p in doc.Placements.Where(p => doc.IsLocked(p) || p.IsGiven))
             scratch.Add(new Placement { DefName = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot });
 
         var ordered = doc.Placements
-            .Where(p => !doc.IsLocked(p) && doc.Part(p) is not null)
+            .Where(p => !doc.IsLocked(p) && !p.IsGiven && doc.Part(p) is not null)
             .OrderBy(p => BuildRank(doc.Catalog, doc.Part(p)!));
         foreach (var p in ordered)
         {
