@@ -45,6 +45,8 @@
                             ToolTip="Save (Ctrl+S)"/>
                     <Button x:Name="BtnSaveAs" Content="Save As…" Padding="10,3" Margin="0,0,4,0" Click="OnSaveAsClick"
                             ToolTip="Save As (Ctrl+Shift+S)"/>
+                    <Button x:Name="BtnImport" Content="Import ▾" Padding="10,3" Margin="0,0,4,0" Click="OnImportClick"
+                            ToolTip="Start a design from an existing ship — a core/mod template or a save game"/>
                     <Button x:Name="BtnExport" Content="Export…" Padding="10,3" Margin="0,0,12,0" Click="OnExportClick"
                             ToolTip="Export the design as a spawnable local data mod (data/ships) with precomputed rooms &amp; rating"/>
                     <Button x:Name="BtnUndo" Content="Undo" Padding="10,3" Margin="0,0,4,0" Click="OnUndoClick"

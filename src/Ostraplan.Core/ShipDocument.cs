@@ -65,7 +65,7 @@ public sealed class ShipDocument
 
     public IReadOnlyList<Placement> Placements => _placements;
 
-    public PartDef? Part(Placement p) => Catalog.ByDefName.GetValueOrDefault(p.DefName);
+    public PartDef? Part(Placement p) => Catalog.Lookup(p.DefName);
 
     /// <summary>The primary airlock is fixed to the ship: no move/rotate/delete/duplicate.</summary>
     public bool IsLocked(Placement p) => p.DefName == Catalog.PrimaryDocksysDef;

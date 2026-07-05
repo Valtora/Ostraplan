@@ -4,8 +4,12 @@ namespace Ostraplan.Core;
 
 /// <summary>One placed item in a saved ship: its condowner name, world centre
 /// (fX,fY), and rotation. Positions are the item transform's centre — see
-/// <see cref="ShipGrid"/> for the centre → top-left-tile conversion.</summary>
-public sealed record TemplateItem(string DefName, double FX, double FY, double FRotation, string? StrID);
+/// <see cref="ShipGrid"/> for the centre → top-left-tile conversion.
+/// <para><see cref="Contained"/> marks a sub-object held inside another item
+/// (<c>strParentID</c>) or slotted into it (<c>strSlotParentID</c>) — cargo, tools,
+/// installed modules. These are not laid on the grid (they carry no wall/floor conds);
+/// an import drops them (layout only).</para></summary>
+public sealed record TemplateItem(string DefName, double FX, double FY, double FRotation, string? StrID, bool Contained = false);
 
 /// <summary>A room as the game computed and baked it into the template: the tile
 /// indices it owns (row-major into nCols×nRows), its certified spec, and void flag.
@@ -66,8 +70,9 @@ public sealed class ShipTemplate
         {
             var def = Json.Str(it, "strName");
             if (string.IsNullOrEmpty(def)) continue;
+            var contained = Json.Str(it, "strParentID") is { Length: > 0 } || Json.Str(it, "strSlotParentID") is { Length: > 0 };
             items.Add(new TemplateItem(def!, Json.Dbl(it, "fX"), Json.Dbl(it, "fY"),
-                Json.Dbl(it, "fRotation"), Json.Str(it, "strID")));
+                Json.Dbl(it, "fRotation"), Json.Str(it, "strID"), contained));
         }
 
         var rooms = new List<StoredRoom>();

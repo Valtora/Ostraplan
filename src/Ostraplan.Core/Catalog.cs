@@ -39,6 +39,26 @@ public sealed class Catalog
     public required IReadOnlyDictionary<string, CondTriggerDef> Triggers { get; init; }
     public required List<string> Warnings { get; init; }
 
+    /// <summary>The effective data, kept so any <b>placed</b> def can be resolved on demand
+    /// (imports reference far more than the buildable menu). Null in synthetic test catalogs.</summary>
+    public DataIndex? Index { get; init; }
+
+    private readonly ConcurrentDictionary<string, PartDef?> _placed = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Resolve a placed def to its <see cref="PartDef"/> — a buildable palette entry if it is one,
+    /// otherwise resolved on demand from the effective data (raw hull, ship-special systems, tiles:
+    /// the non-buildable defs a template/save references). Non-buildable defs get category "—" and
+    /// stay out of the palette; they still render and analyse. Null only if no geometry exists at all
+    /// (a def whose mod isn't loaded). Cached; safe across threads.
+    /// </summary>
+    public PartDef? Lookup(string? defName)
+    {
+        if (string.IsNullOrEmpty(defName)) return null;
+        if (ByDefName.TryGetValue(defName, out var built)) return built;
+        return Index is null ? null : _placed.GetOrAdd(defName, d => ResolveDef(Index, d, "—", "imported", [], []));
+    }
+
     /// <summary>
     /// A loot's condition names — its own aCOs plus, recursively, nested aLoots,
     /// flattened. This is Loot.GetLootNames for the deterministic "Cond=1.0x1"
@@ -130,42 +150,16 @@ public sealed class Catalog
     {
         var warnings = new List<string>();
 
-        var items = index.Type("items").ToDictionary(kv => kv.Key, kv => ItemDef.Parse(kv.Value.El), StringComparer.Ordinal);
-        var owners = index.Type("condowners").ToDictionary(kv => kv.Key, kv => CondOwnerDef.Parse(kv.Value.El), StringComparer.Ordinal);
-        var overlays = index.Type("cooverlays").ToDictionary(kv => kv.Key, kv => CoOverlayDef.Parse(kv.Value.El), StringComparer.Ordinal);
         var loots = index.Type("loot").ToDictionary(kv => kv.Key, kv => LootDef.Parse(kv.Value.El), StringComparer.Ordinal);
         var trigs = index.Type("condtrigs").ToDictionary(kv => kv.Key, kv => CondTriggerDef.Parse(kv.Value.El), StringComparer.Ordinal);
 
-        // Resolve a placed def (strStartInstall or a toggled variant) the way the game
-        // does: strStartInstall names the placed CONDOWNER - directly, or via a cooverlay
-        // skin whose strCOBase is the real one (DataHandler.LoadCO's fallback). Geometry
-        // /sockets come from the base's item def; the overlay swaps the sprite and name.
+        // Resolve a buildable palette entry, warning when its sprite is missing on disk.
         PartDef? Resolve(string defName, string category, string fallbackOrigin, string[] inputs, string[] tools, bool warnMissingSprite)
         {
-            overlays.TryGetValue(defName, out var overlay);
-            var coName = string.IsNullOrWhiteSpace(overlay?.COBase) ? defName : overlay!.COBase!;
-            owners.TryGetValue(coName, out var co);
-            var itemName = string.IsNullOrWhiteSpace(co?.ItemDefName) ? coName : co!.ItemDefName!;
-            if (!items.TryGetValue(itemName, out var item)) return null;
-            if (!string.IsNullOrWhiteSpace(overlay?.Img))
-                item = item with { Img = overlay!.Img! };
-
-            var friendly =
-                !string.IsNullOrWhiteSpace(overlay?.NameFriendly) ? overlay!.NameFriendly! :
-                !string.IsNullOrWhiteSpace(co?.NameFriendly) ? co!.NameFriendly! :
-                defName;
-            var itemOrigin =
-                overlay is not null && index.Type("cooverlays").TryGetValue(defName, out var rawOv) ? rawOv.Origin :
-                index.Type("items").TryGetValue(itemName, out var raw) ? raw.Origin : fallbackOrigin;
-            var sprite = index.ResolveImage(item.Img);
-            if (sprite is null && warnMissingSprite)
-                warnings.Add($"No sprite on disk for '{defName}' (strImg '{item.Img}').");
-
-            return new PartDef(
-                defName, friendly, category, itemOrigin, item, sprite, inputs, tools,
-                co?.StartingCondNames ?? [],
-                co?.StartingCondValues ?? new Dictionary<string, double>(),
-                co?.MapPoints ?? new Dictionary<string, (double, double)>());
+            var part = ResolveDef(index, defName, category, fallbackOrigin, inputs, tools);
+            if (part is not null && part.SpriteAbs is null && warnMissingSprite)
+                warnings.Add($"No sprite on disk for '{defName}' (strImg '{part.Item.Img}').");
+            return part;
         }
 
         var parts = new Dictionary<string, PartDef>(StringComparer.Ordinal);
@@ -219,6 +213,49 @@ public sealed class Catalog
             Loots = loots,
             Triggers = trigs,
             Warnings = warnings,
+            Index = index,
         };
+    }
+
+    /// <summary>
+    /// Resolve a placed def to a <see cref="PartDef"/> the way the game's installer / loader does:
+    /// the name is a CONDOWNER (directly, or via a cooverlay skin whose <c>strCOBase</c> is the real
+    /// one — DataHandler.LoadCO's fallback), geometry/sockets come from that condowner's
+    /// <c>strItemDef</c>, and an overlay swaps the sprite + friendly name. Falls back to treating the
+    /// name itself as an item def (some ship parts place a raw item). Null if no geometry exists at all.
+    /// Shared by <see cref="Build"/> (buildable menu) and <see cref="Lookup"/> (any placed def).
+    /// </summary>
+    private static PartDef? ResolveDef(DataIndex index, string defName, string category, string fallbackOrigin, string[] inputs, string[] tools)
+    {
+        var overlays = index.Type("cooverlays");
+        var owners = index.Type("condowners");
+        var items = index.Type("items");
+
+        var overlay = overlays.TryGetValue(defName, out var ov) ? CoOverlayDef.Parse(ov.El) : null;
+        var coName = string.IsNullOrWhiteSpace(overlay?.COBase) ? defName : overlay!.COBase!;
+        var co = owners.TryGetValue(coName, out var rawCo) ? CondOwnerDef.Parse(rawCo.El) : null;
+        var itemName = string.IsNullOrWhiteSpace(co?.ItemDefName) ? coName : co!.ItemDefName!;
+
+        if (!items.TryGetValue(itemName, out var rawItem) && !items.TryGetValue(defName, out rawItem))
+            return null;   // no geometry (e.g. a modded def whose mod isn't loaded)
+
+        var item = ItemDef.Parse(rawItem.El);
+        if (!string.IsNullOrWhiteSpace(overlay?.Img))
+            item = item with { Img = overlay!.Img! };
+
+        var friendly =
+            !string.IsNullOrWhiteSpace(overlay?.NameFriendly) ? overlay!.NameFriendly! :
+            !string.IsNullOrWhiteSpace(co?.NameFriendly) ? co!.NameFriendly! :
+            defName;
+        var origin =
+            overlay is not null && overlays.TryGetValue(defName, out var rov) ? rov.Origin :
+            items.TryGetValue(itemName, out var ri) ? ri.Origin :
+            items.TryGetValue(defName, out var rd) ? rd.Origin : fallbackOrigin;
+
+        return new PartDef(
+            defName, friendly, category, origin, item, index.ResolveImage(item.Img), inputs, tools,
+            co?.StartingCondNames ?? [],
+            co?.StartingCondValues ?? new Dictionary<string, double>(),
+            co?.MapPoints ?? new Dictionary<string, (double, double)>());
     }
 }

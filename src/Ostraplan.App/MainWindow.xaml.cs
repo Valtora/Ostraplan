@@ -899,6 +899,87 @@ public partial class MainWindow : Window
             "Export complete", MessageBoxButton.OK, MessageBoxImage.Information);
     }
 
+    /// <summary>The Import menu: start a design from an existing ship (template now; save game in P3 slice 3).</summary>
+    private void OnImportClick(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = BtnImport, Placement = PlacementMode.Bottom };
+        var fromTemplate = new MenuItem { Header = "From ship template…" };
+        fromTemplate.Click += (_, _) => ImportTemplate();
+        menu.Items.Add(fromTemplate);
+        menu.IsOpen = true;
+    }
+
+    /// <summary>Browse core+mod ship templates and import the chosen one as a fresh design.</summary>
+    private async void ImportTemplate()
+    {
+        if (_catalog is null || _index is null || !ConfirmDiscardChanges()) return;
+
+        var ships = TemplateImport.ListShipFiles(_index);
+        if (ships.Count == 0)
+        {
+            MessageBox.Show(this, "No ship templates found in the game data or your mods.", "Import",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var browser = new TemplateBrowserDialog(ships) { Owner = this };
+        if (browser.ShowDialog() != true || browser.Selected is not { } entry) return;
+
+        var (catalog, path) = (_catalog, entry.Path);
+        ImportResult result;
+        Mouse.OverrideCursor = Cursors.Wait;
+        try
+        {
+            result = await Task.Run(() => TemplateImport.LoadFile(path, catalog));
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "Import failed:\n\n" + ex.Message, "Import", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        finally
+        {
+            Mouse.OverrideCursor = null;
+        }
+
+        InstallImportedDocument(result);
+    }
+
+    /// <summary>Swap an imported ship in as the active document (no file path — Save prompts Save As).</summary>
+    private void InstallImportedDocument(ImportResult result)
+    {
+        if (_doc is not null) _doc.Changed -= OnDocChanged;
+        _doc = result.Doc;
+        _doc.FilePath = null;
+        _doc.Changed += OnDocChanged;
+        _meta = new OplanMeta { Name = result.ShipName };
+        _stack.Reset();
+        Board.SetDocument(_doc);
+        Board.FitContent();
+        OnDocChanged();
+        UpdateInspector();
+        ReportImport(result);
+    }
+
+    /// <summary>Tell the user about anything the import dropped (contained cargo, unresolved defs). Silent on a clean import.</summary>
+    private void ReportImport(ImportResult result)
+    {
+        var notes = new List<string>();
+        if (result.ContainedDropped > 0)
+            notes.Add($"{result.ContainedDropped} contained item(s) — cargo, tools, installed modules — were dropped. Ostraplan imports the layout only.");
+        if (result.Skipped.Count > 0)
+        {
+            var names = string.Join("\n", result.Skipped.Take(12).Select(s => s.Count > 1 ? $"  {s.DefName} ×{s.Count}" : $"  {s.DefName}"));
+            var more = result.Skipped.Count > 12 ? $"\n  …and {result.Skipped.Count - 12} more" : "";
+            notes.Add($"{result.Skipped.Sum(s => s.Count)} tile(s) referenced {result.Skipped.Count} def(s) not in your loaded data and were skipped:\n{names}{more}\n\n" +
+                      "Enable the mods this ship needs and re-import for a complete layout.");
+        }
+        if (notes.Count == 0) return;   // clean import — the ship now on the canvas is feedback enough
+        MessageBox.Show(this,
+            $"Imported \"{result.ShipName}\" — {result.PartCount} parts.\n\n" + string.Join("\n\n", notes),
+            "Import", MessageBoxButton.OK, result.Skipped.Count > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
+    }
+
     private void OnUndoClick(object sender, RoutedEventArgs e)
     {
         if (_doc is not null) _stack.Undo(_doc);

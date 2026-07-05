@@ -67,7 +67,7 @@ public sealed class OplanFile
         var missing = new List<OplanPart>();
         foreach (var part in Parts)
         {
-            if (part.Def.Length == 0 || !catalog.ByDefName.ContainsKey(part.Def))
+            if (part.Def.Length == 0 || catalog.Lookup(part.Def) is null)
             {
                 missing.Add(part);
                 continue;

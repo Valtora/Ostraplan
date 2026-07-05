@@ -71,6 +71,21 @@ public sealed class ShipGrid
     internal static int Rnd(double d) => (int)Math.Round(d, MidpointRounding.AwayFromZero);
 
     /// <summary>
+    /// The game→grid coordinate mapping (<c>CondOwner.TLTileCoords</c> + <c>GetTileIndexAtWorldCoords</c>):
+    /// a stored item's centre <c>(fX,fY)</c> and CCW <c>fRotation</c>, with a footprint <paramref name="w"/>×<paramref name="h"/>,
+    /// become the top-left tile <c>(col,row)</c> and Ostraplan <c>rot</c> in a grid whose tile (0,0) sits at
+    /// <c>(vShipPosX, vShipPosY)</c>. Shared by <see cref="FromTemplate"/> (parity), <c>TemplateImport</c>, and the
+    /// export round-trip so all three use one mapping. (Export applies the exact inverse — see <see cref="ShipExport"/>.)
+    /// </summary>
+    public static (int Col, int Row, int Rot) TemplateTile(
+        double fX, double fY, double fRotation, int w, int h, double vShipPosX, double vShipPosY)
+    {
+        var rot = ToRot(fRotation);
+        var (wr, hr) = GridMath.Size(w, h, rot);
+        return (Rnd(fX - (wr / 2.0 - 0.5) - vShipPosX), -Rnd(fY + (hr / 2.0 - 0.5) - vShipPosY), rot);
+    }
+
+    /// <summary>
     /// Build a grid from a template. Unresolvable item defs (missing geometry) are
     /// skipped and named in <paramref name="warnings"/>, mirroring the game dropping
     /// an item whose def failed to load.
@@ -89,11 +104,8 @@ public sealed class ShipGrid
                 continue;
             }
 
-            var rot = ToRot(item.FRotation);
-            var (wr, hr) = GridMath.Size(resolved.Item.Width, resolved.Item.Height, rot);
-
-            var topLeftCol = Rnd(item.FX - (wr / 2.0 - 0.5) - tmpl.VShipPosX);
-            var topLeftRow = -Rnd(item.FY + (hr / 2.0 - 0.5) - tmpl.VShipPosY);
+            var (topLeftCol, topLeftRow, rot) = TemplateTile(
+                item.FX, item.FY, item.FRotation, resolved.Item.Width, resolved.Item.Height, tmpl.VShipPosX, tmpl.VShipPosY);
 
             var anchorCol = Rnd(item.FX - tmpl.VShipPosX);
             var anchorRow = -Rnd(item.FY - tmpl.VShipPosY);
