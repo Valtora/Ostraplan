@@ -90,7 +90,7 @@ One positional rule **does** exist, and it is the important one: **no constructi
 
 ## 6. Validation engine (normative — ported from decompiled game code)
 
-Citations are `Type.Method` in Assembly-CSharp; decompiled reference sources are regenerable on demand with `ilspycmd`.
+Citations are `Type.Method` in Assembly-CSharp; decompiled reference sources are regenerable on demand with `ilspycmd`. **The full reverse-engineering reference — every decompiled algorithm, the loot/condition vocabulary, the data-model gotchas, and what is ported / deferred / excluded — lives in [GAME-INTERNALS.md](GAME-INTERNALS.md).** This section is the normative summary; that file is the working detail.
 
 ### 6.1 Grid & tiles
 
@@ -101,20 +101,24 @@ Citations are `Type.Method` in Assembly-CSharp; decompiled reference sources are
 ### 6.2 Parts & footprints
 
 - A **Part** (palette entry) = installable job + placed item def (`strStartInstall` → items + condowners entries).
-- Footprint: width `W = nCols`, height `H = aSocketAdds.Count / W`.
+- **Socket/placement footprint:** width `W = nCols`, height `H = aSocketAdds.Count / W` (`Item.SetData`). Drives CheckFit, tile accumulation, and the ghost/selection extent.
+- **Visual sprite size is separate:** `vScale = round(texturePx / 16)` tiles (`Item.SetData`) — usually equal to the footprint, but the large fuel tanks are a **7×7 socket grid with a 3×3 sprite** (outer ring = abstracted sub-floor storage, `TILSubfloorAdds`; center = the tank, `TIL2DeckAdds`). Render the sprite at `vScale` centered on the footprint; **keep the footprint at the socket grid** (the game requires the full 7×7 floor pad — shrinking it is a Law false positive). See [GAME-INTERNALS §4](GAME-INTERNALS.md).
 - `aSocketAdds`: per footprint cell, a **Loot name** expanding to the conditions that cell contributes to its tile (e.g. wall → `IsObstruction`, `IsWall`; floor → `IsFloorSealed`…).
-- Derived tile flags: `IsWall` → wall, `IsPortal` → door, `IsObstruction` → impassable, `IsFloorSealed` → sealed.
+- Derived tile flags: `IsWall` → wall, `IsPortal` → door, `IsObstruction` → impassable, `IsFloorSealed` → sealed, `IsSubTile` → sub-floor (walkable storage).
 
-### 6.3 Placement check (`Item.CheckFit`)
+### 6.3 Placement check (`Item.CheckFit`) — **ported (P1)**
 
-For a candidate placement (part, anchor, rotation):
+For a candidate placement (part, anchor, rotation). Full trace + worked examples in [GAME-INTERNALS §5](GAME-INTERNALS.md):
 
 1. `aSocketReqs` / `aSocketForbids` are per-cell masks over the **(W+2)×(H+2) ring grid** (footprint plus a 1-tile border). Each cell names a Loot (or `"Blank"` = unconstrained).
-2. Cell test = transient CondTrigger against that tile's accumulated conditions: **every** req condition present with count > 0, **no** forbid condition present.
-3. A cell that falls **off the ship grid** passes only if it has no reqs — this is how "must attach to structure / needs floor beneath" is encoded. (With dynamic padding, "off-grid" effectively means "empty space".)
-4. Rotation: 90° steps only; rotate the req/forbid ring masks and adds mask (`TileUtils.RotateTilesCW`) and swap W/H. Sprite-sheet items (walls/floors) do not rotate.
-5. Snap parity: odd-dimension items centre on a tile, even-dimension on an edge (`Ship.UpdateTiles` rounding).
-6. In-game-only predicates **excluded by design**: crew proximity/LOS, docked-ship `WouldConnectShips`, zone restrictions (station building).
+2. Cell test is **presence-only**: CheckFit builds a throwaway AND-`CondTrigger` of the loots' expanded condition names, so only the presence path runs — **every** req condition present (count > 0), **no** forbid condition present. Count multiplicity, nested `aTriggers`, and `bAND=false` are *unreachable from placement* and deferred to §6.7 (room certification); autotile's presence-only trigger is left untouched.
+3. A cell that falls **off the ship grid** passes only if it has no reqs — this is how "must attach to structure / needs floor beneath" is encoded. ("Off-grid" = a tile with no accumulated conditions.)
+4. Rotation: 90° steps; rotate the req/forbid ring masks and adds mask and swap W/H — `GridMath.Rotate(_, W+2, H+2)` reproduces `TileUtils.RotateTilesCW` exactly (verified). Sprite-sheet items (walls/floors) do not rotate.
+5. **Airlock envelope** is a hard bound: no ring cell may fall beyond any docking port's mating face (§7 / `ProblemScan.TryGetFace`). The game bounds `aDocksys[0]`; Ostraplan bounds **all ports, ring-inclusive** — provably no false positive.
+6. **Self-exclusion:** re-validating an already-placed part first subtracts its own tile contribution (walls/fixtures add `IsObstruction` and forbid it on their own footprint) — `CheckFit.Check(…, self)`.
+7. In-game-only predicates **excluded by design**: crew proximity/LOS, docked-ship `WouldConnectShips`, zone restrictions (station building).
+
+**Enforcement:** new placement is hard-blocked at the single `ShipCanvas.TryPlacePose` choke point (click/paint/box/hollow/symmetry); moves, rotations and duplicates into an illegal spot are *allowed but flagged* (grouped by reason, offending tiles hazard-tinted); the ghost shows green/red with per-cell failures + a status-bar reason.
 
 ### 6.4 Tile-condition accumulation (replaces `Ship.UpdateTiles`)
 
@@ -209,9 +213,9 @@ Ostraplan.sln
   publish.ps1                # single-file publish + self-test (Ostrasort pattern)
 ```
 
-- **Renderer**: layered `DrawingVisual`s (floor / walls / items / ghost / overlays), dirty-region redraw, `SpriteIndex` with lazy-loaded, decoded-once bitmaps (~6k PNGs on disk; only used ones decoded).
+- **Renderer**: single-pass `OnRender` painting placements in **z-layer order** — the game leaves `nLayer=0` on every item (it Y-sorts sprites over a floor tile-layer), so Ostraplan ranks each part by the conditions it contributes (floor < wall/door < fixtures < power conduit; `Catalog.RenderLayer` → `ShipDocument.DrawOrder`) and hit-tests topmost-first (`HitTestStack` drives the right-click layer picker). Non-sheet sprites draw at their own `vScale` size centered on the footprint (§6.2); `SpriteCache` holds lazy-loaded, frozen bitmaps (~6k PNGs on disk; only used ones decoded). See [GAME-INTERNALS §6](GAME-INTERNALS.md).
 - **Analysis threading**: rooms/certification/rating run debounced on a worker; UI stays responsive; results stamped with a document revision to discard stale runs.
-- **Wall/floor autotiling**: sprite-sheet items (`bHasSpriteSheet` + `ctSpriteSheet`) select a sheet region by neighbour connectivity; core wall sheet is 64×64 = 4×4 grid of 16 px tiles, consistent with a 4-bit N/E/S/W autotile — **verify exact index mapping from decompiled `Tile`/`TileUtils` sprite code at P0**.
+- **Wall/floor autotiling** (ported, `Autotile.cs`): sprite-sheet items (`bHasSpriteSheet` + `ctSpriteSheet`) select a sheet cell from the 4 cardinal neighbours whose tile conds trigger `ctSpriteSheet` — mask bits N=8/W=4/E=2/S=1 → the fixed 16-entry `Item.SpriteSheetIndices` table → a cell whose rows count from the texture *bottom* (Unity UV; WPF flips). Core wall sheet is 64×64 = a 4×4 grid of 16 px tiles. Exact constants — see [GAME-INTERNALS §6](GAME-INTERNALS.md).
 
 ## 10. Testing & the parity gate
 
