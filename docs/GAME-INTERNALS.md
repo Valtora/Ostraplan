@@ -209,6 +209,7 @@ The corpus is **192 core ship objects** (files are top-level arrays; the ship is
 - **Loot payload is `aCOs`, not `aLoots`** — `aLoots` nests further loots (§3).
 - **Palette join hops through condowner/cooverlay** — `items[strStartInstall]` alone misses ~half (§2).
 - **Autotile rows count from the texture bottom** — WPF flips them; the mask is N8/W4/E2/S1 (§6).
+- **Autotile connectivity honours `bAND`** — `TIsWall` is one AND req (`IsWall`), but `TIsConduitSprite` is `bAND=false`, an **OR** of `IsPowerConduit`/`IsPowerSwitch`/`IsPowerJack`; a conduit connects to *any* of them. `TileConds.Triggered` must respect `bAND` (AND-only made every conduit render as an isolated junction). Nested sheet triggers defer to `CondEval` (§6).
 - **`loading_order.json` is fragile** — top-level array only; Ostraplan reads it, never writes it (registration stays with ModTools/Ostrasort).
 - **Game is y-up, Ostraplan docs are y-down** — convert at the boundary (§7).
 - **`fRotation` is CCW; `GridMath.Rotate` is CW** — the template loader negates (§8). Only 90/270 items differ.
