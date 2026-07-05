@@ -114,4 +114,25 @@ public class ThemeOpsTests
         Assert.Equal(2, doc.Placements.Count);
         Assert.All(doc.Placements, p => Assert.Equal(Wall, p.DefName));
     }
+
+    [Fact]
+    public void Reskinning_imported_structure_keeps_it_given()
+    {
+        // Re-skinning given (imported) walls/floors must keep them given, so a bulk theme change
+        // doesn't re-validate a valid imported ship the game never re-checks (the reported bug:
+        // Theme replace flagged "tile occupied" on a clean Charon after re-skinning).
+        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey(Wall)) return;
+        if (OtherSkin(g.Catalog, Catalog.LayerWall, 1, 1, Wall) is not { } skin) return;
+
+        var doc = new ShipDocument(g.Catalog);
+        new PlaceCommand(new Placement { DefName = Wall, X = 0, Y = 0, IsGiven = true }).Do(doc);
+        new PlaceCommand(new Placement { DefName = Wall, X = 1, Y = 0, IsGiven = true }).Do(doc);
+
+        var reskin = ThemeOps.BuildReskin(doc, skin, null);
+        Assert.NotNull(reskin);
+        reskin!.Value.Cmd.Do(doc);
+
+        Assert.All(reskin.Value.New, p => Assert.True(p.IsGiven));
+        Assert.All(doc.Placements, p => Assert.True(p.IsGiven));   // nothing became authored/checkable
+    }
 }

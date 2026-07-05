@@ -6,8 +6,11 @@ namespace Ostraplan.Core;
 /// (item W×H) — so a floor swaps for any other floor, a wall for any wall, but a floor can't
 /// become a canister (Floor vs Fixture) nor a 1×1 wall a 5×1 door (footprint differs). The swap
 /// itself is a remove-old + place-new pair per part (Placement.DefName is init-only), all in one
-/// undo step; the new parts are authored, so the placement law re-checks them (illegal results are
-/// flagged, not blocked — matching how every other edit behaves).
+/// undo step. The replacement <b>inherits the original's given-ness</b>: a same-layer,
+/// same-footprint swap keeps the tiles' structural role, so re-skinning imported (given) structure
+/// stays given and exempt from the placement-law scan (else a bulk re-skin would re-validate a valid
+/// imported ship the game never re-checks — sensors mounted through walls, stacked fixtures, etc.).
+/// Swapping a user-authored part yields an authored replacement, re-checked as before.
 /// </summary>
 public static class ReplaceOps
 {
@@ -45,7 +48,7 @@ public static class ReplaceOps
         foreach (var p in parts)
         {
             if (doc.IsLocked(p) || p.DefName == newDef) continue;
-            var repl = new Placement { DefName = newDef, X = p.X, Y = p.Y, Rot = sheet ? 0 : p.Rot };
+            var repl = new Placement { DefName = newDef, X = p.X, Y = p.Y, Rot = sheet ? 0 : p.Rot, IsGiven = p.IsGiven };
             cmds.Add(new RemoveCommand([p]));
             cmds.Add(new PlaceCommand(repl));
             created.Add(repl);

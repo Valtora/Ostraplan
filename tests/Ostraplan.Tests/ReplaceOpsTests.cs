@@ -84,4 +84,30 @@ public class ReplaceOpsTests
         Assert.Equal((0, 0), coords[0]);
         Assert.Equal((1, 0), coords[1]);
     }
+
+    [Fact]
+    public void Swap_carries_the_originals_given_ness()
+    {
+        // A same-layer, same-footprint swap keeps the tiles' structural role, so it must preserve
+        // given-ness — else re-skinning imported (given) structure would re-validate a valid ship
+        // the game never re-checks. Given -> given, authored -> authored.
+        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey(Wall)) return;
+        var doc = new ShipDocument(g.Catalog);
+        var given = new Placement { DefName = Wall, X = 0, Y = 0, IsGiven = true };
+        new PlaceCommand(given).Do(doc);
+        var authored = Place(doc, Wall, 1, 0);   // IsGiven defaults false
+
+        var cls = ReplaceOps.CommonClass(doc, [given]);
+        if (cls is null) return;
+        var other = ReplaceOps.CompatibleTargets(g.Catalog, cls.Value).FirstOrDefault(t => t.DefName != Wall);
+        if (other is null) return;
+
+        var fromGiven = ReplaceOps.BuildSwap(doc, [given], other.DefName);
+        Assert.NotNull(fromGiven);
+        Assert.All(fromGiven!.Value.New, p => Assert.True(p.IsGiven));
+
+        var fromAuthored = ReplaceOps.BuildSwap(doc, [authored], other.DefName);
+        Assert.NotNull(fromAuthored);
+        Assert.All(fromAuthored!.Value.New, p => Assert.False(p.IsGiven));
+    }
 }
