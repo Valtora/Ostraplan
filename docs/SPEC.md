@@ -45,8 +45,9 @@ It is a sibling tool to Ostrasort: same stack, same "read the live install as th
 ## 4. Platform & tech
 
 - `net10.0-windows`, WPF, `System.Text.Json`, xUnit. Single-file publish reusing the Ostrasort `publish.ps1` pattern (`-p:IncludeNativeLibrariesForSelfExtract=true` + published-exe self-test).
+- **Theming**: light/dark chrome via WPF's Fluent `ThemeMode` (applied app-level in `App.OnStartup`) plus a `ThemeManager` brush palette pushed into `Application.Resources` as `DynamicResource` keys — mirroring Ostrasort. A "Theme: System / Light / Dark" picker persists to settings (default System). The **ship canvas stays dark always** (sprites are drawn for dark space); only the chrome themes.
 - **Read-only guarantee**: Ostraplan never modifies the game install, saves, or `loading_order.json`. Its only writes are its own documents, exports to user-chosen locations, and (explicit action) staging an exported mod folder into `Ostranauts_Data/Mods/<Name>/` — never the registration file.
-- No network access, no telemetry.
+- The only network access is an optional GitHub **releases/latest** update check (on launch, quietly, and on demand from the Help window — mirroring Ostrasort). No telemetry.
 
 ## 5. Data pipeline
 
@@ -177,7 +178,9 @@ A dockable panel listing, live: uncertifiable rooms **with reasons** (too small 
 - **Problems** (shipped v0.1, ahead of the law slices): red/yellow count badges pinned to the canvas's top-right (blocking vs warning) plus a PROBLEMS section atop the inspector listing each issue with details on hover. v0.1 checks: *no docking port*, *construction beyond an airlock face*. Per-placement socket legality (P1) and room/airtightness/certification checks (P2) append to the same list as they land.
 - **Undo/redo**: unbounded command stack (place/remove/move/rotate/theme), drag operations coalesced; `Ctrl+Z`/`Ctrl+Y`.
 - **Documents**: New / Open / Save / Save As / Recent; autosave `.bak` alongside the document; **template browser** for "start from a Vagabond" (core + modded ships, rendered previews).
-- Wall/floor **theme picker** (shipped P4): a two-column dialog picks a wall skin and/or floor skin, and every placed wall/floor re-skins ship-wide in one undo step (a bulk `ReplaceOps` swap over each skin's render-layer+footprint class). Sprites/names only — rooms, airtightness and rating are untouched. Reached from the "Theme…" toolbar button.
+- Wall/floor **re-skin** (shipped P4): the "Ship Re-skin…" toolbar button opens a two-column dialog to pick a wall skin and/or floor skin; every placed wall/floor re-skins ship-wide in one undo step (a bulk `ReplaceOps` swap over each skin's render-layer+footprint class). Sprites/names only — rooms, airtightness and rating are untouched. (Named "Ship Re-skin" so it isn't confused with the app's light/dark theme.)
+- **Toolbar** (shipped): grouped into File · Edit · Design · Analyse · View with dividers; modern Fluent button chrome; the app theme picker and Help sit on the right, with an Update button that appears when a newer release exists.
+- **Help / controls window** (shipped): a three-column table — Function · Keybinding · What it does — with headers and zebra striping, plus the app version and a "Check for updates" button.
 - **Bill of materials** (shipped P4): the "Materials…" toolbar button opens a report counting each buildable part's install kit — its own uninstalled form (install `aInputs`, 1:1 with the part), so the part count is the kit count. Grouped by build tab, scoped to the current selection when one is active else the whole ship, with a "Copy list" button. Non-buildable structure (raw hull, fixed systems, the primary airlock) is tallied apart.
 
 ## 8. File formats
