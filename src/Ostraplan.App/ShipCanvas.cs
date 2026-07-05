@@ -359,6 +359,20 @@ public sealed class ShipCanvas : FrameworkElement
 
         _pan += ScreenPanDelta(v * (PanTilesPerSecond * Zoom * dt));
         RaiseViewChanged();
+
+        // The mouse isn't moving during a WASD pan, but the world tile under it is — so the armed
+        // ghost (and the tile readout) would freeze on the old tile. Recompute the hovered cell from
+        // the current cursor position each frame so the ghost tracks the cursor as the view slides.
+        if (IsMouseOver)
+        {
+            var cell = CellAt(Mouse.GetPosition(this));
+            if (_hoverCell is null || _hoverCell.Value != cell)
+            {
+                _hoverCell = cell;
+                HoverChanged?.Invoke(cell);
+            }
+        }
+
         InvalidateVisual();
     }
 
