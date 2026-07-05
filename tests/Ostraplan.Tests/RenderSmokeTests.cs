@@ -161,6 +161,33 @@ public class RenderSmokeTests
         });
     }
 
+    [Fact]
+    public void Snapshot_renders_the_ship_to_a_sized_png()
+    {
+        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey("ItmFloorGrate01")) return;
+        RunSta(() =>
+        {
+            var doc = new ShipDocument(g.Catalog);
+            for (var x = 0; x < 5; x++)
+                for (var y = 0; y < 4; y++)
+                    new PlaceCommand(new Placement { DefName = "ItmFloorGrate01", X = x, Y = y }).Do(doc);
+
+            var canvas = new ShipCanvas { Sprites = new SpriteCache() };
+            canvas.SetDocument(doc);
+            var bmp = canvas.RenderSnapshot(pxPerTile: 32, marginTiles: 1);
+            Assert.NotNull(bmp);
+            // 5x4 ship + a 1-tile margin each side = 7x6 tiles at 32 px
+            Assert.Equal(7 * 32, bmp!.PixelWidth);
+            Assert.Equal(6 * 32, bmp.PixelHeight);
+
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bmp));
+            var path = Path.Combine(AppContext.BaseDirectory, "smoke-snapshot.png");
+            using (var stream = File.Create(path)) encoder.Save(stream);
+            Assert.True(new FileInfo(path).Length > 2000);
+        });
+    }
+
     private static void RunSta(Action action)
     {
         Exception? failure = null;

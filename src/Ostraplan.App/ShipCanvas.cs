@@ -732,6 +732,48 @@ public sealed class ShipCanvas : FrameworkElement
         InvalidateVisual();
     }
 
+    // ---- snapshot ----
+
+    /// <summary>
+    /// Render just the ship — every placement's sprite, no grid/overlays/UI — to a bitmap for a PNG
+    /// export. Reuses the live sprite drawing (autotile, tank centring, rotation) by briefly pointing
+    /// pan/zoom at the snapshot's pixel grid, so the image matches the canvas exactly. Null when the
+    /// design is empty. Does not disturb the on-screen view.
+    /// </summary>
+    public System.Windows.Media.Imaging.BitmapSource? RenderSnapshot(int pxPerTile = 32, int marginTiles = 1)
+    {
+        if (Doc?.Bounds() is not { } b || Sprites is null) return null;
+
+        var tilesW = b.MaxX - b.MinX + 1 + 2 * marginTiles;
+        var tilesH = b.MaxY - b.MinY + 1 + 2 * marginTiles;
+        var pxW = tilesW * pxPerTile;
+        var pxH = tilesH * pxPerTile;
+
+        var (savedPan, savedZoom, savedRot) = (_pan, Zoom, ViewRot);
+        Zoom = pxPerTile;
+        _pan = new Vector(-(b.MinX - marginTiles) * (double)pxPerTile, -(b.MinY - marginTiles) * (double)pxPerTile);
+        ViewRot = 0;
+        try
+        {
+            var dv = new DrawingVisual();
+            RenderOptions.SetBitmapScalingMode(dv, BitmapScalingMode.NearestNeighbor);
+            using (var ctx = dv.RenderOpen())
+            {
+                ctx.DrawRectangle(Background, null, new Rect(0, 0, pxW, pxH));
+                foreach (var p in Doc.DrawOrder())
+                    DrawPlacement(ctx, p, (0, 0));
+            }
+            var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(pxW, pxH, 96, 96, PixelFormats.Pbgra32);
+            rtb.Render(dv);
+            rtb.Freeze();
+            return rtb;
+        }
+        finally
+        {
+            (_pan, Zoom, ViewRot) = (savedPan, savedZoom, savedRot);
+        }
+    }
+
     // ---- rendering ----
 
     protected override void OnRender(DrawingContext dc)

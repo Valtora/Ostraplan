@@ -5,6 +5,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
 using Ostraplan.Core;
@@ -980,6 +981,42 @@ public partial class MainWindow : Window
             $"{result.PartCount} parts · {result.RoomCount} certified room(s) · rating {(string.IsNullOrEmpty(result.Rating.Display) ? "None" : result.Rating.Display)}\n\n" +
             $"Written to:\n{result.ModDir}\n\n{registerNote}",
             "Export complete", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    /// <summary>Save a PNG image of the ship (sprites only — no grid, overlays or UI) for sharing or reference.</summary>
+    private void OnSnapshotClick(object sender, RoutedEventArgs e)
+    {
+        if (_doc is null || _doc.Placements.Count == 0)
+        {
+            MessageBox.Show(this, "Place some parts before taking a snapshot.", "Snapshot",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dlg = new SaveFileDialog
+        {
+            Filter = "PNG image (*.png)|*.png",
+            FileName = string.Join("_", _meta.Name.Split(Path.GetInvalidFileNameChars())) + ".png",
+        };
+        if (dlg.ShowDialog(this) != true) return;
+
+        if (Board.RenderSnapshot() is not { } bmp)
+        {
+            MessageBox.Show(this, "Nothing to snapshot.", "Snapshot", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        try
+        {
+            using var fs = File.Create(dlg.FileName);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bmp));
+            encoder.Save(fs);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "Could not save the snapshot:\n\n" + ex.Message, "Snapshot",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     /// <summary>The Import menu: start a design from an existing ship (template now; save game in P3 slice 3).</summary>
