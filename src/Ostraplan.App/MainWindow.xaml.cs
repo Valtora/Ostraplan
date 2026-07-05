@@ -1,9 +1,11 @@
 using System.IO;
+using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Threading;
 using Microsoft.Win32;
 using Ostraplan.Core;
 
@@ -26,6 +28,8 @@ public partial class MainWindow : Window
     private (int X, int Y)? _hoverCell;               // last hovered tile — the paste anchor
     private List<(string Def, int X, int Y, int Rot)> _clip = [];   // copied selection, relative to its top-left
     private (int X, int Y) _clipOrigin;               // the copied selection's original top-left (paste fallback)
+    private readonly DispatcherTimer _scanTimer;      // debounces the (now off-thread) problem scan
+    private CancellationTokenSource? _scanCts;        // cancels a superseded scan
 
 
     public MainWindow()
@@ -48,6 +52,9 @@ public partial class MainWindow : Window
         Board.ContextMenuRequested += OnContextMenuRequested;
         Board.GhostReasonChanged += reason => TxtGhost.Text = reason is null ? "" : "⛔ can't place here — " + reason;
         _stack.StateChanged += RefreshChrome;
+
+        _scanTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
+        _scanTimer.Tick += (_, _) => RunScan();
 
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewKeyUp += OnPreviewKeyUp;
@@ -253,9 +260,43 @@ public partial class MainWindow : Window
         var dims = bounds is { } b ? $" · {b.MaxX - b.MinX + 1}×{b.MaxY - b.MinY + 1} tiles" : "";
         TxtParts.Text = $"{_doc?.Placements.Count ?? 0} parts{dims}";
         Board.SetLeakCells([]);   // any Ship Rating leak highlight is stale once the design changes
-        if (_doc is not null && _catalog is not null)
-            UpdateProblems(ProblemScan.Scan(_doc, _catalog));
+        ScheduleScan();
         RefreshChrome();
+    }
+
+    /// <summary>
+    /// Debounce the problem scan and run it off the UI thread. A burst of edits — a paint stroke,
+    /// a box-fill, a group move — collapses into one scan that never blocks input; the red tints,
+    /// badges and PROBLEMS list settle a beat (~120 ms) after the edits stop. The live armed-ghost
+    /// validity stays synchronous (it's computed in the canvas, not here), so placement feedback is
+    /// still instant. A superseding edit cancels the in-flight scan.
+    /// </summary>
+    private void ScheduleScan()
+    {
+        if (_doc is null || _catalog is null) return;
+        _scanTimer.Stop();
+        _scanTimer.Start();
+    }
+
+    private async void RunScan()
+    {
+        _scanTimer.Stop();
+        if (_doc is null || _catalog is null) return;
+
+        _scanCts?.Cancel();
+        var cts = _scanCts = new CancellationTokenSource();
+        var token = cts.Token;
+        var snapshot = _doc.Snapshot();   // UI thread, cheap; immutable while the scan runs
+        var catalog = _catalog;
+
+        List<Problem> problems;
+        try
+        {
+            problems = await Task.Run(() => ProblemScan.Scan(snapshot, catalog), token);
+        }
+        catch (OperationCanceledException) { return; }
+        if (token.IsCancellationRequested || !ReferenceEquals(cts, _scanCts)) return;   // superseded
+        UpdateProblems(problems);
     }
 
     // ---- Ship Rating (rooms · airtightness · certification · rating) ----

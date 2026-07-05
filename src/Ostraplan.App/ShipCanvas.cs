@@ -111,6 +111,12 @@ public sealed class ShipCanvas : FrameworkElement
     private IReadOnlyList<(int X, int Y)> _leakCells = [];      // unsealed tiles of a leaking compartment (from the Ship Rating report)
     private string? _lastGhostReason;                          // dedupe GhostReasonChanged
 
+    // Cached vector drawing of every placement's sprite — the expensive part of a frame (DrawOrder
+    // sort + per-tile autotile + DrawImage over the whole ship). Rebuilt only when the ship content
+    // or the pan/zoom mapping changes; reused across the frames of a band-select or box-fill drag,
+    // where the ship is static and only the overlay rectangle moves. Bypassed mid-move/paint.
+    private DrawingGroup? _staticShip;
+
     public event Action<IReadOnlyList<IDocCommand>>? StrokeCommitted;
     public event Action? SymmetryChanged;
     public event Action<IReadOnlyList<Placement>, int, int>? MoveRequested;
@@ -134,12 +140,27 @@ public sealed class ShipCanvas : FrameworkElement
 
     public void SetDocument(ShipDocument doc)
     {
-        if (Doc is not null) Doc.Changed -= InvalidateVisual;
+        if (Doc is not null) Doc.Changed -= OnContentChanged;
         Doc = doc;
-        doc.Changed += InvalidateVisual;
+        doc.Changed += OnContentChanged;
         SelectedIds.Clear();
         SelectionChanged?.Invoke();
+        _staticShip = null;
         InvalidateVisual();
+    }
+
+    /// <summary>The document's content changed — drop the cached ship drawing and repaint.</summary>
+    private void OnContentChanged()
+    {
+        _staticShip = null;
+        InvalidateVisual();
+    }
+
+    /// <summary>Pan/zoom/view-rotation changed: the cached ship drawing (baked in screen space) is stale.</summary>
+    private void RaiseViewChanged()
+    {
+        _staticShip = null;
+        ViewChanged?.Invoke();
     }
 
     public void SetArmed(PartDef? part)
@@ -265,7 +286,7 @@ public sealed class ShipCanvas : FrameworkElement
     public void RotateView(int delta)
     {
         ViewRot = GridMath.Norm(ViewRot + delta);
-        ViewChanged?.Invoke();
+        RaiseViewChanged();
         InvalidateVisual();
     }
 
@@ -337,7 +358,7 @@ public sealed class ShipCanvas : FrameworkElement
         if (v.LengthSquared > 1) v.Normalize();
 
         _pan += ScreenPanDelta(v * (PanTilesPerSecond * Zoom * dt));
-        ViewChanged?.Invoke();
+        RaiseViewChanged();
         InvalidateVisual();
     }
 
@@ -354,7 +375,7 @@ public sealed class ShipCanvas : FrameworkElement
         var centerY = (b.MinY + b.MaxY + 1) / 2.0;
         _pan = new Vector(RenderSize.Width / 2 - centerX * Zoom, RenderSize.Height / 2 - centerY * Zoom);
         _panInitialized = true;
-        ViewChanged?.Invoke();
+        RaiseViewChanged();
         InvalidateVisual();
     }
 
@@ -365,6 +386,7 @@ public sealed class ShipCanvas : FrameworkElement
         {
             _pan = new Vector(sizeInfo.NewSize.Width / 2, sizeInfo.NewSize.Height / 2);
             _panInitialized = true;
+            _staticShip = null;
         }
     }
 
@@ -391,7 +413,7 @@ public sealed class ShipCanvas : FrameworkElement
         var world = new Point((mouse.X - _pan.X) / Zoom, (mouse.Y - _pan.Y) / Zoom);
         Zoom = ZoomSteps[next];
         _pan = new Vector(mouse.X - world.X * Zoom, mouse.Y - world.Y * Zoom);
-        ViewChanged?.Invoke();
+        RaiseViewChanged();
         InvalidateVisual();
     }
 
@@ -568,7 +590,7 @@ public sealed class ShipCanvas : FrameworkElement
             case Drag.Pan:
                 _pan += ScreenPanDelta(screen - _dragStartScreen);
                 _dragStartScreen = screen;
-                ViewChanged?.Invoke();
+                RaiseViewChanged();
                 InvalidateVisual();
                 break;
             case Drag.Move:
@@ -598,14 +620,17 @@ public sealed class ShipCanvas : FrameworkElement
             var (w, h) = GridMath.Size(ArmedPart.Item.Width, ArmedPart.Item.Height, ArmedRot);
             var (x0, x1) = (Math.Min(_dragStartCell.X, end.X), Math.Max(_dragStartCell.X, end.X));
             var (y0, y1) = (Math.Min(_dragStartCell.Y, end.Y), Math.Max(_dragStartCell.Y, end.Y));
-            for (var y = y0; y + h - 1 <= y1; y += h)
-                for (var x = x0; x + w - 1 <= x1; x += w)
-                {
-                    // border = touches the rect edge, or is the last footprint step on its axis
-                    if (hollow && x != x0 && y != y0 && x + 2 * w - 1 <= x1 && y + 2 * h - 1 <= y1)
-                        continue;
-                    TryPlacePose(x, y, ArmedRot);
-                }
+            // one coalesced Changed for the whole fill, not one per tile — a 50x50 fill was firing
+            // ~2500 problem scans (tens of seconds); now it's a single scan on release
+            using (Doc.SuspendChanged())
+                for (var y = y0; y + h - 1 <= y1; y += h)
+                    for (var x = x0; x + w - 1 <= x1; x += w)
+                    {
+                        // border = touches the rect edge, or is the last footprint step on its axis
+                        if (hollow && x != x0 && y != y0 && x + 2 * w - 1 <= x1 && y + 2 * h - 1 <= y1)
+                            continue;
+                        TryPlacePose(x, y, ArmedRot);
+                    }
             CommitStroke();
         }
 
@@ -682,13 +707,16 @@ public sealed class ShipCanvas : FrameworkElement
             yield return (mx, my, GridMath.Norm(rot + 180));
     }
 
-    private bool SameDefCovers(int x, int y, int w, int h, string defName) =>
-        Doc!.Placements.Any(p =>
-        {
-            if (p.DefName != defName) return false;
-            var (pw, ph) = Doc.FootprintOf(p);
-            return p.X < x + w && p.X + pw > x && p.Y < y + h && p.Y + ph > y;
-        });
+    private bool SameDefCovers(int x, int y, int w, int h, string defName)
+    {
+        // any same-def part overlapping the w×h rect must cover one of its tiles — an index lookup
+        // per tile, not an O(parts) scan (this runs per pose across a whole box-fill)
+        for (var r = 0; r < h; r++)
+            for (var c = 0; c < w; c++)
+                foreach (var p in Doc!.PlacementsAt(x + c, y + r))
+                    if (p.DefName == defName) return true;
+        return false;
+    }
 
     private void CommitStroke()
     {
@@ -717,10 +745,21 @@ public sealed class ShipCanvas : FrameworkElement
 
         DrawGrid(dc, view);
 
-        foreach (var p in Doc.DrawOrder())
+        // The placement sprites: a Move drags selected parts (offset per frame) and a Paint adds
+        // parts live, so both draw straight through; every other state (idle, band-select, box-fill
+        // preview) leaves the ship untouched, so reuse the cached drawing and skip the whole
+        // DrawOrder + autotile pass each frame — the win on a big ship during a band/fill drag.
+        if (_drag is Drag.Move or Drag.Paint)
         {
-            var offset = _drag == Drag.Move && SelectedIds.Contains(p.Id) && !Doc.IsLocked(p) ? _moveDelta : (0, 0);
-            DrawPlacement(dc, p, offset);
+            foreach (var p in Doc.DrawOrder())
+            {
+                var offset = _drag == Drag.Move && SelectedIds.Contains(p.Id) && !Doc.IsLocked(p) ? _moveDelta : (0, 0);
+                DrawPlacement(dc, p, offset);
+            }
+        }
+        else
+        {
+            dc.DrawDrawing(StaticShip());
         }
 
         DrawIllegalCells(dc);
@@ -895,6 +934,22 @@ public sealed class ShipCanvas : FrameworkElement
             dc.DrawText(label, at);
             if (ViewRot != 0) dc.Pop();
         }
+    }
+
+    /// <summary>
+    /// The cached vector drawing of every placement at rest (screen space). Built on first use and
+    /// reused until the ship content or the pan/zoom mapping changes (both null it). Frozen so WPF
+    /// can render it on the compositor thread without re-walking the scene each frame.
+    /// </summary>
+    private Drawing StaticShip()
+    {
+        if (_staticShip is not null) return _staticShip;
+        var dg = new DrawingGroup();
+        using (var ctx = dg.Open())
+            foreach (var p in Doc!.DrawOrder())
+                DrawPlacement(ctx, p, (0, 0));
+        dg.Freeze();
+        return _staticShip = dg;
     }
 
     private void DrawPlacement(DrawingContext dc, Placement p, (int X, int Y) offset)
