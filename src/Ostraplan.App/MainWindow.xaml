@@ -49,6 +49,8 @@
                             ToolTip="Start a design from an existing ship — a core/mod template or a save game"/>
                     <Button x:Name="BtnExport" Content="Export…" Padding="10,3" Margin="0,0,4,0" Click="OnExportClick"
                             ToolTip="Export the design as a spawnable local data mod (data/ships) with precomputed rooms &amp; rating"/>
+                    <Button x:Name="BtnTheme" Content="Theme…" Padding="10,3" Margin="0,0,4,0" Click="OnThemeClick"
+                            ToolTip="Re-skin every wall and floor to a chosen style (sprites only — rooms &amp; rating are unaffected)"/>
                     <Button x:Name="BtnSnapshot" Content="Snapshot…" Padding="10,3" Margin="0,0,12,0" Click="OnSnapshotClick"
                             ToolTip="Save a PNG image of the ship (no grid or UI) to share or reference"/>
                     <Button x:Name="BtnUndo" Content="Undo" Padding="10,3" Margin="0,0,4,0" Click="OnUndoClick"

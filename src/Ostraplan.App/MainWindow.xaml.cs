@@ -622,6 +622,58 @@ public partial class MainWindow : Window
         UpdateInspector();
     }
 
+    /// <summary>
+    /// "Theme…": re-skin every wall and every floor on the ship to a chosen cooverlay style, one undo
+    /// step (<see cref="ThemeOps"/>). Only sprites/names change; rooms/airtightness/rating are untouched.
+    /// </summary>
+    private void OnThemeClick(object sender, RoutedEventArgs e)
+    {
+        if (_doc is null || _catalog is null) return;
+
+        // Wall and floor skins are the buildable variants over the 1×1 wall / floor base (the only
+        // footprint they come in). Present each as a palette thumbnail (reusing the built VMs).
+        List<PartVM> Skins((int, int, int) cls)
+        {
+            var defs = ReplaceOps.CompatibleTargets(_catalog, cls).Select(t => t.DefName).ToHashSet(StringComparer.Ordinal);
+            return _allParts.Where(v => defs.Contains(v.Part.DefName)).ToList();
+        }
+
+        // Placed count + the ship's current skin for a class (non-null only if every such part shares one).
+        (int Count, string? Current) State((int Layer, int W, int H) cls)
+        {
+            var placed = _doc.Placements
+                .Where(p => !_doc.IsLocked(p) && _doc.Part(p) is { } part
+                            && (_catalog.RenderLayer(part), part.Item.Width, part.Item.Height) == cls)
+                .ToList();
+            var defs = placed.Select(p => p.DefName).Distinct(StringComparer.Ordinal).ToList();
+            return (placed.Count, defs.Count == 1 ? defs[0] : null);
+        }
+
+        var wallCls = (Catalog.LayerWall, 1, 1);
+        var floorCls = (Catalog.LayerFloor, 1, 1);
+        var wallSkins = Skins(wallCls);
+        var floorSkins = Skins(floorCls);
+        if (wallSkins.Count == 0 && floorSkins.Count == 0) return;
+        var (wallCount, wallCurrent) = State(wallCls);
+        var (floorCount, floorCurrent) = State(floorCls);
+        if (wallCount == 0 && floorCount == 0)
+        {
+            MessageBox.Show(this, "Place some walls or floors before applying a theme.", "Apply theme",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var dlg = new ThemePickerDialog(wallSkins, wallCurrent, wallCount, floorSkins, floorCurrent, floorCount) { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+        if (ThemeOps.BuildReskin(_doc, dlg.SelectedWall?.DefName, dlg.SelectedFloor?.DefName) is not { } reskin) return;
+
+        _stack.Push(_doc, reskin.Cmd);
+        Board.SelectedIds.Clear();
+        foreach (var p in reskin.New) Board.SelectedIds.Add(p.Id);
+        Board.InvalidateVisual();
+        UpdateInspector();
+    }
+
     /// <summary>Copy the selection to an in-memory clipboard, stored relative to its top-left tile.</summary>
     private void CopySelection()
     {
