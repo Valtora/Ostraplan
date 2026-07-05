@@ -22,11 +22,13 @@ Line numbers below are approximate (they shift when the game updates) — cite b
 | `CondTrigger.cs` | `Triggered` (the trigger evaluator — full semantics; CheckFit only reaches a subset) |
 | `Loot.cs` | `GetLootNames` (how a socket loot resolves to condition names) |
 | `TileUtils.cs` | `RotateTilesCW`, `GetSurroundingTiles`, `PadTilemap`/`TrimTiles`, `GetAirlockBounds` |
-| `Ship.cs` | `UpdateTiles` (tile-condition accumulation), `CreateRooms`, `CalculateRating` (P2, not yet ported) |
+| `Ship.cs` | `UpdateTiles` (tile-condition accumulation), `CreateRooms`, `CalculateRating`, `GetTileIndexAtWorldCoords`, `GetRoomSpecs` (all ported — §8) |
+| `Room.cs` / `RoomSpec.cs` | `CreateRoomSpecs`, `Matches` (certification — §8) |
+| `CondOwner.cs` | `TLTileCoords` (item centre → top-left tile — §8) |
 
 ### After a game patch — re-verification checklist
-1. Re-decompile; diff `CheckFit`, `SetData`, `RotateCW`, `CalculateRating` for logic changes.
-2. Re-run the test suite (the `GameDataTests` assert real-data facts this file documents).
+1. Re-decompile; diff `CheckFit`, `SetData`, `RotateCW`, `CalculateRating` (cutoffs), `CreateRooms`, `RoomSpec.Matches` for logic changes.
+2. Re-run the test suite — the `GameDataTests` + `ParityTests` (rooms 188/192, certification, rating) assert the real-data facts this file documents; a drift shows up as a parity regression.
 3. Bump `GameEnv.VerifiedGameVersion` once green.
 
 ---
@@ -158,14 +160,28 @@ Ported to `Ostraplan.Core/CheckFit.cs`. For a candidate `(part, anchor, rotation
 
 ---
 
-## 8. P2 subsystems — surveyed from the decompile, **not yet ported**
+## 8. P2 subsystems — **ported (rooms · certification · rating)**
 
-Recorded here from the feasibility survey so P2 starts with a map, not a blank page. Treat as leads to re-confirm against the decompile when implementing.
+Ported to `Ostraplan.Core` (`ShipGrid`, `ShipTemplate`, `PartResolver`, `Rooms`, `CondEval`, `RoomSpecs`, `Rating`, `ShipAnalysis`) and validated parity-first against the game's baked `aRooms`/`aRating` (`ParityTests`).
 
-- **Rooms & airtightness — `Ship.CreateRooms`.** BFS flood fill over non-wall tiles, **4-connectivity** (N/W/E/S). Walls terminate expansion and record adjacency; door (portal) tiles are boundaries assigned afterwards to the preferred non-void adjacent room via `RoomA`/`RoomB`. A room is **Void** if any member tile lacks `IsFloorSealed`, or the fill reaches the edge of the (padded) tile array (also marks it Outside). Volume = `0.256 m³ × tileCount` (hardcoded). Grid grows via `TileUtils.PadTilemap`, trims on export via `TileUtils.TrimTiles` — void detection depends on the fill reaching the array edge, so mirror that lifecycle. **The sub-floor/deck split (§4) is airtightness-relevant:** `TILSubfloorAdds` is walkable-but-not-sealed storage, `TIL2DeckAdds` is a solid obstruction.
-- **Room certification — `Room.CreateRoomSpecs` / `RoomSpec.Matches`** against the 18 `data/rooms` specs. Sorted by `nPriority` descending, **first match wins**, else `Blank`. A spec matches iff `room.Void == bAllowVoid`, tile count within `[nMinTileSize, nMaxTileSize]` (−1 = unbounded), no member fires any `aForbids`, every `aReqs` satisfied **with multiplicity** (required count consumed by matching parts' stack counts); floor-grate members ignored; only installed parts count. **This is where the full `CondTrigger.Triggered` semantics deferred in §5.2 are finally needed.**
-- **Ship Rating — `Ship.CalculateRating`.** Six slots (displayed 1–5, `-`-joined): `[epoch | condition A–E | non-Blank room count | maneuver = mass/RCS-count | size class by nCols×nRows | unused]`. Cutoffs are **hardcoded in the DLL** (version-pinned): condition ≤0.5 E / ≤0.8 D / ≤0.95 C / ≤0.99 B / else A; maneuver 0 RCS→O, <300 A … else E; size <250 Small … else Ultra Large. Needs mass accounting (`GetTotalMass`) — planner ships are empty/pristine, which removes most of the complexity.
-- **The parity gate.** 214 core `data/ships` templates ship with the game's own computed `aRooms`/`aRating` baked in; the port must reproduce them. Ships JSON is clean/writable (`nRows`/`nCols`, `vShipPos`, `aItems{strName,fX,fY,fRotation,strID}`, `aRooms{aTiles,roomSpec,bVoid}`). The game trusts precomputed `aRooms`/`aRating` on shallow load and recomputes+logs on full load — that's both the export trust-path and the end-to-end verification seam.
+### Coordinate model (the loader, verified 622/622 walls on the Babak)
+An `aItems` entry's `(fX,fY)` is its footprint **centre** (`CondOwner.TLTileCoords`): top-left tile world = `(fX − (W/2 − 0.5), fY + (H/2 − 0.5))` using the **rotated** W×H; tile `(col,row)` with `col = round(worldX − vShipPos.x)`, `row = −round(worldY − vShipPos.y)`; index `col + row·nCols`. **`fRotation` is CCW** (Unity Z-euler); `GridMath.Rotate` is CW, so the loader **negates** (`ShipGrid.ToRot`) — CW misplaces the asymmetric 90/270 socket patterns. Only top-level `aItems` are placed on the grid; contained/slotted items (`strParentID`/`strSlotParentID`) are not (they carry no wall/floor conds, so they never corrupt the fill).
+
+### Rooms & airtightness — `Ship.CreateRooms` (`RoomBuilder.Build`)
+BFS flood fill, **4-connectivity** (N/W/E/S). **`IsWall` is the only flood boundary.** Portals never seed; an **open** portal (`IsPortal`, no `IsWall` — e.g. `ItmHatch01Open`/`ItmDoor01Open`) is flooded into the first room that reaches it but **never expands** (a flood *sink*), so the two sides stay distinct rooms; a **closed** door adds `IsWall` and is a hard boundary, its opening tile assigned afterward via the door's `RoomA`/`RoomB` map points (`(0,±16)` px, rotated with the door). A room is **Void** if any member tile lacks `IsFloorSealed` **or** a cardinal neighbour is off-grid (also **Outside**/`bOuter`); Void is fixed during the fill, so a door tile added afterward never voids a sealed room. Volume `0.25599998 × tileCount`.
+- **Which door tile lands in which room is a subtle, item-dependent RoomA/RoomB rule** — no single rotation convention reproduces both the Babak hatch and station doors. Since a door tile's filing changes no compartment, certification, or rating, the parity comparison excludes portal tiles.
+- **Exterior rooming is asymmetric/trim-dependent** (the game leaves the far empty margin around a small ship unroomed — bounded by `TrimTiles`, not a clean bbox; the recomputed Void/Outside room over-claims it). Harmless: the Outside room is Blank and never counts toward the rating. Parity is lenient on exterior-void over-claim; interior compartments must match exactly.
+
+### Room certification — `RoomSpec.Matches` (`RoomCertifier`, `CondEval`)
+Certifies as the highest-`nPriority` spec that matches, else `Blank`. Matches iff `bAllowVoid == room.Void`, tile count in `[nMinTileSize, nMaxTileSize]` (−1 = unbounded), no member fires any `aForbids`, every `aReqs` satisfied **with multiplicity** (`"TIsChairInstalled=1.0x4"` → 4; each match consumes `StackCount`, always 1 for a planner). Floor-grate members (`IsFloorGrate`) skipped; only installed parts count, each joining the room at its **anchor (centre) tile**. Reqs/forbids are **condtrigger names** evaluated against the part's `aStartingConds` set by the ported `CondTrigger.Triggered` — the bAND path (reqs/forbids/nested `aTriggers`) and the `bAND=false` OR path (`aTriggersForbid`, then any req / `aTrigger`; e.g. `TIsRoomCargo` = OR of storage-bin/rack). `fChance`/`strHigherCond` are unreachable from room specs → deterministic safe-pass + logged note.
+
+### Ship Rating — `Ship.CalculateRating` (`Rating`)
+Six slots, cutoffs hardcoded in the DLL (unit-pinned): **condition** A–E (pristine planner ⇒ A); **non-Blank room count**; **maneuver** `mass/fRCSCount` (fRCSCount = Σ `StatThrustStrength` over installed RCS clusters via `TIsRCSClusterAudioEmitter`; mass = Σ `StatMass`; 0 RCS → O); **size class** by `nCols·nRows`.
+
+### The parity gate — the ground-truth reality
+The corpus is **192 core ship objects** (files are top-level arrays; the ship is an element with `nCols`+`aItems`; ~a dozen files are non-ship). **All 192 carry baked `aRooms`** (roomSpec + bVoid + tile sets) → a 192-ship rooms **and** certification gate. **Only Babak / Babak Refit carry `aRating`** (both damaged derelicts; the Refit's rating is a verbatim stale copy of the base ship, from before it grew) → rating is size-slot parity on the base Babak + unit-tested cutoffs.
+- **Rooms parity: 188/192** (4 named exclusions: malformed Coffin, two aero slant-wall hulls, one interceptor airlock).
+- **Certification: 2109/2148 rooms exact, 0 over-certifications of a real compartment.** The 39 diffs are two documented corpus-only artifacts: **contained/slotted cargo** the top-level `aItems` loader can't count (the game reaches it via `GetCOs bSubObjects` → under-certification), and the exterior over-claim (CargoRoomExterior on the unbounded Outside room). Neither reaches an Ostraplan-authored design (no sub-objects, bounded interior).
 
 ---
 
@@ -182,6 +198,12 @@ Recorded here from the feasibility survey so P2 starts with a map, not a blank p
 - **Autotile rows count from the texture bottom** — WPF flips them; the mask is N8/W4/E2/S1 (§6).
 - **`loading_order.json` is fragile** — top-level array only; Ostraplan reads it, never writes it (registration stays with ModTools/Ostrasort).
 - **Game is y-up, Ostraplan docs are y-down** — convert at the boundary (§7).
+- **`fRotation` is CCW; `GridMath.Rotate` is CW** — the template loader negates (§8). Only 90/270 items differ.
+- **Item `(fX,fY)` is the footprint CENTRE, not a corner** — top-left via `TLTileCoords = (x−(W/2−0.5), y+(H/2−0.5))` (§8).
+- **Only `IsWall` bounds the room fill** — open portals flood-sink (join one room, don't expand); closed doors add `IsWall` (§8).
+- **Ship files are top-level arrays** — the ship is an element with `nCols`+`aItems`; skip non-ship files. Only ~2 carry `aRating`; all carry `aRooms` (§8).
+- **Room certification tests CondOwner conds, not tile conds** — `room.aCos` `aStartingConds`, evaluated by `CondEval`; multiplicity is the spec's `xN` (§8).
+- **Contained/slotted cargo isn't counted** — top-level `aItems` only; the game reaches sub-objects via `bSubObjects`, so cargo-laden templates under-certify (corpus-only) (§8).
 
 ---
 
@@ -196,11 +218,12 @@ Recorded here from the feasibility survey so P2 starts with a map, not a blank p
 | Footprint + sprite scale (`SetData`) | **ported** | `Defs.ItemDef`, `SpriteCache.SpriteTiles` |
 | Autotile (`SetSpriteSheetIndex`) | **ported** | `Autotile` |
 | Mask rotation (`RotateTilesCW`) | **ported** | `GridMath.Rotate` |
-| Full `CondTrigger.Triggered` (count/nested/OR) | **deferred → P2** | needed by room certification |
-| Rooms/airtightness (`CreateRooms`) | **deferred → P2** | — |
-| Room certification (`RoomSpec.Matches`) | **deferred → P2** | — |
-| Ship rating (`CalculateRating`) | **deferred → P2** | — |
-| Crew LOS/proximity, docked-ship, zone rules | **excluded** (in-game only) | never ported |
+| CondTrigger.Triggered — reachable branches (bAND, OR, nested, forbids) | **ported (P2)** | `CondEval` (CO-level); presence path stays in `TileConds` |
+| Rooms/airtightness (`CreateRooms`) | **ported (P2)** | `ShipGrid`, `RoomBuilder` |
+| Room certification (`RoomSpec.Matches`) | **ported (P2)** | `RoomSpecs` (`RoomCertifier`) |
+| Ship rating (`CalculateRating`) | **ported (P2)** | `Rating` |
+| Contained/slotted sub-objects, exterior-margin trim bound | **not modelled** (corpus-only; see §8) | — |
+| Crew LOS/proximity, docked-ship, zone rules, damage state | **excluded** (in-game only) | never ported |
 
 ---
 
