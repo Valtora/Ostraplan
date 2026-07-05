@@ -476,6 +476,29 @@ public sealed class ShipCanvas : FrameworkElement
             return;
         }
 
+        // A plain left-click on a tile the CURRENT selection covers drags that selection —
+        // it does NOT re-hit-test to the topmost part. Without this, a part reached via the
+        // right-click layer menu (a thruster buried under walls/conduits) is lost the instant
+        // you click to move it, because the wall on top wins the hit-test. Ctrl-click still
+        // falls through to toggle individual parts.
+        if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+        {
+            var selected = SelectedPlacements();
+            if (selected.Any(p => Doc.Covers(p, cell.X, cell.Y)))
+            {
+                if (selected.Any(p => !Doc.IsLocked(p)))
+                {
+                    _drag = Drag.Move;
+                    _dragStartCell = cell;
+                    _moveDelta = (0, 0);
+                    CaptureMouse();
+                }
+                e.Handled = true;
+                InvalidateVisual();
+                return;
+            }
+        }
+
         var hit = Doc.HitTest(cell.X, cell.Y);
         if (hit is not null)
         {
