@@ -46,7 +46,7 @@ public class DocumentIndexTests
     }
 
     [Fact]
-    public void A_multitile_part_indexes_every_footprint_tile()
+    public void A_multitile_part_indexes_its_body_tiles()
     {
         if (TestData.Game is not { } g) return;
         var multi = g.Catalog.Parts.FirstOrDefault(p => GridMath.Size(p.Item.Width, p.Item.Height, 0) is var (w, h) && (w > 1 || h > 1));
@@ -55,11 +55,31 @@ public class DocumentIndexTests
         var doc = new ShipDocument(g.Catalog);
         var p = new Placement { DefName = multi.DefName, X = 0, Y = 0 };
         new PlaceCommand(p).Do(doc);
-        var (fw, fh) = doc.FootprintOf(p);
+        var (bx, by, bw, bh) = doc.BodyBounds(p);   // the above-floor body (= whole footprint for ordinary parts)
 
-        for (var r = 0; r < fh; r++)
-            for (var c = 0; c < fw; c++)
-                Assert.Contains(p, doc.PlacementsAt(c, r));
-        Assert.Empty(doc.PlacementsAt(fw, fh));   // just outside the footprint
+        for (var r = 0; r < bh; r++)
+            for (var c = 0; c < bw; c++)
+                Assert.Contains(p, doc.PlacementsAt(bx + c, by + r));
+        Assert.Empty(doc.PlacementsAt(bx + bw, by + bh));   // just outside the body
+    }
+
+    [Fact]
+    public void A_tank_is_selectable_on_its_above_floor_body_only()
+    {
+        if (TestData.Game is not { } g) return;
+        // a large fuel tank: 7×7 socket with an under-floor (IsSubTile-only) ring
+        var tank = g.Catalog.Parts.FirstOrDefault(p =>
+            p.Item is { Width: 7, Height: 7 } && p.Item.SocketAdds.Any(g.Catalog.IsUnderFloorLoot));
+        if (tank is null) return;
+
+        var doc = new ShipDocument(g.Catalog);
+        var p = new Placement { DefName = tank.DefName, X = 0, Y = 0 };
+        new PlaceCommand(p).Do(doc);
+
+        Assert.Equal((2, 2, 3, 3), doc.BodyBounds(p));   // the visible body is the centred 3×3, not the 7×7 socket
+        Assert.True(doc.Covers(p, 3, 3));                // centre tile is the tank
+        Assert.False(doc.Covers(p, 0, 0));               // the under-floor ring corner is not "the tank"
+        Assert.Same(p, doc.HitTest(3, 3));               // clicking the body selects it
+        Assert.Null(doc.HitTest(0, 0));                  // clicking the ring hits nothing but abstracted sub-floor
     }
 }

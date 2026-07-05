@@ -100,10 +100,52 @@ public sealed class ShipDocument
         return part is null ? (1, 1) : GridMath.Size(part.Item.Width, part.Item.Height, p.Rot);
     }
 
-    public bool Covers(Placement p, int x, int y)
+    /// <summary>
+    /// The bounding rect of a part's ABOVE-FLOOR body at its current pose — its footprint minus any
+    /// under-floor-only reservation. The large fuel tanks project a 7×7 under-floor storage ring
+    /// (<c>TILSubfloorAdds</c>, IsSubTile only) beneath a 3×3 visible body (<c>TIL2DeckAdds</c>, adds
+    /// IsObstruction); the game treats only the body as "there" for selection and interaction, so
+    /// that is what Ostraplan hit-tests, selects and outlines. Ordinary parts have no under-floor
+    /// ring, so this equals the whole footprint. The placement law is unaffected — it keeps using the
+    /// full socket grid (<see cref="CheckFit"/> reads the item's sockets directly).
+    /// </summary>
+    public (int X, int Y, int W, int H) BodyBounds(Placement p)
     {
         var (w, h) = FootprintOf(p);
-        return x >= p.X && x < p.X + w && y >= p.Y && y < p.Y + h;
+        var under = UnderFloorCells(p);
+        if (under.Count == 0) return (p.X, p.Y, w, h);
+
+        int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+        for (var r = 0; r < h; r++)
+            for (var c = 0; c < w; c++)
+                if (!under.Contains((p.X + c, p.Y + r)))
+                {
+                    minX = Math.Min(minX, p.X + c); minY = Math.Min(minY, p.Y + r);
+                    maxX = Math.Max(maxX, p.X + c); maxY = Math.Max(maxY, p.Y + r);
+                }
+        return maxX < minX ? (p.X, p.Y, w, h) : (minX, minY, maxX - minX + 1, maxY - minY + 1);
+    }
+
+    /// <summary>World tiles a part reserves as under-floor storage (IsSubTile, no solid body) at its pose.</summary>
+    private HashSet<(int, int)> UnderFloorCells(Placement p)
+    {
+        var cells = new HashSet<(int, int)>();
+        if (Part(p) is not { } part) return cells;
+        var effRot = part.Item.HasSpriteSheet ? 0 : GridMath.Norm(p.Rot);
+        var (rw, rh, adds) = GridMath.Rotate(part.Item.SocketAdds, part.Item.Width, part.Item.Height, effRot);
+        if (adds.Length != rw * rh) return cells;
+        for (var r = 0; r < rh; r++)
+            for (var c = 0; c < rw; c++)
+                if (Catalog.IsUnderFloorLoot(adds[r * rw + c]))
+                    cells.Add((p.X + c, p.Y + r));
+        return cells;
+    }
+
+    /// <summary>True if the tile falls inside the part's above-floor body (see <see cref="BodyBounds"/>).</summary>
+    public bool Covers(Placement p, int x, int y)
+    {
+        var (bx, by, bw, bh) = BodyBounds(p);
+        return x >= bx && x < bx + bw && y >= by && y < by + bh;
     }
 
     /// <summary>
@@ -151,12 +193,14 @@ public sealed class ShipDocument
 
     // ---- spatial index ----
 
+    // The index (and thus hit-testing/selection) uses the ABOVE-FLOOR body, not the socket footprint:
+    // clicking a tank's under-floor ring hits the floor there, not the tank centred on it.
     private IEnumerable<(int, int)> Tiles(Placement p)
     {
-        var (w, h) = FootprintOf(p);
-        for (var r = 0; r < h; r++)
-            for (var c = 0; c < w; c++)
-                yield return (p.X + c, p.Y + r);
+        var (bx, by, bw, bh) = BodyBounds(p);
+        for (var r = 0; r < bh; r++)
+            for (var c = 0; c < bw; c++)
+                yield return (bx + c, by + r);
     }
 
     private void Index(Placement p)

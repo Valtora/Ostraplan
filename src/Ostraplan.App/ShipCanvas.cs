@@ -644,8 +644,8 @@ public sealed class ShipCanvas : FrameworkElement
             var (y0, y1) = (Math.Min(_dragStartCell.Y, end.Y), Math.Max(_dragStartCell.Y, end.Y));
             foreach (var p in Doc.Placements)
             {
-                var (w, h) = Doc.FootprintOf(p);
-                if (p.X <= x1 && p.X + w - 1 >= x0 && p.Y <= y1 && p.Y + h - 1 >= y0)
+                var (bx, by, bw, bh) = Doc.BodyBounds(p);   // band-select on the above-floor body
+                if (bx <= x1 && bx + bw - 1 >= x0 && by <= y1 && by + bh - 1 >= y0)
                     SelectedIds.Add(p.Id);
             }
             SelectionChanged?.Invoke();
@@ -812,9 +812,9 @@ public sealed class ShipCanvas : FrameworkElement
 
         foreach (var p in Doc.Placements.Where(p => SelectedIds.Contains(p.Id)))
         {
-            var (w, h) = Doc.FootprintOf(p);
+            var (bx, by, bw, bh) = Doc.BodyBounds(p);   // outline the above-floor body (3×3 for the tanks), not the 7×7 socket
             (int X, int Y) offset = _drag == Drag.Move && !Doc.IsLocked(p) ? _moveDelta : (0, 0);
-            dc.DrawRectangle(null, SelectPen, CellRect(p.X + offset.X, p.Y + offset.Y, w, h));
+            dc.DrawRectangle(null, SelectPen, CellRect(bx + offset.X, by + offset.Y, bw, bh));
         }
 
         if (ArmedPart is not null && _hoverCell is { } hover)
