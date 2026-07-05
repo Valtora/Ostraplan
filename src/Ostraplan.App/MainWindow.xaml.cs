@@ -1,4 +1,8 @@
+using System.Diagnostics;
 using System.IO;
+using System.Net.Http;
+using System.Reflection;
+using System.Text.Json;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -155,6 +159,8 @@ public partial class MainWindow : Window
 
         UpdateZoomText();
         LoadingOverlay.Visibility = Visibility.Collapsed;
+
+        _ = CheckForUpdateAsync();   // quiet check against the latest GitHub release
     }
 
     private void UpdateZoomText() =>
@@ -1255,10 +1261,67 @@ public partial class MainWindow : Window
         ThemeManager.Apply(mode);
     }
 
-    // The update button stays hidden until an update check finds a newer release (wired below);
-    // clicking it opens the download page.
-    private void OnUpdateClick(object sender, RoutedEventArgs e) =>
-        System.Diagnostics.Process.Start(new System.Diagnostics.ProcessStartInfo(_updateUrl) { UseShellExecute = true });
+    // ---- update check (mirrors Ostrasort) ----
+
+    private static readonly HttpClient Http = CreateHttp();
+    private static HttpClient CreateHttp()
+    {
+        var c = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
+        c.DefaultRequestHeaders.UserAgent.ParseAdd("Ostraplan");
+        return c;
+    }
+
+    /// <summary>This build's version, from the assembly's informational version (git hash stripped).</summary>
+    private static string AppVersion =>
+        Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()
+            ?.InformationalVersion.Split('+')[0] ?? "0.0";
+
+    /// <summary>
+    /// Compare this build against the latest GitHub release. Runs quietly on every launch (queried
+    /// live, so a release published after this build is picked up next start) and on demand from the
+    /// Help window. A newer release reveals the toolbar Update button; the manual run always reports
+    /// the result. Ostraplan's repo is private until the public flip, so until then the check simply
+    /// finds nothing (the failure is swallowed).
+    /// </summary>
+    private async Task CheckForUpdateAsync(bool manual = false)
+    {
+        try
+        {
+            var json = await Http.GetStringAsync("https://api.github.com/repos/Valtora/Ostraplan/releases/latest");
+            using var doc = JsonDocument.Parse(json);
+            var tag = doc.RootElement.GetProperty("tag_name").GetString() ?? "";
+            var url = doc.RootElement.TryGetProperty("html_url", out var u) ? u.GetString() : null;
+            if (ParseVersion(tag) > ParseVersion(AppVersion))
+            {
+                _updateUrl = url ?? ReleasesUrl;
+                BtnUpdate.Content = $"⬆  Update: {tag}";
+                BtnUpdate.Visibility = Visibility.Visible;
+                if (manual &&
+                    MessageBox.Show(this, $"{tag} is available — you're on v{AppVersion}.\n\nOpen the download page?",
+                        "Ostraplan", MessageBoxButton.YesNo, MessageBoxImage.Information) == MessageBoxResult.Yes)
+                    OpenUrl(_updateUrl);
+            }
+            else if (manual)
+            {
+                MessageBox.Show(this, $"You're on the latest version (v{AppVersion}).",
+                    "Ostraplan", MessageBoxButton.OK, MessageBoxImage.Information);
+            }
+        }
+        catch (Exception ex)
+        {
+            if (manual)
+                MessageBox.Show(this, "Couldn't check for updates.\n\n" + ex.Message +
+                    "\n\nYou may be offline, or GitHub may be rate-limiting — its anonymous API allows about 60 checks an hour per network.",
+                    "Ostraplan", MessageBoxButton.OK, MessageBoxImage.Warning);
+        }
+    }
+
+    private static Version ParseVersion(string s) =>
+        Version.TryParse(s.TrimStart('v', 'V').Split('+', '-')[0], out var v) ? v : new Version(0, 0);
+
+    private static void OpenUrl(string url) => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
+
+    private void OnUpdateClick(object sender, RoutedEventArgs e) => OpenUrl(_updateUrl);
 
     // ---- help ----
 
@@ -1350,6 +1413,22 @@ public partial class MainWindow : Window
         Grid.SetRow(footer, row);
         Grid.SetColumnSpan(footer, 3);
         grid.Children.Add(footer);
+        row++;
+
+        // version + manual update check
+        grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
+        var about = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 16, 0, 0) };
+        about.Children.Add(new TextBlock
+        {
+            Text = $"Ostraplan v{AppVersion}", Foreground = ThemeManager.Dim,
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 12, 0),
+        });
+        var checkUpdates = new Button { Content = "Check for updates", Padding = new Thickness(12, 3, 12, 3) };
+        checkUpdates.Click += (_, _) => _ = CheckForUpdateAsync(manual: true);
+        about.Children.Add(checkUpdates);
+        Grid.SetRow(about, row);
+        Grid.SetColumnSpan(about, 3);
+        grid.Children.Add(about);
 
         new Window
         {
