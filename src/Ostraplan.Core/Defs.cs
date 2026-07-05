@@ -66,10 +66,11 @@ public sealed record CondOwnerDef(
     }
 
     /// <summary>
-    /// "StatMass=125.0x1" -&gt; StatMass:125.0. The game's condition string is
-    /// "&lt;Cond&gt;=&lt;value&gt;x&lt;count&gt;"; the value is the amount GetCondAmount
-    /// returns (mass, thrust strength, …). A bare "IsFoo" with no "=" reads as 1.0
-    /// (present). Later entries win, matching the game's last-write accumulation.
+    /// The starting-cond magnitudes: name -&gt; the amount the game would apply. The condition
+    /// string is "&lt;Cond&gt;=&lt;chance&gt;x&lt;amount&gt;" and the amount is the number AFTER the
+    /// 'x' ("StatMass=1.0x45" -&gt; 45), matching GetCondAmount; the number before it is the apply
+    /// chance (almost always 1.0), not the amount. Later entries win, matching the game's last-write
+    /// accumulation. See <see cref="LootDef.CondAmount"/>.
     /// </summary>
     public static IReadOnlyDictionary<string, double> ParseCondValues(string[] entries)
     {
@@ -78,7 +79,7 @@ public sealed record CondOwnerDef(
         {
             var name = LootDef.CondName(entry);
             if (name.Length == 0) continue;
-            map[name] = LootDef.CondValue(entry);
+            map[name] = LootDef.CondAmount(entry);
         }
         return map;
     }
@@ -132,18 +133,27 @@ public sealed record LootDef(string Name, string[] Conds, string[] Loots)
     }
 
     /// <summary>
-    /// "StatMass=125.0x1" -> 125.0 (the value between '=' and 'x'). A bare name with
-    /// no '=' reads as 1.0 (present). Ranges ("x4-6") take the low end; unparseable
-    /// values fall back to 1.0.
+    /// The magnitude the game applies for a condition entry, matching Loot.ParseCondEquation and
+    /// CondOwner.GetCondAmount. The string is "&lt;Cond&gt;=&lt;chance&gt;x&lt;amount&gt;": the number
+    /// AFTER the 'x' is the amount ("StatMass=1.0x45" -&gt; 45), the number before it is the apply
+    /// chance (almost always 1.0), <b>not</b> the amount. A leading '-' negates the entry; ranges
+    /// ("x4-6") take the low end (a deterministic static read, not the game's random roll). A bare
+    /// name with no '=' reads as 1.0 (present); anything unparseable falls back to 1.0.
     /// </summary>
-    public static double CondValue(string entry)
+    public static double CondAmount(string entry)
     {
-        var eq = entry.IndexOf('=');
-        if (eq < 0) return 1.0;
-        var rest = entry[(eq + 1)..];
+        var s = entry.Trim();
+        var neg = s.StartsWith('-');
+        if (neg) s = s[1..];
+        var eq = s.IndexOf('=');
+        if (eq < 0) return neg ? -1.0 : 1.0;
+        var rest = s[(eq + 1)..];
         var x = rest.IndexOf('x');
-        var num = (x < 0 ? rest : rest[..x]).Trim();
-        return double.TryParse(num, System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 1.0;
+        var amount = x < 0 ? rest : rest[(x + 1)..];   // the magnitude is AFTER the 'x'
+        var dash = amount.IndexOf('-');                // "4-6" range -> low end
+        if (dash > 0) amount = amount[..dash];
+        return double.TryParse(amount.Trim(), System.Globalization.CultureInfo.InvariantCulture, out var v)
+            ? (neg ? -v : v) : 1.0;
     }
 }
 

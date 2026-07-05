@@ -13,7 +13,7 @@ public sealed record PartDef(
     string[] Inputs,
     string[] Tools,
     string[] StartingConds,  // the placed condowner's aStartingConds cond names
-    IReadOnlyDictionary<string, double> StartingCondValues,  // name -> value (StatMass, StatThrustStrength, ...)
+    IReadOnlyDictionary<string, double> StartingCondValues,  // name -> magnitude/amount (StatMass kg, StatPower, ...); see LootDef.CondAmount
     IReadOnlyDictionary<string, (double X, double Y)> MapPoints);  // condowner mapPoints (DockA/DockB, RoomA/B, ...)
 
 /// <summary>
