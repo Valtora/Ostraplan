@@ -28,6 +28,17 @@ public sealed class GameEnv
     public string CoreImagesDir => Path.Combine(StreamingAssetsDir, "images");
     public string LoadingOrderPath => Path.Combine(ModsDir, "loading_order.json");
 
+    /// <summary>The persistent Saves folder (LocalLow), or null if it doesn't exist. Read-only.</summary>
+    public string? SavesDir
+    {
+        get
+        {
+            var p = Path.Combine(Environment.GetEnvironmentVariable("USERPROFILE") ?? "",
+                @"AppData\LocalLow\Blue Bottle Games\Ostranauts\Saves");
+            return Directory.Exists(p) ? p : null;
+        }
+    }
+
     public bool VersionMatchesVerified =>
         InstalledVersion is null || InstalledVersion == VerifiedGameVersion;
 

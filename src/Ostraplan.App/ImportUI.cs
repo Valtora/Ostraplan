@@ -82,22 +82,92 @@ public sealed class TemplateBrowserDialog : Window
         DialogResult = true;
     }
 
-    private static DataTemplate RowTemplate()
+    private static DataTemplate RowTemplate() =>
+        TwoLineRow(nameof(ShipFileEntry.Name), nameof(ShipFileEntry.Origin));
+
+    internal static DataTemplate TwoLineRow(string titleProp, string subProp)
     {
         var name = new FrameworkElementFactory(typeof(TextBlock));
-        name.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(ShipFileEntry.Name)));
+        name.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(titleProp));
         name.SetValue(TextBlock.ForegroundProperty, Ink);
         name.SetValue(TextBlock.FontWeightProperty, FontWeights.SemiBold);
 
-        var origin = new FrameworkElementFactory(typeof(TextBlock));
-        origin.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(nameof(ShipFileEntry.Origin)));
-        origin.SetValue(TextBlock.ForegroundProperty, Dim);
-        origin.SetValue(TextBlock.FontSizeProperty, 11.0);
+        var sub = new FrameworkElementFactory(typeof(TextBlock));
+        sub.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(subProp));
+        sub.SetValue(TextBlock.ForegroundProperty, Dim);
+        sub.SetValue(TextBlock.FontSizeProperty, 11.0);
 
         var panel = new FrameworkElementFactory(typeof(StackPanel));
         panel.SetValue(MarginProperty, new Thickness(2, 3, 2, 3));
         panel.AppendChild(name);
-        panel.AppendChild(origin);
+        panel.AppendChild(sub);
         return new DataTemplate { VisualTree = panel };
+    }
+}
+
+/// <summary>A save-game row for the picker: the player's ship name over "{player} · {save}".</summary>
+public sealed record SaveRow(string ShipDisplay, string Sub, SaveEntry Entry);
+
+/// <summary>Picks a save game to import the player's ship from. Shows each save's ship + character.</summary>
+public sealed class SavePickerDialog : Window
+{
+    private static readonly Brush Ink = new SolidColorBrush(Color.FromRgb(0xD8, 0xDD, 0xE4));
+    private static readonly Brush FieldBg = new SolidColorBrush(Color.FromRgb(0x1C, 0x1E, 0x23));
+
+    private readonly ListBox _list;
+
+    public SaveEntry? Selected { get; private set; }
+
+    public SavePickerDialog(IReadOnlyList<SaveEntry> saves)
+    {
+        Title = "Import a ship from a save game";
+        Width = 460; Height = 560;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Background = new SolidColorBrush(Color.FromRgb(0x23, 0x26, 0x2C));
+
+        var rows = saves.Select(s => new SaveRow(
+            s.ShipName.Length > 0 ? s.ShipName : "(unnamed ship)",
+            string.Join("  ·  ", new[] { s.PlayerName, s.Name }.Where(x => x.Length > 0)),
+            s)).ToList();
+
+        var root = new DockPanel { Margin = new Thickness(16) };
+
+        var note = new TextBlock
+        {
+            Text = "Imports the player's ship as a pristine layout — crew, cargo, wear and damage are discarded.",
+            Foreground = new SolidColorBrush(Color.FromRgb(0x9A, 0xA3, 0xAF)), FontSize = 11,
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
+        };
+        DockPanel.SetDock(note, Dock.Top);
+        root.Children.Add(note);
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0) };
+        var ok = new Button { Content = "Import", Padding = new Thickness(18, 4, 18, 4), Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
+        var cancel = new Button { Content = "Cancel", Padding = new Thickness(16, 4, 16, 4), IsCancel = true };
+        ok.Click += (_, _) => Accept();
+        buttons.Children.Add(ok);
+        buttons.Children.Add(cancel);
+        DockPanel.SetDock(buttons, Dock.Bottom);
+        root.Children.Add(buttons);
+
+        _list = new ListBox
+        {
+            Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+            ItemsSource = rows, ItemTemplate = TemplateBrowserDialog.TwoLineRow(nameof(SaveRow.ShipDisplay), nameof(SaveRow.Sub)),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        };
+        if (rows.Count > 0) _list.SelectedIndex = 0;
+        _list.MouseDoubleClick += (_, _) => Accept();
+        _list.KeyDown += (_, e) => { if (e.Key == Key.Enter) Accept(); };
+        root.Children.Add(_list);
+
+        Content = root;
+    }
+
+    private void Accept()
+    {
+        if (_list.SelectedItem is not SaveRow row) return;
+        Selected = row.Entry;
+        DialogResult = true;
     }
 }

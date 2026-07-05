@@ -26,6 +26,9 @@ public sealed class ShipTemplate
 {
     public required string Name { get; init; }
     public required string? Designation { get; init; }
+    /// <summary>The player-visible name (<c>publicName</c>). "$TEMPLATE" for stock templates;
+    /// a real name (e.g. "Charon") for a ship from a save.</summary>
+    public string? PublicName { get; init; }
     public required int NCols { get; init; }
     public required int NRows { get; init; }
     public required double VShipPosX { get; init; }
@@ -85,6 +88,7 @@ public sealed class ShipTemplate
         {
             Name = Json.Str(e, "strName") ?? "",
             Designation = Json.Str(e, "designation"),
+            PublicName = Json.Str(e, "publicName"),
             NCols = Json.Int(e, "nCols"),
             NRows = Json.Int(e, "nRows"),
             VShipPosX = px,

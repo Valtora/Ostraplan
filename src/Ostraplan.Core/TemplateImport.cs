@@ -78,7 +78,12 @@ public static class TemplateImport
             .Select(kv => new SkippedDef(kv.Key, kv.Value))
             .OrderByDescending(s => s.Count).ThenBy(s => s.DefName, StringComparer.Ordinal)
             .ToList();
-        var name = string.IsNullOrWhiteSpace(tmpl.Name) ? "Imported ship" : tmpl.Name;
-        return new ImportResult(doc, skippedList, contained, name, doc.Placements.Count);
+        return new ImportResult(doc, skippedList, contained, ShipName(tmpl), doc.Placements.Count);
     }
+
+    /// <summary>The friendliest name for an imported ship: its player-given <c>publicName</c>
+    /// (e.g. from a save) when it's a real one, else its <c>strName</c>.</summary>
+    public static string ShipName(ShipTemplate tmpl) =>
+        tmpl.PublicName is { Length: > 0 } pn && pn != "$TEMPLATE" ? pn
+        : string.IsNullOrWhiteSpace(tmpl.Name) ? "Imported ship" : tmpl.Name;
 }

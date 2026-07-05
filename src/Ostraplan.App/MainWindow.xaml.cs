@@ -905,8 +905,56 @@ public partial class MainWindow : Window
         var menu = new ContextMenu { PlacementTarget = BtnImport, Placement = PlacementMode.Bottom };
         var fromTemplate = new MenuItem { Header = "From ship template…" };
         fromTemplate.Click += (_, _) => ImportTemplate();
+        var fromSave = new MenuItem { Header = "From save game…" };
+        fromSave.Click += (_, _) => ImportSave();
         menu.Items.Add(fromTemplate);
+        menu.Items.Add(fromSave);
         menu.IsOpen = true;
+    }
+
+    /// <summary>Pick a save and import the player's ship from it — layout only, behind an explicit confirmation.</summary>
+    private async void ImportSave()
+    {
+        if (_catalog is null || _env is null || !ConfirmDiscardChanges()) return;
+
+        var saves = SaveImport.ListSaves(_env);
+        if (saves.Count == 0)
+        {
+            MessageBox.Show(this, "No save games found in your Ostranauts Saves folder.", "Import",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var picker = new SavePickerDialog(saves) { Owner = this };
+        if (picker.ShowDialog() != true || picker.Selected is not { } save) return;
+
+        var ship = save.ShipName.Length > 0 ? $"\"{save.ShipName}\"" : "the player's ship";
+        var who = save.PlayerName.Length > 0 ? $"{save.PlayerName}'s " : "";
+        if (MessageBox.Show(this,
+                $"Import {ship} from {who}save \"{save.Name}\"?\n\n" +
+                "Ostraplan imports the ship's LAYOUT ONLY — crew, cargo, installed modules, wear and damage " +
+                "are discarded, giving a pristine editable design.",
+                "Import from save", MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK)
+            return;
+
+        var (catalog, zip) = (_catalog, save.ZipPath);
+        ImportResult result;
+        Mouse.OverrideCursor = Cursors.Wait;
+        try
+        {
+            result = await Task.Run(() => SaveImport.ImportPlayerShip(zip, catalog));
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "Import failed:\n\n" + ex.Message, "Import", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        finally
+        {
+            Mouse.OverrideCursor = null;
+        }
+
+        InstallImportedDocument(result);
     }
 
     /// <summary>Browse core+mod ship templates and import the chosen one as a fresh design.</summary>
