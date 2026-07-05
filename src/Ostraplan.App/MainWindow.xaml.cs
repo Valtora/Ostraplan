@@ -482,12 +482,32 @@ public partial class MainWindow : Window
     private void RotateSelection(int delta)
     {
         if (_doc is null) return;
-        var commands = Board.SelectedPlacements()
-            .Where(p => !_doc.IsLocked(p) && _doc.Part(p)?.Item.HasSpriteSheet != true)   // walls/floors auto-tile; the primary is fixed
-            .Select(p => (IDocCommand)new RotateCommand(_doc, p, delta))
+        var parts = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
+        if (parts.Count == 0) return;
+
+        if (parts.Count == 1)
+        {
+            // a single part turns in place — but sheet items (walls/floors) auto-tile, they don't rotate
+            var p = parts[0];
+            if (_doc.Part(p)?.Item.HasSpriteSheet == true) return;
+            _stack.Push(_doc, new RotateCommand(_doc, p, delta));
+            return;
+        }
+
+        // several parts rotate as a group: the whole arrangement turns about its centre,
+        // each part both moving and (unless it auto-tiles) turning — GridMath-exact geometry
+        var items = parts
+            .Select(p =>
+            {
+                var (w, h) = _doc.FootprintOf(p);
+                return new GroupRotate.Item(p.X, p.Y, w, h, p.Rot, _doc.Part(p)?.Item.HasSpriteSheet == true);
+            })
             .ToList();
-        if (commands.Count == 0) return;
-        _stack.Push(_doc, commands.Count == 1 ? commands[0] : new CompositeCommand(commands));
+        var poses = GroupRotate.Rotate(items, delta);
+        var batch = new List<(Placement, int, int, int)>(parts.Count);
+        for (var i = 0; i < parts.Count; i++)
+            batch.Add((parts[i], poses[i].X, poses[i].Y, poses[i].Rot));
+        _stack.Push(_doc, new SetPosesCommand(batch));
     }
 
     private void DuplicateSelection()
@@ -575,10 +595,42 @@ public partial class MainWindow : Window
 
         var menu = new ContextMenu { PlacementTarget = Board };
 
-        if (stack.Count > 1)
+        var selected = Board.SelectedPlacements();
+        var unlocked = selected.Where(p => !_doc.IsLocked(p)).ToList();
+        var multi = selected.Count > 1;
+
+        if (multi)
         {
-            // layer picker — floors sit under what's on them, so this is how you reach
-            // the part underneath. Click a row to select that layer (● marks the current one).
+            // a box selection: header + a layer filter to narrow it to one layer, so you can
+            // (e.g.) drag a section, "Select only ▸ Walls & doors", then delete just those.
+            // The per-tile stacked picker is skipped here — it would collapse the whole
+            // selection to a single tile (the earlier bug).
+            menu.Items.Add(new MenuItem
+            {
+                Header = $"{selected.Count} parts selected",
+                IsEnabled = false,
+                FontWeight = FontWeights.SemiBold,
+            });
+            var byLayer = selected
+                .GroupBy(p => _catalog!.RenderLayer(_doc.Part(p)))
+                .Where(g => g.Count() < selected.Count)   // a group that IS the whole selection changes nothing
+                .OrderBy(g => g.Key)
+                .ToList();
+            if (byLayer.Count > 1)
+            {
+                var pick = new MenuItem { Header = "Select only" };
+                foreach (var g in byLayer)
+                {
+                    var group = g.ToList();
+                    pick.Items.Add(Item($"{LayerName(g.Key)} ({group.Count})", "", (_, _) => Board.SetSelection(group)));
+                }
+                menu.Items.Add(pick);
+            }
+        }
+        else if (stack.Count > 1)
+        {
+            // one tile with parts stacked: floors sit under what's on them, so this is how
+            // you reach the part underneath. Click a row to select just it (● = current).
             menu.Items.Add(new MenuItem
             {
                 Header = $"{stack.Count} stacked here — click to select:",
@@ -605,34 +657,12 @@ public partial class MainWindow : Window
             });
         }
 
-        // actions on the current selection (the layer picker above re-points it)
-        var selected = Board.SelectedPlacements();
-        var unlocked = selected.Where(p => !_doc.IsLocked(p)).ToList();
+        // actions on the current selection
         var canAct = unlocked.Count > 0;
-        var canRotate = unlocked.Any(p => _doc.Part(p)?.Item.HasSpriteSheet != true);
+        // a multi-selection always rotates as a group (even sheet walls/floors move); a lone
+        // part rotates in place only if it isn't a sheet item (walls/floors auto-tile instead)
+        var canRotate = unlocked.Count > 1 || unlocked.Any(p => _doc.Part(p)?.Item.HasSpriteSheet != true);
         var suffix = unlocked.Count > 1 ? $" ({unlocked.Count})" : "";
-
-        // layer filter — narrow a box selection that spans several layers down to one
-        // (drag a section, then "Select only ▸ Walls & doors" and delete just those)
-        if (selected.Count > 1)
-        {
-            var byLayer = selected
-                .GroupBy(p => _catalog!.RenderLayer(_doc.Part(p)))
-                .Where(g => g.Count() < selected.Count)   // a group that IS the whole selection changes nothing
-                .OrderBy(g => g.Key)
-                .ToList();
-            if (byLayer.Count > 1)
-            {
-                menu.Items.Add(new Separator());
-                var pick = new MenuItem { Header = "Select only" };
-                foreach (var g in byLayer)
-                {
-                    var group = g.ToList();
-                    pick.Items.Add(Item($"{LayerName(g.Key)} ({group.Count})", "", (_, _) => Board.SetSelection(group)));
-                }
-                menu.Items.Add(pick);
-            }
-        }
 
         // door state — flip the selected doors between open and closed
         var toClose = unlocked.Where(p => _catalog!.DoorToggle(p.DefName) is not null && p.DefName.Contains("Open")).ToList();
@@ -833,7 +863,7 @@ public partial class MainWindow : Window
             ("Double-click a part", "Arm the brush with that part and keep drawing it"),
             ("Drag selection", "Move the selected parts"),
             ("RMB", "Context menu · on stacked tiles lists every layer so you can select the part underneath · after a box-select, \"Select only\" narrows to one layer (e.g. just the walls) to delete · \"Close/Open door\" flips a door's state · cancels placement while armed"),
-            ("R / Shift+R", "Rotate the armed part or the selection CW / CCW (walls & floors auto-tile instead)"),
+            ("R / Shift+R", "Rotate CW / CCW: the armed part, a single selected part in place, or a multi-part selection as a group about its centre (walls & floors move but auto-tile rather than turn)"),
             ("M", "Cycle symmetry Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on"),
             ("Del", "Delete the selection"),
             ("Ctrl+C / Ctrl+V / Ctrl+D", "Copy / paste (at the cursor) / duplicate the selection"),

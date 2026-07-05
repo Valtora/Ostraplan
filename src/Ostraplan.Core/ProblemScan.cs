@@ -163,13 +163,12 @@ public static class ProblemScan
 
         var open = breaches.Count(b => b.OpenToSpace);
         var holes = breaches.Count - open;
-        var tiles = breaches.Sum(b => b.Tiles.Count);
         var kinds = new List<string>();
         if (open > 0) kinds.Add($"{open} open to space (not walled in)");
         if (holes > 0) kinds.Add($"{holes} missing a sealed floor");
         problems.Add(new Problem(ProblemSeverity.Warning,
             $"{breaches.Count} unsealed compartment{(breaches.Count == 1 ? "" : "s")}",
-            $"{string.Join(", ", kinds)} — {tiles} tile{(tiles == 1 ? "" : "s")} in total. Run Ship Rating to see and highlight them."));
+            $"{string.Join(", ", kinds)}. Run Ship Rating to pinpoint and highlight the leak points."));
     }
 
     /// <summary>

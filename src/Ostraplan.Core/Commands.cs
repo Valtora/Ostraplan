@@ -72,11 +72,13 @@ public sealed class CompositeCommand(IReadOnlyList<IDocCommand> commands) : IDoc
 {
     public void Do(ShipDocument doc)
     {
+        using var _ = doc.SuspendChanged();   // one repaint/scan for the whole batch
         foreach (var cmd in commands) cmd.Do(doc);
     }
 
     public void Undo(ShipDocument doc)
     {
+        using var _ = doc.SuspendChanged();
         for (var i = commands.Count - 1; i >= 0; i--) commands[i].Undo(doc);
     }
 }
@@ -92,11 +94,13 @@ public sealed class RemoveCommand(IReadOnlyList<Placement> placements) : IDocCom
 {
     public void Do(ShipDocument doc)
     {
+        using var _ = doc.SuspendChanged();
         foreach (var p in placements) doc.Remove(p);
     }
 
     public void Undo(ShipDocument doc)
     {
+        using var _ = doc.SuspendChanged();
         foreach (var p in placements) doc.Add(p);
     }
 }
@@ -105,12 +109,51 @@ public sealed class MoveCommand(IReadOnlyList<Placement> placements, int dx, int
 {
     public void Do(ShipDocument doc)
     {
+        using var _ = doc.SuspendChanged();
         foreach (var p in placements) doc.MoveTo(p, p.X + dx, p.Y + dy);
     }
 
     public void Undo(ShipDocument doc)
     {
+        using var _ = doc.SuspendChanged();
         foreach (var p in placements) doc.MoveTo(p, p.X - dx, p.Y - dy);
+    }
+}
+
+/// <summary>
+/// Apply explicit (x,y,rot) poses to a batch of parts as one step — the group rotation of
+/// a multi-part selection, where every part both moves and turns. Reversible to the parts'
+/// prior poses (stored at construction, before Do runs).
+/// </summary>
+public sealed class SetPosesCommand : IDocCommand
+{
+    private readonly Placement[] _parts;
+    private readonly (int X, int Y, int Rot)[] _after;
+    private readonly (int X, int Y, int Rot)[] _before;
+
+    public SetPosesCommand(IReadOnlyList<(Placement Part, int X, int Y, int Rot)> poses)
+    {
+        _parts = new Placement[poses.Count];
+        _after = new (int, int, int)[poses.Count];
+        _before = new (int, int, int)[poses.Count];
+        for (var i = 0; i < poses.Count; i++)
+        {
+            _parts[i] = poses[i].Part;
+            _after[i] = (poses[i].X, poses[i].Y, poses[i].Rot);
+            _before[i] = (poses[i].Part.X, poses[i].Part.Y, poses[i].Part.Rot);
+        }
+    }
+
+    public void Do(ShipDocument doc)
+    {
+        using var _ = doc.SuspendChanged();
+        for (var i = 0; i < _parts.Length; i++) doc.SetPose(_parts[i], _after[i].X, _after[i].Y, _after[i].Rot);
+    }
+
+    public void Undo(ShipDocument doc)
+    {
+        using var _ = doc.SuspendChanged();
+        for (var i = 0; i < _parts.Length; i++) doc.SetPose(_parts[i], _before[i].X, _before[i].Y, _before[i].Rot);
     }
 }
 

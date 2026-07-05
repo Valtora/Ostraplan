@@ -425,8 +425,10 @@ public sealed class ShipCanvas : FrameworkElement
                 if (stack.Count > 0)
                 {
                     // if nothing in this stack is already selected, grab the topmost so a
-                    // plain right-click + Delete still acts on the visible part
-                    if (!stack.Any(p => SelectedIds.Contains(p.Id)))
+                    // plain right-click + Delete still acts on the visible part — but keep an
+                    // existing box selection (>1) intact so its layer filter / group actions
+                    // apply to the whole thing, wherever inside it you click
+                    if (SelectedIds.Count <= 1 && !stack.Any(p => SelectedIds.Contains(p.Id)))
                     {
                         SelectedIds.Clear();
                         SelectedIds.Add(stack[0].Id);

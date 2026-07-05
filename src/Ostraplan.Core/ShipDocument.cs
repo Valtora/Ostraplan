@@ -26,10 +26,41 @@ public sealed class ShipDocument
 
     public event Action? Changed;
 
+    private int _batchDepth;
+    private bool _batchDirty;
+
     public ShipDocument(Catalog catalog)
     {
         Catalog = catalog;
         Conds = new TileConds(catalog);
+    }
+
+    /// <summary>
+    /// Coalesce the <see cref="Changed"/> notifications of a burst of mutations into a
+    /// single event fired when the scope disposes — so a group rotation / multi-part move /
+    /// paste runs the (heavy) problem scan and repaint once, not once per part. Tile
+    /// conditions still update per mutation, so mid-batch reads are correct.
+    /// </summary>
+    public IDisposable SuspendChanged()
+    {
+        _batchDepth++;
+        return new BatchScope(this);
+    }
+
+    private void RaiseChanged()
+    {
+        if (_batchDepth > 0) { _batchDirty = true; return; }
+        Changed?.Invoke();
+    }
+
+    private sealed class BatchScope(ShipDocument doc) : IDisposable
+    {
+        public void Dispose()
+        {
+            if (--doc._batchDepth != 0 || !doc._batchDirty) return;
+            doc._batchDirty = false;
+            doc.Changed?.Invoke();
+        }
     }
 
     public IReadOnlyList<Placement> Placements => _placements;
@@ -96,7 +127,7 @@ public sealed class ShipDocument
         _placements.Add(p);
         _order[p.Id] = _seq++;
         if (Part(p) is { } part) Conds.Apply(p, part.Item, +1);
-        Changed?.Invoke();
+        RaiseChanged();
     }
 
     internal void Remove(Placement p)
@@ -104,7 +135,7 @@ public sealed class ShipDocument
         if (!_placements.Remove(p)) return;
         _order.Remove(p.Id);
         if (Part(p) is { } part) Conds.Apply(p, part.Item, -1);
-        Changed?.Invoke();
+        RaiseChanged();
     }
 
     internal void MoveTo(Placement p, int x, int y)
@@ -114,7 +145,7 @@ public sealed class ShipDocument
         p.X = x;
         p.Y = y;
         if (part is not null) Conds.Apply(p, part.Item, +1);
-        Changed?.Invoke();
+        RaiseChanged();
     }
 
     internal void SetPose(Placement p, int x, int y, int rot)
@@ -125,7 +156,7 @@ public sealed class ShipDocument
         p.Y = y;
         p.Rot = GridMath.Norm(rot);
         if (part is not null) Conds.Apply(p, part.Item, +1);
-        Changed?.Invoke();
+        RaiseChanged();
     }
 
     internal void Clear()
@@ -134,6 +165,6 @@ public sealed class ShipDocument
         _order.Clear();
         Conds.Clear();
         _seq = 0;
-        Changed?.Invoke();
+        RaiseChanged();
     }
 }

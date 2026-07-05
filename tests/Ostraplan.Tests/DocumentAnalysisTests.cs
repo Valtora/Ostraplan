@@ -66,22 +66,24 @@ public class DocumentAnalysisTests
     }
 
     [Fact]
-    public void A_wall_gap_makes_the_interior_open_to_space()
+    public void A_wall_gap_is_pinpointed_to_the_missing_wall_not_the_whole_room()
     {
         if (TestData.Game is not { } g || !Ready(g)) return;
         var breach = Assert.Single(Analyse(g, Mode.WallGap).Breaches);
-        Assert.True(breach.OpenToSpace);                  // the interior escaped to the exterior through the gap
-        Assert.Equal(9, breach.Tiles.Count);              // all nine interior floor tiles are exposed
+        Assert.True(breach.OpenToSpace);                     // the interior escaped through the gap
+        Assert.Equal(9, breach.ExposedFloorCount);           // the whole 3×3 interior vents to space
+        Assert.Equal((0, 2), Assert.Single(breach.Tiles));   // highlight is ONLY the one missing-wall tile
     }
 
     [Fact]
-    public void Floor_with_no_walls_is_entirely_open_to_space()
+    public void Floor_with_no_walls_highlights_the_perimeter_where_walls_are_missing()
     {
         if (TestData.Game is not { } g || !Ready(g)) return;
         var report = Analyse(g, Mode.FloorOnly);
         var breach = Assert.Single(report.Breaches);
         Assert.True(breach.OpenToSpace);
-        Assert.Equal(9, breach.Tiles.Count);              // every floor tile is exposed — nothing is enclosed
+        Assert.Equal(9, breach.ExposedFloorCount);           // every floor tile vents — nothing is enclosed
+        Assert.Equal(12, breach.Tiles.Count);                // the ring of missing-wall positions round the 3×3
         Assert.DoesNotContain(report.Rooms, r => !r.Void);   // there is no sealed compartment at all
     }
 

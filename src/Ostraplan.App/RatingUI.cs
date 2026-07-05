@@ -86,29 +86,51 @@ public sealed class RatingReportWindow : Window
             .Select(r => Row($"{r.TileCount}-tile room", r.NearMiss ?? "", Warn))
             .ToList(), null);
 
-        // airtightness
-        var breaches = report.Breaches.OrderByDescending(b => b.Tiles.Count).ToList();
+        // airtightness — each breach's leak points highlight on the canvas. Show toggles to
+        // Hide (one breach shown at a time); closing this window clears the highlight so it
+        // doesn't linger until the next Ship Rating.
+        Closed += (_, _) => highlightLeak([]);
+        var breaches = report.Breaches
+            .OrderByDescending(b => b.ExposedFloorCount).ThenByDescending(b => b.Tiles.Count).ToList();
         body.Children.Add(Header("AIRTIGHTNESS"));
         if (breaches.Count == 0)
             body.Children.Add(new TextBlock { Text = "All compartments are sealed. ✓", Foreground = Ink, Margin = new Thickness(0, 2, 0, 8) });
         else
+        {
+            var showButtons = new List<Button>();
             foreach (var b in breaches)
             {
-                var n = b.Tiles.Count;
+                var breach = b;
+                var n = breach.Tiles.Count;
                 var row = new DockPanel { Margin = new Thickness(0, 3, 0, 3) };
-                var show = new Button { Content = "Show", Padding = new Thickness(8, 1, 8, 1), Foreground = Brushes.Black };
-                show.Click += (_, _) => highlightLeak(b.Tiles);
+                var show = new Button { Content = "Show", Padding = new Thickness(8, 1, 8, 1), Foreground = Brushes.Black, VerticalAlignment = VerticalAlignment.Top };
+                showButtons.Add(show);
+                show.Click += (_, _) =>
+                {
+                    if ((string)show.Content == "Show")
+                    {
+                        foreach (var other in showButtons) other.Content = "Show";   // only one breach highlighted at a time
+                        show.Content = "Hide";
+                        highlightLeak(breach.Tiles);
+                    }
+                    else
+                    {
+                        show.Content = "Show";
+                        highlightLeak([]);
+                    }
+                };
                 DockPanel.SetDock(show, Dock.Right);
                 row.Children.Add(show);
                 row.Children.Add(new TextBlock
                 {
-                    Text = b.OpenToSpace
-                        ? $"{n} floor tile{(n == 1 ? "" : "s")} open to space — not enclosed by walls"
-                        : $"{b.RoomTileCount}-tile compartment — {n} unsealed tile{(n == 1 ? "" : "s")}",
+                    Text = breach.OpenToSpace
+                        ? $"{n} leak point{(n == 1 ? "" : "s")} — {breach.ExposedFloorCount}-tile area open to space"
+                        : $"{breach.RoomTileCount}-tile compartment — {n} unsealed tile{(n == 1 ? "" : "s")}",
                     Foreground = Warn, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center,
                 });
                 body.Children.Add(row);
             }
+        }
 
         var close = new Button { Content = "Close", Padding = new Thickness(16, 4, 16, 4), HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
         close.Click += (_, _) => Close();

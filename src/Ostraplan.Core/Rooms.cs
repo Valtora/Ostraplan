@@ -131,7 +131,7 @@ public static class RoomBuilder
     }
 
     /// <summary>N, W, E, S neighbours; −1 where the neighbour falls off the grid edge.</summary>
-    private static IEnumerable<int> Cardinals(ShipGrid grid, int t)
+    internal static IEnumerable<int> Cardinals(ShipGrid grid, int t)
     {
         var col = grid.Col(t);
         var row = grid.Row(t);
