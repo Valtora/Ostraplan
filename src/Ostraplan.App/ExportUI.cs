@@ -102,12 +102,12 @@ public sealed class ExportDialog : Window
     {
         if (ShipName.Length == 0)
         {
-            MessageBox.Show(this, "Give the ship a name.", "Export", MessageBoxButton.OK, MessageBoxImage.Information);
+            Dlg.Info(this, "Export", "Give the ship a name.");
             return;
         }
         if (!StagedIntoMods && string.IsNullOrWhiteSpace(_pickedFolder))
         {
-            MessageBox.Show(this, "Choose a folder to write to.", "Export", MessageBoxButton.OK, MessageBoxImage.Information);
+            Dlg.Info(this, "Export", "Choose a folder to write to.");
             return;
         }
         DialogResult = true;

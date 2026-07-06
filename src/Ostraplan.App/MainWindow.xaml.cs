@@ -103,16 +103,16 @@ public partial class MainWindow : Window
             {
                 // Ostraplan reads the game's own sprites and data — it can't run without the install. Show why,
                 // let the user point at the folder by hand, and fail closed (a clean exit) if they cancel.
-                MessageBox.Show(this,
-                    ex.Message + "\n\nOstraplan needs the Ostranauts install to run — please pick the game folder.",
-                    "Ostraplan — Ostranauts install required", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Dlg.Warn(this, "Ostranauts install required",
+                    ex.Message + "\n\n" +
+                    "Ostraplan needs the Ostranauts install to run.\n" +
+                    "Please pick the game folder.");
                 var dlg = new OpenFolderDialog { Title = "Pick the Ostranauts folder (inside steamapps\\common)" };
                 if (dlg.ShowDialog(this) != true)
                 {
-                    MessageBox.Show(this,
+                    Dlg.Info(this, "Ostraplan is closing",
                         "Ostraplan can't run without the Ostranauts install, so it will now close.\n\n" +
-                        "Launch it again once the game is installed, or when you're ready to pick the folder.",
-                        "Ostraplan — closing", MessageBoxButton.OK, MessageBoxImage.Information);
+                        "Launch it again once the game is installed, or when you're ready to pick the folder.");
                     Close();
                     return;
                 }
@@ -141,8 +141,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, $"Could not load game data:\n\n{ex.Message}", "Ostraplan",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            Dlg.Error(this, "Ostraplan", $"Could not load game data.\n\n{ex.Message}");
             Close();
             return;
         }
@@ -345,7 +344,7 @@ public partial class MainWindow : Window
         if (_analysing || _doc is null || _catalog is null || _index is null) return;
         if (_doc.Placements.Count == 0)
         {
-            MessageBox.Show(this, "Place some parts before running the Ship Rating.", "Ship Rating",
+            Dlg.Show(this, "Place some parts before running the Ship Rating.", "Ship Rating",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -365,7 +364,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "Analysis failed: " + ex.Message, "Ship Rating", MessageBoxButton.OK, MessageBoxImage.Error);
+            Dlg.Show(this, "Analysis failed: " + ex.Message, "Ship Rating", MessageBoxButton.OK, MessageBoxImage.Error);
         }
         finally
         {
@@ -390,7 +389,7 @@ public partial class MainWindow : Window
         if (_doc is null) return;
         if (_doc.Placements.Count == 0)
         {
-            MessageBox.Show(this, "Place some parts before opening the bill of materials.", "Bill of Materials",
+            Dlg.Show(this, "Place some parts before opening the bill of materials.", "Bill of Materials",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -471,16 +470,15 @@ public partial class MainWindow : Window
         // An incomplete design (missing-mod parts) can't be saved — don't offer a Save that will fail;
         // just confirm the discard.
         if (_unresolvedParts.Count > 0)
-            return MessageBox.Show(this,
-                $"“{name}” is missing mods and can't be saved, so your changes will be lost. Discard them and continue?",
-                "Ostraplan", MessageBoxButton.OKCancel, MessageBoxImage.Warning) == MessageBoxResult.OK;
+            return Dlg.Confirm(this, DlgKind.Danger, "Discard your changes?",
+                $"“{name}” is missing mods and can't be saved, so continuing will lose your unsaved changes.",
+                "Discard changes");
 
-        var result = MessageBox.Show(this, $"Save changes to \"{name}\"?",
-            "Ostraplan", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
-        return result switch
+        return Dlg.Choose(this, DlgKind.Info, "Save changes?",
+            $"“{name}” has unsaved changes.", "Save", "Don't save") switch
         {
-            MessageBoxResult.Yes => Save(),
-            MessageBoxResult.No => true,
+            MessageDialog.Choice.Primary => Save(),
+            MessageDialog.Choice.Secondary => true,
             _ => false,
         };
     }
@@ -496,7 +494,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, ex.Message, "Save failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            Dlg.Show(this, ex.Message, "Save failed", MessageBoxButton.OK, MessageBoxImage.Error);
             return false;
         }
         _stack.MarkSaved();
@@ -526,12 +524,12 @@ public partial class MainWindow : Window
     private bool GuardIncompleteSave()
     {
         if (_unresolvedParts.Count == 0) return true;
-        MessageBox.Show(this,
-            $"This design still has {_unresolvedParts.Count} part(s) from mods that aren't loaded, so it can't be saved:\n\n" +
+        Dlg.Warn(this, "Can't save an incomplete design",
+            $"This design still has {_unresolvedParts.Count} part(s) from mods that aren't loaded, so it can't be saved.\n\n" +
             FormatMissingDefs(_unresolvedParts) +
-            "\n\nSaving now would drop them for good. Enable the required mods — run Ostrasort to confirm they're " +
-            "subscribed and enabled — then reopen this design and it will be complete and saveable again.",
-            "Can't save an incomplete design", MessageBoxButton.OK, MessageBoxImage.Warning);
+            "\n\nSaving now would drop them for good.\n" +
+            "Enable the required mods, and run Ostrasort to confirm they're subscribed and enabled.\n" +
+            "Then reopen this design and it will be complete and saveable again.");
         return false;
     }
 
@@ -551,7 +549,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, ex.Message, "Open failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            Dlg.Show(this, ex.Message, "Open failed", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
 
@@ -576,18 +574,17 @@ public partial class MainWindow : Window
         _settings.Save();
 
         if (missing.Count > 0)
-            MessageBox.Show(this,
-                $"“{_meta.Name}” uses {missing.Count} part(s) that aren't in your current game + mods data, so " +
-                "they were left out and this design is INCOMPLETE:\n\n" +
+            Dlg.Warn(this, "This design is missing mods",
+                $"{_meta.Name} uses {missing.Count} part(s) that aren't in your current game and mods data.\n" +
+                "They were left out, so this design is incomplete.\n\n" +
                 FormatMissingDefs(missing) +
-                "\n\nIt depends on these mods:\n\n" +
+                "\n\nIt depends on these mods.\n\n" +
                 FormatModDeps(file.Mods) +
-                "\n\nInstall or subscribe to those mods and enable them, then reopen this design. Run Ostrasort " +
-                "to confirm they're subscribed, enabled and in a working load order.\n\n" +
-                "Until then the design is read-only — saving is disabled. Saving now would permanently drop the " +
-                "missing parts, and building over (or moving parts into) the space where they belong can produce " +
-                "a ship that's invalid in-game.",
-                "Missing mods — reopen with them enabled", MessageBoxButton.OK, MessageBoxImage.Warning);
+                "\n\nInstall or subscribe to those mods and enable them, then reopen this design.\n" +
+                "Run Ostrasort to confirm they're subscribed, enabled, and in a working load order.\n\n" +
+                "Until then the design is read only, so saving is disabled.\n" +
+                "Saving now would permanently drop the missing parts.\n" +
+                "Building over the space where they belong (or moving parts into it) can produce a ship that's invalid in game.");
     }
 
     /// <summary>Up to a dozen distinct missing def names, bulleted, with an "… and N more" tail.</summary>
@@ -601,7 +598,7 @@ public partial class MainWindow : Window
     /// <summary>The design's recorded mod dependencies (friendly name, else the loading_order entry), bulleted.</summary>
     private static string FormatModDeps(IReadOnlyList<OplanMod> mods) =>
         mods.Count == 0
-            ? "   • (the design records no mod dependencies — the part may be from a since-removed mod)"
+            ? "   • (the design records no mod dependencies, so the part may be from a mod you since removed)"
             : string.Join("\n", mods.Select(m => "   • " + (m.Name.Length > 0 ? m.Name : m.Entry)));
 
     // ---- edits ----
@@ -767,7 +764,7 @@ public partial class MainWindow : Window
         var (floorCount, floorCurrent) = State(floorCls);
         if (wallCount == 0 && floorCount == 0)
         {
-            MessageBox.Show(this, "Place some walls or floors before applying a theme.", "Apply theme",
+            Dlg.Show(this, "Place some walls or floors before applying a theme.", "Apply theme",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -1106,7 +1103,7 @@ public partial class MainWindow : Window
         if (_doc is null || _catalog is null || _index is null || _env is null) return;
         if (_doc.Placements.Count == 0)
         {
-            MessageBox.Show(this, "Place some parts before exporting.", "Export",
+            Dlg.Show(this, "Place some parts before exporting.", "Export",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -1117,10 +1114,10 @@ public partial class MainWindow : Window
         // don't silently clobber an existing mod folder we may not have created
         var targetDir = Path.Combine(dlg.DestinationParent, ShipExport.SanitizeName(dlg.ShipName));
         if (Directory.Exists(targetDir) && Directory.EnumerateFileSystemEntries(targetDir).Any()
-            && MessageBox.Show(this,
+            && !Dlg.Confirm(this, DlgKind.Warning, "Folder already exists",
                 $"A folder named \"{Path.GetFileName(targetDir)}\" already exists at:\n{Path.GetDirectoryName(targetDir)}\n\n" +
-                "Overwrite its mod_info.json and ship file? Other files in the folder are left untouched.",
-                "Export", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK)
+                "Overwriting replaces its mod_info.json and ship file. Other files in the folder are left untouched.",
+                "Overwrite"))
             return;
 
         _roomSpecs ??= RoomCertifier.LoadSpecs(_index);
@@ -1136,7 +1133,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "Export failed:\n\n" + ex.Message, "Export", MessageBoxButton.OK, MessageBoxImage.Error);
+            Dlg.Show(this, "Export failed:\n\n" + ex.Message, "Export", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
         finally
@@ -1149,13 +1146,16 @@ public partial class MainWindow : Window
         _settings.Save();
 
         var registerNote = dlg.StagedIntoMods
-            ? "Staged into the game's Mods folder. Register it with Ostrasort (or ModTools) before it appears in-game — Ostraplan never writes loading_order.json."
-            : "Copy this folder into Ostranauts_Data/Mods and register it with Ostrasort/ModTools to spawn it in-game.";
-        MessageBox.Show(this,
-            $"Exported \"{dlg.ShipName}\".\n\n" +
-            $"{result.PartCount} parts · {result.RoomCount} certified room(s) · rating {(string.IsNullOrEmpty(result.Rating.Display) ? "None" : result.Rating.Display)}\n\n" +
-            $"Written to:\n{result.ModDir}\n\n{registerNote}",
-            "Export complete", MessageBoxButton.OK, MessageBoxImage.Information);
+            ? "It's staged into the game's Mods folder.\n" +
+              "Register it with Ostrasort (or ModTools) before it appears in game.\n" +
+              "Ostraplan never writes loading_order.json itself."
+            : "Copy this folder into Ostranauts_Data\\Mods.\n" +
+              "Then register it with Ostrasort (or ModTools) to spawn it in game.";
+        Dlg.Success(this, "Export complete",
+            $"Exported {dlg.ShipName}.\n\n" +
+            $"{result.PartCount} parts, {result.RoomCount} certified room(s), rating {(string.IsNullOrEmpty(result.Rating.Display) ? "None" : result.Rating.Display)}.\n\n" +
+            $"Written to {result.ModDir}\n\n" +
+            registerNote);
     }
 
     /// <summary>Save a PNG image of the ship (sprites only — no grid, overlays or UI) for sharing or reference.</summary>
@@ -1163,7 +1163,7 @@ public partial class MainWindow : Window
     {
         if (_doc is null || _doc.Placements.Count == 0)
         {
-            MessageBox.Show(this, "Place some parts before taking a snapshot.", "Snapshot",
+            Dlg.Show(this, "Place some parts before taking a snapshot.", "Snapshot",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -1177,7 +1177,7 @@ public partial class MainWindow : Window
 
         if (Board.RenderSnapshot() is not { } bmp)
         {
-            MessageBox.Show(this, "Nothing to snapshot.", "Snapshot", MessageBoxButton.OK, MessageBoxImage.Information);
+            Dlg.Show(this, "Nothing to snapshot.", "Snapshot", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
         try
@@ -1189,7 +1189,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "Could not save the snapshot:\n\n" + ex.Message, "Snapshot",
+            Dlg.Show(this, "Could not save the snapshot:\n\n" + ex.Message, "Snapshot",
                 MessageBoxButton.OK, MessageBoxImage.Error);
         }
     }
@@ -1219,7 +1219,7 @@ public partial class MainWindow : Window
         var saves = SaveImport.ListSaves(_env);
         if (saves.Count == 0)
         {
-            MessageBox.Show(this, "No save games found in your Ostranauts Saves folder.", "Import",
+            Dlg.Show(this, "No save games found in your Ostranauts Saves folder.", "Import",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -1229,11 +1229,11 @@ public partial class MainWindow : Window
 
         var ship = save.ShipName.Length > 0 ? $"\"{save.ShipName}\"" : "the player's ship";
         var who = save.PlayerName.Length > 0 ? $"{save.PlayerName}'s " : "";
-        if (MessageBox.Show(this,
-                $"Import {ship} from {who}save \"{save.Name}\"?\n\n" +
-                "Ostraplan imports the ship's LAYOUT ONLY — crew, cargo, installed modules, wear and damage " +
-                "are discarded, giving a pristine editable design.",
-                "Import from save", MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK)
+        if (!Dlg.Confirm(this, DlgKind.Info, $"Import {ship} for planning?",
+                $"From {who}save \"{save.Name}\".\n\n" +
+                "Ostraplan imports the ship layout only.\n" +
+                "Crew, cargo, installed modules, wear, and damage are discarded, giving a pristine editable design.",
+                "Import layout"))
             return;
 
         var (catalog, zip) = (_catalog, save.ZipPath);
@@ -1245,7 +1245,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "Import failed:\n\n" + ex.Message, "Import", MessageBoxButton.OK, MessageBoxImage.Error);
+            Dlg.Show(this, "Import failed:\n\n" + ex.Message, "Import", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
         finally
@@ -1265,7 +1265,7 @@ public partial class MainWindow : Window
         var saves = SaveImport.ListSaves(_env);
         if (saves.Count == 0)
         {
-            MessageBox.Show(this, "No save games found in your Ostranauts Saves folder.", "Import",
+            Dlg.Show(this, "No save games found in your Ostranauts Saves folder.", "Import",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -1278,7 +1278,7 @@ public partial class MainWindow : Window
         var ships = SaveImport.ListPlayerShips(save.ZipPath);
         if (ships.Count == 0)
         {
-            MessageBox.Show(this,
+            Dlg.Show(this,
                 "Couldn't find a ship to edit in that save (no owned ships and no current ship on record).",
                 "Import", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
@@ -1290,15 +1290,14 @@ public partial class MainWindow : Window
         // editing a ship you don't own (a station, another vessel) is unsupported — gate it behind a stern warning
         if (!chosen.Owned && !ConfirmUnsupportedShip(chosen)) return;
 
-        if (MessageBox.Show(this,
-                $"Import \"{chosen.Name}\" ({chosen.RegId}) from save \"{save.Name}\" for editing?\n\n" +
-                "You'll redesign the ship's structure out-of-game. When you choose \"Update Ship in Save…\", " +
-                "Ostraplan writes the result back into the save — a new copy by default, or the original in place — " +
-                "with crew, cargo, world position and ship identity preserved.\n\n" +
-                "The .oplan you save stays LINKED to this save — it references the ship's live state (crew, cargo, " +
-                "wear) rather than embedding it, so keep the save if you want to write back later. For a standalone, " +
-                "shareable ship instead, use Export (a spawnable mod).",
-                "Import for editing", MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK)
+        if (!Dlg.Confirm(this, DlgKind.Info, $"Import \"{chosen.Name}\" for editing?",
+                $"Ship {chosen.RegId} from save \"{save.Name}\".\n\n" +
+                "You'll redesign the ship's structure out of game.\n" +
+                "When you choose the Update Ship in Save action, Ostraplan writes the result back into the save, either as a new copy (the default) or the original in place, keeping crew, cargo, world position, and ship identity.\n\n" +
+                "The .oplan you save stays linked to this save.\n" +
+                "It references the ship's live state (crew, cargo, wear) rather than embedding it, so keep the save if you want to write back later.\n\n" +
+                "For a standalone, shareable ship instead, use Export, which makes a spawnable mod.",
+                "Import for editing"))
             return;
 
         var (catalog, entry, reg) = (_catalog, save, chosen.RegId);
@@ -1310,7 +1309,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "Import failed:\n\n" + ex.Message, "Import", MessageBoxButton.OK, MessageBoxImage.Error);
+            Dlg.Show(this, "Import failed:\n\n" + ex.Message, "Import", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
         finally { Mouse.OverrideCursor = null; }
@@ -1325,7 +1324,7 @@ public partial class MainWindow : Window
         if (_doc is null || _catalog is null || _index is null || _env is null) return;
         if (_doc.SourceSave is not { } src)
         {
-            MessageBox.Show(this, "This design wasn't imported from a save. Use Import ▸ \"Your ship, for editing\" first.",
+            Dlg.Show(this, "This design wasn't imported from a save. Use Import ▸ \"Your ship, for editing\" first.",
                 "Update ship in save", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -1337,7 +1336,7 @@ public partial class MainWindow : Window
             var match = SaveImport.ListSaves(_env).FirstOrDefault(s => string.Equals(s.Name, src.SaveName, StringComparison.Ordinal));
             if (match is null)
             {
-                MessageBox.Show(this,
+                Dlg.Show(this,
                     $"The source save \"{src.SaveName}\" is no longer in your Saves folder, so this design can't be " +
                     "written back. You can still Export it as a spawnable mod.",
                     "Update ship in save", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -1348,7 +1347,7 @@ public partial class MainWindow : Window
             try { ctx = await Task.Run(() => SaveEditImport.RelocateContext(zip0, name0, reg0, catalog0)); }
             catch (Exception ex)
             {
-                MessageBox.Show(this, "Couldn't re-locate the ship in that save:\n\n" + ex.Message +
+                Dlg.Show(this, "Couldn't re-locate the ship in that save:\n\n" + ex.Message +
                     "\n\nYou can still Export it as a mod.", "Update ship in save", MessageBoxButton.OK, MessageBoxImage.Warning);
                 return;
             }
@@ -1379,8 +1378,7 @@ public partial class MainWindow : Window
         try { (shipObj, report) = await Task.Run(() => SaveEdit.BuildInjectedShip(doc, context, catalog, specs, charge)); }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "The edit can't be written back:\n\n" + ex.Message, "Update ship in save",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            Dlg.Error(this, "Update ship in save", "The edit can't be written back.\n\n" + ex.Message);
             return;
         }
         finally { Mouse.OverrideCursor = null; }
@@ -1388,35 +1386,37 @@ public partial class MainWindow : Window
         // loud cargo-loss warning: deleting a container that still holds cargo drops it
         if (report.CargoDropped.Count > 0 && !ConfirmCargoLoss(report.CargoDropped)) return;
 
-        var summary = $"{report.Kept} kept · {report.Moved} moved · {report.Added} added · {report.Deleted} deleted";
+        var summary = $"{report.Kept} kept, {report.Moved} moved, {report.Added} added, {report.Deleted} deleted.";
         var costNote = report.Charged is { } c
-            ? $"\n\nCost: {Money(c)} deducted — balance now {Money(report.ResultingBalance ?? 0)}."
+            ? $"\n\n{Money(c)} was deducted. Your balance is now {Money(report.ResultingBalance ?? 0)}."
             : "";
-        var atmoNote = "\n\nThe ship refills with breathable atmosphere (~22 kPa O₂ / 80 kPa N₂) when you load it.";
+        var atmoNote = "\n\nThe ship refills with breathable atmosphere when you load it (about 22 kPa O₂ and 80 kPa N₂).";
         var powerNote = report.PowerFixed > 0
-            ? $"\n\nRe-armed {report.PowerFixed} powered device(s) that had lost their power ticker."
+            ? $"\n\nRearmed {report.PowerFixed} powered device(s) that had lost their power ticker."
             : "";
         var warn = report.Warnings.Count > 0
-            ? $"\n\nNote: {report.Warnings.Count} placement-law warning(s) — the ship is still written (load it to check):\n" +
-              string.Join("\n", report.Warnings.Take(6).Select(w => "  • " + w))
+            ? $"\n\n{report.Warnings.Count} placement law warning(s). The ship is still written, so load it to check.\n\n" +
+              string.Join("\n", report.Warnings.Take(6).Select(w => "   • " + w))
             : "";
 
         string writtenName;
+        string? backupName = null;
         try
         {
             if (opts.InPlace)
             {
                 if (!ConfirmInPlace(src.SaveName)) return;
-                SaveEdit.WriteInPlace(context, shipObj, report.ResultingBalance);
+                backupName = Path.GetFileName(SaveEdit.WriteInPlace(context, shipObj, report.ResultingBalance));
                 writtenName = src.SaveName;
             }
             else
             {
                 var outDir = SaveEdit.SuggestCopyDir(context);
-                if (MessageBox.Show(this,
-                        $"Write your edited ship into a new copy of \"{src.SaveName}\"?\n\n{summary}{costNote}{atmoNote}{powerNote}{warn}\n\n" +
-                        $"Copy:\n{Path.GetFileName(outDir)}\n\nYour original save is not touched.",
-                        "Update ship in save", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK)
+                if (!Dlg.Confirm(this, DlgKind.Warning, $"Write a copy of \"{src.SaveName}\"?",
+                        $"{summary}{costNote}{atmoNote}{powerNote}{warn}\n\n" +
+                        $"The copy will be named {Path.GetFileName(outDir)}.\n\n" +
+                        "Your original save is not touched.",
+                        "Write copy"))
                     return;
                 SaveEdit.WriteCopy(context, shipObj, outDir, overwrite: false, report.ResultingBalance);
                 writtenName = Path.GetFileName(outDir);
@@ -1424,28 +1424,33 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "Writing the save failed:\n\n" + ex.Message, "Update ship in save",
-                MessageBoxButton.OK, MessageBoxImage.Error);
+            Dlg.Error(this, "Update ship in save", "Writing the save failed.\n\n" + ex.Message);
             return;
         }
 
-        var original = opts.InPlace ? "The original save was backed up to “<name>.zip.bak” first." : "Your original save is unchanged.";
-        MessageBox.Show(this,
-            $"Written to save:\n{writtenName}\n\n{summary}{costNote}{atmoNote}{powerNote}\n\n" +
-            "In the in-game Load menu, press Refresh first — Ostranauts won't list a just-written save until " +
-            $"you do — then load \"{writtenName}\" to see your edited ship, crew and cargo intact. {original}",
-            "Ship updated", MessageBoxButton.OK, MessageBoxImage.Information);
+        var backup = opts.InPlace
+            ? $"\n\nYour original save was backed up first, as a separate save named {backupName}.\n" +
+              "It sits beside this save in your Saves folder, not inside it, so deleting the edited save won't remove it.\n" +
+              "Load that backup in game if you ever need to recover."
+            : "\n\nYour original save is unchanged.";
+        Dlg.Success(this, "Ship updated",
+            $"Written to the save {writtenName}.\n\n" +
+            $"{summary}{costNote}{atmoNote}{powerNote}\n\n" +
+            "Open the in game Load menu and press Refresh first.\n" +
+            "Ostranauts won't list a just written save until you do.\n" +
+            $"Then load {writtenName} to see your edited ship, with crew and cargo intact." +
+            backup);
     }
 
     private static string Money(double v) => "$" + v.ToString("#,##0.##", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>The stern gate before editing a ship the player doesn't own (a station or another vessel).</summary>
     private bool ConfirmUnsupportedShip(SaveShipChoice c) =>
-        MessageBox.Show(this,
-            $"\"{c.Name}\" ({c.RegId}) is NOT one of your ships — it's a station or another vessel.\n\n" +
-            "Editing something you don't own is UNSUPPORTED and can corrupt or break your save. Ostraplan can't " +
-            "guarantee a valid result and takes no responsibility for the outcome — you do.\n\nEdit it anyway?",
-            "Unsupported — not your ship", MessageBoxButton.OKCancel, MessageBoxImage.Warning) == MessageBoxResult.OK;
+        Dlg.Confirm(this, DlgKind.Danger, "This isn't your ship",
+            $"{c.Name} ({c.RegId}) is a station or another vessel, not one of your ships.\n\n" +
+            "Editing something you don't own is not supported, and it can corrupt or break your save.\n" +
+            "Ostraplan can't guarantee a valid result, and takes no responsibility for the outcome. You do.",
+            "Edit it anyway");
 
     /// <summary>The loud in-place confirmation. Detects a running Ostranauts and gates on the user confirming
     /// they're at the Main Menu (editing a loaded save would be clobbered by the next autosave).</summary>
@@ -1453,28 +1458,31 @@ public partial class MainWindow : Window
     {
         var running = System.Diagnostics.Process.GetProcessesByName("Ostranauts").Length > 0;
         var gameWarn = running
-            ? "Ostranauts is RUNNING. In-place editing is only safe from the MAIN MENU — if this save is loaded, " +
-              "the game will overwrite your edit on its next autosave.\n\nConfirm you are at the Main Menu (not in " +
-              "your loaded game) before continuing.\n\n"
+            ? "Ostranauts is running.\n" +
+              "Editing in place is only safe from the Main Menu.\n" +
+              "If this save is loaded, the game will overwrite your edit on its next autosave.\n\n" +
+              "Confirm you are at the Main Menu, not in your loaded game, before continuing.\n\n"
             : "";
-        return MessageBox.Show(this,
-            $"Edit the ORIGINAL save \"{saveName}\" in place?\n\n{gameWarn}" +
-            "Ostraplan backs the save up to “<name>.zip.bak” beside it first, but this modifies the original — " +
-            "there's no separate copy.\n\nContinue?",
-            "Edit original in place", MessageBoxButton.OKCancel, MessageBoxImage.Warning) == MessageBoxResult.OK;
+        return Dlg.Confirm(this, DlgKind.Danger, $"Overwrite {saveName} in place?",
+            $"{gameWarn}" +
+            "Ostraplan first copies this save to a separate backup save in your Saves folder, beside this one, not inside it.\n" +
+            "Then it writes your edit into the original save, replacing it.\n" +
+            "If the edit goes wrong, load the backup to recover.",
+            "Overwrite in place");
     }
 
     /// <summary>The loud, explicit confirmation before an inject drops cargo from deleted containers.</summary>
     private bool ConfirmCargoLoss(IReadOnlyList<CargoLoss> losses)
     {
         var lines = losses.Take(8).Select(l =>
-            $"  • {l.ContainerName}: {string.Join(", ", l.Items.Take(6))}{(l.Items.Count > 6 ? $" …(+{l.Items.Count - 6})" : "")}");
+            $"   • {l.ContainerName} ({string.Join(", ", l.Items.Take(6))}{(l.Items.Count > 6 ? $", plus {l.Items.Count - 6} more" : "")})");
         var total = losses.Sum(l => l.Items.Count);
-        return MessageBox.Show(this,
-            $"You deleted {losses.Count} container(s) that still hold {total} cargo item(s). Writing this back will " +
-            "DELETE that cargo:\n\n" + string.Join("\n", lines) +
-            "\n\nTo keep it, cancel — empty those containers in-game, then re-import and edit. Delete the cargo and continue?",
-            "Cargo will be lost", MessageBoxButton.OKCancel, MessageBoxImage.Warning) == MessageBoxResult.OK;
+        return Dlg.Confirm(this, DlgKind.Danger, "Cargo will be permanently deleted",
+            $"You deleted {losses.Count} container(s) that still hold {total} cargo item(s).\n" +
+            "Writing this back will permanently delete that cargo.\n\n" + string.Join("\n", lines) +
+            "\n\nTo keep it, cancel now.\n" +
+            "Empty those containers in game, then import and edit again.",
+            "Delete cargo & continue");
     }
 
     /// <summary>Browse core+mod ship templates and import the chosen one as a fresh design.</summary>
@@ -1485,7 +1493,7 @@ public partial class MainWindow : Window
         var ships = TemplateImport.ListShipFiles(_index);
         if (ships.Count == 0)
         {
-            MessageBox.Show(this, "No ship templates found in the game data or your mods.", "Import",
+            Dlg.Show(this, "No ship templates found in the game data or your mods.", "Import",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -1502,7 +1510,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "Import failed:\n\n" + ex.Message, "Import", MessageBoxButton.OK, MessageBoxImage.Error);
+            Dlg.Show(this, "Import failed:\n\n" + ex.Message, "Import", MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
         finally
@@ -1538,20 +1546,20 @@ public partial class MainWindow : Window
     {
         var notes = new List<string>();
         if (result.ContainedDropped > 0)
-            notes.Add($"{result.ContainedDropped} contained item(s) — cargo, tools, installed modules — were dropped. Ostraplan imports the layout only.");
+            notes.Add($"{result.ContainedDropped} contained item(s) were dropped (cargo, tools, installed modules).\nOstraplan imports the layout only.");
         if (result.SystemDropped > 0)
-            notes.Add($"{result.SystemDropped} loot-spawner / system object(s) were dropped — they populate the ship at runtime and aren't buildable structure.");
+            notes.Add($"{result.SystemDropped} loot spawner and system object(s) were dropped.\nThey populate the ship at runtime, and aren't buildable structure.");
         if (result.Skipped.Count > 0)
         {
-            var names = string.Join("\n", result.Skipped.Take(12).Select(s => s.Count > 1 ? $"  {s.DefName} ×{s.Count}" : $"  {s.DefName}"));
-            var more = result.Skipped.Count > 12 ? $"\n  …and {result.Skipped.Count - 12} more" : "";
-            notes.Add($"{result.Skipped.Sum(s => s.Count)} tile(s) referenced {result.Skipped.Count} def(s) not in your loaded data and were skipped:\n{names}{more}\n\n" +
-                      "Enable the mods this ship needs and re-import for a complete layout.");
+            var names = string.Join("\n", result.Skipped.Take(12).Select(s => s.Count > 1 ? $"   • {s.DefName} (x{s.Count})" : $"   • {s.DefName}"));
+            var more = result.Skipped.Count > 12 ? $"\n   …and {result.Skipped.Count - 12} more" : "";
+            notes.Add($"{result.Skipped.Sum(s => s.Count)} tile(s) referenced {result.Skipped.Count} def(s) that aren't in your loaded data, and were skipped.\n\n{names}{more}\n\n" +
+                      "Enable the mods this ship needs, and import again for a complete layout.");
         }
-        if (notes.Count == 0) return;   // clean import — the ship now on the canvas is feedback enough
-        MessageBox.Show(this,
-            $"Imported \"{result.ShipName}\" — {result.PartCount} parts.\n\n" + string.Join("\n\n", notes),
-            "Import", MessageBoxButton.OK, result.Skipped.Count > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
+        if (notes.Count == 0) return;   // clean import, the ship now on the canvas is feedback enough
+        var report = $"Imported {result.ShipName}, {result.PartCount} parts.\n\n" + string.Join("\n\n", notes);
+        if (result.Skipped.Count > 0) Dlg.Warn(this, "Import", report);
+        else Dlg.Info(this, "Import", report);
     }
 
     private void OnUndoClick(object sender, RoutedEventArgs e)
@@ -1614,22 +1622,22 @@ public partial class MainWindow : Window
                 BtnUpdate.Content = $"⬆  Update: {tag}";
                 BtnUpdate.Visibility = Visibility.Visible;
                 if (manual &&
-                    MessageBox.Show(this, $"{tag} is available — you're on v{AppVersion}.\n\nOpen the download page?",
-                        "Ostraplan", MessageBoxButton.YesNo, MessageBoxImage.Information) == MessageBoxResult.Yes)
+                    Dlg.Confirm(this, DlgKind.Info, $"Update available ({tag})",
+                        $"You're on v{AppVersion}.\n{tag} is available to download.",
+                        "Open download page"))
                     OpenUrl(_updateUrl);
             }
             else if (manual)
             {
-                MessageBox.Show(this, $"You're on the latest version (v{AppVersion}).",
-                    "Ostraplan", MessageBoxButton.OK, MessageBoxImage.Information);
+                Dlg.Info(this, "Ostraplan", $"You're on the latest version (v{AppVersion}).");
             }
         }
         catch (Exception ex)
         {
             if (manual)
-                MessageBox.Show(this, "Couldn't check for updates.\n\n" + ex.Message +
-                    "\n\nYou may be offline, or GitHub may be rate-limiting — its anonymous API allows about 60 checks an hour per network.",
-                    "Ostraplan", MessageBoxButton.OK, MessageBoxImage.Warning);
+                Dlg.Warn(this, "Ostraplan", "Couldn't check for updates.\n\n" + ex.Message +
+                    "\n\nYou may be offline, or GitHub may be rate limiting.\n" +
+                    "Its anonymous API allows about 60 checks an hour per network.");
         }
     }
 

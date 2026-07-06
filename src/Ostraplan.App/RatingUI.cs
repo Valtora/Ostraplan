@@ -260,7 +260,7 @@ public sealed class RatingReportWindow : Window
         }
         catch (Exception ex)
         {
-            MessageBox.Show(owner, "Couldn't save the image:\n\n" + ex.Message, "Ship Rating", MessageBoxButton.OK, MessageBoxImage.Error);
+            Dlg.Error(owner, "Ship Rating", "Couldn't save the image.\n\n" + ex.Message);
         }
     }
 
