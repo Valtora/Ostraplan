@@ -26,6 +26,14 @@ $exe = Get-Item (Join-Path $out 'Ostraplan.exe')
 & $exe.FullName --smoke | Out-Null
 if ($LASTEXITCODE -ne 0) { throw "Published exe failed its WPF smoke test (exit $LASTEXITCODE) - single-file WPF is broken, do NOT ship this build." }
 
+# Name the validated artifact with its version (Ostraplan vX.Y.Z.exe), replacing
+# any previously-built versioned exe so publish\ holds just the current release.
+$ver = ($exe.VersionInfo.ProductVersion -split '\+')[0]
+Get-ChildItem $out -Filter 'Ostraplan v*.exe' -ErrorAction SilentlyContinue | Remove-Item -Force
+$named = Join-Path $out "Ostraplan v$ver.exe"
+Move-Item $exe.FullName $named -Force
+$exe = Get-Item $named
+
 "`n{0}`n  v{1}   {2:N1} MB   single-file, self-contained win-x64   (WPF smoke passed)" -f `
     $exe.FullName, $exe.VersionInfo.ProductVersion, ($exe.Length / 1MB)
 exit 0
