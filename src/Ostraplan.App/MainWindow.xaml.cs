@@ -370,7 +370,7 @@ public partial class MainWindow : Window
         if (report is not null)
         {
             Board.SetLeakCells([]);
-            var value = ShipValue.Estimate(doc, catalog);
+            var value = ShipValue.Estimate(doc, catalog, specs);
             var snapshot = Board.RenderRatingSnapshot(specs);
             new RatingReportWindow(report, value, snapshot, cells => Board.SetLeakCells(cells)) { Owner = this }.ShowDialog();
         }
@@ -1335,9 +1335,7 @@ public partial class MainWindow : Window
         var costNote = report.Charged is { } c
             ? $"\n\nCost: {Money(c)} deducted — balance now {Money(report.ResultingBalance ?? 0)}."
             : "";
-        var atmoNote = report.AtmosphereFilled
-            ? "\n\nThe ship refills with breathable atmosphere (~22 kPa O₂ / 80 kPa N₂) when you load it."
-            : "\n\nWARNING: this ship is damaged, so it spawns AIRLESS — wear an EVA suit until you restore atmosphere.";
+        var atmoNote = "\n\nThe ship refills with breathable atmosphere (~22 kPa O₂ / 80 kPa N₂) when you load it.";
         var powerNote = report.PowerFixed > 0
             ? $"\n\nRe-armed {report.PowerFixed} powered device(s) that had lost their power ticker."
             : "";

@@ -152,17 +152,18 @@ public sealed class RatingReportWindow : Window
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 12),
         });
 
-        // estimated value: base is exact (Σ StatBasePrice = the game's parts value); buy/sell are estimates
+        // value: build cost is exact (Σ StatBasePrice); the broker sell/buy come from the game's room-based ship value
         body.Children.Add(Header("ESTIMATED VALUE"));
         var value3 = new UniformGrid { Columns = 3, Margin = new Thickness(0, 0, 0, 4) };
-        value3.Children.Add(Slot("Base value", Money(value.BaseValue)));
-        value3.Children.Add(Slot("Sell (est.)", Money(value.SellEstimate)));
-        value3.Children.Add(Slot("Buy (est.)", Money(value.BuyEstimate)));
+        value3.Children.Add(Slot("Build cost", Money(value.BuildCost)));
+        value3.Children.Add(Slot("Broker sell", Money(value.SellEstimate)));
+        value3.Children.Add(Slot("Broker buy", Money(value.BuyEstimate)));
         body.Children.Add(value3);
         body.Children.Add(new TextBlock
         {
-            Text = "Base value is the pristine parts value (what the game quotes for an undamaged ship). Sell/buy are " +
-                   "rough broker estimates — the real price is set per-kiosk and shifts with your faction standing.",
+            Text = "Build cost is the pristine parts value (what it costs to assemble). Broker sell/buy come from the " +
+                   "game's room-based ship value (each room's contents × its value modifier, ×3 with an O2 pump) — " +
+                   "estimates that shift with the kiosk and your faction, and exclude fuel and cargo.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 12),
         });
 

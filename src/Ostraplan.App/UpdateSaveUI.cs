@@ -150,8 +150,8 @@ public sealed class UpdateSaveDialog : Window
         }
 
         _costLine.Text =
-            $"{_baseCost.NewParts} added ({Money(_baseCost.NewValue)}) + {_baseCost.MovedParts} moved " +
-            $"(½ × {Money(_baseCost.MovedValue)}) × {Multiplier:0.0}× = {Money(Cost)}";
+            $"( {_baseCost.NewParts} added: {Money(_baseCost.NewValue)}  +  {_baseCost.MovedParts} moved: ½ × {Money(_baseCost.MovedValue)} )" +
+            $"  ×  {Multiplier:0.0}×  =  {Money(Cost)}";
         var bal = _balance ?? 0;
         var resulting = bal - Cost;
         _balanceLine.Text = $"Balance: {Money(bal)}  →  {Money(resulting)}";

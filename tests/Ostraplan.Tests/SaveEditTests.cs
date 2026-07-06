@@ -136,6 +136,22 @@ public class SaveEditTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void ShipValue_broker_estimate_exceeds_build_cost_on_a_real_ship()
+    {
+        // the broker prices off room value (contents × room modifier × 1.25, ×3 with an O2 pump), so a real ship's
+        // broker value is well above its raw parts/build cost, and buy > sell.
+        if (TestData.Game is not { } g) return;
+        if (FirstImport(g.Env, g.Catalog) is not { } r) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+
+        var v = ShipValue.Estimate(r.Doc, g.Catalog, specs);
+        Assert.True(v.BuildCost > 0);
+        Assert.True(v.ShipValue > v.BuildCost, $"ship value {v.ShipValue:0} should exceed build cost {v.BuildCost:0}");
+        Assert.True(v.BuyEstimate > v.SellEstimate && v.SellEstimate > 0);
+        _out.WriteLine($"build {v.BuildCost:n0} · ship {v.ShipValue:n0} · sell {v.SellEstimate:n0} · buy {v.BuyEstimate:n0}");
+    }
+
+    [Fact]
     public void Noop_diff_is_all_kept()
     {
         if (TestData.Game is not { } g) return;

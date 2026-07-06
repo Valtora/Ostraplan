@@ -78,18 +78,19 @@ public class EditCostTests
     }
 
     [Fact]
-    public void ShipValue_sums_base_prices_and_applies_broker_factors()
+    public void ShipValue_reports_exact_build_cost()
     {
         var cat = CatOf(Priced("A", 100), Priced("B", 300));
         var doc = new ShipDocument(cat);
         new PlaceCommand(new Placement { DefName = "A", X = 0, Y = 0 }).Do(doc);
         new PlaceCommand(new Placement { DefName = "B", X = 1, Y = 0 }).Do(doc);
 
-        var e = ShipValue.Estimate(doc, cat);
-        Assert.Equal(400, e.BaseValue, 3);                                    // exact: Σ StatBasePrice
-        Assert.Equal(400 * ShipValue.BrokerSellFactor, e.SellEstimate, 3);    // broker buys below value
-        Assert.Equal(400 * ShipValue.BrokerBuyFactor, e.BuyEstimate, 3);      // broker sells above value
-        Assert.True(e.SellEstimate < e.BaseValue && e.BuyEstimate > e.BaseValue);
+        var e = ShipValue.Estimate(doc, cat, []);
+        Assert.Equal(400, e.BuildCost, 3);          // exact: Σ StatBasePrice
+        // no floors/walls form a room in this synthetic doc, so the room-based ship value is 0
+        Assert.Equal(0, e.ShipValue, 3);
+        Assert.Equal(0, e.SellEstimate, 3);
+        Assert.Equal(0, e.BuyEstimate, 3);
     }
 
     [Fact]

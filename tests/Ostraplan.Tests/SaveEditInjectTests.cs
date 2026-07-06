@@ -263,29 +263,20 @@ public class SaveEditInjectTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Injected_undamaged_ship_is_armed_to_refill_atmosphere()
+    public void Injected_ship_is_armed_to_refill_atmosphere_and_marked_pristine()
     {
         // the edit regenerates aRooms, orphaning per-room gas -> the ship would spawn airless. bPrefill makes the
-        // game refill it on load. It's only armed for an undamaged ship (DMGStatus New), or it would trigger the
-        // break-in/damage path.
+        // game refill it on load; marking the hull pristine (DMGStatus New) keeps that fill safe on a Used/Damaged
+        // ship (else bPrefill fires the break-in/damage path).
         if (TestData.Game is not { } g) return;
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
 
-        double dmg = 0;
-        if (r.Context.ShipRecord is JsonObject so && so["DMGStatus"] is JsonValue dv) dv.TryGetValue(out dmg);
-
         var (ship, report) = SaveEdit.BuildInjectedShip(r.Doc, r.Context, g.Catalog, specs);
 
-        if (dmg == 0)
-        {
-            Assert.True(report.AtmosphereFilled);
-            Assert.True((bool)ship["bPrefill"]!);   // the game will run PreFillRooms on load
-        }
-        else
-        {
-            Assert.False(report.AtmosphereFilled);   // a damaged ship is left airless (with a UI warning)
-        }
+        Assert.True(report.AtmosphereFilled);
+        Assert.True((bool)ship["bPrefill"]!);                 // the game runs PreFillRooms on load...
+        Assert.Equal(0, ship["DMGStatus"]!.GetValue<int>());  // ...and the hull is marked pristine so it's safe
     }
 
     [Fact]

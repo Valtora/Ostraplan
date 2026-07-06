@@ -230,10 +230,14 @@ public static class SaveEdit
 
         // Refill the atmosphere on load: regenerating aRooms orphans the per-room gas containers, so the whole
         // ship comes up in vacuum. bPrefill makes the game run its own PreFillRooms (22 kPa O2 / 80 kPa N2 /
-        // 297 K) once, then self-clears. It ALSO drives the break-in/damage path for a non-New ship, so only arm
-        // it for an undamaged ship (DMGStatus New == 0); a damaged ship is left airless with a warning.
-        var atmosphereFilled = Int(ctx.ShipRecord, "DMGStatus") == 0;
-        if (atmosphereFilled) ship["bPrefill"] = true;
+        // 297 K) once, then self-clears. On a Used/Damaged/Derelict ship bPrefill ALSO fires the break-in/damage
+        // path — so mark the edited hull pristine (DMGStatus New) first. Ostraplan already treats the design as a
+        // pristine build (Condition A), so this is consistent, and it makes the fill safe for every ship (a
+        // bought "Used" ship, a derelict) rather than only an undamaged one. Per-part wear (aCondOverrides) on
+        // kept parts is untouched.
+        ship["DMGStatus"] = 0;
+        ship["bPrefill"] = true;
+        const bool atmosphereFilled = true;
 
         Validate(ship, ctx, dropSet);
 
