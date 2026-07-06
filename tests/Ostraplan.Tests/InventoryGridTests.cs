@@ -83,4 +83,25 @@ public class InventoryGridTests
         Assert.True(r.Height >= 2);
         AssertNoOverlaps(r);
     }
+
+    [Fact]
+    public void FirstFreeCell_finds_the_first_free_cell_row_major()
+    {
+        // a 2x1 grid with one item at (0,0): the first free 1x1 is (1,0)
+        Assert.Equal((1, 0), InventoryGrid.FirstFreeCell(2, 1, [Item("A", 0, 0)], 1, 1));
+    }
+
+    [Fact]
+    public void FirstFreeCell_is_null_when_the_declared_grid_is_full()
+    {
+        // both cells of a 2x1 grid taken — no room, and (unlike Pack) FirstFreeCell never grows the grid
+        Assert.Null(InventoryGrid.FirstFreeCell(2, 1, [Item("A", 0, 0), Item("B", 1, 0)], 1, 1));
+    }
+
+    [Fact]
+    public void FirstFreeCell_respects_a_multi_tile_footprint()
+    {
+        // a 2x2 grid with a 1x1 at (0,0): a 2x1 can't sit on row 0 (col 0 taken) but fits at (0,1)
+        Assert.Equal((0, 1), InventoryGrid.FirstFreeCell(2, 2, [Item("A", 0, 0)], 2, 1));
+    }
 }

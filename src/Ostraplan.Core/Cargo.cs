@@ -50,6 +50,14 @@ public sealed record CargoItem(
     /// for loose grid cargo, or when the slot can't be resolved.</summary>
     public string? SlotName { get; init; }
 
+    /// <summary>True when this item was <b>authored in Ostraplan</b> — added to a container in the inventory
+    /// editor rather than imported from the save. Its <see cref="StrID"/> is a fresh local GUID with no save
+    /// counterpart, so the write-back synthesizes a pristine item + condition owner for it (see
+    /// <see cref="SaveEdit"/>); an original (non-authored) item is written back verbatim from the save. A stack's
+    /// authored members carry this too. Persisted in the <c>.oplan</c> cargo snapshot so authored edits survive a
+    /// reopen (see <see cref="OplanCargo"/>).</summary>
+    public bool Authored { get; init; }
+
     /// <summary>This item's <see cref="StrID"/> plus every descendant's, depth-first — the whole subtree.</summary>
     public IEnumerable<string> SubtreeIds()
     {

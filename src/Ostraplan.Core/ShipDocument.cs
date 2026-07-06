@@ -55,6 +55,7 @@ public sealed class ShipDocument
     private long _seq;
     private readonly Dictionary<Guid, long> _order = [];   // insertion order for stable draw/hit priority
     private readonly Dictionary<(int, int), List<Placement>> _byTile = [];   // spatial index: tile -> parts covering it
+    private readonly HashSet<Guid> _cargoEdited = [];   // placements whose container contents were authored/removed
 
     public Catalog Catalog { get; }
     public TileConds Conds { get; }
@@ -304,12 +305,32 @@ public sealed class ShipDocument
         RaiseChanged();
     }
 
+    /// <summary>Replace a part's contained cargo (the inventory editor's add/remove result) and mark it edited, so
+    /// the <c>.oplan</c> persists a full snapshot of this container's contents rather than re-reading it from the
+    /// save on reopen (the authored tree is authoritative). Cargo lives inside the part, not on the tile grid, so
+    /// this touches no spatial index or tile conditions — it just swaps the tree and raises <see cref="Changed"/>.</summary>
+    internal void SetCargo(Placement p, IReadOnlyList<CargoItem> cargo)
+    {
+        p.Cargo = cargo;
+        _cargoEdited.Add(p.Id);
+        RaiseChanged();
+    }
+
+    /// <summary>True if this part's cargo was edited in-session (or restored from a persisted snapshot) — the
+    /// signal that its contents are authored and must be persisted/kept verbatim rather than re-derived.</summary>
+    public bool IsCargoEdited(Placement p) => _cargoEdited.Contains(p.Id);
+
+    /// <summary>Mark a part's cargo as edited without changing it — used when reopening an <c>.oplan</c> whose
+    /// snapshot already carries this container's authored contents, so a re-save persists them again.</summary>
+    public void MarkCargoEdited(Placement p) => _cargoEdited.Add(p.Id);
+
     internal void Clear()
     {
         _placements.Clear();
         _order.Clear();
         _byTile.Clear();
         Conds.Clear();
+        _cargoEdited.Clear();
         _seq = 0;
         RaiseChanged();
     }

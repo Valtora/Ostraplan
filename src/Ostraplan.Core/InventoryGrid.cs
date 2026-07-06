@@ -55,6 +55,33 @@ public static class InventoryGrid
         return new GridLayoutResult(width, height, placed);
     }
 
+    /// <summary>
+    /// The first free cell (row-major) that fits a <paramref name="w"/>×<paramref name="h"/> item in a
+    /// <paramref name="gridW"/>×<paramref name="gridH"/> container already holding <paramref name="loose"/>, or
+    /// <c>null</c> when it will not fit within the declared grid — the capacity rule ("the Law" for cargo). The
+    /// existing cargo is packed the way the game lays it out on open, so the free cell matches what the player
+    /// would see. Stacks and multi-tile items are honoured. Unlike <see cref="Pack"/> this never grows the grid.
+    /// </summary>
+    public static (int X, int Y)? FirstFreeCell(int gridW, int gridH, IReadOnlyList<CargoItem> loose, int w, int h)
+    {
+        var width = gridW > 0 ? gridW : 6;
+        var height = gridH > 0 ? gridH : 6;
+        var iw = Math.Clamp(w, 1, width);
+        var ih = Math.Max(1, h);
+
+        var layout = Pack(width, height, loose);
+        var occ = new HashSet<(int, int)>();
+        foreach (var it in layout.Items)
+            for (var r = it.Y; r < it.Y + it.H; r++)
+                for (var c = it.X; c < it.X + it.W; c++)
+                    occ.Add((c, r));
+
+        for (var y = 0; y + ih <= height; y++)
+            for (var x = 0; x + iw <= width; x++)
+                if (Free(occ, x, y, iw, ih)) return (x, y);
+        return null;
+    }
+
     /// <summary>The unoccupied w×h cell nearest (<paramref name="nearX"/>,<paramref name="nearY"/>) by squared
     /// distance, scanning row-major so ties resolve to the top-left-most — the game's
     /// <c>FindNearestUnoccupiedTile</c>. Grows the grid height as a last resort so an over-full container still

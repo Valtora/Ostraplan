@@ -9,11 +9,17 @@ using Ostraplan.Core;
 namespace Ostraplan.App;
 
 /// <summary>
-/// The inventory viewer: shows what a placed container holds, mirroring the in-game inventory window rather than
-/// a flat list. Loose cargo is laid out on the container's tile grid (each item occupying its footprint at its
-/// packed cell, stacks collapsed with a count); equipped gear is shown on a paper-doll positioned from the host's
-/// <c>dictSlotsLayout</c>. Nested containers and worn items are drill-in-able, with a breadcrumb to climb back
-/// out — so a crate → a suit → its pockets can all be inspected. Read-only (authoring lands in a later phase).
+/// The inventory viewer/editor: shows what a placed container holds, mirroring the in-game inventory window rather
+/// than a flat list. Loose cargo is laid out on the container's tile grid (each item occupying its footprint at
+/// its packed cell, stacks collapsed with a count); equipped gear is shown on a paper-doll positioned from the
+/// host's <c>dictSlotsLayout</c>. Nested containers and worn items are drill-in-able, with a breadcrumb to climb
+/// back out.
+///
+/// <para>When opened with an edit context (a <see cref="ShipDocument"/> + <see cref="CommandStack"/> + the root
+/// <see cref="Placement"/>) it also <b>edits</b> loose cargo: "Add item" offers only what the container accepts
+/// (<see cref="ContainerFilter"/>) and drops it into the first free cell (blocked when the grid is full — "the
+/// Law" for cargo), and a right-click removes one or the whole stack. Every edit goes through the command stack
+/// (undo/redo) and rebuilds the container's <see cref="Placement.Cargo"/>. Equipped-gear slots stay read-only.</para>
 /// </summary>
 public sealed class InventoryWindow : Window
 {
@@ -28,19 +34,40 @@ public sealed class InventoryWindow : Window
 
     private readonly Catalog _catalog;
     private readonly SpriteCache _sprites;
-    private readonly List<Node> _path = [];   // breadcrumb: root → current
-    private readonly StackPanel _body;
+    private readonly string _rootDefName;
+    private readonly IReadOnlyList<CargoItem> _staticCargo;   // read-only fallback when not editing
 
-    private sealed record Node(string Title, PartDef? Def, IReadOnlyList<CargoItem> Children);
+    private readonly ShipDocument? _doc;
+    private readonly CommandStack? _stack;
+    private readonly Placement? _root;
+
+    private readonly List<Crumb> _path = [];   // breadcrumb: root → current, by container id (null = root)
+    private readonly StackPanel _body;
+    private string? _selectedId;   // grid tile selected for the Delete key (editing only)
+
+    private sealed record Crumb(string Title, string? ContainerId);
+
+    private bool Editing => _doc is not null && _stack is not null && _root is not null;
+
+    /// <summary>The container's contents to render — live off the placement when editing (so edits are reflected),
+    /// else the static snapshot passed in.</summary>
+    private IReadOnlyList<CargoItem> RootCargo => Editing ? _root!.Cargo : _staticCargo;
 
     /// <summary>The laid-out content panel, for the offscreen preview render (<c>--invsmoke</c>).</summary>
     internal Panel PreviewContent => _body;
 
-    public InventoryWindow(Catalog catalog, SpriteCache sprites, string rootDefName, string rootFriendly, IReadOnlyList<CargoItem> rootCargo)
+    public InventoryWindow(
+        Catalog catalog, SpriteCache sprites, string rootDefName, string rootFriendly, IReadOnlyList<CargoItem> rootCargo,
+        ShipDocument? doc = null, CommandStack? stack = null, Placement? root = null)
     {
         _catalog = catalog;
         _sprites = sprites;
-        _path.Add(new Node(rootFriendly, catalog.Lookup(rootDefName), rootCargo));
+        _rootDefName = rootDefName;
+        _staticCargo = rootCargo;
+        _doc = doc;
+        _stack = stack;
+        _root = root;
+        _path.Add(new Crumb(rootFriendly, null));
 
         Title = "Contents — " + rootFriendly;
         // Fit the window to its content (the grid + paper-doll) rather than leave a fixed slab of empty space;
@@ -53,27 +80,52 @@ public sealed class InventoryWindow : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = ThemeManager.WindowBg;
 
+        if (Editing) PreviewKeyDown += OnKeyDown;
+
         _body = new StackPanel { Margin = new Thickness(18) };
         Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = _body };
         Render();
     }
 
+    // ---- current node resolution (live against the mutable tree) ----
+
+    /// <summary>Resolve the deepest breadcrumb node's def + children from the live cargo tree; null when a drilled
+    /// container no longer exists (an edit/undo removed it) — <see cref="Render"/> then pops back to it.</summary>
+    private (PartDef? Def, IReadOnlyList<CargoItem> Children)? Resolve()
+    {
+        IReadOnlyList<CargoItem> children = RootCargo;
+        var def = _catalog.Lookup(_rootDefName);
+        for (var i = 1; i < _path.Count; i++)
+        {
+            var node = children.FirstOrDefault(c => c.StrID == _path[i].ContainerId);
+            if (node is null) return null;
+            children = node.Children;
+            def = _catalog.Lookup(node.DefName);
+        }
+        return (def, children);
+    }
+
+    // ---- rendering ----
+
     /// <summary>Rebuild the view for the current (deepest) node in the breadcrumb.</summary>
     private void Render()
     {
+        while (_path.Count > 1 && Resolve() is null) _path.RemoveAt(_path.Count - 1);   // drilled container gone
         _body.Children.Clear();
-        var node = _path[^1];
+        if (Resolve() is not { } cur) return;
+        var (def, children) = cur;
+        var containerId = _path[^1].ContainerId;
 
         _body.Children.Add(BuildBreadcrumb());
 
-        var loose = node.Children.Where(c => !c.Slotted).ToList();
-        var slotted = node.Children.Where(c => c.Slotted).ToList();
-        var hasGrid = node.Def?.IsContainer == true || loose.Count > 0;
-        var hasSlots = node.Def?.SlotsWeHave.Length > 0 || slotted.Count > 0;
+        var loose = children.Where(c => !c.Slotted).ToList();
+        var slotted = children.Where(c => c.Slotted).ToList();
+        var hasGrid = def?.IsContainer == true || loose.Count > 0;
+        var hasSlots = def?.SlotsWeHave.Length > 0 || slotted.Count > 0;
 
         _body.Children.Add(new TextBlock
         {
-            Text = Summary(node, loose.Count, slotted.Count),
+            Text = Summary(def, loose.Count, slotted.Count),
             Foreground = Dim,
             FontSize = 12,
             Margin = new Thickness(0, 2, 0, 12),
@@ -82,24 +134,36 @@ public sealed class InventoryWindow : Window
 
         if (hasGrid)
         {
-            _body.Children.Add(SectionHeader("STORED"));
-            _body.Children.Add(BuildGrid(node, loose));
+            var header = new DockPanel { LastChildFill = false, Margin = new Thickness(0, 6, 0, 6) };
+            var title = SectionHeader("STORED");
+            title.Margin = new Thickness(0);
+            DockPanel.SetDock(title, Dock.Left);
+            header.Children.Add(title);
+            if (Editing && def?.IsContainer == true)
+            {
+                var add = new Button { Content = "+ Add item…", Padding = new Thickness(8, 1, 8, 1), FontSize = 12, Cursor = Cursors.Hand };
+                add.Click += (_, _) => AddItem(def, containerId);
+                DockPanel.SetDock(add, Dock.Right);
+                header.Children.Add(add);
+            }
+            _body.Children.Add(header);
+            _body.Children.Add(BuildGrid(def, loose));
         }
 
         if (hasSlots)
         {
             _body.Children.Add(SectionHeader("EQUIPPED"));
-            _body.Children.Add(BuildPaperDoll(node, slotted));
+            _body.Children.Add(BuildPaperDoll(def, slotted));
         }
 
         if (!hasGrid && !hasSlots)
             _body.Children.Add(new TextBlock { Text = "This item holds nothing.", Foreground = Dim, Margin = new Thickness(0, 4, 0, 0) });
     }
 
-    private static string Summary(Node node, int loose, int slotted)
+    private static string Summary(PartDef? def, int loose, int slotted)
     {
         var parts = new List<string>();
-        if (node.Def?.ContainerGrid is { } g) parts.Add($"{g.W}×{g.H} grid");
+        if (def?.ContainerGrid is { } g) parts.Add($"{g.W}×{g.H} grid");
         if (loose > 0) parts.Add($"{loose} stored");
         if (slotted > 0) parts.Add($"{slotted} equipped");
         return parts.Count == 0 ? "Empty." : string.Join("  ·  ", parts);
@@ -140,27 +204,27 @@ public sealed class InventoryWindow : Window
     {
         if (depth < 0 || depth >= _path.Count - 1) return;
         _path.RemoveRange(depth + 1, _path.Count - depth - 1);
+        _selectedId = null;
         Render();
     }
 
     private void DrillInto(CargoItem child)
     {
-        _path.Add(new Node(child.Friendly ?? child.DefName, _catalog.Lookup(child.DefName), child.Children));
+        _path.Add(new Crumb(child.Friendly ?? child.DefName, child.StrID));
+        _selectedId = null;
         Render();
     }
 
     // ---- grid section ----
 
-    private UIElement BuildGrid(Node node, IReadOnlyList<CargoItem> loose)
+    private UIElement BuildGrid(PartDef? def, IReadOnlyList<CargoItem> loose)
     {
-        var (gw, gh) = node.Def?.ContainerGrid ?? (6, 6);
+        var (gw, gh) = def?.ContainerGrid ?? (6, 6);
         var layout = InventoryGrid.Pack(gw, gh, loose);
 
         var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 4) };
-        var w = layout.Width * CellPx;
-        var h = layout.Height * CellPx;
-        grid.Width = w;
-        grid.Height = h;
+        grid.Width = layout.Width * CellPx;
+        grid.Height = layout.Height * CellPx;
 
         // backdrop: one faint cell per tile
         var cells = new UniformGrid { Rows = layout.Height, Columns = layout.Width };
@@ -184,21 +248,21 @@ public sealed class InventoryWindow : Window
 
     // ---- paper-doll section ----
 
-    private UIElement BuildPaperDoll(Node node, IReadOnlyList<CargoItem> slotted)
+    private UIElement BuildPaperDoll(PartDef? def, IReadOnlyList<CargoItem> slotted)
     {
         var bySlot = new Dictionary<string, CargoItem>(StringComparer.Ordinal);
         foreach (var c in slotted)
             if (c.SlotName is { } s) bySlot.TryAdd(s, c);
 
         // the slots to draw: the host's declared slots, plus any occupied slot not declared (defensive)
-        var slots = new List<string>(node.Def?.SlotsWeHave ?? []);
+        var slots = new List<string>(def?.SlotsWeHave ?? []);
         foreach (var s in bySlot.Keys)
             if (!slots.Contains(s)) slots.Add(s);
 
         // any slotted child we couldn't map to a named slot — list it so nothing is hidden
         var unplaced = slotted.Where(c => c.SlotName is null).ToList();
 
-        var layout = node.Def?.SlotLayout ?? new Dictionary<string, (double X, double Y)>();
+        var layout = def?.SlotLayout ?? new Dictionary<string, (double X, double Y)>();
         var useFigure = slots.Count > 0 && slots.All(s => layout.ContainsKey(s));
 
         var panel = new StackPanel { Margin = new Thickness(0, 0, 0, 12) };
@@ -299,8 +363,10 @@ public sealed class InventoryWindow : Window
 
     private Border ItemTile(CargoItem item, double w, double h, int count)
     {
-        // a stack's "children" are copies of itself, not cargo — show ×N but don't let you open it
-        var drillable = !item.IsStack && item.Children.Count > 0;
+        // a stack's "children" are copies of itself, not cargo — show ×N but don't let you open it. When editing, a
+        // container is drillable even when empty (so you can drill in and fill it).
+        var isContainer = _catalog.Lookup(item.DefName)?.IsContainer == true;
+        var drillable = !item.IsStack && (item.Children.Count > 0 || (Editing && !item.Slotted && isContainer));
         var img = PixelImage(Bmp(item.DefName));
 
         var overlay = new Grid();
@@ -311,24 +377,58 @@ public sealed class InventoryWindow : Window
         if (drillable)
             overlay.Children.Add(Badge("⊞", HorizontalAlignment.Left, VerticalAlignment.Top, ThemeManager.Good));
 
+        var selected = Editing && !item.Slotted && item.StrID == _selectedId;
         var border = new Border
         {
             Width = w,
             Height = h,
             Background = FieldBg,
-            BorderBrush = drillable ? Accent : PanelBorder,
-            BorderThickness = new Thickness(drillable ? 1.5 : 1),
+            BorderBrush = selected ? ThemeManager.Warn : drillable ? Accent : PanelBorder,
+            BorderThickness = new Thickness(selected ? 2 : drillable ? 1.5 : 1),
             Child = overlay,
             ToolTip = (item.Friendly ?? item.DefName)
                 + (count > 1 ? $"  ×{count}" : "")
-                + (drillable ? $"  ({item.SubtreeCount - 1} inside — click to open)" : ""),
+                + (drillable ? $"  ({item.SubtreeCount - 1} inside — click to open)" : "")
+                + (Editing && !item.Slotted ? "  · right-click to remove" : ""),
         };
         if (drillable)
         {
             border.Cursor = Cursors.Hand;
             border.MouseLeftButtonUp += (_, _) => DrillInto(item);
         }
+        else if (Editing && !item.Slotted)
+        {
+            border.Cursor = Cursors.Hand;
+            border.MouseLeftButtonUp += (_, _) => { _selectedId = item.StrID; Render(); };
+        }
+        if (Editing && !item.Slotted)
+            border.ContextMenu = RemoveMenu(item);
         return border;
+    }
+
+    /// <summary>Right-click menu for a grid tile when editing: remove one, remove the whole stack, and (for a
+    /// container) open it.</summary>
+    private ContextMenu RemoveMenu(CargoItem item)
+    {
+        var menu = new ContextMenu();
+        if (item.IsStack && item.Stack > 1)
+        {
+            menu.Items.Add(MenuItem("Remove one", () => Commit(CargoEdit.RemoveOne(_root!.Cargo, item.StrID))));
+            menu.Items.Add(MenuItem($"Remove all ×{item.Stack}", () => Commit(CargoEdit.RemoveWhole(_root!.Cargo, item.StrID))));
+        }
+        else
+        {
+            var label = item.Children.Count > 0 ? "Remove (with contents)" : "Remove";
+            menu.Items.Add(MenuItem(label, () => Commit(CargoEdit.RemoveWhole(_root!.Cargo, item.StrID))));
+        }
+        return menu;
+    }
+
+    private static MenuItem MenuItem(string header, Action act)
+    {
+        var mi = new MenuItem { Header = header };
+        mi.Click += (_, _) => act();
+        return mi;
     }
 
     private FrameworkElement WrapTile(CargoItem item, string note)
@@ -355,6 +455,67 @@ public sealed class InventoryWindow : Window
         VerticalAlignment = va,
         Child = new TextBlock { Text = text, Foreground = ThemeManager.AccentText, FontSize = 11, FontWeight = FontWeights.Bold },
     };
+
+    // ---- editing ----
+
+    /// <summary>Add items to the current container: pick from what it accepts, choose a quantity, place into free
+    /// cells (blocked when full). Routed through the command stack for undo/redo.</summary>
+    private void AddItem(PartDef container, string? containerId)
+    {
+        var offered = ContainerFilter.AcceptedBy(_catalog, container).Where(i => i.SpriteAbs is not null).ToList();
+        if (offered.Count == 0)
+        {
+            MessageBox.Show(this, "This container accepts nothing that Ostraplan can place.", "Add item",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        var dlg = new AddCargoDialog(_catalog, _sprites, container, offered) { Owner = this };
+        if (dlg.ShowDialog() != true || dlg.Chosen is not { } pick) return;
+
+        var grid = container.ContainerGrid ?? (6, 6);
+        var updated = CargoEdit.Add(_root!.Cargo, containerId, grid, pick.Def, pick.Quantity);
+        if (updated is null)
+        {
+            MessageBox.Show(this,
+                $"Not enough room in this container for {pick.Quantity} × {pick.Def.Friendly}.",
+                "Won't fit", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        Commit(updated);
+    }
+
+    /// <summary>Apply a rebuilt cargo tree for the root placement through the command stack (undoable), then
+    /// re-render off the now-current tree.</summary>
+    private void Commit(IReadOnlyList<CargoItem> newRootCargo)
+    {
+        _stack!.Push(_doc!, new SetCargoCommand(_root!, _root!.Cargo, newRootCargo));
+        _selectedId = null;
+        Render();
+    }
+
+    private void OnKeyDown(object sender, KeyEventArgs e)
+    {
+        if (!Editing) return;
+        if (e.Key == Key.Delete && _selectedId is { } id)
+        {
+            Commit(CargoEdit.RemoveOne(_root!.Cargo, id));
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Z && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+        {
+            _stack!.Undo(_doc!);
+            _selectedId = null;
+            Render();
+            e.Handled = true;
+        }
+        else if (e.Key == Key.Y && (Keyboard.Modifiers & ModifierKeys.Control) != 0)
+        {
+            _stack!.Redo(_doc!);
+            _selectedId = null;
+            Render();
+            e.Handled = true;
+        }
+    }
 
     // ---- sprites ----
 

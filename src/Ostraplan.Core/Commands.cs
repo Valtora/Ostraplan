@@ -90,6 +90,17 @@ public sealed class PlaceCommand(Placement placement) : IDocCommand
     public void Undo(ShipDocument doc) => doc.Remove(placement);
 }
 
+/// <summary>
+/// Swap a part's contained cargo tree — the inventory editor's add or remove. The caller computes the new tree
+/// (via <see cref="CargoEdit"/>) and hands both trees in, so Do/Undo are a plain assignment either way. One
+/// command covers add and remove because both are just "the container's contents are now this tree".
+/// </summary>
+public sealed class SetCargoCommand(Placement placement, IReadOnlyList<CargoItem> before, IReadOnlyList<CargoItem> after) : IDocCommand
+{
+    public void Do(ShipDocument doc) => doc.SetCargo(placement, after);
+    public void Undo(ShipDocument doc) => doc.SetCargo(placement, before);
+}
+
 public sealed class RemoveCommand(IReadOnlyList<Placement> placements) : IDocCommand
 {
     public void Do(ShipDocument doc)

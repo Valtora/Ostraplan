@@ -45,7 +45,13 @@ public sealed class OplanFile
             Meta = meta,
             Source = doc.SourceSave is { } s ? new OplanSource { SaveName = s.SaveName, RegId = s.RegId } : null,
             Parts = doc.Placements
-                       .Select(p => new OplanPart { Def = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot, Given = p.IsGiven, Origin = p.OriginStrID })
+                       .Select(p => new OplanPart
+                       {
+                           Def = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot, Given = p.IsGiven, Origin = p.OriginStrID,
+                           // Persist a FULL snapshot of a container's contents once it has been edited, so authored
+                           // cargo is authoritative on reopen rather than re-derived from the (possibly moved) save.
+                           Cargo = doc.IsCargoEdited(p) && p.Cargo.Count > 0 ? p.Cargo.Select(ToOplanCargo).ToList() : null,
+                       })
                        .ToList(),
         };
         file.Meta.Modified = DateTime.UtcNow;
@@ -79,9 +85,52 @@ public sealed class OplanFile
                 missing.Add(part);
                 continue;
             }
-            doc.Add(new Placement { DefName = part.Def, X = part.X, Y = part.Y, Rot = GridMath.Norm(part.Rot), IsGiven = part.Given, OriginStrID = part.Origin });
+            var placement = new Placement { DefName = part.Def, X = part.X, Y = part.Y, Rot = GridMath.Norm(part.Rot), IsGiven = part.Given, OriginStrID = part.Origin };
+            doc.Add(placement);
+            // Restore an edited container's authored contents from the snapshot and re-mark it edited, so the
+            // save re-attach on open leaves it alone (its snapshot is authoritative) and a re-save re-persists it.
+            if (part.Cargo is { Count: > 0 } snap)
+            {
+                placement.Cargo = snap.Select(c => FromOplanCargo(c, catalog)).ToList();
+                doc.MarkCargoEdited(placement);
+            }
         }
         return (doc, missing);
+    }
+
+    /// <summary>Persist a cargo node's identity, authored-ness, grid position and stack — the display/footprint
+    /// fields (friendly name, size) are re-resolved from the def on load, so only what can't be re-derived is stored.</summary>
+    private static OplanCargo ToOplanCargo(CargoItem c) => new()
+    {
+        Def = c.DefName,
+        StrID = c.StrID,
+        Authored = c.Authored,
+        Slotted = c.Slotted,
+        SlotName = c.SlotName,
+        X = c.GridX,
+        Y = c.GridY,
+        Stack = c.Stack,
+        IsStack = c.IsStack,
+        Children = c.Children.Count > 0 ? c.Children.Select(ToOplanCargo).ToList() : null,
+    };
+
+    /// <summary>Rebuild a cargo node from its snapshot, re-resolving footprint + friendly name from the catalog.</summary>
+    private static CargoItem FromOplanCargo(OplanCargo o, Catalog catalog)
+    {
+        var def = catalog.Lookup(o.Def);
+        var (gw, gh) = def?.InvSize ?? (1, 1);
+        var children = (o.Children ?? []).Select(c => FromOplanCargo(c, catalog)).ToList();
+        return new CargoItem(o.StrID, o.Def, def?.Friendly, o.Slotted, children)
+        {
+            GridX = o.X,
+            GridY = o.Y,
+            GridW = gw,
+            GridH = gh,
+            Stack = o.Stack <= 0 ? 1 : o.Stack,
+            IsStack = o.IsStack,
+            SlotName = o.SlotName,
+            Authored = o.Authored,
+        };
     }
 }
 
@@ -117,6 +166,29 @@ public sealed class OplanPart
     [JsonPropertyName("rot")] public int Rot { get; set; }
     [JsonPropertyName("given")] public bool Given { get; set; }   // imported (pre-existing) structure — exempt from the placement-law scan
     [JsonPropertyName("origin")] public string? Origin { get; set; }   // save-edit: the source save item's strID (see Placement.OriginStrID)
+    /// <summary>A full snapshot of this container's contents, present only when its cargo was edited in the
+    /// inventory editor (see <see cref="ShipDocument.IsCargoEdited"/>). Null for un-edited parts, whose cargo is
+    /// re-read from the linked save on open. See <see cref="OplanCargo"/>.</summary>
+    [JsonPropertyName("cargo")] public List<OplanCargo>? Cargo { get; set; }
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
+}
+
+/// <summary>One contained item in a persisted cargo snapshot (see <see cref="OplanPart.Cargo"/>) — enough to
+/// rebuild the <see cref="CargoItem"/> tree on reopen: its def + save/local strID, whether it was authored, its
+/// grid position, and stack state. Friendly name and grid footprint are re-resolved from the def, so they are
+/// not stored. Nested contents recurse through <see cref="Children"/>.</summary>
+public sealed class OplanCargo
+{
+    [JsonPropertyName("def")] public string Def { get; set; } = "";
+    [JsonPropertyName("strId")] public string StrID { get; set; } = "";
+    [JsonPropertyName("authored")] public bool Authored { get; set; }
+    [JsonPropertyName("slotted")] public bool Slotted { get; set; }
+    [JsonPropertyName("slot")] public string? SlotName { get; set; }
+    [JsonPropertyName("x")] public int X { get; set; }
+    [JsonPropertyName("y")] public int Y { get; set; }
+    [JsonPropertyName("stack")] public int Stack { get; set; } = 1;
+    [JsonPropertyName("isStack")] public bool IsStack { get; set; }
+    [JsonPropertyName("children")] public List<OplanCargo>? Children { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }
 

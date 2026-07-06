@@ -619,8 +619,8 @@ public partial class MainWindow : Window
 
         if (ctx is null || !ReferenceEquals(_doc, doc)) return;   // save gone, or the user moved to another design
         foreach (var p in doc.Placements)
-            if (p.OriginStrID is { } id && ctx.CargoByOrigin.TryGetValue(id, out var forest))
-                p.Cargo = forest;
+            if (p.OriginStrID is { } id && !doc.IsCargoEdited(p) && ctx.CargoByOrigin.TryGetValue(id, out var forest))
+                p.Cargo = forest;   // skip edited containers — their .oplan snapshot is authoritative
         _saveContext = ctx;
         UpdateInspector();
     }
@@ -986,12 +986,13 @@ public partial class MainWindow : Window
         return part?.IsContainer == true || part?.SlotsWeHave.Length > 0;
     }
 
-    /// <summary>Open the inventory viewer on a placed container's contents (empty is fine — shows the grid).</summary>
+    /// <summary>Open the inventory viewer/editor on a placed container's contents (empty is fine — shows the
+    /// grid). Passing the document + command stack + placement enables add/remove of loose cargo, undoable.</summary>
     private void OpenInventory(Placement p)
     {
         if (_doc is null || _catalog is null || _sprites is null) return;
         var friendly = _doc.Part(p)?.Friendly ?? p.DefName;
-        new InventoryWindow(_catalog, _sprites, p.DefName, friendly, p.Cargo) { Owner = this }.ShowDialog();
+        new InventoryWindow(_catalog, _sprites, p.DefName, friendly, p.Cargo, _doc, _stack, p) { Owner = this }.ShowDialog();
     }
 
     /// <summary>Friendly name for a render layer, for the context-menu layer filter.</summary>

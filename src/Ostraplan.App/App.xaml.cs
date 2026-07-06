@@ -97,9 +97,10 @@ public partial class App : Application
                 var catalog = Catalog.Build(index);
                 var sprites = new SpriteCache();
 
-                void RenderInv(string file, string def, string friendly, IReadOnlyList<CargoItem> cargo)
+                void RenderInv(string file, string def, string friendly, IReadOnlyList<CargoItem> cargo,
+                    ShipDocument? doc = null, CommandStack? stack = null, Placement? root = null)
                 {
-                    var win = new InventoryWindow(catalog, sprites, def, friendly, cargo);
+                    var win = new InventoryWindow(catalog, sprites, def, friendly, cargo, doc, stack, root);
                     var panel = win.PreviewContent;
                     panel.Background = ThemeManager.WindowBg;
                     const int w = 620;
@@ -126,6 +127,15 @@ public partial class App : Application
                 };
                 RenderInv("inv-backpack.png", "ItmBackpack01", "Backpack: Pearson", cargo);
                 RenderInv("inv-empty.png", "ItmBackpack01", "Backpack (empty)", []);   // an empty container still shows its grid
+
+                // an EDITABLE backpack: the same content but with the editor affordances (+ Add item… header,
+                // removable tiles) — confirms the edit UI constructs without throwing.
+                var editDoc = new ShipDocument(catalog);
+                var editStack = new CommandStack();
+                var editBp = new Placement { DefName = "ItmBackpack01" };
+                new PlaceCommand(editBp).Do(editDoc);
+                new SetCargoCommand(editBp, editBp.Cargo, cargo).Do(editDoc);
+                RenderInv("inv-edit.png", "ItmBackpack01", "Backpack (editing)", editBp.Cargo, editDoc, editStack, editBp);
 
                 // the first real save container that actually holds cargo
                 foreach (var save in SaveImport.ListSaves(env))

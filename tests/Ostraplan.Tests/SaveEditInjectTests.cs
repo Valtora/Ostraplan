@@ -563,4 +563,117 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         if (console is not null)
             Assert.Contains(console.Cargo, c => c.DefName.StartsWith("ItmNavMod", System.StringComparison.Ordinal));
     }
+
+    [Fact]
+    public void Adding_cargo_to_a_kept_container_writes_a_new_item_and_co_and_drops_nothing()
+    {
+        // Phase 4: an item added to a container's contents becomes a fresh authored item, parented to the
+        // container, with a synthesized pristine CO — and no original cargo is dropped or warned about.
+        if (TestData.Game is not { } g) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        if (ImportWhere(g.Env, g.Catalog, d => d.Placements.Any(p =>
+                !d.IsLocked(p) && d.Part(p)?.ContainerGrid is not null)) is not { } r) return;
+
+        // find a container with room that accepts a sprite-bearing item, and add one
+        Placement? container = null;
+        PartDef? itemDef = null;
+        IReadOnlyList<CargoItem>? updated = null;
+        foreach (var p in r.Doc.Placements.Where(p => !r.Doc.IsLocked(p) && r.Doc.Part(p)?.ContainerGrid is not null))
+        {
+            var def = r.Doc.Part(p)!;
+            var item = ContainerFilter.AcceptedBy(g.Catalog, def).FirstOrDefault(i => i.SpriteAbs is not null);
+            if (item is null) continue;
+            if (CargoEdit.Add(p.Cargo, null, def.ContainerGrid!.Value, item, 1) is not { } u) continue;
+            container = p; itemDef = item; updated = u; break;
+        }
+        if (container is null) return;   // no container with room found in this save
+
+        var items0 = Count(r.Context.ShipRecord, "aItems");
+        var cos0 = Count(r.Context.ShipRecord, "aCOs");
+        new SetCargoCommand(container, container.Cargo, updated!).Do(r.Doc);
+
+        var (ship, report) = SaveEdit.BuildInjectedShip(r.Doc, r.Context, g.Catalog, specs);
+
+        Assert.Empty(report.CargoDropped);                 // adding drops nothing
+        Assert.Equal(items0 + 1, Count(ship, "aItems"));   // +1 authored item...
+        Assert.Equal(cos0 + 1, Count(ship, "aCOs"));       // ...and its synthesized CO
+
+        var containerId = container.OriginStrID!;
+        var authored = ((JsonArray)ship["aItems"]!).Select(n => n!.AsObject())
+            .Where(o => (string?)o["strParentID"] == containerId && !r.Context.ItemsById.ContainsKey((string)o["strID"]!)).ToList();
+        var it = Assert.Single(authored);                  // exactly one new item, parented to the container
+        Assert.Equal(itemDef!.DefName, (string?)it["strName"]);
+        var co = ((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()).First(c => (string?)c["strID"] == (string?)it["strID"]);
+        Assert.Contains("DEFAULT", ((JsonArray)co["aConds"]!).Select(n => (string?)n));   // pristine on load
+    }
+
+    [Fact]
+    public void Removing_cargo_from_a_kept_container_drops_the_item_without_a_loss_warning()
+    {
+        // removing an item from a KEPT container is an intended edit: the item + its 1:1 CO are dropped, and
+        // NOTHING is reported as lost (a content edit must not fire the deleted-container "cargo will be gone" warning).
+        if (TestData.Game is not { } g) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        if (ImportWhere(g.Env, g.Catalog, d => d.Placements.Any(p => !d.IsLocked(p)
+                && p.Cargo.Any(c => !c.IsStack && c.Children.Count == 0 && !c.Slotted))) is not { } r) return;
+
+        var container = r.Doc.Placements.First(p => !r.Doc.IsLocked(p)
+            && p.Cargo.Any(c => !c.IsStack && c.Children.Count == 0 && !c.Slotted));
+        var victim = container.Cargo.First(c => !c.IsStack && c.Children.Count == 0 && !c.Slotted);
+        if (!r.Context.CosById.ContainsKey(victim.StrID)) return;   // expect the 1:1 CO
+
+        var items0 = Count(r.Context.ShipRecord, "aItems");
+        var cos0 = Count(r.Context.ShipRecord, "aCOs");
+        new SetCargoCommand(container, container.Cargo, CargoEdit.RemoveWhole(container.Cargo, victim.StrID)).Do(r.Doc);
+
+        var (ship, report) = SaveEdit.BuildInjectedShip(r.Doc, r.Context, g.Catalog, specs);
+
+        Assert.Empty(report.CargoDropped);                 // an intended edit, not a warned loss
+        Assert.Equal(items0 - 1, Count(ship, "aItems"));   // the item is gone...
+        Assert.Equal(cos0 - 1, Count(ship, "aCOs"));       // ...with its condition owner
+        var ids = ((JsonArray)ship["aItems"]!).Select(n => (string?)n!["strID"]).ToHashSet();
+        Assert.DoesNotContain(victim.StrID, ids);
+    }
+
+    [Fact]
+    public void Oplan_persists_and_restores_an_edited_containers_cargo_snapshot()
+    {
+        // authored cargo survives .oplan save + reopen (full snapshot): FromDocument stores it for the edited
+        // container, ToDocument restores it and re-marks the part edited so a re-save persists it again.
+        if (TestData.Game is not { } g) return;
+        var containerDef = g.Catalog.Parts.FirstOrDefault(p => p.ContainerGrid is not null
+            && ContainerFilter.AcceptedBy(g.Catalog, p).Any(i => i.SpriteAbs is not null));
+        if (containerDef is null) return;
+        var itemDef = ContainerFilter.AcceptedBy(g.Catalog, containerDef).First(i => i.SpriteAbs is not null);
+
+        var doc = new ShipDocument(g.Catalog);
+        var p = new Placement { DefName = containerDef.DefName };
+        new PlaceCommand(p).Do(doc);
+        if (CargoEdit.Add(p.Cargo, null, containerDef.ContainerGrid!.Value, itemDef, 3) is not { } added) return;
+        new SetCargoCommand(p, p.Cargo, added).Do(doc);
+        Assert.True(doc.IsCargoEdited(p));
+
+        var file = OplanFile.FromDocument(doc, g.Index, new OplanMeta());
+        Assert.NotNull(Assert.Single(file.Parts).Cargo);   // snapshot persisted for the edited container
+
+        var (doc2, missing) = file.ToDocument(g.Catalog);
+        Assert.Empty(missing);
+        var p2 = Assert.Single(doc2.Placements);
+        Assert.True(doc2.IsCargoEdited(p2));                          // restored + re-marked edited
+        Assert.Equal(added.Count, p2.Cargo.Count);                   // same shape...
+        Assert.Equal(added.Sum(c => c.Stack), p2.Cargo.Sum(c => c.Stack));   // ...same total quantity
+        Assert.All(p2.Cargo, c => Assert.True(c.Authored));
+    }
+
+    [Fact]
+    public void Oplan_persists_no_cargo_snapshot_for_an_unedited_container()
+    {
+        if (TestData.Game is not { } g) return;
+        var containerDef = g.Catalog.Parts.FirstOrDefault(p => p.ContainerGrid is not null);
+        if (containerDef is null) return;
+        var doc = new ShipDocument(g.Catalog);
+        new PlaceCommand(new Placement { DefName = containerDef.DefName }).Do(doc);
+        var file = OplanFile.FromDocument(doc, g.Index, new OplanMeta());
+        Assert.Null(Assert.Single(file.Parts).Cargo);   // un-edited container -> cargo re-read from the save, not stored
+    }
 }

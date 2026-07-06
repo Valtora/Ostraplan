@@ -66,16 +66,19 @@ public static class SaveEdit
             if (c.Kind == PartChangeKind.Moved && c.OriginStrID is { } m) moved[m] = c.Placement!;
             else if (c.Kind == PartChangeKind.Deleted && c.OriginStrID is { } d) deleted.Add(d);
         }
-        var added = diff.OfKind(PartChangeKind.New).Select(c => c.Placement!).ToList();
-
-        // A re-skinned/replaced container is a NEW part carrying its old cargo (Placement.Cargo). That cargo must
-        // be preserved and re-parented onto the new part (below), NOT dropped with the old container — so collect
-        // every transferred cargo strID up front to exclude it from the delete drop set.
-        var transferredIds = new HashSet<string>(StringComparer.Ordinal);
-        foreach (var p in added)
-            foreach (var c in p.Cargo)
-                foreach (var sid in c.SubtreeIds())
-                    transferredIds.Add(sid);
+        // Cargo reconciliation is driven by the CURRENT contents of every surviving container (Placement.Cargo):
+        // an original contained item still present is KEPT (written verbatim, by strID); an original no longer
+        // present was removed (from a kept container) or lost (with a deleted container) and is dropped; an
+        // AUTHORED item is synthesized as a fresh item + CO below. keepSet = the original cargo strIDs that
+        // survive, so the drop set is every original contained item NOT in it. This subsumes slice 1's re-skin
+        // transfer — cargo carried onto a re-skinned container rides in that new part's Placement.Cargo, so it
+        // lands in keepSet and is re-parented (not dropped) below.
+        var keepSet = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var chg in diff.Changes)
+            if (chg.Kind != PartChangeKind.Deleted && chg.Placement is { } sp)
+                foreach (var node in sp.Cargo)
+                    foreach (var d in Subtree(node))
+                        if (!d.Authored) keepSet.Add(d.StrID);
 
         // the original grid frame (world) — new/moved parts map into it; kept items are already in it
         var vx0 = Dbl2(ctx.ShipRecord, "vShipPos", "x");
@@ -83,16 +86,20 @@ public static class SaveEdit
         var nCols0 = Int(ctx.ShipRecord, "nCols");
         var nRows0 = Int(ctx.ShipRecord, "nRows");
 
-        // drop set: deleted structural parts + their cargo subtrees, EXCEPT cargo transferred to a re-skin; the
-        // cargo-loss report lists only cargo genuinely lost, so re-skinning a container warns about nothing.
+        // drop set: deleted structural parts, plus every ORIGINAL contained item that no longer survives — removed
+        // from a kept container, or lost with a deleted one (both fall out of keepSet). The cargo-loss REPORT is
+        // scoped to deleted containers: an item deliberately removed from a kept container in the editor is an
+        // intended edit, not a loss to warn about (so a content edit fires no false "cargo will be deleted").
         var dropSet = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var id in deleted) dropSet.Add(id);
+        foreach (var origin in ctx.Origins.Values)
+            foreach (var cid in origin.CargoIds)
+                if (!keepSet.Contains(cid)) dropSet.Add(cid);
+
         var cargoLosses = new List<CargoLoss>();
         foreach (var id in deleted)
         {
-            dropSet.Add(id);
-            var lost = new List<string>();
-            foreach (var cid in ctx.Origins[id].CargoIds)
-                if (!transferredIds.Contains(cid)) { dropSet.Add(cid); lost.Add(cid); }
+            var lost = ctx.Origins[id].CargoIds.Where(cid => !keepSet.Contains(cid)).ToList();
             if (lost.Count > 0)
                 cargoLosses.Add(new CargoLoss(id, ItemName(ctx, id), lost.Select(cid => ItemName(ctx, cid)).ToList()));
         }
@@ -164,49 +171,90 @@ public static class SaveEdit
                     "Uncheck \"Deduct edit cost\" and try again.");
         }
 
-        // new parts need BOTH a fresh aItems entry and a matching aCOs entry. Loading a save (unlike a template)
-        // does NOT default a missing CO — DataHandler.SpawnItems skips any item whose strID isn't in dictCOSaves
-        // ("Trying to load a CO ... with missing save data ... Skipping"). aConds=["DEFAULT"] makes CondOwner.SetData
-        // repopulate the def's own starting conds on load, i.e. a pristine item exactly like one freshly built.
-        foreach (var p in added)
+        // Emit contained cargo for every surviving container from its current Placement.Cargo. An AUTHORED item
+        // becomes a fresh item + synthesized-CO entry (a save load skips any item lacking a CO); an ORIGINAL item
+        // was already written verbatim above and only needs re-parenting onto a NEW container (a re-skin). Recurses
+        // so nested authoring and topped-up stacks (authored members hanging off a kept lead) are handled at depth.
+        void EmitCargo(IReadOnlyList<CargoItem> nodes, string parentId, double px, double py, bool parentIsNew)
         {
-            var (w, h) = Footprint(catalog, p);
-            var (fx, fy, frot) = DocPoseToWorld(p, w, h, vx0, vy0);
-            var id = Guid.NewGuid().ToString();
-            var item = new JsonObject
+            foreach (var c in nodes)
             {
-                ["strName"] = p.DefName, ["fX"] = fx, ["fY"] = fy, ["fRotation"] = frot, ["strID"] = id,
-            };
-            // a powered/controlled device needs its GUI-prop-maps (Electrical + panels) baked, or it loads
-            // installed-but-unwired until the player uninstalls/reinstalls it (the game only restores these
-            // from the save, it doesn't rebuild them on load).
-            if (GpmSettings(catalog, p.DefName) is { } gpm) item["aGPMSettings"] = gpm;
-            outItems.Add(item);
-            outCOs.Add(SynthesizeCo(p.DefName, id, catalog, ctx.Source.RegId, ctx.Epoch));
-
-            // a re-skinned/replaced CONTAINER carries its old cargo — re-parent each top-level item onto this new
-            // part (the items + their COs were kept verbatim above; nested cargo stays parented to its own parent,
-            // stack members to their lead). Positions are unchanged — a re-skin happens in place.
-            foreach (var c in p.Cargo)
-                if (outItemsById.TryGetValue(c.StrID, out var citem))
-                    citem[c.Slotted ? "strSlotParentID" : "strParentID"] = id;
-
-            // a newly-added EMPTY nav console is a bare frame — install the standard nav-module set as contained
-            // children (exactly how a real ship template carries them), each a fresh item + synthesized CO so the
-            // save load keeps it. A console that already carries modules (transferred through a re-skin here, or
-            // kept verbatim above) is left alone. Modules sit at the console's coordinates; GPM baked like any device.
-            if (p.Cargo.Count == 0 && NavConsole.IsConsole(catalog.Lookup(p.DefName)))
-                foreach (var modDef in NavConsole.StandardModules)
+                if (c.Authored)
                 {
-                    var modId = Guid.NewGuid().ToString();
-                    var modItem = new JsonObject
+                    var cid = Guid.NewGuid().ToString();
+                    var citem = new JsonObject
                     {
-                        ["strName"] = modDef, ["fX"] = fx, ["fY"] = fy, ["fRotation"] = 0.0, ["strID"] = modId, ["strParentID"] = id,
+                        ["strName"] = c.DefName, ["fX"] = px, ["fY"] = py, ["fRotation"] = 0.0, ["strID"] = cid,
+                        [c.Slotted ? "strSlotParentID" : "strParentID"] = parentId,
                     };
-                    if (GpmSettings(catalog, modDef) is { } modGpm) modItem["aGPMSettings"] = modGpm;
-                    outItems.Add(modItem);
-                    outCOs.Add(SynthesizeCo(modDef, modId, catalog, ctx.Source.RegId, ctx.Epoch));
+                    outItems.Add(citem);
+                    outItemsById[cid] = citem;
+                    var cco = SynthesizeCo(c.DefName, cid, catalog, ctx.Source.RegId, ctx.Epoch);
+                    if (c.GridX != 0 || c.GridY != 0) { cco["inventoryX"] = c.GridX; cco["inventoryY"] = c.GridY; }
+                    outCOs.Add(cco);
+                    EmitCargo(c.Children, cid, px, py, parentIsNew: true);   // stack members / nested authored contents
                 }
+                else
+                {
+                    if (parentIsNew && outItemsById.TryGetValue(c.StrID, out var orig))
+                        orig[c.Slotted ? "strSlotParentID" : "strParentID"] = parentId;   // re-parent onto the re-skin
+                    var self = outItemsById.GetValueOrDefault(c.StrID);   // original item (kept verbatim; may be shifted)
+                    EmitCargo(c.Children, c.StrID, self is null ? px : Dbl(self, "fX"), self is null ? py : Dbl(self, "fY"), parentIsNew: false);
+                }
+            }
+        }
+
+        // new structural parts need BOTH a fresh aItems entry and a matching aCOs entry. Loading a save (unlike a
+        // template) does NOT default a missing CO — DataHandler.SpawnItems skips any item whose strID isn't in
+        // dictCOSaves ("Trying to load a CO ... with missing save data ... Skipping"). aConds=["DEFAULT"] makes
+        // CondOwner.SetData repopulate the def's starting conds on load, i.e. a pristine item freshly built.
+        foreach (var chg in diff.Changes)
+        {
+            if (chg.Kind == PartChangeKind.Deleted || chg.Placement is not { } p) continue;
+            string containerId;
+            double fx, fy;
+            if (chg.Kind == PartChangeKind.New)
+            {
+                var (w, h) = Footprint(catalog, p);
+                double frot;
+                (fx, fy, frot) = DocPoseToWorld(p, w, h, vx0, vy0);
+                containerId = Guid.NewGuid().ToString();
+                var item = new JsonObject
+                {
+                    ["strName"] = p.DefName, ["fX"] = fx, ["fY"] = fy, ["fRotation"] = frot, ["strID"] = containerId,
+                };
+                // a powered/controlled device needs its GUI-prop-maps (Electrical + panels) baked, or it loads
+                // installed-but-unwired until the player uninstalls/reinstalls it (the game only restores these
+                // from the save, it doesn't rebuild them on load).
+                if (GpmSettings(catalog, p.DefName) is { } gpm) item["aGPMSettings"] = gpm;
+                outItems.Add(item);
+                outItemsById[containerId] = item;
+                outCOs.Add(SynthesizeCo(p.DefName, containerId, catalog, ctx.Source.RegId, ctx.Epoch));
+
+                // a newly-added EMPTY nav console is a bare frame — install the standard nav-module set as contained
+                // children (exactly how a real ship template carries them), each a fresh item + CO. A console that
+                // already carries modules (kept, or transferred through a re-skin) keeps them via its cargo below.
+                if (p.Cargo.Count == 0 && NavConsole.IsConsole(catalog.Lookup(p.DefName)))
+                    foreach (var modDef in NavConsole.StandardModules)
+                    {
+                        var modId = Guid.NewGuid().ToString();
+                        var modItem = new JsonObject
+                        {
+                            ["strName"] = modDef, ["fX"] = fx, ["fY"] = fy, ["fRotation"] = 0.0, ["strID"] = modId, ["strParentID"] = containerId,
+                        };
+                        if (GpmSettings(catalog, modDef) is { } modGpm) modItem["aGPMSettings"] = modGpm;
+                        outItems.Add(modItem);
+                        outCOs.Add(SynthesizeCo(modDef, modId, catalog, ctx.Source.RegId, ctx.Epoch));
+                    }
+            }
+            else   // Kept or Moved: the container item is already in outItems (verbatim / repositioned)
+            {
+                containerId = chg.OriginStrID!;
+                var self = outItemsById.GetValueOrDefault(containerId);
+                fx = self is null ? 0 : Dbl(self, "fX");
+                fy = self is null ? 0 : Dbl(self, "fY");
+            }
+            EmitCargo(p.Cargo, containerId, fx, fy, parentIsNew: chg.Kind == PartChangeKind.New);
         }
 
         // grid frame: never shrink below the original (keeps nDestTile valid); grow to fit new parts
@@ -642,6 +690,15 @@ public static class SaveEdit
 
     private static string ItemName(SaveShipContext ctx, string strID) =>
         ctx.ItemsById.TryGetValue(strID, out var it) && Str(it, "strName") is { Length: > 0 } n ? n : strID;
+
+    /// <summary>A cargo node and every descendant, depth-first — for building the keep-set from a container's tree.</summary>
+    private static IEnumerable<CargoItem> Subtree(CargoItem c)
+    {
+        yield return c;
+        foreach (var child in c.Children)
+            foreach (var d in Subtree(child))
+                yield return d;
+    }
 
     // ---- JsonNode field readers ----
 
