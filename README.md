@@ -112,4 +112,4 @@ Ostraplan is released under the [MIT Licence](LICENSE).
 It is a fan-made tool and is **not affiliated with or endorsed by Blue Bottle
 Games**. Ostranauts and all its data and art are © Blue Bottle Games — Ostraplan
 ships **none** of it, and reads everything from your own legitimate install at
-runtime. Please support the game: <https://store.steampowered.com/app/1024960/Ostranauts/>.
+runtime. Please support the game: <https://store.steampowered.com/app/1022980/Ostranauts/>.
