@@ -150,9 +150,14 @@ public sealed class UpdateSaveDialog : Window
             return;
         }
 
-        _costLine.Text =
-            $"( {_baseCost.NewParts} added: {Money(_baseCost.NewValue)}  +  {_baseCost.MovedParts} moved: ½ × {Money(_baseCost.MovedValue)} )" +
-            $"  ×  {Multiplier:0.0}×  =  {Money(Cost)}";
+        var terms = new List<string>
+        {
+            $"{_baseCost.NewParts} added: {Money(_baseCost.NewValue)}",
+            $"{_baseCost.MovedParts} moved: ½ × {Money(_baseCost.MovedValue)}",
+        };
+        if (_baseCost.NewCargo > 0)   // authored cargo items, priced at full value like new parts
+            terms.Add($"{_baseCost.NewCargo} item{(_baseCost.NewCargo == 1 ? "" : "s")}: {Money(_baseCost.CargoValue)}");
+        _costLine.Text = $"( {string.Join("  +  ", terms)} )  ×  {Multiplier:0.0}×  =  {Money(Cost)}";
         var bal = _balance ?? 0;
         var resulting = bal - Cost;
         _balanceLine.Text = $"Balance: {Money(bal)}  →  {Money(resulting)}";

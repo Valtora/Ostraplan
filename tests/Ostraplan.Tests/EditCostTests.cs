@@ -65,6 +65,32 @@ public class EditCostTests
     }
 
     [Fact]
+    public void Authored_cargo_counts_at_full_value_on_top_of_a_free_kept_container()
+    {
+        var cat = CatOf(Priced("Crate", 0), Priced("Ammo", 10));
+        var doc = new ShipDocument(cat);
+        var crate = new Placement { DefName = "Crate", X = 0, Y = 0, OriginStrID = "c" };
+        new PlaceCommand(crate).Do(doc);
+        // add three authored Ammo (non-stackable here -> three items, each full value)
+        var cargo = CargoEdit.Add(crate.Cargo, null, (6, 6), cat.Lookup("Ammo")!, 3);
+        Assert.NotNull(cargo);
+        new SetCargoCommand(crate, crate.Cargo, cargo!).Do(doc);
+
+        var diff = ShipDiff.Compute(doc, new Dictionary<string, OriginPart> { ["c"] = new(0, 0, 0, []) });   // kept
+        var b = EditCost.Compute(diff, cat, 2.0);
+
+        Assert.Equal(0, b.NewParts);        // the container itself is kept (free)
+        Assert.Equal(3, b.NewCargo);        // three authored items...
+        Assert.Equal(30, b.CargoValue, 3);  // ...at full base value (3 × 10)
+        Assert.Equal(60, b.Total, 3);       // 30 × 2× (full value, like new parts)
+
+        // removing the cargo again makes it free, and originals never count
+        new SetCargoCommand(crate, crate.Cargo, []).Do(doc);
+        var diff2 = ShipDiff.Compute(doc, new Dictionary<string, OriginPart> { ["c"] = new(0, 0, 0, []) });
+        Assert.Equal(0, EditCost.Compute(diff2, cat, 2.0).Total, 3);
+    }
+
+    [Fact]
     public void Unpriced_and_deleted_parts_cost_nothing()
     {
         var cat = CatOf(Priced("A", 0));   // a def with no base price
