@@ -38,6 +38,17 @@ public sealed class SaveShipContext
     /// <summary>The data zip the ship was read from (re-resolvable from <see cref="Source"/> on reopen).</summary>
     public required string ZipPath { get; init; }
 
+    /// <summary>The player character CO's <c>strID</c> (the session record's <c>strPlayerCO</c>). Its
+    /// <c>StatUSD</c> cond is the authoritative money balance, and — for the player's own ship — that CO is crew
+    /// in this ship record, so the save-edit cost deduction rewrites it here. Null if the record couldn't be
+    /// read or the player CO isn't on this ship (then the edit-cost deduction is unavailable).</summary>
+    public string? PlayerCoId { get; init; }
+
+    /// <summary>The save's current game epoch (<c>objSystem.dfEpoch</c>) — stamped onto tickers baked into
+    /// injected/healed device COs so they fire on load. 0 if it couldn't be read (the ticker still fires, just
+    /// immediately rather than after one period).</summary>
+    public double Epoch { get; init; }
+
     /// <summary>The player-ship record as a mutable node. Phase 2 rewrites only its structural arrays
     /// (<c>aItems</c>/<c>aCOs</c>/<c>aRooms</c>/<c>aRating</c> + grid fields) and preserves the rest verbatim.</summary>
     public required JsonNode ShipRecord { get; init; }

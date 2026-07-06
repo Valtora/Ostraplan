@@ -54,19 +54,21 @@ public class SaveEditTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void OriginStrID_and_given_ness_both_survive_move_and_rotate()
+    public void Origin_survives_but_given_ness_clears_on_move_and_rotate()
     {
         var doc = new ShipDocument(EmptyCat());
         var p = new Placement { DefName = "X", X = 0, Y = 0, IsGiven = true, OriginStrID = "id1" };
         new PlaceCommand(p).Do(doc);
 
         new MoveCommand([p], 2, 3).Do(doc);
-        Assert.Equal("id1", p.OriginStrID);   // identity kept across a move...
-        Assert.True(p.IsGiven);               // ...and so is given-ness (the game never re-checks existing structure)
+        Assert.Equal("id1", p.OriginStrID);   // identity kept across a move (still the same save item)...
+        Assert.False(p.IsGiven);              // ...but moving is an authoring act, so the law re-applies
 
+        // reset given-ness and confirm a rotate (SetPose) clears it too
+        p.IsGiven = true;
         new RotateCommand(doc, p, 90).Do(doc);
-        Assert.Equal("id1", p.OriginStrID);   // and both survive a rotate (SetPose)
-        Assert.True(p.IsGiven);
+        Assert.Equal("id1", p.OriginStrID);
+        Assert.False(p.IsGiven);
     }
 
     [Fact]
@@ -115,6 +117,22 @@ public class SaveEditTests(ITestOutputHelper output)
 
         _out.WriteLine($"{r.Import.ShipName}: {r.Doc.Placements.Count} structural, " +
             $"{r.Context.ItemsById.Count} items, {r.Context.CosById.Count} COs, source={r.Doc.SourceSave}");
+    }
+
+    [Fact]
+    public void ListPlayerShips_lists_owned_ships_and_flags_the_current_one()
+    {
+        if (TestData.Game is not { } g) return;
+        // the first save that yields an owned ship (aMyShips populated)
+        var save = SaveImport.ListSaves(g.Env).FirstOrDefault(s => SaveImport.ListPlayerShips(s.ZipPath).Any(c => c.Owned));
+        if (save is null) return;
+
+        var ships = SaveImport.ListPlayerShips(save.ZipPath);
+        Assert.NotEmpty(ships);
+        Assert.Contains(ships, c => c.Owned);                                   // at least one owned ship
+        Assert.All(ships, c => Assert.False(string.IsNullOrEmpty(c.RegId)));    // every choice has a RegID
+        Assert.All(ships.Where(c => c.Owned), c => Assert.False(string.IsNullOrWhiteSpace(c.Name)));   // owned ships resolve a name
+        _out.WriteLine(string.Join("\n", ships.Select(c => $"{(c.Owned ? "own" : "NOT")} {(c.Current ? "[here]" : "     ")} {c.RegId}: {c.Name} — {c.Sub}")));
     }
 
     [Fact]

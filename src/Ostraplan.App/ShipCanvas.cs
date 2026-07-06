@@ -788,6 +788,112 @@ public sealed class ShipCanvas : FrameworkElement
         }
     }
 
+    /// <summary>
+    /// A high-resolution, well-lit "Ship Rating" snapshot: the ship's sprites on a light backdrop, every room
+    /// tinted by its certification (green = certified, amber = sealed but uncertified, red = open to space), and
+    /// labelled with a leader line out to the margin. Recomputes rooms in a known frame so tiles map to the same
+    /// doc-tile grid the sprites draw in. Null when the design is empty. Does not disturb the on-screen view.
+    /// </summary>
+    public System.Windows.Media.Imaging.BitmapSource? RenderRatingSnapshot(
+        IReadOnlyList<RoomSpecDef> specs, int pxPerTile = 48, int marginTiles = 3)
+    {
+        if (Doc?.Bounds() is not { } b || Sprites is null) return null;
+
+        // rooms in a frame whose origin (minC,minR) we know, so a room's flat tile index -> doc tile is exact
+        const int pad = 1;
+        int minC = b.MinX - pad, minR = b.MinY - pad;
+        int cols = b.MaxX - b.MinX + 1 + 2 * pad, rows = b.MaxY - b.MinY + 1 + 2 * pad;
+        var grid = ShipGrid.FromDocumentFramed(Doc, Doc.Catalog, minC, minR, cols, rows);
+        var partition = RoomBuilder.Build(grid);
+        RoomCertifier.CertifyAll(partition, specs, Doc.Catalog);
+        var friendly = specs.ToDictionary(s => s.Name, s => s.Friendly, StringComparer.Ordinal);
+
+        var tilesW = b.MaxX - b.MinX + 1 + 2 * marginTiles;
+        var tilesH = b.MaxY - b.MinY + 1 + 2 * marginTiles;
+        var pxW = tilesW * pxPerTile;
+        var pxH = tilesH * pxPerTile;
+
+        var (savedPan, savedZoom, savedRot) = (_pan, Zoom, ViewRot);
+        Zoom = pxPerTile;
+        _pan = new Vector(-(b.MinX - marginTiles) * (double)pxPerTile, -(b.MinY - marginTiles) * (double)pxPerTile);
+        ViewRot = 0;
+        try
+        {
+            var dv = new DrawingVisual();
+            RenderOptions.SetBitmapScalingMode(dv, BitmapScalingMode.NearestNeighbor);
+            using (var ctx = dv.RenderOpen())
+            {
+                ctx.DrawRectangle(SnapshotBg, null, new Rect(0, 0, pxW, pxH));
+                foreach (var p in Doc.DrawOrder()) DrawPlacement(ctx, p, (0, 0));
+
+                double shipMidY = (b.MinY + b.MaxY + 1) / 2.0;
+                var roomIndex = 0;
+                foreach (var room in partition.Rooms)
+                {
+                    if (room.Void || room.Tiles.Count == 0) continue;
+                    var (fill, text) = RoomStyle(room, friendly, roomIndex++);
+
+                    double sx = 0, sy = 0;
+                    foreach (var idx in room.Tiles)
+                    {
+                        int dx = minC + idx % cols, dy = minR + idx / cols;
+                        ctx.DrawRectangle(fill, null, CellRect(dx, dy, 1, 1));
+                        sx += dx + 0.5; sy += dy + 0.5;
+                    }
+                    var centre = new Point(_pan.X + sx / room.Tiles.Count * Zoom, _pan.Y + sy / room.Tiles.Count * Zoom);
+
+                    // leader line from the room centre out to a label in the top or bottom margin
+                    bool up = (sy / room.Tiles.Count) < shipMidY;
+                    double labelY = up ? (marginTiles * 0.45) * pxPerTile : pxH - (marginTiles * 0.55) * pxPerTile;
+                    DrawRoomLabel(ctx, text, centre, new Point(centre.X, labelY));
+                }
+            }
+            var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(pxW, pxH, 96, 96, PixelFormats.Pbgra32);
+            rtb.Render(dv);
+            rtb.Freeze();
+            return rtb;
+        }
+        finally
+        {
+            (_pan, Zoom, ViewRot) = (savedPan, savedZoom, savedRot);
+        }
+    }
+
+    private static readonly Brush SnapshotBg = Frozen(new SolidColorBrush(Color.FromRgb(0x2A, 0x2E, 0x36)));
+    private static readonly Brush RoomOpenFill = Frozen(new SolidColorBrush(Color.FromArgb(0x4A, 0xD6, 0x45, 0x45)));
+    private static readonly Brush LabelBg = Frozen(new SolidColorBrush(Color.FromArgb(0xCC, 0x14, 0x16, 0x1A)));
+    private static readonly Pen LeaderPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xCC, 0xFF, 0xFF, 0xFF)), 1.5));
+
+    // a spread of distinct hues so adjacent rooms read apart at a glance; open-to-space is always the hazard red
+    private static readonly Brush[] RoomPalette =
+    [
+        RoomFill(0x4A, 0x90, 0xE2), RoomFill(0x4C, 0xC2, 0x5B), RoomFill(0x9B, 0x59, 0xB6), RoomFill(0x1A, 0xBC, 0x9C),
+        RoomFill(0xE6, 0x7E, 0x22), RoomFill(0xE8, 0x43, 0x93), RoomFill(0x00, 0xBC, 0xD4), RoomFill(0xAE, 0xEA, 0x00),
+        RoomFill(0xF1, 0xC4, 0x0F), RoomFill(0x6C, 0x5C, 0xE7),
+    ];
+
+    private static Brush RoomFill(byte r, byte g, byte b) => Frozen(new SolidColorBrush(Color.FromArgb(0x46, r, g, b)));
+
+    private static (Brush Fill, string Label) RoomStyle(RoomModel room, IReadOnlyDictionary<string, string> friendly, int index)
+    {
+        var label = room.Outside ? "Open to space"
+            : room.RoomSpec != "Blank" ? friendly.GetValueOrDefault(room.RoomSpec, room.RoomSpec)
+            : "Uncertified";
+        var fill = room.Outside ? RoomOpenFill : RoomPalette[index % RoomPalette.Length];
+        return (fill, label);
+    }
+
+    private static void DrawRoomLabel(DrawingContext ctx, string text, Point room, Point label)
+    {
+        var ft = new System.Windows.Media.FormattedText(text, System.Globalization.CultureInfo.CurrentCulture,
+            FlowDirection.LeftToRight, new Typeface("Segoe UI"), 15, Brushes.White, 1.0) { TextAlignment = TextAlignment.Center };
+        var box = new Rect(label.X - ft.Width / 2 - 6, label.Y - ft.Height / 2 - 3, ft.Width + 12, ft.Height + 6);
+        ctx.DrawLine(LeaderPen, room, new Point(label.X, label.Y));
+        ctx.DrawEllipse(Brushes.White, null, room, 2.5, 2.5);
+        ctx.DrawRoundedRectangle(LabelBg, null, box, 3, 3);
+        ctx.DrawText(ft, new Point(label.X, label.Y - ft.Height / 2));
+    }
+
     // ---- rendering ----
 
     protected override void OnRender(DrawingContext dc)

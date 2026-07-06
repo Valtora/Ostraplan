@@ -151,10 +151,21 @@
                 <TextBlock Text="PART" Style="{StaticResource SideHeader}"/>
                 <TextBlock x:Name="InsFriendly" Style="{StaticResource SideValue}" FontSize="15" FontWeight="SemiBold" Text="—"/>
                 <TextBlock x:Name="InsInternal" Style="{StaticResource SideValue}" Opacity="0.6" FontSize="11"/>
+                <StackPanel x:Name="DescBlock" Visibility="Collapsed">
+                    <TextBlock Text="DESCRIPTION" Style="{StaticResource SideHeader}"/>
+                    <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                        <TextBlock x:Name="InsDesc" Style="{StaticResource SideValue}" FontSize="12"
+                                   TextWrapping="Wrap" Opacity="0.85"/>
+                    </ScrollViewer>
+                </StackPanel>
                 <TextBlock Text="CATEGORY" Style="{StaticResource SideHeader}"/>
                 <TextBlock x:Name="InsCategory" Style="{StaticResource SideValue}"/>
                 <TextBlock Text="FOOTPRINT" Style="{StaticResource SideHeader}"/>
                 <TextBlock x:Name="InsSize" Style="{StaticResource SideValue}"/>
+                <StackPanel x:Name="PriceBlock" Visibility="Collapsed">
+                    <TextBlock Text="BASE VALUE" Style="{StaticResource SideHeader}"/>
+                    <TextBlock x:Name="InsPrice" Style="{StaticResource SideValue}"/>
+                </StackPanel>
                 <TextBlock Text="SOURCE" Style="{StaticResource SideHeader}"/>
                 <TextBlock x:Name="InsOrigin" Style="{StaticResource SideValue}"/>
                 <TextBlock Text="INSTALL MATERIALS" Style="{StaticResource SideHeader}"/>

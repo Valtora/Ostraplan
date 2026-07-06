@@ -50,10 +50,11 @@ public sealed record CoOverlayDef(string Name, string? NameFriendly, string? Img
 }
 
 public sealed record CondOwnerDef(
-    string Name, string? NameFriendly, string? ItemDefName, string[] StartingCondNames,
+    string Name, string? NameFriendly, string? Desc, string? ItemDefName, string[] StartingCondNames,
     IReadOnlyDictionary<string, double> StartingCondValues,
     IReadOnlyDictionary<string, (double X, double Y)> MapPoints,
-    string[] GpmNames)   // GUI-prop-map declarations (the "Panel A"/"Electrical"/... a device wires up on install)
+    string[] GpmNames,   // GUI-prop-map declarations (the "Panel A"/"Electrical"/... a device wires up on install)
+    string[] TickerNames)   // per-second tickers (e.g. "Power") the device needs, granted on install and loaded from the save
 {
     public static CondOwnerDef Parse(JsonElement e)
     {
@@ -61,11 +62,13 @@ public sealed record CondOwnerDef(
         return new(
             Json.Str(e, "strName") ?? "",
             Json.Str(e, "strNameFriendly"),
+            Json.Str(e, "strDesc"),
             Json.Str(e, "strItemDef"),
             conds.Select(LootDef.CondName).ToArray(),
             ParseCondValues(conds),
             ParseMapPoints(Json.StrArray(e, "mapPoints")),
-            Json.StrArray(e, "mapGUIPropMaps"));
+            Json.StrArray(e, "mapGUIPropMaps"),
+            Json.StrArray(e, "aTickers"));
     }
 
     /// <summary>

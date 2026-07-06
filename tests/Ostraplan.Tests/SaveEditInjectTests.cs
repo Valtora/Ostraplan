@@ -116,22 +116,28 @@ public class SaveEditInjectTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void Rearranging_imported_structure_does_not_resurrect_construction_flags()
+    public void Moving_an_imported_part_clears_immunity_and_the_law_reapplies()
     {
-        // the reported false positives: the game never re-validates existing structure, but moving a part used
-        // to clear its given-ness, so rearranging an imported ship re-ran CheckFit on game-legal-but-not-
-        // constructibly-ordered stacks (fixtures through walls, conduits on walls) and flagged "tile occupied".
+        // an unmoved imported part is immune (the game never re-validates existing structure), but MOVING it is
+        // an authoring act — given-ness clears and the placement law re-applies. Dragged into open space, a part
+        // that needs support (has socket reqs) must now flag; the imported ship flagged nothing before.
         if (TestData.Game is not { } g) return;
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
 
+        // a non-locked imported part that requires structure around it — deep empty space fails its socket reqs
+        var target = r.Doc.Placements.FirstOrDefault(p => !r.Doc.IsLocked(p)
+            && r.Doc.Part(p) is { } d && d.Item.SocketReqs.Any(s => s.Length > 0 && s != "Blank"));
+        if (target is null) return;
+
         int Blocking() => ProblemScan.Scan(r.Doc, g.Catalog).Count(p => p.Severity == ProblemSeverity.Blocking);
+        Assert.True(target.IsGiven);        // imported -> immune while unmoved
         var before = Blocking();
 
-        // "move" every imported part onto its own tile — zero displacement, but exercises the move path
-        foreach (var p in r.Doc.Placements.Where(p => !r.Doc.IsLocked(p)).ToList())
-            new MoveCommand([p], 0, 0).Do(r.Doc);
+        new MoveCommand([target], 500, 500).Do(r.Doc);   // drag it far into open space
 
-        Assert.Equal(before, Blocking());   // rearranging existing structure must not resurrect construction-time flags
+        Assert.False(target.IsGiven);       // the move re-authored it...
+        Assert.NotNull(target.OriginStrID); // ...but its save identity is kept (a move, not a delete+new)
+        Assert.True(Blocking() > before);   // ...and the law now flags the unsupported part
     }
 
     [Fact]
@@ -232,6 +238,57 @@ public class SaveEditInjectTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Adding_a_powered_device_bakes_its_power_ticker_so_it_can_draw_power()
+    {
+        // the reported dead-device bug: an injected device with no Power ticker never gets IsReadyUsePower, so it
+        // can't draw power even once conduits reach it. A synthesized CO must carry the def's Power ticker.
+        if (TestData.Game is not { } g) return;
+        if (FirstImport(g.Env, g.Catalog) is not { } r) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        if (r.Doc.Bounds() is not { } b) return;
+
+        var device = g.Catalog.Parts.FirstOrDefault(p => p.TickerNames.Contains("Power") && g.Catalog.TickersFor(p).Count > 0);
+        if (device is null) return;
+
+        new PlaceCommand(new Placement { DefName = device.DefName, X = b.MinX, Y = b.MinY }).Do(r.Doc);
+        var (ship, report) = SaveEdit.BuildInjectedShip(r.Doc, r.Context, g.Catalog, specs);
+
+        var newCo = ((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()).Last(c => (string?)c["strCODef"] == device.DefName);
+        var tickers = newCo["aTickers"] as JsonArray;
+        Assert.NotNull(tickers);
+        var power = tickers!.Select(n => n!.AsObject()).FirstOrDefault(t => (string?)t["strName"] == "Power");
+        Assert.NotNull(power);                      // the Power ticker is present...
+        Assert.NotNull(power!["fEpochStart"]);      // ...stamped with a start epoch so it fires on load
+        Assert.True(report.PowerFixed >= 0);        // self-heal ran over the kept devices too (no crash)
+    }
+
+    [Fact]
+    public void Injected_undamaged_ship_is_armed_to_refill_atmosphere()
+    {
+        // the edit regenerates aRooms, orphaning per-room gas -> the ship would spawn airless. bPrefill makes the
+        // game refill it on load. It's only armed for an undamaged ship (DMGStatus New), or it would trigger the
+        // break-in/damage path.
+        if (TestData.Game is not { } g) return;
+        if (FirstImport(g.Env, g.Catalog) is not { } r) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+
+        double dmg = 0;
+        if (r.Context.ShipRecord is JsonObject so && so["DMGStatus"] is JsonValue dv) dv.TryGetValue(out dmg);
+
+        var (ship, report) = SaveEdit.BuildInjectedShip(r.Doc, r.Context, g.Catalog, specs);
+
+        if (dmg == 0)
+        {
+            Assert.True(report.AtmosphereFilled);
+            Assert.True((bool)ship["bPrefill"]!);   // the game will run PreFillRooms on load
+        }
+        else
+        {
+            Assert.False(report.AtmosphereFilled);   // a damaged ship is left airless (with a UI warning)
+        }
+    }
+
+    [Fact]
     public void GpmSettingsFor_expands_the_def_pairs_against_the_templates()
     {
         var electrical = JsonDocument.Parse("[\"status\",\"true\"]").RootElement.Clone();
@@ -279,6 +336,55 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         var gpm = pump["aGPMSettings"] as JsonArray;
         Assert.NotNull(gpm);
         Assert.Contains(gpm!.Select(n => n!.AsObject()), o => (string?)o["strName"] == "Electrical");
+    }
+
+    [Fact]
+    public void Charging_an_edit_deducts_statusd_on_the_player_co_and_saveinfo_money()
+    {
+        // the cost deduction: rewrite the player CO's StatUSD (authoritative balance) and mirror saveInfo.money
+        // into the written copy; the player CO lives on their own ship, so it's the file we already splice.
+        if (TestData.Game is not { } g) return;
+        if (FirstImport(g.Env, g.Catalog) is not { } r) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        if (SaveEdit.CurrentBalance(r.Context) is not { } balance) return;   // save has no player balance -> skip
+        if (r.Context.PlayerCoId is not { } coId) return;
+
+        const double cost = 100.0;
+        var charge = new EditCharge(coId, cost, balance - cost);
+
+        var temp = Path.Combine(Path.GetTempPath(), $"ostraplan_charge_{Guid.NewGuid():N}");
+        try
+        {
+            var (outDir, report) = SaveEdit.Inject(r.Doc, r.Context, g.Catalog, specs, temp, overwrite: true, charge: charge);
+            Assert.Equal(cost, report.Charged);
+            Assert.Equal(balance - cost, report.ResultingBalance!.Value, 2);
+
+            // saveInfo.money mirrors the new balance
+            var name = Path.GetFileName(outDir);
+            var saveInfo = JsonNode.Parse(File.ReadAllText(Path.Combine(outDir, "saveInfo.json")));
+            var money = (saveInfo is JsonArray a ? a[0] : saveInfo)!.AsObject()["money"]!.GetValue<double>();
+            Assert.Equal(balance - cost, money, 2);
+
+            // the player CO's StatUSD in the written ship record is the new balance
+            var top = JsonNode.Parse(ReadShipEntry(Path.Combine(outDir, name + ".zip"), r.Context.Source.RegId));
+            var ship = top is JsonArray sa
+                ? sa.OfType<JsonObject>().OrderByDescending(o => (o["aItems"] as JsonArray)?.Count ?? 0).First()
+                : top!.AsObject();
+            var playerCo = ((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()).First(c => (string?)c["strID"] == coId);
+            var statUsd = ((JsonArray)playerCo["aConds"]!)
+                .Select(n => (string?)n).Where(s => s is not null && s.StartsWith("StatUSD="))
+                .Sum(s => ParseAmount(s!));
+            Assert.Equal(balance - cost, statUsd, 2);
+        }
+        finally { if (Directory.Exists(temp)) Directory.Delete(temp, recursive: true); }
+    }
+
+    // "StatUSD=1.0x5651.7" -> 5651.7 (magnitude after the 'x')
+    private static double ParseAmount(string cond)
+    {
+        var x = cond.IndexOf('x');
+        return x >= 0 && double.TryParse(cond[(x + 1)..], System.Globalization.NumberStyles.Float,
+            System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0;
     }
 
     [Fact]

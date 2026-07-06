@@ -105,6 +105,74 @@ public sealed class TemplateBrowserDialog : Window
     }
 }
 
+/// <summary>A row in the ship picker: the ship name (with a "you are here" tag) over its make/model/RegID
+/// subtitle (with a "NOT OWNED" tag for stations/other vessels).</summary>
+public sealed record ShipRow(string Title, string Sub, SaveShipChoice Choice);
+
+/// <summary>Picks WHICH ship to edit from a save: the player's owned ships (from aMyShips), plus the ship they're
+/// currently on if it isn't owned (a station/other vessel — editable but unsupported).</summary>
+public sealed class ShipChoiceDialog : Window
+{
+    private readonly ListBox _list;
+
+    public SaveShipChoice? Selected { get; private set; }
+
+    public ShipChoiceDialog(string saveName, IReadOnlyList<SaveShipChoice> ships)
+    {
+        Title = "Choose a ship to edit";
+        Width = 480; Height = 520;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Background = ThemeManager.WindowBg;
+
+        var rows = ships.Select(c => new ShipRow(
+            c.Name + (c.Current ? "   ·   you are here" : ""),
+            c.Owned ? c.Sub : c.Sub + "   ·   NOT OWNED — station/other vessel (unsupported)",
+            c)).ToList();
+
+        var root = new DockPanel { Margin = new Thickness(16) };
+
+        var note = new TextBlock
+        {
+            Text = $"Ships in save “{saveName}” that you own. Ostranauts imports the ship you're standing " +
+                   "on, which may be a station — pick the one you mean. Ships you don't own are shown but editing " +
+                   "them is unsupported and may break your save.",
+            Foreground = ThemeManager.Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
+        };
+        DockPanel.SetDock(note, Dock.Top);
+        root.Children.Add(note);
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0) };
+        var ok = new Button { Content = "Choose", Padding = new Thickness(18, 4, 18, 4), Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
+        var cancel = new Button { Content = "Cancel", Padding = new Thickness(16, 4, 16, 4), IsCancel = true };
+        ok.Click += (_, _) => Accept();
+        buttons.Children.Add(ok);
+        buttons.Children.Add(cancel);
+        DockPanel.SetDock(buttons, Dock.Bottom);
+        root.Children.Add(buttons);
+
+        _list = new ListBox
+        {
+            Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+            ItemsSource = rows, ItemTemplate = TemplateBrowserDialog.TwoLineRow(nameof(ShipRow.Title), nameof(ShipRow.Sub)),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        };
+        var currentIdx = rows.FindIndex(r => r.Choice.Current);
+        _list.SelectedIndex = currentIdx >= 0 ? currentIdx : (rows.Count > 0 ? 0 : -1);
+        _list.MouseDoubleClick += (_, _) => Accept();
+        _list.KeyDown += (_, e) => { if (e.Key == Key.Enter) Accept(); };
+        root.Children.Add(_list);
+
+        Content = root;
+    }
+
+    private void Accept()
+    {
+        if (_list.SelectedItem is not ShipRow row) return;
+        Selected = row.Choice;
+        DialogResult = true;
+    }
+}
+
 /// <summary>A save-game row for the picker: the player's ship name over "{player} · {save}".</summary>
 public sealed record SaveRow(string ShipDisplay, string Sub, SaveEntry Entry);
 

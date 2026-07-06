@@ -34,6 +34,12 @@ public static class SaveEditImport
         return ImportShip(save.ZipPath, save.Name, regId, catalog);
     }
 
+    /// <summary>Import a <b>specific</b> ship (by RegID) from a save for editing — used by the ship picker, which
+    /// resolves the player's owned ships (<see cref="SaveImport.ListPlayerShips"/>) rather than defaulting to the
+    /// ship the player is standing on.</summary>
+    public static SaveEditImportResult ImportForEditing(SaveEntry save, string regId, Catalog catalog) =>
+        ImportShip(save.ZipPath, save.Name, regId, catalog);
+
     /// <summary>
     /// Rebuild just the <see cref="SaveShipContext"/> for a design reopened from an <c>.oplan</c> — the document
     /// already came from the file (with its <see cref="Placement.OriginStrID"/> tags), so this re-locates the
@@ -63,13 +69,13 @@ public static class SaveEditImport
         var source = new SaveSourceRef(saveName, regId);
         import.Doc.SourceSave = source;
 
-        var context = BuildContext(source, zipPath, shipNode, import.Doc);
+        var context = BuildContext(source, zipPath, shipNode, import.Doc, SaveImport.PlayerCoId(zip), SaveImport.SessionEpoch(zip));
         return new SaveEditImportResult(import, context);
     }
 
     /// <summary>Assemble the full context: the mutable ship record, every item/CO indexed by strID, and each
     /// structural part's imported pose + contained-cargo subtree.</summary>
-    private static SaveShipContext BuildContext(SaveSourceRef source, string zipPath, JsonNode shipNode, ShipDocument doc)
+    private static SaveShipContext BuildContext(SaveSourceRef source, string zipPath, JsonNode shipNode, ShipDocument doc, string? playerCoId, double epoch)
     {
         var items = ArrayOf(shipNode, "aItems").ToList();
         var itemsById = ById(items);
@@ -97,6 +103,8 @@ public static class SaveEditImport
             Source = source,
             ZipPath = zipPath,
             ShipRecord = shipNode,
+            PlayerCoId = playerCoId,
+            Epoch = epoch,
             Origins = origins,
             ItemsById = itemsById,
             CosById = cosById,

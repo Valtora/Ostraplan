@@ -95,10 +95,18 @@ public partial class MainWindow : Window
             }
             catch (DirectoryNotFoundException ex)
             {
-                MessageBox.Show(this, ex.Message, "Ostraplan", MessageBoxButton.OK, MessageBoxImage.Warning);
+                // Ostraplan reads the game's own sprites and data — it can't run without the install. Show why,
+                // let the user point at the folder by hand, and fail closed (a clean exit) if they cancel.
+                MessageBox.Show(this,
+                    ex.Message + "\n\nOstraplan needs the Ostranauts install to run — please pick the game folder.",
+                    "Ostraplan — Ostranauts install required", MessageBoxButton.OK, MessageBoxImage.Warning);
                 var dlg = new OpenFolderDialog { Title = "Pick the Ostranauts folder (inside steamapps\\common)" };
                 if (dlg.ShowDialog(this) != true)
                 {
+                    MessageBox.Show(this,
+                        "Ostraplan can't run without the Ostranauts install, so it will now close.\n\n" +
+                        "Launch it again once the game is installed, or when you're ready to pick the folder.",
+                        "Ostraplan — closing", MessageBoxButton.OK, MessageBoxImage.Information);
                     Close();
                     return;
                 }
@@ -362,7 +370,9 @@ public partial class MainWindow : Window
         if (report is not null)
         {
             Board.SetLeakCells([]);
-            new RatingReportWindow(report, cells => Board.SetLeakCells(cells)) { Owner = this }.ShowDialog();
+            var value = ShipValue.Estimate(doc, catalog);
+            var snapshot = Board.RenderRatingSnapshot(specs);
+            new RatingReportWindow(report, value, snapshot, cells => Board.SetLeakCells(cells)) { Owner = this }.ShowDialog();
         }
     }
 
@@ -987,8 +997,10 @@ public partial class MainWindow : Window
         {
             InsFriendly.Text = selected.Count > 1 ? $"{selected.Count} parts selected" : "—";
             InsInternal.Text = "";
+            DescBlock.Visibility = Visibility.Collapsed;
             InsCategory.Text = "";
             InsSize.Text = "";
+            PriceBlock.Visibility = Visibility.Collapsed;
             InsOrigin.Text = "";
             InsInputs.Text = "";
             return;
@@ -999,9 +1011,21 @@ public partial class MainWindow : Window
             : "";
         InsFriendly.Text = part.Friendly + lockedNote;
         InsInternal.Text = part.DefName;
+        if (part.Desc is { Length: > 0 } desc)
+        {
+            InsDesc.Text = desc;
+            DescBlock.Visibility = Visibility.Visible;
+        }
+        else DescBlock.Visibility = Visibility.Collapsed;
         InsCategory.Text = part.Category;
         InsSize.Text = $"{part.Item.Width} × {part.Item.Height} tiles"
                        + (part.Item.HasSpriteSheet ? "  (auto-tiling)" : "");
+        if (part.BasePrice > 0)
+        {
+            InsPrice.Text = "$" + part.BasePrice.ToString("#,##0.##", System.Globalization.CultureInfo.InvariantCulture);
+            PriceBlock.Visibility = Visibility.Visible;
+        }
+        else PriceBlock.Visibility = Visibility.Collapsed;
         InsOrigin.Text = part.Origin;
         InsInputs.Text = part.Inputs.Length == 0 ? "none" : string.Join("\n", part.Inputs);
     }
@@ -1195,21 +1219,37 @@ public partial class MainWindow : Window
         var picker = new SavePickerDialog(saves) { Owner = this };
         if (picker.ShowDialog() != true || picker.Selected is not { } save) return;
 
-        var ship = save.ShipName.Length > 0 ? $"\"{save.ShipName}\"" : "the player's ship";
+        // choose WHICH ship: the game imports the ship you're standing on, which may be a station. List the
+        // player's actually-owned ships (from aMyShips) instead, plus the current ship as an unsupported option.
+        var ships = SaveImport.ListPlayerShips(save.ZipPath);
+        if (ships.Count == 0)
+        {
+            MessageBox.Show(this,
+                "Couldn't find a ship to edit in that save (no owned ships and no current ship on record).",
+                "Import", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var shipDlg = new ShipChoiceDialog(save.Name, ships) { Owner = this };
+        if (shipDlg.ShowDialog() != true || shipDlg.Selected is not { } chosen) return;
+
+        // editing a ship you don't own (a station, another vessel) is unsupported — gate it behind a stern warning
+        if (!chosen.Owned && !ConfirmUnsupportedShip(chosen)) return;
+
         if (MessageBox.Show(this,
-                $"Import {ship} from save \"{save.Name}\" for editing?\n\n" +
+                $"Import \"{chosen.Name}\" ({chosen.RegId}) from save \"{save.Name}\" for editing?\n\n" +
                 "You'll redesign the ship's structure out-of-game. When you choose \"Update Ship in Save…\", " +
-                "Ostraplan writes the result into a COPY of this save — crew, cargo, world position and ship " +
-                "identity are preserved, and the original save is never touched.",
+                "Ostraplan writes the result back into the save — a new copy by default, or the original in place — " +
+                "with crew, cargo, world position and ship identity preserved.",
                 "Import for editing", MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK)
             return;
 
-        var (catalog, entry) = (_catalog, save);
+        var (catalog, entry, reg) = (_catalog, save, chosen.RegId);
         SaveEditImportResult edit;
         Mouse.OverrideCursor = Cursors.Wait;
         try
         {
-            edit = await Task.Run(() => SaveEditImport.ImportForEditing(entry, catalog));
+            edit = await Task.Run(() => SaveEditImport.ImportForEditing(entry, reg, catalog));
         }
         catch (Exception ex)
         {
@@ -1262,11 +1302,24 @@ public partial class MainWindow : Window
         _roomSpecs ??= RoomCertifier.LoadSpecs(_index);
         var (doc, catalog, specs, context) = (_doc, _catalog, _roomSpecs, ctx);
 
+        // options: write target (copy vs in place) + opt-in cost deduction. The diff (counts + base cost) is
+        // cheap; the current balance comes from the player CO on this ship (null -> deduction unavailable).
+        var diff = ShipDiff.Compute(doc, context);
+        var baseCost = EditCost.Compute(diff, catalog, 1.0);
+        var balance = SaveEdit.CurrentBalance(context);
+        var opts = new UpdateSaveDialog(src.SaveName, diff.KeptCount, diff.MovedCount, diff.NewCount, diff.DeletedCount,
+            baseCost, balance) { Owner = this };
+        if (opts.ShowDialog() != true) return;
+
+        var charge = opts.Deduct && context.PlayerCoId is { } coId && opts.ResultingBalance is { } newBal
+            ? new EditCharge(coId, opts.Cost, newBal)
+            : null;
+
         // build the injected ship off-thread (runs the room/rating engine); a hard integrity failure surfaces here
         JsonObject shipObj;
         InjectReport report;
         Mouse.OverrideCursor = Cursors.Wait;
-        try { (shipObj, report) = await Task.Run(() => SaveEdit.BuildInjectedShip(doc, context, catalog, specs)); }
+        try { (shipObj, report) = await Task.Run(() => SaveEdit.BuildInjectedShip(doc, context, catalog, specs, charge)); }
         catch (Exception ex)
         {
             MessageBox.Show(this, "The edit can't be written back:\n\n" + ex.Message, "Update ship in save",
@@ -1278,42 +1331,82 @@ public partial class MainWindow : Window
         // loud cargo-loss warning: deleting a container that still holds cargo drops it
         if (report.CargoDropped.Count > 0 && !ConfirmCargoLoss(report.CargoDropped)) return;
 
-        // where the copy lands; overwrite the previous copy only after an explicit confirm
-        var outDir = SaveEdit.DefaultOutputDir(context);
-        var overwrite = false;
-        if (Directory.Exists(outDir))
-        {
-            if (MessageBox.Show(this, $"A copy already exists:\n{outDir}\n\nReplace it with this version?",
-                    "Update ship in save", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK)
-                return;
-            overwrite = true;
-        }
-
         var summary = $"{report.Kept} kept · {report.Moved} moved · {report.Added} added · {report.Deleted} deleted";
+        var costNote = report.Charged is { } c
+            ? $"\n\nCost: {Money(c)} deducted — balance now {Money(report.ResultingBalance ?? 0)}."
+            : "";
+        var atmoNote = report.AtmosphereFilled
+            ? "\n\nThe ship refills with breathable atmosphere (~22 kPa O₂ / 80 kPa N₂) when you load it."
+            : "\n\nWARNING: this ship is damaged, so it spawns AIRLESS — wear an EVA suit until you restore atmosphere.";
+        var powerNote = report.PowerFixed > 0
+            ? $"\n\nRe-armed {report.PowerFixed} powered device(s) that had lost their power ticker."
+            : "";
         var warn = report.Warnings.Count > 0
-            ? $"\n\nNote: {report.Warnings.Count} placement-law warning(s) — the ship is still written (load the copy to check):\n" +
+            ? $"\n\nNote: {report.Warnings.Count} placement-law warning(s) — the ship is still written (load it to check):\n" +
               string.Join("\n", report.Warnings.Take(6).Select(w => "  • " + w))
             : "";
-        if (MessageBox.Show(this,
-                $"Write your edited ship into a copy of \"{src.SaveName}\"?\n\n{summary}{warn}\n\n" +
-                $"Copy:\n{outDir}\n\nYour original save is not touched.",
-                "Update ship in save", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK)
-            return;
 
-        try { SaveEdit.WriteCopy(context, shipObj, outDir, overwrite); }
+        string writtenName;
+        try
+        {
+            if (opts.InPlace)
+            {
+                if (!ConfirmInPlace(src.SaveName)) return;
+                SaveEdit.WriteInPlace(context, shipObj, report.ResultingBalance);
+                writtenName = src.SaveName;
+            }
+            else
+            {
+                var outDir = SaveEdit.SuggestCopyDir(context);
+                if (MessageBox.Show(this,
+                        $"Write your edited ship into a new copy of \"{src.SaveName}\"?\n\n{summary}{costNote}{atmoNote}{powerNote}{warn}\n\n" +
+                        $"Copy:\n{Path.GetFileName(outDir)}\n\nYour original save is not touched.",
+                        "Update ship in save", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK)
+                    return;
+                SaveEdit.WriteCopy(context, shipObj, outDir, overwrite: false, report.ResultingBalance);
+                writtenName = Path.GetFileName(outDir);
+            }
+        }
         catch (Exception ex)
         {
-            MessageBox.Show(this, "Writing the copy failed:\n\n" + ex.Message, "Update ship in save",
+            MessageBox.Show(this, "Writing the save failed:\n\n" + ex.Message, "Update ship in save",
                 MessageBoxButton.OK, MessageBoxImage.Error);
             return;
         }
 
+        var original = opts.InPlace ? "The original save was backed up to “<name>.zip.bak” first." : "Your original save is unchanged.";
         MessageBox.Show(this,
-            $"Written to a new save:\n{Path.GetFileName(outDir)}\n\n{summary}\n\n" +
-            "In the in-game Load menu, press Refresh first — Ostranauts won't list a newly-written save until " +
-            $"you do — then load \"{Path.GetFileName(outDir)}\" to see your edited ship, crew and cargo intact. " +
-            "Your original save is unchanged.",
+            $"Written to save:\n{writtenName}\n\n{summary}{costNote}{atmoNote}{powerNote}\n\n" +
+            "In the in-game Load menu, press Refresh first — Ostranauts won't list a just-written save until " +
+            $"you do — then load \"{writtenName}\" to see your edited ship, crew and cargo intact. {original}",
             "Ship updated", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    private static string Money(double v) => "$" + v.ToString("#,##0.##", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>The stern gate before editing a ship the player doesn't own (a station or another vessel).</summary>
+    private bool ConfirmUnsupportedShip(SaveShipChoice c) =>
+        MessageBox.Show(this,
+            $"\"{c.Name}\" ({c.RegId}) is NOT one of your ships — it's a station or another vessel.\n\n" +
+            "Editing something you don't own is UNSUPPORTED and can corrupt or break your save. Ostraplan can't " +
+            "guarantee a valid result and takes no responsibility for the outcome — you do.\n\nEdit it anyway?",
+            "Unsupported — not your ship", MessageBoxButton.OKCancel, MessageBoxImage.Warning) == MessageBoxResult.OK;
+
+    /// <summary>The loud in-place confirmation. Detects a running Ostranauts and gates on the user confirming
+    /// they're at the Main Menu (editing a loaded save would be clobbered by the next autosave).</summary>
+    private bool ConfirmInPlace(string saveName)
+    {
+        var running = System.Diagnostics.Process.GetProcessesByName("Ostranauts").Length > 0;
+        var gameWarn = running
+            ? "Ostranauts is RUNNING. In-place editing is only safe from the MAIN MENU — if this save is loaded, " +
+              "the game will overwrite your edit on its next autosave.\n\nConfirm you are at the Main Menu (not in " +
+              "your loaded game) before continuing.\n\n"
+            : "";
+        return MessageBox.Show(this,
+            $"Edit the ORIGINAL save \"{saveName}\" in place?\n\n{gameWarn}" +
+            "Ostraplan backs the save up to “<name>.zip.bak” beside it first, but this modifies the original — " +
+            "there's no separate copy.\n\nContinue?",
+            "Edit original in place", MessageBoxButton.OKCancel, MessageBoxImage.Warning) == MessageBoxResult.OK;
     }
 
     /// <summary>The loud, explicit confirmation before an inject drops cargo from deleted containers.</summary>

@@ -22,6 +22,20 @@ public sealed record PartDef(
     /// newly-injected device so it wires to power/panels on load (see <see cref="Catalog.GpmSettingsFor"/>).
     /// Empty for non-device parts (walls, floors, tools).</summary>
     public IReadOnlyList<(string Instance, string Template)> Gpm { get; init; } = [];
+
+    /// <summary>The condowner's in-game flavour description (<c>strDesc</c>), or null when the def carries none.</summary>
+    public string? Desc { get; init; }
+
+    /// <summary>The per-second tickers the device's def declares (<c>aTickers</c>, e.g. "Power") — granted on
+    /// install. The Power ticker grants <c>IsReadyUsePower</c> each tick, the gate a powered device needs to draw
+    /// power; a save loads these from the CO (not the def), so an injected device must carry them or it stays
+    /// dead. Empty for non-device parts (walls, floors).</summary>
+    public string[] TickerNames { get; init; } = [];
+
+    /// <summary>The part's in-game base value in credits (the <c>StatBasePrice</c> starting cond), or 0 when the
+    /// def has none. This is the raw value the game reads before per-kiosk discount/markup — used for the
+    /// save-edit cost estimate (see <see cref="EditCost"/>) and shown in the inspector.</summary>
+    public double BasePrice => StartingCondValues.GetValueOrDefault("StatBasePrice");
 }
 
 /// <summary>
@@ -68,6 +82,23 @@ public sealed class Catalog
         foreach (var (instance, template) in part.Gpm)
             if (GpmTemplates.TryGetValue(template, out var dict))
                 result.Add((instance, dict));
+        return result;
+    }
+
+    /// <summary>Ticker templates by name (from <c>data/tickers</c>) — the full <c>JsonTicker</c> (strCondLoot,
+    /// fPeriod, bRepeat, …) each named ticker (e.g. "Power") expands to. Used to bake a device's <c>aTickers</c>
+    /// so it works on load. Empty in synthetic test catalogs.</summary>
+    public IReadOnlyDictionary<string, JsonElement> TickerTemplates { get; init; } = new Dictionary<string, JsonElement>();
+
+    /// <summary>The ticker templates a freshly-installed instance of <paramref name="part"/> would carry: each of
+    /// the def's declared <c>aTickers</c> names resolved to its template. Empty for a non-device part, or when a
+    /// referenced ticker isn't loaded.</summary>
+    public IReadOnlyList<(string Name, JsonElement Template)> TickersFor(PartDef part)
+    {
+        var result = new List<(string, JsonElement)>();
+        foreach (var name in part.TickerNames)
+            if (TickerTemplates.TryGetValue(name, out var tmpl))
+                result.Add((name, tmpl));
         return result;
     }
 
@@ -183,6 +214,9 @@ public sealed class Catalog
         var gpmTemplates = index.Type("guipropmaps")
             .Where(kv => kv.Value.El is { ValueKind: JsonValueKind.Object } el && el.TryGetProperty("dictGUIPropMap", out _))
             .ToDictionary(kv => kv.Key, kv => kv.Value.El.GetProperty("dictGUIPropMap").Clone(), StringComparer.Ordinal);
+        var tickerTemplates = index.Type("tickers")
+            .Where(kv => kv.Value.El.ValueKind == JsonValueKind.Object)
+            .ToDictionary(kv => kv.Key, kv => kv.Value.El.Clone(), StringComparer.Ordinal);
 
         // Resolve a buildable palette entry, warning when its sprite is missing on disk.
         PartDef? Resolve(string defName, string category, string fallbackOrigin, string[] inputs, string[] tools, bool warnMissingSprite)
@@ -244,6 +278,7 @@ public sealed class Catalog
             Loots = loots,
             Triggers = trigs,
             GpmTemplates = gpmTemplates,
+            TickerTemplates = tickerTemplates,
             Warnings = warnings,
             Index = index,
         };
@@ -291,6 +326,8 @@ public sealed class Catalog
             co?.MapPoints ?? new Dictionary<string, (double, double)>())
         {
             Gpm = ResolveGpm(co?.GpmNames, overlay?.GpmNames),
+            Desc = co?.Desc,
+            TickerNames = co?.TickerNames ?? [],
         };
     }
 

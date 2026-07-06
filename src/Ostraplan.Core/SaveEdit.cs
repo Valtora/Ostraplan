@@ -2,6 +2,7 @@ using System.IO;
 using System.IO.Compression;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using System.Text.RegularExpressions;
 
 namespace Ostraplan.Core;
 
@@ -9,13 +10,21 @@ namespace Ostraplan.Core;
 /// confirm, or go empty it in-game first. <see cref="Items"/> are the contained items' friendly/def names.</summary>
 public sealed record CargoLoss(string ContainerStrID, string ContainerName, IReadOnlyList<string> Items);
 
+/// <summary>An opt-in deduction of the edit's cost from the player's credits: the player CO to charge, the
+/// amount, and the resulting balance to write into that CO's <c>StatUSD</c> and <c>saveInfo.money</c>.</summary>
+public sealed record EditCharge(string PlayerCoId, double Amount, double NewBalance);
+
 /// <summary>What an inject did (or would do): the structural change counts, any dropped cargo, soft
-/// placement-law warnings (warn-and-allow), whether the grid had to grow, and the final grid size.</summary>
+/// placement-law warnings (warn-and-allow), whether the grid had to grow, the final grid size, whether the ship
+/// was armed to refill its atmosphere on load, and — when the cost was deducted — the amount charged and the
+/// resulting balance.</summary>
 public sealed record InjectReport(
     int Kept, int Moved, int Added, int Deleted,
     IReadOnlyList<CargoLoss> CargoDropped,
     IReadOnlyList<string> Warnings,
-    bool GridGrew, int NCols, int NRows);
+    bool GridGrew, int NCols, int NRows,
+    double? Charged = null, double? ResultingBalance = null,
+    bool AtmosphereFilled = false, int PowerFixed = 0);
 
 /// <summary>
 /// Writes an edited design back into the player's ship — the inject half of save-edit. It takes the edited
@@ -45,7 +54,7 @@ public static class SaveEdit
     /// <see cref="InvalidDataException"/> on a hard integrity failure (dangling reference, lost CO, duplicate id);
     /// placement-law problems are collected as warnings, not thrown (warn-and-allow).</summary>
     public static (JsonObject Ship, InjectReport Report) BuildInjectedShip(
-        ShipDocument doc, SaveShipContext ctx, Catalog catalog, IReadOnlyList<RoomSpecDef> specs)
+        ShipDocument doc, SaveShipContext ctx, Catalog catalog, IReadOnlyList<RoomSpecDef> specs, EditCharge? charge = null)
     {
         var diff = ShipDiff.Compute(doc, ctx);
 
@@ -110,13 +119,35 @@ public static class SaveEdit
             outItems.Add(clone);
         }
 
-        // rebuild aCOs: keep every CO whose strID survived (kept/moved parts, all cargo, crew, loot-spawners)
+        // rebuild aCOs: keep every CO whose strID survived (kept/moved parts, all cargo, crew, loot-spawners).
+        // Self-heal along the way: a kept powered device whose CO lost its Power ticker (it was installed before
+        // the data granted the ticker) is permanently dead — the game loads tickers from the save, not the def.
+        // Re-attach the missing Power ticker so it can draw power again (the ShipsWater fix, at the data level).
         var outCOs = new JsonArray();
+        var powerFixed = 0;
         foreach (var co in Arr(ctx.ShipRecord, "aCOs"))
         {
             var id = Str(co, "strID");
             if (id is not null && dropSet.Contains(id)) continue;
-            outCOs.Add(co.DeepClone());
+            var clone = co.DeepClone().AsObject();
+            if (Str(clone, "strCODef") is { } cdef && catalog.Lookup(cdef) is { } cpart
+                && BakeTickers(clone, cpart, ctx.Epoch, catalog, onlyPower: true) > 0)
+                powerFixed++;
+            outCOs.Add(clone);
+        }
+
+        // opt-in cost deduction: rewrite the player CO's StatUSD (the authoritative balance) to the new total.
+        // The player CO is crew on their own ship, so it's one of the kept COs above; saveInfo.money is mirrored
+        // at write time. The UI has already checked affordability, so a missing player CO here is a hard error.
+        if (charge is { } ch)
+        {
+            var applied = false;
+            foreach (var co in outCOs)
+                if (co is JsonObject o && Str(o, "strID") == ch.PlayerCoId) { SetStatUsd(o, ch.NewBalance); applied = true; break; }
+            if (!applied)
+                throw new InvalidDataException(
+                    "The player's money couldn't be found on this ship, so the edit cost can't be deducted. " +
+                    "Uncheck \"Deduct edit cost\" and try again.");
         }
 
         // new parts need BOTH a fresh aItems entry and a matching aCOs entry. Loading a save (unlike a template)
@@ -137,7 +168,7 @@ public static class SaveEdit
             // from the save, it doesn't rebuild them on load).
             if (GpmSettings(catalog, p.DefName) is { } gpm) item["aGPMSettings"] = gpm;
             outItems.Add(item);
-            outCOs.Add(SynthesizeCo(p.DefName, id, catalog, ctx.Source.RegId));
+            outCOs.Add(SynthesizeCo(p.DefName, id, catalog, ctx.Source.RegId, ctx.Epoch));
         }
 
         // grid frame: never shrink below the original (keeps nDestTile valid); grow to fit new parts
@@ -197,6 +228,13 @@ public static class SaveEdit
         ship["vShipPos"] = new JsonObject { ["x"] = vxNew, ["y"] = vyNew };
         ship["dimensions"] = $"{nColsNew * MetresPerTile:0.00}m x {nRowsNew * MetresPerTile:0.00}m";
 
+        // Refill the atmosphere on load: regenerating aRooms orphans the per-room gas containers, so the whole
+        // ship comes up in vacuum. bPrefill makes the game run its own PreFillRooms (22 kPa O2 / 80 kPa N2 /
+        // 297 K) once, then self-clears. It ALSO drives the break-in/damage path for a non-New ship, so only arm
+        // it for an undamaged ship (DMGStatus New == 0); a damaged ship is left airless with a warning.
+        var atmosphereFilled = Int(ctx.ShipRecord, "DMGStatus") == 0;
+        if (atmosphereFilled) ship["bPrefill"] = true;
+
         Validate(ship, ctx, dropSet);
 
         var warnings = ProblemScan.Scan(doc, catalog)
@@ -205,7 +243,8 @@ public static class SaveEdit
 
         var report = new InjectReport(
             diff.KeptCount, diff.MovedCount, diff.NewCount, diff.DeletedCount,
-            cargoLosses, warnings, grew, nColsNew, nRowsNew);
+            cargoLosses, warnings, grew, nColsNew, nRowsNew,
+            charge?.Amount, charge?.NewBalance, atmosphereFilled, powerFixed);
         return (ship, report);
     }
 
@@ -214,11 +253,11 @@ public static class SaveEdit
     /// The original save is never touched. Returns where the copy landed + the report.</summary>
     public static (string OutputDir, InjectReport Report) Inject(
         ShipDocument doc, SaveShipContext ctx, Catalog catalog, IReadOnlyList<RoomSpecDef> specs,
-        string? outputSaveDir = null, bool overwrite = false)
+        string? outputSaveDir = null, bool overwrite = false, EditCharge? charge = null)
     {
-        var (ship, report) = BuildInjectedShip(doc, ctx, catalog, specs);
-        var outDir = outputSaveDir ?? DefaultOutputDir(ctx);
-        WriteCopy(ctx, ship, outDir, overwrite);
+        var (ship, report) = BuildInjectedShip(doc, ctx, catalog, specs, charge);
+        var outDir = outputSaveDir ?? SuggestCopyDir(ctx);
+        WriteCopy(ctx, ship, outDir, overwrite, report.ResultingBalance);
         return (outDir, report);
     }
 
@@ -230,12 +269,35 @@ public static class SaveEdit
     }
 
     /// <summary>
+    /// A fresh, non-existing sibling folder for the copy: the source name with any trailing "(Ostraplan)" /
+    /// "(Ostraplan N)" stripped first (so copies never accumulate the tag), then "(Ostraplan)" appended, bumped
+    /// to "(Ostraplan 2)", "(Ostraplan 3)"… if that already exists. Never collides, so a copy never overwrites.
+    /// </summary>
+    public static string SuggestCopyDir(SaveShipContext ctx)
+    {
+        var srcDir = SourceDir(ctx);
+        var parent = Path.GetDirectoryName(srcDir)!;
+        var baseName = StripOstraplanSuffix(new DirectoryInfo(srcDir).Name);
+        var candidate = Path.Combine(parent, $"{baseName} (Ostraplan)");
+        for (var n = 2; Directory.Exists(candidate); n++)
+            candidate = Path.Combine(parent, $"{baseName} (Ostraplan {n})");
+        return candidate;
+    }
+
+    /// <summary>Strip a trailing " (Ostraplan)" / " (Ostraplan N)" so re-editing a copy doesn't stack the tag.</summary>
+    private static string StripOstraplanSuffix(string name)
+    {
+        var m = Regex.Match(name, @"^(.*?)\s*\(Ostraplan(?:\s+\d+)?\)\s*$");
+        return m.Success ? m.Groups[1].Value.TrimEnd() : name;
+    }
+
+    /// <summary>
     /// Duplicate the source save <b>folder</b> to <paramref name="outputSaveDir"/> and, inside the copy,
     /// replace only <c>ships/&lt;RegID&gt;.json</c> with <paramref name="ship"/>; the copied zip is renamed to match
-    /// the new folder and its <c>saveInfo.json</c> <c>strName</c> is updated, so the copy shows as its own save.
-    /// The original folder is never opened for writing.
+    /// the new folder and its <c>saveInfo.json</c> <c>strName</c> (and <c>money</c>, when a charge was applied) is
+    /// updated, so the copy shows as its own save. The original folder is never opened for writing.
     /// </summary>
-    public static void WriteCopy(SaveShipContext ctx, JsonObject ship, string outputSaveDir, bool overwrite)
+    public static void WriteCopy(SaveShipContext ctx, JsonObject ship, string outputSaveDir, bool overwrite, double? newMoney = null)
     {
         var srcDir = SourceDir(ctx);
         if (Directory.Exists(outputSaveDir))
@@ -256,15 +318,39 @@ public static class SaveEdit
             File.Move(copiedZip, targetZip);
         }
 
-        // point saveInfo.json's display name at the copy
+        // point saveInfo.json's display name at the copy (and mirror the deducted balance, if any)
         var saveInfoPath = Path.Combine(outputSaveDir, "saveInfo.json");
-        if (File.Exists(saveInfoPath)) UpdateSaveInfoName(saveInfoPath, newName);
+        if (File.Exists(saveInfoPath)) UpdateSaveInfo(saveInfoPath, newName, newMoney);
 
-        // splice ships/<RegID>.json inside the copied zip, preserving the file's array-or-object shape
-        using var za = ZipFile.Open(targetZip, ZipArchiveMode.Update);
-        var entryName = $"ships/{ctx.Source.RegId}.json";
+        SpliceShipInZip(targetZip, ctx.Source.RegId, ship);
+    }
+
+    /// <summary>
+    /// Write the edit <b>into the original save</b>, in place: back the whole zip up to <c>&lt;name&gt;.zip.bak</c>
+    /// first, then splice <c>ships/&lt;RegID&gt;.json</c> in the original zip and mirror the deducted balance into
+    /// <c>saveInfo.money</c>. The save keeps its folder, zip name and display name. This is the opt-in alternative
+    /// to <see cref="WriteCopy"/> — the caller is responsible for confirming and for the game not being in that
+    /// save when it runs.
+    /// </summary>
+    public static void WriteInPlace(SaveShipContext ctx, JsonObject ship, double? newMoney = null)
+    {
+        var zip = ctx.ZipPath;
+        File.Copy(zip, zip + ".bak", overwrite: true);   // full-zip backup before mutating in place
+        SpliceShipInZip(zip, ctx.Source.RegId, ship);
+        var saveInfoPath = Path.Combine(SourceDir(ctx), "saveInfo.json");
+        if (newMoney is not null && File.Exists(saveInfoPath)) UpdateSaveInfo(saveInfoPath, null, newMoney);
+    }
+
+    // ---- internals ----
+
+    /// <summary>Splice <paramref name="ship"/> into <c>ships/&lt;regId&gt;.json</c> inside <paramref name="zipPath"/>,
+    /// preserving the file's array-or-object shape (a sibling-ships array keeps its other ships).</summary>
+    private static void SpliceShipInZip(string zipPath, string regId, JsonObject ship)
+    {
+        using var za = ZipFile.Open(zipPath, ZipArchiveMode.Update);
+        var entryName = $"ships/{regId}.json";
         var entry = za.GetEntry(entryName)
-            ?? throw new InvalidDataException($"'{entryName}' is not in the copied save.");
+            ?? throw new InvalidDataException($"'{entryName}' is not in the save.");
         string original;
         using (var r = new StreamReader(entry.Open())) original = r.ReadToEnd();
         var spliced = SpliceShip(JsonNode.Parse(original), ship);
@@ -273,8 +359,6 @@ public static class SaveEdit
         using var w = new StreamWriter(fresh.Open());
         w.Write(spliced.ToJsonString(Indented));
     }
-
-    // ---- internals ----
 
     /// <summary>Replace the ship element inside the file's original shape (a bare object, or the
     /// largest-by-items element of a top-level array), so sibling ships and the wrapping are preserved.</summary>
@@ -359,7 +443,7 @@ public static class SaveEdit
     /// pattern the game and <see cref="ShipExport"/> use. Cooverlay skins resolve through
     /// <c>DataHandler.GetCondOwnerDef</c> to their base def, so this works for any buildable def.
     /// </summary>
-    private static JsonObject SynthesizeCo(string def, string strID, Catalog catalog, string regId)
+    private static JsonObject SynthesizeCo(string def, string strID, Catalog catalog, string regId, double epoch)
     {
         var co = new JsonObject
         {
@@ -371,8 +455,46 @@ public static class SaveEdit
             ["strIdleAnim"] = "Idle",
             ["strRegIDLast"] = regId,
         };
-        if (catalog.Lookup(def)?.Friendly is { Length: > 0 } friendly) co["strFriendlyName"] = friendly;
+        var part = catalog.Lookup(def);
+        if (part?.Friendly is { Length: > 0 } friendly) co["strFriendlyName"] = friendly;
+        // a freshly-built device carries all the tickers its def declares (Power, etc.) — bake them, or the part
+        // loads with no Power ticker and can never draw power (a save loads tickers from the CO, not the def).
+        if (part is not null) BakeTickers(co, part, epoch, catalog, onlyPower: false);
         return co;
+    }
+
+    /// <summary>Add the def's declared tickers to a CO that's missing them, stamped with the current
+    /// <paramref name="epoch"/>. <paramref name="onlyPower"/> restricts to the "Power" ticker — the self-heal path
+    /// for a kept device that lost power; a freshly-synthesized CO bakes all of them. Returns how many were added.</summary>
+    private static int BakeTickers(JsonObject co, PartDef def, double epoch, Catalog catalog, bool onlyPower)
+    {
+        var declared = catalog.TickersFor(def);
+        if (declared.Count == 0) return 0;
+
+        var have = new HashSet<string>(StringComparer.Ordinal);
+        var arr = co["aTickers"] as JsonArray;
+        if (arr is not null)
+            foreach (var n in arr) if (Str(n, "strName") is { } nm) have.Add(nm);
+
+        var added = 0;
+        foreach (var (name, tmpl) in declared)
+        {
+            if (onlyPower && name != "Power") continue;
+            if (!have.Add(name)) continue;   // already present
+            if (arr is null) { arr = new JsonArray(); co["aTickers"] = arr; }
+            arr.Add(BuildTicker(tmpl, epoch));
+            added++;
+        }
+        return added;
+    }
+
+    /// <summary>A JsonTicker from its template, stamped with <paramref name="epoch"/> as its start (so fTimeLeft,
+    /// which the game recomputes on load, comes up at one period — it fires next tick).</summary>
+    private static JsonObject BuildTicker(JsonElement tmpl, double epoch)
+    {
+        var t = JsonNode.Parse(tmpl.GetRawText())!.AsObject();
+        t["fEpochStart"] = epoch;
+        return t;
     }
 
     /// <summary>
@@ -395,17 +517,50 @@ public static class SaveEdit
 
     private static string SourceDir(SaveShipContext ctx) => Path.GetDirectoryName(ctx.ZipPath)!;
 
-    private static void UpdateSaveInfoName(string path, string name)
+    private static void UpdateSaveInfo(string path, string? name, double? money)
     {
         try
         {
             var node = JsonNode.Parse(File.ReadAllText(path));
             var obj = node is JsonArray a && a.Count > 0 ? a[0] as JsonObject : node as JsonObject;
             if (obj is null) return;
-            obj["strName"] = name;
+            if (name is not null) obj["strName"] = name;
+            if (money is { } m) obj["money"] = m;
             File.WriteAllText(path, node!.ToJsonString(Indented));
         }
-        catch { /* a cosmetic name update must never fail the inject */ }
+        catch { /* a cosmetic saveInfo update must never fail the inject */ }
+    }
+
+    /// <summary>The player's current credit balance for this ship — the summed <c>StatUSD</c> on the player CO
+    /// (<see cref="SaveShipContext.PlayerCoId"/>), or null when that CO isn't on this ship (no deduction possible).</summary>
+    public static double? CurrentBalance(SaveShipContext ctx)
+    {
+        if (ctx.PlayerCoId is not { } coId) return null;
+        foreach (var co in Arr(ctx.ShipRecord, "aCOs"))
+            if (Str(co, "strID") == coId) return SumStatUsd(co);
+        return null;
+    }
+
+    /// <summary>Sum every <c>StatUSD=…</c> starting cond on a CO (the game accumulates them via GetCondAmount).</summary>
+    private static double SumStatUsd(JsonNode co)
+    {
+        double sum = 0;
+        if ((co as JsonObject)?["aConds"] is JsonArray conds)
+            foreach (var n in conds)
+                if (n is JsonValue v && v.TryGetValue<string>(out var s) && s.StartsWith("StatUSD=", StringComparison.Ordinal))
+                    sum += LootDef.CondAmount(s);
+        return sum;
+    }
+
+    /// <summary>Set a CO's balance to <paramref name="newBalance"/>: drop its existing <c>StatUSD</c> conds and add
+    /// a single <c>StatUSD=1.0x&lt;newBalance&gt;</c> (a plain accumulator, safe to collapse).</summary>
+    private static void SetStatUsd(JsonObject co, double newBalance)
+    {
+        if (co["aConds"] is not JsonArray conds) co["aConds"] = conds = new JsonArray();
+        for (var i = conds.Count - 1; i >= 0; i--)
+            if (conds[i] is JsonValue v && v.TryGetValue<string>(out var s) && s.StartsWith("StatUSD=", StringComparison.Ordinal))
+                conds.RemoveAt(i);
+        conds.Add($"StatUSD=1.0x{newBalance.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture)}");
     }
 
     private static void CopyDir(string src, string dst)

@@ -13,19 +13,21 @@ public sealed class Placement
     /// True for structure the user did not author — an imported ship's existing parts. The game applies its
     /// placement law (Item.CheckFit sockets, the airlock envelope) only to <b>new</b> construction and
     /// <b>never re-validates what's already there</b>; so given parts are exempt from the legality scan (a valid
-    /// imported ship must flag nothing). It is <b>preserved across move/rotate</b> — rearranging existing
-    /// structure is not new construction, and re-checking it would resurrect false positives on game-legal
-    /// stacks (a sensor mounted through a wall, a conduit on a wall). Given-ness is set at import (and inherited
-    /// by a same-class re-skin/replace); only a genuinely new part (paint, duplicate, paste, mirror) is authored
-    /// and checked.
+    /// imported ship must flag nothing). It is <b>cleared the moment the part is moved or rotated</b> — relocating
+    /// a part IS an authoring act, so the law must re-apply (a device dragged off its wall should flag "needs a
+    /// wall alongside"). The legality scan is build-order-aware (see <see cref="ProblemScan"/>), so dragging a
+    /// whole intact compartment stays clean without needing immunity; only genuinely exotic stacks moved out of
+    /// their construction order may over-flag. Given-ness is set at import (and inherited by a same-class
+    /// re-skin/replace, which builds a fresh placement); an unmoved imported part keeps its immunity.
     /// </summary>
     public bool IsGiven { get; set; }
 
     /// <summary>
     /// The <c>strID</c> of the save item this part came from, set when the document was imported from a save
-    /// <b>for editing</b> (<see cref="SaveEditImport"/>); null for parts the user added. Like <see cref="IsGiven"/>
-    /// it is <b>preserved</b> across move / rotate / group-rotate — the part keeps its identity so its live-state
-    /// CO and cargo travel with it on write-back. It is dropped only by operations that create a genuinely new
+    /// <b>for editing</b> (<see cref="SaveEditImport"/>); null for parts the user added. Unlike
+    /// <see cref="IsGiven"/> (which clears on move) it is <b>preserved</b> across move / rotate / group-rotate —
+    /// the part keeps its save identity so its live-state CO and cargo travel with it on write-back, and the diff
+    /// classifies it as <i>moved</i> rather than deleted+new. It is dropped only by operations that create a genuinely new
     /// part: duplicate, paste, paint, box-fill, symmetry-mirror, a def-changing replace / re-skin, and layout-only
     /// template/save import (all of which build a fresh <see cref="Placement"/> without copying it). Drives the
     /// save-edit diff (<see cref="ShipDiff"/>). Init-only: identity is fixed at creation and never reassigned.
@@ -268,9 +270,10 @@ public sealed class ShipDocument
         if (part is not null) Conds.Apply(p, part.Item, -1);
         p.X = x;
         p.Y = y;
-        // Given-ness and OriginStrID are BOTH kept: a moved part is still the same original save item, and the
-        // game never re-validates existing structure — so rearranging imported parts must not resurrect the
-        // construction-time placement law (which false-positives on game-legal fixture-through-wall stacks).
+        // Moving a part is an authoring act: clear its given-ness so the placement law re-applies (a device
+        // dragged off its wall must flag). OriginStrID is KEPT — the part is still the same save item, so its
+        // live-state CO and cargo travel with it and the diff sees a move, not a delete+new.
+        p.IsGiven = false;
         if (part is not null) Conds.Apply(p, part.Item, +1);
         Index(p);
         RaiseChanged();
@@ -284,7 +287,8 @@ public sealed class ShipDocument
         p.X = x;
         p.Y = y;
         p.Rot = GridMath.Norm(rot);
-        // given-ness + OriginStrID kept — a repositioned part is still existing structure the game won't re-check
+        // repositioning re-authors the part: clear given-ness so the law re-applies; keep OriginStrID (identity)
+        p.IsGiven = false;
         if (part is not null) Conds.Apply(p, part.Item, +1);
         Index(p);
         RaiseChanged();

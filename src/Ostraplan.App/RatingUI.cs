@@ -1,10 +1,45 @@
+using System.Globalization;
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using Microsoft.Win32;
 using Ostraplan.Core;
 
 namespace Ostraplan.App;
+
+/// <summary>Shows the room-annotated ship snapshot at full size in its own window, with a Save-to-PNG action.</summary>
+public sealed class SnapshotWindow : Window
+{
+    public SnapshotWindow(BitmapSource image)
+    {
+        Title = "Ship snapshot";
+        Width = Math.Min(1100, Math.Max(560, image.PixelWidth + 40));
+        Height = Math.Min(1000, Math.Max(520, image.PixelHeight + 100));
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Background = ThemeManager.WindowBg;
+
+        var root = new DockPanel { Margin = new Thickness(12) };
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 10, 0, 0) };
+        var save = new Button { Content = "Save image…", Padding = new Thickness(14, 4, 14, 4), Margin = new Thickness(0, 0, 8, 0) };
+        save.Click += (_, _) => RatingReportWindow.SaveSnapshotPng(this, image);
+        var close = new Button { Content = "Close", Padding = new Thickness(16, 4, 16, 4), IsCancel = true };
+        close.Click += (_, _) => Close();
+        buttons.Children.Add(save);
+        buttons.Children.Add(close);
+        DockPanel.SetDock(buttons, Dock.Bottom);
+        root.Children.Add(buttons);
+
+        var img = new Image { Source = image, Stretch = Stretch.Uniform };
+        RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
+        root.Children.Add(new Border { Background = Brushes.Black, Child = img, Padding = new Thickness(6) });
+
+        Content = root;
+    }
+}
 
 /// <summary>In-game-style progress while the Ship Rating analysis runs off the UI thread.</summary>
 public sealed class RatingProgressDialog : Window
@@ -45,10 +80,11 @@ public sealed class RatingReportWindow : Window
     private static Brush Accent => ThemeManager.Accent;
     private static Brush Warn => ThemeManager.Warn;
 
-    public RatingReportWindow(AnalysisReport report, Action<IReadOnlyList<(int X, int Y)>> highlightLeak)
+    public RatingReportWindow(AnalysisReport report, ShipValueEstimate value, BitmapSource? snapshot,
+        Action<IReadOnlyList<(int X, int Y)>> highlightLeak)
     {
         Title = "Ship Rating";
-        Width = 460; Height = 720;
+        Width = 520; Height = 820;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = ThemeManager.WindowBg;
 
@@ -74,6 +110,34 @@ public sealed class RatingReportWindow : Window
                    "Room count is your certified compartments.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 12),
         });
+
+        // estimated value: base is exact (Σ StatBasePrice = the game's parts value); buy/sell are estimates
+        body.Children.Add(Header("ESTIMATED VALUE"));
+        var value3 = new UniformGrid { Columns = 3, Margin = new Thickness(0, 0, 0, 4) };
+        value3.Children.Add(Slot("Base value", Money(value.BaseValue)));
+        value3.Children.Add(Slot("Sell (est.)", Money(value.SellEstimate)));
+        value3.Children.Add(Slot("Buy (est.)", Money(value.BuyEstimate)));
+        body.Children.Add(value3);
+        body.Children.Add(new TextBlock
+        {
+            Text = "Base value is the pristine parts value (what the game quotes for an undamaged ship). Sell/buy are " +
+                   "rough broker estimates — the real price is set per-kiosk and shifts with your faction standing.",
+            Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 12),
+        });
+
+        // room-annotated snapshot — opened in its own window so it has room to breathe
+        if (snapshot is not null)
+        {
+            body.Children.Add(Header("SNAPSHOT"));
+            body.Children.Add(new TextBlock
+            {
+                Text = "A room-annotated image of the ship (each compartment coloured and labelled).",
+                Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 4),
+            });
+            var view = new Button { Content = "View room map…", Padding = new Thickness(14, 4, 14, 4), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 4) };
+            view.Click += (_, _) => new SnapshotWindow(snapshot) { Owner = this }.ShowDialog();
+            body.Children.Add(view);
+        }
 
         // certified compartments
         Section(body, "CERTIFIED COMPARTMENTS", report.Certified
@@ -137,6 +201,25 @@ public sealed class RatingReportWindow : Window
         body.Children.Add(close);
 
         Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = body };
+    }
+
+    private static string Money(double v) => "$" + v.ToString("#,##0.##", CultureInfo.InvariantCulture);
+
+    internal static void SaveSnapshotPng(Window owner, BitmapSource image)
+    {
+        var dlg = new SaveFileDialog { Title = "Save ship snapshot", Filter = "PNG image|*.png", FileName = "ship-rating.png" };
+        if (dlg.ShowDialog(owner) != true) return;
+        try
+        {
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(image));
+            using var stream = File.Create(dlg.FileName);
+            encoder.Save(stream);
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(owner, "Couldn't save the image:\n\n" + ex.Message, "Ship Rating", MessageBoxButton.OK, MessageBoxImage.Error);
+        }
     }
 
     private static UIElement Slot(string caption, string value)
