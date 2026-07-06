@@ -795,7 +795,7 @@ public sealed class ShipCanvas : FrameworkElement
     /// doc-tile grid the sprites draw in. Null when the design is empty. Does not disturb the on-screen view.
     /// </summary>
     public System.Windows.Media.Imaging.BitmapSource? RenderRatingSnapshot(
-        IReadOnlyList<RoomSpecDef> specs, int pxPerTile = 48, int marginTiles = 3)
+        IReadOnlyList<RoomSpecDef> specs, int pxPerTile = 64, int marginTiles = 5)
     {
         if (Doc?.Bounds() is not { } b || Sprites is null) return null;
 
@@ -810,12 +810,14 @@ public sealed class ShipCanvas : FrameworkElement
 
         var tilesW = b.MaxX - b.MinX + 1 + 2 * marginTiles;
         var tilesH = b.MaxY - b.MinY + 1 + 2 * marginTiles;
-        var pxW = tilesW * pxPerTile;
-        var pxH = tilesH * pxPerTile;
+        var px = pxPerTile;
+        if (Math.Max(tilesW, tilesH) * px > 4200) px = Math.Max(24, 4200 / Math.Max(tilesW, tilesH));   // cap the bitmap
+        var pxW = tilesW * px;
+        var pxH = tilesH * px;
 
         var (savedPan, savedZoom, savedRot) = (_pan, Zoom, ViewRot);
-        Zoom = pxPerTile;
-        _pan = new Vector(-(b.MinX - marginTiles) * (double)pxPerTile, -(b.MinY - marginTiles) * (double)pxPerTile);
+        Zoom = px;
+        _pan = new Vector(-(b.MinX - marginTiles) * (double)px, -(b.MinY - marginTiles) * (double)px);
         ViewRot = 0;
         try
         {
@@ -826,7 +828,11 @@ public sealed class ShipCanvas : FrameworkElement
                 ctx.DrawRectangle(SnapshotBg, null, new Rect(0, 0, pxW, pxH));
                 foreach (var p in Doc.DrawOrder()) DrawPlacement(ctx, p, (0, 0));
 
-                double shipMidY = (b.MinY + b.MaxY + 1) / 2.0;
+                // ship's pixel bounds — each label routes to its nearest edge (shortest leader)
+                double shipL = _pan.X + b.MinX * Zoom, shipR = _pan.X + (b.MaxX + 1) * Zoom;
+                double shipT = _pan.Y + b.MinY * Zoom, shipB = _pan.Y + (b.MaxY + 1) * Zoom;
+
+                var labels = new List<SnapRoomLabel>();
                 var roomIndex = 0;
                 foreach (var room in partition.Rooms)
                 {
@@ -841,12 +847,17 @@ public sealed class ShipCanvas : FrameworkElement
                         sx += dx + 0.5; sy += dy + 0.5;
                     }
                     var centre = new Point(_pan.X + sx / room.Tiles.Count * Zoom, _pan.Y + sy / room.Tiles.Count * Zoom);
-
-                    // leader line from the room centre out to a label in the top or bottom margin
-                    bool up = (sy / room.Tiles.Count) < shipMidY;
-                    double labelY = up ? (marginTiles * 0.45) * pxPerTile : pxH - (marginTiles * 0.55) * pxPerTile;
-                    DrawRoomLabel(ctx, text, centre, new Point(centre.X, labelY));
+                    labels.Add(new SnapRoomLabel { Centre = centre, Ft = MakeLabel(text), Side = NearestSide(centre, shipL, shipR, shipT, shipB) });
                 }
+
+                // place each side's labels in its margin, spread so they neither overlap nor cross their leaders
+                double topY = marginTiles * 0.4 * px, botY = pxH - marginTiles * 0.4 * px;
+                double leftX = marginTiles * 0.4 * px, rightX = pxW - marginTiles * 0.4 * px;
+                LayoutSide(labels.Where(l => l.Side == 0), horizontal: true, fixedCoord: topY, min: px, max: pxW - px);
+                LayoutSide(labels.Where(l => l.Side == 1), horizontal: true, fixedCoord: botY, min: px, max: pxW - px);
+                LayoutSide(labels.Where(l => l.Side == 2), horizontal: false, fixedCoord: leftX, min: px, max: pxH - px);
+                LayoutSide(labels.Where(l => l.Side == 3), horizontal: false, fixedCoord: rightX, min: px, max: pxH - px);
+                foreach (var l in labels) DrawRoomLabel(ctx, l.Ft, l.Centre, new Point(l.Ax, l.Ay));
             }
             var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(pxW, pxH, 96, 96, PixelFormats.Pbgra32);
             rtb.Render(dv);
@@ -883,13 +894,67 @@ public sealed class ShipCanvas : FrameworkElement
         return (fill, label);
     }
 
-    private static void DrawRoomLabel(DrawingContext ctx, string text, Point room, Point label)
+    /// <summary>A room's label as it will be drawn: its ship-side (0=top,1=bottom,2=left,3=right), the room
+    /// centre the leader points at, and — after <see cref="LayoutSide"/> — the label anchor in the margin.</summary>
+    private sealed class SnapRoomLabel
     {
-        var ft = new System.Windows.Media.FormattedText(text, System.Globalization.CultureInfo.CurrentCulture,
-            FlowDirection.LeftToRight, new Typeface("Segoe UI"), 15, Brushes.White, 1.0) { TextAlignment = TextAlignment.Center };
+        public Point Centre;
+        public System.Windows.Media.FormattedText Ft = null!;
+        public int Side;
+        public double Ax, Ay;
+    }
+
+    private static System.Windows.Media.FormattedText MakeLabel(string text) =>
+        new(text, System.Globalization.CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+            new Typeface("Segoe UI"), 17, Brushes.White, 1.0) { TextAlignment = TextAlignment.Center };
+
+    /// <summary>The ship edge nearest a room centre (0=top,1=bottom,2=left,3=right) — the shortest way out.</summary>
+    private static int NearestSide(Point c, double left, double right, double top, double bottom)
+    {
+        double dT = c.Y - top, dB = bottom - c.Y, dL = c.X - left, dR = right - c.X;
+        var m = Math.Min(Math.Min(dT, dB), Math.Min(dL, dR));
+        return m == dT ? 0 : m == dB ? 1 : m == dL ? 2 : 3;
+    }
+
+    /// <summary>
+    /// Lay out one edge's labels: each wants to sit straight out from its room (a short perpendicular leader), so
+    /// we start at that ideal position and push neighbours apart only where they'd overlap. Processing in sorted
+    /// order and only ever nudging along the edge keeps the order — so the leaders never cross each other.
+    /// </summary>
+    private static void LayoutSide(IEnumerable<SnapRoomLabel> side, bool horizontal, double fixedCoord, double min, double max)
+    {
+        var list = side.OrderBy(l => horizontal ? l.Centre.X : l.Centre.Y).ToList();
+        if (list.Count == 0) return;
+        const double gap = 10;
+        var pos = new double[list.Count];
+        var half = new double[list.Count];
+        for (var i = 0; i < list.Count; i++)
+        {
+            pos[i] = horizontal ? list[i].Centre.X : list[i].Centre.Y;
+            half[i] = (horizontal ? list[i].Ft.Width : list[i].Ft.Height) / 2 + 6;
+        }
+        // forward pass (push right/down), clamp the far end, backward pass (push left/up), clamp the near end
+        for (var i = 1; i < list.Count; i++)
+            pos[i] = Math.Max(pos[i], pos[i - 1] + half[i - 1] + gap + half[i]);
+        pos[^1] = Math.Min(pos[^1], max - half[^1]);
+        for (var i = list.Count - 2; i >= 0; i--)
+            pos[i] = Math.Min(pos[i], pos[i + 1] - half[i + 1] - gap - half[i]);
+        pos[0] = Math.Max(pos[0], min + half[0]);
+        for (var i = 1; i < list.Count; i++)
+            pos[i] = Math.Max(pos[i], pos[i - 1] + half[i - 1] + gap + half[i]);
+
+        for (var i = 0; i < list.Count; i++)
+        {
+            if (horizontal) { list[i].Ax = pos[i]; list[i].Ay = fixedCoord; }
+            else { list[i].Ax = fixedCoord; list[i].Ay = pos[i]; }
+        }
+    }
+
+    private static void DrawRoomLabel(DrawingContext ctx, System.Windows.Media.FormattedText ft, Point room, Point label)
+    {
         var box = new Rect(label.X - ft.Width / 2 - 6, label.Y - ft.Height / 2 - 3, ft.Width + 12, ft.Height + 6);
-        ctx.DrawLine(LeaderPen, room, new Point(label.X, label.Y));
-        ctx.DrawEllipse(Brushes.White, null, room, 2.5, 2.5);
+        ctx.DrawLine(LeaderPen, room, label);
+        ctx.DrawEllipse(Brushes.White, null, room, 3, 3);
         ctx.DrawRoundedRectangle(LabelBg, null, box, 3, 3);
         ctx.DrawText(ft, new Point(label.X, label.Y - ft.Height / 2));
     }

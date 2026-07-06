@@ -3,6 +3,7 @@ using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Microsoft.Win32;
@@ -10,14 +11,14 @@ using Ostraplan.Core;
 
 namespace Ostraplan.App;
 
-/// <summary>Shows the room-annotated ship snapshot at full size in its own window, with a Save-to-PNG action.</summary>
+/// <summary>Shows the room-annotated ship snapshot in its own window: scroll to zoom (anchored on the cursor),
+/// drag to pan, fit-to-window on open, and Save-to-PNG.</summary>
 public sealed class SnapshotWindow : Window
 {
     public SnapshotWindow(BitmapSource image)
     {
-        Title = "Ship snapshot";
-        Width = Math.Min(1100, Math.Max(560, image.PixelWidth + 40));
-        Height = Math.Min(1000, Math.Max(520, image.PixelHeight + 100));
+        Title = "Ship snapshot — scroll to zoom, drag to pan";
+        Width = 1000; Height = 900;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = ThemeManager.WindowBg;
 
@@ -33,11 +34,51 @@ public sealed class SnapshotWindow : Window
         DockPanel.SetDock(buttons, Dock.Bottom);
         root.Children.Add(buttons);
 
-        var img = new Image { Source = image, Stretch = Stretch.Uniform };
+        var scale = new ScaleTransform(1, 1);
+        var img = new Image { Source = image, Stretch = Stretch.None, LayoutTransform = scale };
         RenderOptions.SetBitmapScalingMode(img, BitmapScalingMode.HighQuality);
-        root.Children.Add(new Border { Background = Brushes.Black, Child = img, Padding = new Thickness(6) });
-
+        var sv = new ScrollViewer
+        {
+            Content = img, Background = Brushes.Black,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+        };
+        root.Children.Add(sv);
         Content = root;
+
+        // fit the whole ship in view on open (never magnify past 1:1)
+        sv.Loaded += (_, _) =>
+        {
+            if (image.PixelWidth == 0 || image.PixelHeight == 0 || sv.ViewportWidth <= 0) return;
+            var fit = Math.Min(sv.ViewportWidth / image.PixelWidth, sv.ViewportHeight / image.PixelHeight);
+            if (fit > 0) scale.ScaleX = scale.ScaleY = Math.Min(1.0, fit);
+        };
+
+        // cursor-anchored zoom
+        sv.PreviewMouseWheel += (_, e) =>
+        {
+            e.Handled = true;
+            var mouse = e.GetPosition(sv);
+            var before = new Point((sv.HorizontalOffset + mouse.X) / scale.ScaleX, (sv.VerticalOffset + mouse.Y) / scale.ScaleY);
+            var ns = Math.Clamp(scale.ScaleX * (e.Delta > 0 ? 1.15 : 1 / 1.15), 0.1, 8.0);
+            scale.ScaleX = scale.ScaleY = ns;
+            sv.UpdateLayout();
+            sv.ScrollToHorizontalOffset(before.X * ns - mouse.X);
+            sv.ScrollToVerticalOffset(before.Y * ns - mouse.Y);
+        };
+
+        // drag to pan
+        Point? last = null;
+        img.MouseLeftButtonDown += (_, e) => { last = e.GetPosition(sv); img.CaptureMouse(); Cursor = Cursors.SizeAll; };
+        img.MouseMove += (_, e) =>
+        {
+            if (last is not { } p) return;
+            var cur = e.GetPosition(sv);
+            sv.ScrollToHorizontalOffset(sv.HorizontalOffset - (cur.X - p.X));
+            sv.ScrollToVerticalOffset(sv.VerticalOffset - (cur.Y - p.Y));
+            last = cur;
+        };
+        img.MouseLeftButtonUp += (_, e) => { last = null; img.ReleaseMouseCapture(); Cursor = Cursors.Arrow; };
     }
 }
 
