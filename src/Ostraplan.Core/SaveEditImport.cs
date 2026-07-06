@@ -69,13 +69,13 @@ public static class SaveEditImport
         var source = new SaveSourceRef(saveName, regId);
         import.Doc.SourceSave = source;
 
-        var context = BuildContext(source, zipPath, shipNode, import.Doc, SaveImport.PlayerCoId(zip), SaveImport.SessionEpoch(zip));
+        var context = BuildContext(source, zipPath, shipNode, import.Doc, catalog, SaveImport.PlayerCoId(zip), SaveImport.SessionEpoch(zip));
         return new SaveEditImportResult(import, context);
     }
 
     /// <summary>Assemble the full context: the mutable ship record, every item/CO indexed by strID, and each
     /// structural part's imported pose + contained-cargo subtree.</summary>
-    private static SaveShipContext BuildContext(SaveSourceRef source, string zipPath, JsonNode shipNode, ShipDocument doc, string? playerCoId, double epoch)
+    private static SaveShipContext BuildContext(SaveSourceRef source, string zipPath, JsonNode shipNode, ShipDocument doc, Catalog catalog, string? playerCoId, double epoch)
     {
         var items = ArrayOf(shipNode, "aItems").ToList();
         var itemsById = ById(items);
@@ -96,7 +96,10 @@ public static class SaveEditImport
         var origins = new Dictionary<string, OriginPart>(StringComparer.Ordinal);
         foreach (var p in doc.Placements)
             if (p.OriginStrID is { } id)
+            {
                 origins[id] = new OriginPart(p.X, p.Y, GridMath.Norm(p.Rot), Descendants(id, children));
+                p.Cargo = Cargo.BuildForest(id, children, itemsById, catalog);   // attach the container's contents tree
+            }
 
         return new SaveShipContext
         {

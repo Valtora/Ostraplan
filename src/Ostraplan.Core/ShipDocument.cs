@@ -33,6 +33,16 @@ public sealed class Placement
     /// save-edit diff (<see cref="ShipDiff"/>). Init-only: identity is fixed at creation and never reassigned.
     /// </summary>
     public string? OriginStrID { get; init; }
+
+    /// <summary>
+    /// The contained sub-objects this part holds — loose cargo and slotted equipment, nested (see
+    /// <see cref="CargoItem"/>). Populated when the design is imported from a save <b>for editing</b>
+    /// (<see cref="SaveEditImport"/>); empty for from-scratch or plain template parts (which carry no player
+    /// cargo). It rides with the part through a move (the same object is mutated). The verbatim item/CO state
+    /// stays in the <see cref="SaveShipContext"/> keyed by <see cref="CargoItem.StrID"/> and is what a write-back
+    /// preserves; this tree drives the inventory view and the cargo-loss warning.
+    /// </summary>
+    public IReadOnlyList<CargoItem> Cargo { get; set; } = [];
 }
 
 /// <summary>

@@ -439,4 +439,25 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         var coIds = ((JsonArray)ship["aCOs"]!).Select(c => (string?)c!["strID"]).ToHashSet();
         Assert.All(modules, m => Assert.Contains((string?)m["strID"], coIds));      // every module has its 1:1 CO
     }
+
+    [Fact]
+    public void Imported_placements_carry_their_container_cargo()
+    {
+        // save-import now attaches each container's contents tree to its placement (Placement.Cargo). The trees
+        // must cover exactly the subtree the context recorded, with unique ids that resolve to real save items.
+        if (TestData.Game is not { } g) return;
+        if (FirstImport(g.Env, g.Catalog) is not { } r) return;
+
+        var cargoIds = r.Doc.Placements.SelectMany(p => p.Cargo.SelectMany(c => c.SubtreeIds())).ToList();
+
+        var originCargoCount = r.Context.Origins.Values.Sum(o => o.CargoIds.Count);
+        Assert.Equal(originCargoCount, cargoIds.Count);                       // covers exactly the recorded subtree
+        Assert.Equal(cargoIds.Count, cargoIds.Distinct().Count());           // each contained item appears once
+        Assert.All(cargoIds, id => Assert.True(r.Context.ItemsById.ContainsKey(id)));   // and is a real save item
+
+        // if this ship has a nav console, its modules are attached as cargo — the container we were losing
+        var console = r.Doc.Placements.FirstOrDefault(p => p.DefName == "ItmStationNav" && p.Cargo.Count > 0);
+        if (console is not null)
+            Assert.Contains(console.Cargo, c => c.DefName.StartsWith("ItmNavMod", System.StringComparison.Ordinal));
+    }
 }
