@@ -32,6 +32,12 @@ public partial class MainWindow : Window
     private ShipDocument? _doc;
     private SaveShipContext? _saveContext;   // set when a design was imported from a save FOR EDITING — enables writing it back
     private OplanMeta _meta = new();
+    // Parts an opened .oplan referenced whose defs aren't in the current game + mods data. While this is
+    // non-empty the design is INCOMPLETE and treated as read-only: Save is blocked (writing now would
+    // permanently drop these parts) and the chrome shows a standing warning, because building over — or
+    // moving parts into — the space where they belong can produce a ship that's invalid in-game. Enabling
+    // the mods (verify with Ostrasort) and reopening clears it. See OpenFile / GuardIncompleteSave.
+    private IReadOnlyList<OplanPart> _unresolvedParts = [];
     private bool _syncingPalette;
     private IReadOnlyList<RoomSpecDef>? _roomSpecs;   // lazily loaded once for the Ship Rating analysis
     private bool _analysing;
@@ -275,6 +281,7 @@ public partial class MainWindow : Window
         _doc.Changed += OnDocChanged;
         _meta = new OplanMeta();
         _saveContext = null;
+        _unresolvedParts = [];
         _stack.Reset();
         Board.SetDocument(_doc);
         OnDocChanged();
@@ -451,14 +458,24 @@ public partial class MainWindow : Window
         BtnRedo.IsEnabled = _stack.CanRedo;
         var name = _doc?.FilePath is { } f ? Path.GetFileNameWithoutExtension(f) : _meta.Name;
         var star = _stack.Dirty ? " *" : "";
-        TxtDoc.Text = name + star;
-        Title = $"Ostraplan — {name}{star}";
+        var incomplete = _unresolvedParts.Count > 0 ? "  ⚠ MISSING MODS — read-only" : "";
+        TxtDoc.Text = name + star + incomplete;
+        Title = $"Ostraplan — {name}{star}{incomplete}";
     }
 
     private bool ConfirmDiscardChanges()
     {
         if (_doc is null || !_stack.Dirty) return true;
-        var result = MessageBox.Show(this, $"Save changes to \"{TxtDoc.Text.TrimEnd(' ', '*')}\"?",
+        var name = _doc.FilePath is { } f ? Path.GetFileNameWithoutExtension(f) : _meta.Name;
+
+        // An incomplete design (missing-mod parts) can't be saved — don't offer a Save that will fail;
+        // just confirm the discard.
+        if (_unresolvedParts.Count > 0)
+            return MessageBox.Show(this,
+                $"“{name}” is missing mods and can't be saved, so your changes will be lost. Discard them and continue?",
+                "Ostraplan", MessageBoxButton.OKCancel, MessageBoxImage.Warning) == MessageBoxResult.OK;
+
+        var result = MessageBox.Show(this, $"Save changes to \"{name}\"?",
             "Ostraplan", MessageBoxButton.YesNoCancel, MessageBoxImage.Question);
         return result switch
         {
@@ -471,6 +488,7 @@ public partial class MainWindow : Window
     private bool Save()
     {
         if (_doc is null || _index is null) return false;
+        if (!GuardIncompleteSave()) return false;
         if (_doc.FilePath is null) return SaveAs();
         try
         {
@@ -490,6 +508,7 @@ public partial class MainWindow : Window
     private bool SaveAs()
     {
         if (_doc is null) return false;
+        if (!GuardIncompleteSave()) return false;
         var dlg = new SaveFileDialog
         {
             Filter = "Ostraplan ship (*.oplan)|*.oplan",
@@ -499,6 +518,21 @@ public partial class MainWindow : Window
         _doc.FilePath = dlg.FileName;
         _meta.Name = Path.GetFileNameWithoutExtension(dlg.FileName);
         return Save();
+    }
+
+    /// <summary>Refuse to persist a design that still references parts from mods that aren't loaded: writing now
+    /// would silently drop them for good, and the incomplete canvas invites edits that break the real ship.
+    /// Returns true when it's safe to save. See <see cref="_unresolvedParts"/>.</summary>
+    private bool GuardIncompleteSave()
+    {
+        if (_unresolvedParts.Count == 0) return true;
+        MessageBox.Show(this,
+            $"This design still has {_unresolvedParts.Count} part(s) from mods that aren't loaded, so it can't be saved:\n\n" +
+            FormatMissingDefs(_unresolvedParts) +
+            "\n\nSaving now would drop them for good. Enable the required mods — run Ostrasort to confirm they're " +
+            "subscribed and enabled — then reopen this design and it will be complete and saveable again.",
+            "Can't save an incomplete design", MessageBoxButton.OK, MessageBoxImage.Warning);
+        return false;
     }
 
     private void OpenFile()
@@ -531,6 +565,7 @@ public partial class MainWindow : Window
         _doc.Changed += OnDocChanged;
         _meta = file.Meta;
         _saveContext = null;   // a reopened save-derived design re-locates its context on demand (from SourceSave)
+        _unresolvedParts = missing;   // a design missing its mods is incomplete: read-only until they're enabled
         _stack.Reset();
         Board.SetDocument(_doc);
         Board.FitContent();
@@ -541,14 +576,33 @@ public partial class MainWindow : Window
         _settings.Save();
 
         if (missing.Count > 0)
-        {
-            var names = string.Join("\n", missing.Select(m => m.Def).Distinct().Take(12));
             MessageBox.Show(this,
-                $"{missing.Count} placed part(s) reference defs that are not in the current game+mods data " +
-                $"and were skipped:\n\n{names}\n\nEnable the mods this design depends on and reopen.",
-                "Missing parts", MessageBoxButton.OK, MessageBoxImage.Warning);
-        }
+                $"“{_meta.Name}” uses {missing.Count} part(s) that aren't in your current game + mods data, so " +
+                "they were left out and this design is INCOMPLETE:\n\n" +
+                FormatMissingDefs(missing) +
+                "\n\nIt depends on these mods:\n\n" +
+                FormatModDeps(file.Mods) +
+                "\n\nInstall or subscribe to those mods and enable them, then reopen this design. Run Ostrasort " +
+                "to confirm they're subscribed, enabled and in a working load order.\n\n" +
+                "Until then the design is read-only — saving is disabled. Saving now would permanently drop the " +
+                "missing parts, and building over (or moving parts into) the space where they belong can produce " +
+                "a ship that's invalid in-game.",
+                "Missing mods — reopen with them enabled", MessageBoxButton.OK, MessageBoxImage.Warning);
     }
+
+    /// <summary>Up to a dozen distinct missing def names, bulleted, with an "… and N more" tail.</summary>
+    private static string FormatMissingDefs(IReadOnlyList<OplanPart> missing)
+    {
+        var names = missing.Select(m => m.Def).Where(d => d.Length > 0).Distinct().ToList();
+        var shown = string.Join("\n", names.Take(12).Select(n => "   • " + n));
+        return names.Count > 12 ? shown + $"\n   … and {names.Count - 12} more" : shown;
+    }
+
+    /// <summary>The design's recorded mod dependencies (friendly name, else the loading_order entry), bulleted.</summary>
+    private static string FormatModDeps(IReadOnlyList<OplanMod> mods) =>
+        mods.Count == 0
+            ? "   • (the design records no mod dependencies — the part may be from a since-removed mod)"
+            : string.Join("\n", mods.Select(m => "   • " + (m.Name.Length > 0 ? m.Name : m.Entry)));
 
     // ---- edits ----
 
@@ -1240,7 +1294,10 @@ public partial class MainWindow : Window
                 $"Import \"{chosen.Name}\" ({chosen.RegId}) from save \"{save.Name}\" for editing?\n\n" +
                 "You'll redesign the ship's structure out-of-game. When you choose \"Update Ship in Save…\", " +
                 "Ostraplan writes the result back into the save — a new copy by default, or the original in place — " +
-                "with crew, cargo, world position and ship identity preserved.",
+                "with crew, cargo, world position and ship identity preserved.\n\n" +
+                "The .oplan you save stays LINKED to this save — it references the ship's live state (crew, cargo, " +
+                "wear) rather than embedding it, so keep the save if you want to write back later. For a standalone, " +
+                "shareable ship instead, use Export (a spawnable mod).",
                 "Import for editing", MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK)
             return;
 
@@ -1466,6 +1523,7 @@ public partial class MainWindow : Window
         _doc.Changed += OnDocChanged;
         _meta = new OplanMeta { Name = result.ShipName };
         _saveContext = context;
+        _unresolvedParts = [];   // a fresh import is a complete, saveable design (unlike a reopened .oplan missing its mods)
         _stack.Reset();
         Board.SetDocument(_doc);
         Board.FitContent();
