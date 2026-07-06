@@ -177,4 +177,70 @@ public class ProblemScanTests
         // walls is legitimately "open to space", so an airtightness Warning is expected and allowed.)
         Assert.DoesNotContain(ProblemScan.Scan(doc, cat), p => p.Severity == ProblemSeverity.Blocking);
     }
+
+    // A 1x1 part with its own-tile socket constrained (center of the 3x3 ring = index 4).
+    private static PartDef P1(string name, string[] adds, string[] reqs, string[] forbids) => new(
+        name, name, "HULL", "core",
+        new ItemDef(name, "", false, null, 0, 1, adds, reqs, forbids),
+        null, [], [], ["IsInstalled"], new Dictionary<string, double>(), new Dictionary<string, (double, double)>());
+
+    // A ship with a wall (free-standing, forbids obstruction on its own tile) and a fixture that mounts
+    // THROUGH a wall (reqs a wall on its own tile, forbids another fixture there) — the real air-pump/sensor shape.
+    private static Catalog StackCat()
+    {
+        const string B = "Blank";
+        var parts = new[]
+        {
+            Docksys(),
+            P1("Wall", ["WallAdds"], [B, B, B, B, B, B, B, B, B], [B, B, B, B, "Obstruction", B, B, B, B]),
+            P1("Fixture", ["FixtureAdds"], [B, B, B, B, "Wall", B, B, B, B], [B, B, B, B, "Fixture", B, B, B, B]),
+        };
+        return new Catalog
+        {
+            Parts = [],
+            ByDefName = parts.ToDictionary(p => p.DefName),
+            Loots = new Dictionary<string, LootDef>
+            {
+                ["WallAdds"] = new("WallAdds", ["IsWall", "IsObstruction"], []),
+                ["FixtureAdds"] = new("FixtureAdds", ["IsFixture", "IsObstruction"], []),
+                ["Obstruction"] = new("Obstruction", ["IsObstruction"], []),
+                ["Wall"] = new("Wall", ["IsWall"], []),
+                ["Fixture"] = new("Fixture", ["IsFixture"], []),
+            },
+            Triggers = new Dictionary<string, CondTriggerDef>
+            {
+                [ProblemScan.DocksysTrigger] = new(ProblemScan.DocksysTrigger, ["IsDockSys", "IsInstalled"], [], false),
+            },
+            Warnings = [],
+        };
+    }
+
+    [Fact]
+    public void A_fixture_mounted_through_a_new_wall_is_not_flagged_occupied()
+    {
+        // the reported false positive: a new wall + a new fixture that mounts through it, both authored. The
+        // wall forbids obstruction on its own tile and the fixture adds it, so a FINAL-STATE check flags the
+        // wall — but the game builds the wall first (no fixture yet), so it's legal. Build-order check must pass.
+        var cat = StackCat();
+        var doc = Doc(cat,
+            new Placement { DefName = "Dock", X = 0, Y = 0 },
+            new Placement { DefName = "Wall", X = 2, Y = 3 },       // below the airlock face
+            new Placement { DefName = "Fixture", X = 2, Y = 3 });   // mounts through the wall on the same tile
+
+        Assert.DoesNotContain(ProblemScan.Scan(doc, cat), p => p.Title.Contains("occupied"));
+    }
+
+    [Fact]
+    public void Two_stacked_walls_are_still_flagged_occupied()
+    {
+        // regression the other way: the build-order check must still catch a genuine overlap — the second wall
+        // can't be built onto the first (neither depends on the other, so there's no valid order).
+        var cat = StackCat();
+        var doc = Doc(cat,
+            new Placement { DefName = "Dock", X = 0, Y = 0 },
+            new Placement { DefName = "Wall", X = 2, Y = 3 },
+            new Placement { DefName = "Wall", X = 2, Y = 3 });
+
+        Assert.Contains(ProblemScan.Scan(doc, cat), p => p.Severity == ProblemSeverity.Blocking && p.Title.Contains("occupied"));
+    }
 }

@@ -65,31 +65,39 @@ public static class ProblemScan
 
         AddLegalityProblems(doc, problems);
 
-        // constructibility only matters once the finished design is otherwise legal:
-        // it catches the rare layout that validates whole yet no floors-first order
-        // can actually build (§6.6). A design already flagged blocking is skipped.
-        if (problems.All(p => p.Severity != ProblemSeverity.Blocking))
-            AddConstructibilityProblem(doc, problems);
-
         return problems;
     }
 
     /// <summary>
-    /// Every placed part re-checked against Item.CheckFit (sockets only — the
-    /// envelope is reported above), grouped by failure reason so a rough edit that
-    /// breaks many parts stays one scannable entry per cause. The part's own tile
-    /// contribution is excluded (CheckFit's <c>self</c>) or it would fail itself.
+    /// The user's additions checked the way the game actually validates construction: <b>incrementally</b>.
+    /// The game tests each new part against the ship <i>as it is when built</i> and never re-validates existing
+    /// structure, so a design is buildable iff <i>some</i> order places every part legally. We seed the existing
+    /// (given/locked) ship, then build the authored parts in canonical order (docking → floors → walls →
+    /// fixtures/conduits), checking each against what's built so far. A part that fits the finished layout but no
+    /// build order — a wall with a fixture already mounted through it — is <b>not</b> flagged (the wall is built
+    /// first); one that fits no order (a fixture with no wall, two walls stacked) is. This replaces a final-state
+    /// per-part check that wrongly rejected legal fixture-through-wall / conduit-on-wall stacks. Failures are
+    /// grouped by reason; a part that can't be built is not added to the scratch, so a dependent with no other
+    /// support is flagged too (it genuinely can't be built).
     /// </summary>
     private static void AddLegalityProblems(ShipDocument doc, List<Problem> problems)
     {
+        var scratch = new ShipDocument(doc.Catalog);
+        foreach (var p in doc.Placements.Where(p => doc.IsLocked(p) || p.IsGiven))   // existing ship: not user-built
+            scratch.Add(new Placement { DefName = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot });
+
         var groups = new Dictionary<string, (List<(int, int)> Cells, List<string> Parts)>(StringComparer.Ordinal);
-        foreach (var p in doc.Placements)
+        foreach (var p in doc.Placements
+                     .Where(p => !doc.IsLocked(p) && !p.IsGiven && doc.Part(p) is not null)
+                     .OrderBy(p => BuildRank(doc.Catalog, doc.Part(p)!)))
         {
-            if (doc.IsLocked(p) || p.IsGiven) continue;   // seeded airlock isn't user-fixable; given (imported) structure isn't re-validated
-            var part = doc.Part(p);
-            if (part is null) continue;                // missing-def parts are surfaced by the open dialog
-            var res = CheckFit.Check(doc, part, p.X, p.Y, p.Rot, self: p, includeEnvelope: false);
-            if (res.Ok) continue;
+            var part = doc.Part(p)!;
+            var res = CheckFit.Check(scratch, part, p.X, p.Y, p.Rot, self: null, includeEnvelope: false);
+            if (res.Ok)
+            {
+                scratch.Add(new Placement { DefName = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot });
+                continue;
+            }
             var reason = res.Reason ?? "illegal placement";
             if (!groups.TryGetValue(reason, out var g)) groups[reason] = g = ([], []);
             g.Cells.AddRange(res.FailedCells);
@@ -102,46 +110,13 @@ public static class ProblemScan
             var names = string.Join(", ", distinct.Take(6)) + (distinct.Count > 6 ? ", …" : "");
             problems.Add(new Problem(ProblemSeverity.Blocking,
                 $"{reason} — {g.Parts.Count} part{(g.Parts.Count == 1 ? "" : "s")}",
-                $"The game's Item.CheckFit would refuse placement here: {names}. Adjust the layout so each part's " +
-                "socket requirements are met (highlighted tiles show where the rule breaks).",
+                $"The game builds incrementally (floors → walls → fixtures) and can't place these onto the ship at " +
+                $"that step: {names}. Adjust the layout so each part has a valid build sequence (highlighted tiles " +
+                "show where the rule breaks).",
                 g.Cells));
         }
     }
 
-    /// <summary>
-    /// Simulate a canonical build order (docking ports → floors → walls/doors →
-    /// the rest) into a scratch ship with incremental CheckFit; warn naming the
-    /// first part that never becomes placeable. Ordering is stable within a rank.
-    /// </summary>
-    private static void AddConstructibilityProblem(ShipDocument doc, List<Problem> problems)
-    {
-        var scratch = new ShipDocument(doc.Catalog);
-        // ship givens (the locked airlock + all imported structure) are not built by the user:
-        // seed them first and unchecked so their conditions and mating face bound the sim. The
-        // sim then only tests whether the USER'S additions can be built onto that existing ship.
-        foreach (var p in doc.Placements.Where(p => doc.IsLocked(p) || p.IsGiven))
-            scratch.Add(new Placement { DefName = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot });
-
-        var ordered = doc.Placements
-            .Where(p => !doc.IsLocked(p) && !p.IsGiven && doc.Part(p) is not null)
-            .OrderBy(p => BuildRank(doc.Catalog, doc.Part(p)!));
-        foreach (var p in ordered)
-        {
-            var part = doc.Part(p)!;
-            var res = CheckFit.Check(scratch, part, p.X, p.Y, p.Rot, self: null, includeEnvelope: true);
-            if (!res.Ok)
-            {
-                problems.Add(new Problem(ProblemSeverity.Warning,
-                    $"May not be constructible: {part.Friendly}",
-                    $"\"{part.Friendly}\" at ({p.X},{p.Y}) can't be placed in a floors→walls→fixtures order " +
-                    $"({res.Reason}). The finished layout is legal, but the game builds incrementally, so an in-game " +
-                    "build may stall here — usually a fixture walled in with no valid placement sequence.",
-                    res.FailedCells));
-                return;   // name the first blocker (§6.6)
-            }
-            scratch.Add(new Placement { DefName = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot });
-        }
-    }
 
     /// <summary>Canonical build phase from what a part contributes to its own tiles.</summary>
     private static int BuildRank(Catalog catalog, PartDef part)
