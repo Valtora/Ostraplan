@@ -27,6 +27,7 @@ public partial class MainWindow : Window
     private GameEnv? _env;
     private DataIndex? _index;
     private Catalog? _catalog;
+    private SpriteCache? _sprites;   // shared with the canvas; also feeds the inventory viewer
     private List<PartVM> _allParts = [];
     private readonly List<ListBox> _paletteLists = [];
     private ShipDocument? _doc;
@@ -148,6 +149,7 @@ public partial class MainWindow : Window
 
         _index = index;
         _catalog = catalog;
+        _sprites = sprites;
         _allParts = parts;
         Board.Sprites = sprites;
 
@@ -573,6 +575,12 @@ public partial class MainWindow : Window
         _settings.Touch(dlg.FileName);
         _settings.Save();
 
+        // A reopened save-derived design carries no cargo (the .oplan stores only layout); re-locate its
+        // source save and hang each container's contents back on its placement, so the inventory viewer works
+        // right away. Eager, off-thread, and silent if the save has moved.
+        if (_doc.SourceSave is { } srcSave)
+            AttachSavedCargoAsync(_doc, srcSave);
+
         if (missing.Count > 0)
             Dlg.Warn(this, "This design is missing mods",
                 $"{_meta.Name} uses {missing.Count} part(s) that aren't in your current game and mods data.\n" +
@@ -585,6 +593,36 @@ public partial class MainWindow : Window
                 "Until then the design is read only, so saving is disabled.\n" +
                 "Saving now would permanently drop the missing parts.\n" +
                 "Building over the space where they belong (or moving parts into it) can produce a ship that's invalid in game.");
+    }
+
+    /// <summary>
+    /// Re-attach a reopened save-derived design's cargo: re-locate its source save off the UI thread, rebuild the
+    /// <see cref="SaveShipContext"/>, and hang each container's contents back on its placement (matched by
+    /// <see cref="Placement.OriginStrID"/>) so the inventory viewer works immediately. Also caches the context so a
+    /// later write-back skips a second re-locate. A moved/unreadable save just leaves the cargo unattached — the
+    /// design still opens and edits; the write-back flow is where a missing save is reported.
+    /// </summary>
+    private async void AttachSavedCargoAsync(ShipDocument doc, SaveSourceRef src)
+    {
+        if (_catalog is null || _env is null) return;
+        var (env0, catalog0, save0, reg0) = (_env, _catalog, src.SaveName, src.RegId);
+        SaveShipContext? ctx;
+        try
+        {
+            ctx = await Task.Run(() =>
+            {
+                var match = SaveImport.ListSaves(env0).FirstOrDefault(s => string.Equals(s.Name, save0, StringComparison.Ordinal));
+                return match is null ? null : SaveEditImport.RelocateContext(match.ZipPath, match.Name, reg0, catalog0);
+            });
+        }
+        catch { return; }   // unreadable ship: leave cargo unattached rather than nag on open
+
+        if (ctx is null || !ReferenceEquals(_doc, doc)) return;   // save gone, or the user moved to another design
+        foreach (var p in doc.Placements)
+            if (p.OriginStrID is { } id && ctx.CargoByOrigin.TryGetValue(id, out var forest))
+                p.Cargo = forest;
+        _saveContext = ctx;
+        UpdateInspector();
     }
 
     /// <summary>Up to a dozen distinct missing def names, bulleted, with an "… and N more" tail.</summary>
@@ -914,6 +952,16 @@ public partial class MainWindow : Window
                 menu.Items.Add(Item("Open door" + (toOpen.Count > 1 ? $" ({toOpen.Count})" : ""), "", (_, _) => ToggleDoors(toOpen)));
         }
 
+        // "View contents…": a single container/console/crate — shown even when empty (so an imported empty
+        // container isn't "locked"). Not shown for a multi-selection — uses the lone selected part, else topmost.
+        var cargoTarget = multi ? null : (selected.Count == 1 ? selected[0] : stack[0]);
+        if (cargoTarget is { } ct && CanViewContents(ct))
+        {
+            var n = ct.Cargo.Count;
+            menu.Items.Add(new Separator());
+            menu.Items.Add(Item("View contents" + (n > 0 ? $" ({n})" : "") + "…", "", (_, _) => OpenInventory(ct)));
+        }
+
         menu.Items.Add(new Separator());
         if (brushDef is not null)
             menu.Items.Add(Item("Use as brush", "", (_, _) => OnArmFromTile(brushDef)));
@@ -927,6 +975,23 @@ public partial class MainWindow : Window
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("Delete" + suffix, "Del", (_, _) => DeleteSelection(), canAct));
         menu.IsOpen = true;
+    }
+
+    /// <summary>A part can show an inventory view when it holds cargo, or is a container / equipment-slot host —
+    /// even when empty, so an imported empty container isn't unreachable from the viewer.</summary>
+    private bool CanViewContents(Placement p)
+    {
+        if (p.Cargo.Count > 0) return true;
+        var part = _doc?.Part(p);
+        return part?.IsContainer == true || part?.SlotsWeHave.Length > 0;
+    }
+
+    /// <summary>Open the inventory viewer on a placed container's contents (empty is fine — shows the grid).</summary>
+    private void OpenInventory(Placement p)
+    {
+        if (_doc is null || _catalog is null || _sprites is null) return;
+        var friendly = _doc.Part(p)?.Friendly ?? p.DefName;
+        new InventoryWindow(_catalog, _sprites, p.DefName, friendly, p.Cargo) { Owner = this }.ShowDialog();
     }
 
     /// <summary>Friendly name for a render layer, for the context-menu layer filter.</summary>
@@ -1538,15 +1603,20 @@ public partial class MainWindow : Window
         OnDocChanged();
         UpdateInspector();
         UpdateSaveEditUi();
-        ReportImport(result);
+        ReportImport(result, keptContents: context is not null);
     }
 
-    /// <summary>Tell the user about anything the import dropped (contained cargo, unresolved defs). Silent on a clean import.</summary>
-    private void ReportImport(ImportResult result)
+    /// <summary>Tell the user about anything the import dropped (contained cargo, unresolved defs). Silent on a
+    /// clean import. <paramref name="keptContents"/> is true for a save import FOR EDITING, where contained cargo
+    /// is preserved as viewable container contents rather than discarded (a layout-only / template import drops it).</summary>
+    private void ReportImport(ImportResult result, bool keptContents)
     {
         var notes = new List<string>();
         if (result.ContainedDropped > 0)
-            notes.Add($"{result.ContainedDropped} contained item(s) were dropped (cargo, tools, installed modules).\nOstraplan imports the layout only.");
+            notes.Add(keptContents
+                ? $"{result.ContainedDropped} contained item(s) (cargo, tools, installed modules) were kept as container contents.\n" +
+                  "Right-click a container and choose \"View contents\" to see them. They aren't placed on the grid as buildable structure."
+                : $"{result.ContainedDropped} contained item(s) were dropped (cargo, tools, installed modules).\nOstraplan imports the layout only.");
         if (result.SystemDropped > 0)
             notes.Add($"{result.SystemDropped} loot spawner and system object(s) were dropped.\nThey populate the ship at runtime, and aren't buildable structure.");
         if (result.Skipped.Count > 0)

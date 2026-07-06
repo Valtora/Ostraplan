@@ -65,4 +65,11 @@ public sealed class SaveShipContext
     /// <summary>Every <c>aCOs</c> entry by <c>strID</c> — the 1:1 live state for each item, plus the handful of
     /// crew and loot-spawner COs that have no item — for Phase 2's CO filtering.</summary>
     public required IReadOnlyDictionary<string, JsonNode> CosById { get; init; }
+
+    /// <summary>Each structural part's contained-cargo tree, keyed by its origin <c>strID</c> (the same keys as
+    /// <see cref="Origins"/>). A fresh import attaches these to the placements directly; on <c>.oplan</c> reopen
+    /// the throwaway import doc is discarded, so the app re-attaches from this map by matching
+    /// <see cref="Placement.OriginStrID"/>. Drives the inventory viewer.</summary>
+    public IReadOnlyDictionary<string, IReadOnlyList<CargoItem>> CargoByOrigin { get; init; } =
+        new Dictionary<string, IReadOnlyList<CargoItem>>();
 }

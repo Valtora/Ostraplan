@@ -56,6 +56,42 @@ public sealed record CondOwnerDef(
     string[] GpmNames,   // GUI-prop-map declarations (the "Panel A"/"Electrical"/... a device wires up on install)
     string[] TickerNames)   // per-second tickers (e.g. "Power") the device needs, granted on install and loaded from the save
 {
+    /// <summary>Inventory-grid size this item takes up when held in a container (<c>nContainerWidth</c>×
+    /// <c>nContainerHeight</c> on a <b>container</b> def is its grid; these are the <b>item's own</b> footprint on
+    /// a grid: <c>inventoryWidth</c>/<c>inventoryHeight</c>). 0 means "use the item def's map footprint" — the
+    /// game's <c>GUIInventoryItem.GetWidthHeightForCO</c> falls back to <c>nWidthInTiles</c>/<c>nHeightInTiles</c>.</summary>
+    public int InvW { get; init; }
+    public int InvH { get; init; }
+
+    /// <summary>If this def is a container, its inventory grid dimensions (<c>nContainerWidth</c>×
+    /// <c>nContainerHeight</c>). 0 when not a container (or an old-style container) — the game then defaults the
+    /// grid to 6×6 (<c>Container.gridLayout</c>).</summary>
+    public int ContainerW { get; init; }
+    public int ContainerH { get; init; }
+
+    /// <summary>The condtrigger that filters which items this container accepts (<c>strContainerCT</c>), or null.
+    /// Not needed to <i>view</i> contents; used by the authoring phase to validate what can be dropped in.</summary>
+    public string? ContainerCT { get; init; }
+
+    /// <summary>Max stack size for this item (<c>nStackLimit</c>); ≤1 = not stackable. Only informative for the
+    /// viewer (identical items sharing a cell render as one stack with a count).</summary>
+    public int StackLimit { get; init; }
+
+    /// <summary>The named equipment slots this item provides (<c>aSlotsWeHave</c>) — e.g. a backpack's four
+    /// pockets, an EVA suit's O₂/battery/tool pockets, a crew body's limbs. Empty for a plain grid container.</summary>
+    public string[] SlotsWeHave { get; init; } = [];
+
+    /// <summary>Paper-doll layout for this item's slots (<c>dictSlotsLayout</c>): slot name → (x, y) pixel offset
+    /// from the host image (the <c>z</c> depth is dropped). Includes a <c>"self"</c> anchor for the host sprite.
+    /// Empty when the item lays no paper-doll (its slots, if any, fall back to a simple row).</summary>
+    public IReadOnlyDictionary<string, (double X, double Y)> SlotLayout { get; init; } =
+        new Dictionary<string, (double, double)>();
+
+    /// <summary>The slot name(s) this item occupies when equipped into a parent (the keys of its
+    /// <c>mapSlotEffects</c>). On load the game slots a contained item into the first of these its parent has
+    /// (<c>Slots.SlotItem</c>), so the paper-doll uses <c>SlotKeys ∩ parent.SlotsWeHave</c> to place it.</summary>
+    public string[] SlotKeys { get; init; } = [];
+
     public static CondOwnerDef Parse(JsonElement e)
     {
         var conds = Json.StrArray(e, "aStartingConds");
@@ -68,7 +104,40 @@ public sealed record CondOwnerDef(
             ParseCondValues(conds),
             ParseMapPoints(Json.StrArray(e, "mapPoints")),
             Json.StrArray(e, "mapGUIPropMaps"),
-            Json.StrArray(e, "aTickers"));
+            Json.StrArray(e, "aTickers"))
+        {
+            InvW = Json.Int(e, "inventoryWidth"),
+            InvH = Json.Int(e, "inventoryHeight"),
+            ContainerW = Json.Int(e, "nContainerWidth"),
+            ContainerH = Json.Int(e, "nContainerHeight"),
+            ContainerCT = Json.Str(e, "strContainerCT"),
+            StackLimit = Json.Int(e, "nStackLimit"),
+            SlotsWeHave = Json.StrArray(e, "aSlotsWeHave"),
+            SlotLayout = ParsePointObject(e, "dictSlotsLayout"),
+            SlotKeys = DictKeys(Json.StrArray(e, "mapSlotEffects")),
+        };
+    }
+
+    /// <summary>The keys of a flat alternating key/value string array (the game's
+    /// <c>ConvertStringArrayToDict</c> shape used by <c>mapSlotEffects</c>): elements 0, 2, 4, ….</summary>
+    private static string[] DictKeys(string[] flat)
+    {
+        var keys = new List<string>(flat.Length / 2 + 1);
+        for (var i = 0; i < flat.Length; i += 2)
+            if (!string.IsNullOrEmpty(flat[i])) keys.Add(flat[i]);
+        return keys.ToArray();
+    }
+
+    /// <summary>Parse a <c>dictSlotsLayout</c>-shaped object — <c>{ "slot": { "x": .., "y": .., "z": .. } }</c> —
+    /// into name → (x, y), dropping z. Absent/malformed → empty.</summary>
+    private static IReadOnlyDictionary<string, (double X, double Y)> ParsePointObject(JsonElement e, string name)
+    {
+        var map = new Dictionary<string, (double, double)>(StringComparer.Ordinal);
+        if (e.TryGetProperty(name, out var obj) && obj.ValueKind == JsonValueKind.Object)
+            foreach (var p in obj.EnumerateObject())
+                if (p.Value.ValueKind == JsonValueKind.Object)
+                    map[p.Name] = (Json.Dbl(p.Value, "x"), Json.Dbl(p.Value, "y"));
+        return map;
     }
 
     /// <summary>
@@ -104,6 +173,22 @@ public sealed record CondOwnerDef(
         }
         return map;
     }
+}
+
+/// <summary>
+/// A named equipment slot (<c>data/slots</c>): the metadata the paper-doll needs to label and draw a slot an
+/// item declares in its <c>aSlotsWeHave</c>. The slot's on-figure position comes from the <b>host</b> item's
+/// <c>dictSlotsLayout</c> (see <see cref="CondOwnerDef.SlotLayout"/>), not from here.
+/// </summary>
+public sealed record SlotDef(string Name, string? NameFriendly, string? IconImg, bool Hide)
+{
+    public string Friendly => NameFriendly ?? Name;
+
+    public static SlotDef Parse(JsonElement e) => new(
+        Json.Str(e, "strName") ?? "",
+        Json.Str(e, "strNameFriendly"),
+        Json.Str(e, "strIconImage"),
+        Json.Bool(e, "bHide"));
 }
 
 public sealed record InstallableDef(

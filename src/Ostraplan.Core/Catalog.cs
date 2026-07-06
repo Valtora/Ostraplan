@@ -36,6 +36,36 @@ public sealed record PartDef(
     /// def has none. This is the raw value the game reads before per-kiosk discount/markup — used for the
     /// save-edit cost estimate (see <see cref="EditCost"/>) and shown in the inspector.</summary>
     public double BasePrice => StartingCondValues.GetValueOrDefault("StatBasePrice");
+
+    /// <summary>This item's footprint <b>on an inventory grid</b>, in tiles — the def's
+    /// <c>inventoryWidth</c>/<c>inventoryHeight</c> when set, else its map footprint. Drives the size of the
+    /// block it occupies in a container's grid (the game's <c>GUIInventoryItem.GetWidthHeightForCO</c>).</summary>
+    public (int W, int H) InvSize { get; init; } = (1, 1);
+
+    /// <summary>If this part is a container, its inventory grid dimensions in tiles (the def's
+    /// <c>nContainerWidth</c>×<c>nContainerHeight</c>, defaulting to 6×6 when it is a container but declares no
+    /// grid — matching the game's <c>Container</c> default). Null when the part isn't a container.</summary>
+    public (int W, int H)? ContainerGrid { get; init; }
+
+    /// <summary>The item filter a container applies to what may be dropped in (<c>strContainerCT</c>), or null.</summary>
+    public string? ContainerCT { get; init; }
+
+    /// <summary>Max stack size (<c>nStackLimit</c>); ≤1 = not stackable.</summary>
+    public int StackLimit { get; init; }
+
+    /// <summary>The named equipment slots this part provides (<c>aSlotsWeHave</c>) — for the paper-doll.</summary>
+    public string[] SlotsWeHave { get; init; } = [];
+
+    /// <summary>Paper-doll layout for this part's slots (slot name → on-figure (x, y) pixel offset), incl. a
+    /// <c>"self"</c> host anchor. Empty when the part declares no layout.</summary>
+    public IReadOnlyDictionary<string, (double X, double Y)> SlotLayout { get; init; } =
+        new Dictionary<string, (double X, double Y)>();
+
+    /// <summary>The slot name(s) this part occupies when equipped into a parent (its <c>mapSlotEffects</c> keys).</summary>
+    public string[] SlotKeys { get; init; } = [];
+
+    /// <summary>True if this part holds an inventory grid (has a container grid).</summary>
+    public bool IsContainer => ContainerGrid is not null;
 }
 
 /// <summary>
@@ -89,6 +119,10 @@ public sealed class Catalog
     /// fPeriod, bRepeat, …) each named ticker (e.g. "Power") expands to. Used to bake a device's <c>aTickers</c>
     /// so it works on load. Empty in synthetic test catalogs.</summary>
     public IReadOnlyDictionary<string, JsonElement> TickerTemplates { get; init; } = new Dictionary<string, JsonElement>();
+
+    /// <summary>Equipment-slot metadata by slot name (from <c>data/slots</c>) — friendly name + icon for the
+    /// inventory viewer's paper-doll. Empty in synthetic test catalogs.</summary>
+    public IReadOnlyDictionary<string, SlotDef> Slots { get; init; } = new Dictionary<string, SlotDef>();
 
     /// <summary>The ticker templates a freshly-installed instance of <paramref name="part"/> would carry: each of
     /// the def's declared <c>aTickers</c> names resolved to its template. Empty for a non-device part, or when a
@@ -217,6 +251,7 @@ public sealed class Catalog
         var tickerTemplates = index.Type("tickers")
             .Where(kv => kv.Value.El.ValueKind == JsonValueKind.Object)
             .ToDictionary(kv => kv.Key, kv => kv.Value.El.Clone(), StringComparer.Ordinal);
+        var slots = index.Type("slots").ToDictionary(kv => kv.Key, kv => SlotDef.Parse(kv.Value.El), StringComparer.Ordinal);
 
         // Resolve a buildable palette entry, warning when its sprite is missing on disk.
         PartDef? Resolve(string defName, string category, string fallbackOrigin, string[] inputs, string[] tools, bool warnMissingSprite)
@@ -279,6 +314,7 @@ public sealed class Catalog
             Triggers = trigs,
             GpmTemplates = gpmTemplates,
             TickerTemplates = tickerTemplates,
+            Slots = slots,
             Warnings = warnings,
             Index = index,
         };
@@ -319,6 +355,18 @@ public sealed class Catalog
             items.TryGetValue(itemName, out var ri) ? ri.Origin :
             items.TryGetValue(defName, out var rd) ? rd.Origin : fallbackOrigin;
 
+        // A container if the def declares any container signal (a filter CT, a grid, or the IsContainer cond);
+        // the grid defaults to 6×6 when it's a container but names no dimensions (the game's Container default).
+        var isContainer = co is not null &&
+            (co.ContainerCT is not null || co.ContainerW > 0 || co.StartingCondNames.Contains("IsContainer"));
+        (int, int)? containerGrid = isContainer
+            ? (co!.ContainerW > 0 ? co.ContainerW : 6, co.ContainerH > 0 ? co.ContainerH : 6)
+            : null;
+        // This item's own footprint on a grid: inventoryWidth/Height override the map footprint, else 1×1.
+        var invSize = (
+            Math.Max(1, co?.InvW is > 0 ? co.InvW : item.Width),
+            Math.Max(1, co?.InvH is > 0 ? co.InvH : item.Height));
+
         return new PartDef(
             defName, friendly, category, origin, item, index.ResolveImage(item.Img), inputs, tools,
             co?.StartingCondNames ?? [],
@@ -328,6 +376,13 @@ public sealed class Catalog
             Gpm = ResolveGpm(co?.GpmNames, overlay?.GpmNames),
             Desc = co?.Desc,
             TickerNames = co?.TickerNames ?? [],
+            InvSize = invSize,
+            ContainerGrid = containerGrid,
+            ContainerCT = co?.ContainerCT,
+            StackLimit = co?.StackLimit ?? 0,
+            SlotsWeHave = co?.SlotsWeHave ?? [],
+            SlotLayout = co?.SlotLayout ?? new Dictionary<string, (double X, double Y)>(),
+            SlotKeys = co?.SlotKeys ?? [],
         };
     }
 

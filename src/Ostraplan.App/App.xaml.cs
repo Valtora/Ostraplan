@@ -1,3 +1,4 @@
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Windows;
@@ -79,6 +80,71 @@ public partial class App : Application
                 [("Save", MessageDialog.Choice.Primary), ("Don't save", MessageDialog.Choice.Secondary), ("Cancel", MessageDialog.Choice.Cancel)],
                 "dlg-info-dark.png");
 
+            Shutdown(0);
+            return;
+        }
+
+        // preview render: draw the inventory viewer (a synthesized backpack + the first real save container) to
+        // PNGs for eyeballing the grid + paper-doll layout, then exit. Needs the game install.
+        if (e.Args.Contains("--invsmoke"))
+        {
+            var dir = e.Args.SkipWhile(a => a != "--invsmoke").Skip(1).FirstOrDefault() ?? AppContext.BaseDirectory;
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var env = GameEnv.Locate(null);
+                var index = DataIndex.Load(env);
+                var catalog = Catalog.Build(index);
+                var sprites = new SpriteCache();
+
+                void RenderInv(string file, string def, string friendly, IReadOnlyList<CargoItem> cargo)
+                {
+                    var win = new InventoryWindow(catalog, sprites, def, friendly, cargo);
+                    var panel = win.PreviewContent;
+                    panel.Background = ThemeManager.WindowBg;
+                    const int w = 620;
+                    panel.Measure(new Size(w, double.PositiveInfinity));
+                    panel.Arrange(new Rect(0, 0, w, panel.DesiredSize.Height));
+                    panel.UpdateLayout();
+                    var h = Math.Max(1, (int)Math.Ceiling(panel.DesiredSize.Height));
+                    var bmp = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+                    bmp.Render(panel);
+                    var enc = new PngBitmapEncoder();
+                    enc.Frames.Add(BitmapFrame.Create(bmp));
+                    using var fs = File.Create(Path.Combine(dir, file));
+                    enc.Save(fs);
+                }
+
+                // a synthesized backpack: a 4x4 grid (trencher + a 16-round ammo stack) plus a paper-doll of pockets
+                var pouch = new CargoItem("s1", "PocketPouchSmall01", "Small Pouch", true,
+                    [new CargoItem("s1a", "ItmDrinkPouch01", "Drink Pouch", false, [])]) { SlotName = "pocket_pouchSm01" };
+                var cargo = new List<CargoItem>
+                {
+                    pouch,
+                    new("g1", "ItmTrencherChipotlePorkCheeseSpread", "Trencher", false, []) { GridX = 0, GridY = 0 },
+                    new("g2", "ItmAmmo9mm", "9mm Ammo", false, []) { GridX = 1, GridY = 0, Stack = 16 },
+                };
+                RenderInv("inv-backpack.png", "ItmBackpack01", "Backpack: Pearson", cargo);
+                RenderInv("inv-empty.png", "ItmBackpack01", "Backpack (empty)", []);   // an empty container still shows its grid
+
+                // the first real save container that actually holds cargo
+                foreach (var save in SaveImport.ListSaves(env))
+                {
+                    try
+                    {
+                        var doc = SaveEditImport.ImportForEditing(save, catalog).Doc;
+                        // prefer a container that holds a stack (to exercise the ×N-not-a-container rendering)
+                        if ((doc.Placements.Where(pl => pl.Cargo.Any(c => c.IsStack)).OrderByDescending(pl => pl.Cargo.Count).FirstOrDefault()
+                             ?? doc.Placements.Where(pl => pl.Cargo.Count > 0).OrderByDescending(pl => pl.Cargo.Count).FirstOrDefault()) is { } p)
+                        {
+                            RenderInv("inv-real.png", p.DefName, catalog.Lookup(p.DefName)?.Friendly ?? p.DefName, p.Cargo);
+                            break;
+                        }
+                    }
+                    catch { /* not a player-ship save */ }
+                }
+            }
+            catch (Exception ex) { File.WriteAllText(Path.Combine(dir, "invsmoke-error.txt"), ex.ToString()); }
             Shutdown(0);
             return;
         }

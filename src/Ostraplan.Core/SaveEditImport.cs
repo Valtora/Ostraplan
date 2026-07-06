@@ -94,11 +94,14 @@ public static class SaveEditImport
 
         // one origin per structural (grid-placed) part, keyed by the strID the import tagged it with
         var origins = new Dictionary<string, OriginPart>(StringComparer.Ordinal);
+        var cargoByOrigin = new Dictionary<string, IReadOnlyList<CargoItem>>(StringComparer.Ordinal);
         foreach (var p in doc.Placements)
             if (p.OriginStrID is { } id)
             {
                 origins[id] = new OriginPart(p.X, p.Y, GridMath.Norm(p.Rot), Descendants(id, children));
-                p.Cargo = Cargo.BuildForest(id, children, itemsById, catalog);   // attach the container's contents tree
+                var forest = Cargo.BuildForest(id, children, itemsById, cosById, catalog);
+                cargoByOrigin[id] = forest;
+                p.Cargo = forest;   // attach the container's contents tree to the imported placement
             }
 
         return new SaveShipContext
@@ -111,6 +114,7 @@ public static class SaveEditImport
             Origins = origins,
             ItemsById = itemsById,
             CosById = cosById,
+            CargoByOrigin = cargoByOrigin,
         };
     }
 
