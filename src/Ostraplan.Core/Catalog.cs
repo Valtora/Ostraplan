@@ -124,6 +124,12 @@ public sealed class Catalog
     /// inventory viewer's paper-doll. Empty in synthetic test catalogs.</summary>
     public IReadOnlyDictionary<string, SlotDef> Slots { get; init; } = new Dictionary<string, SlotDef>();
 
+    /// <summary>Loose cargo items — condowners typed <c>"Item"</c> that aren't installed structure (a wall is
+    /// also <c>strType "Item"</c> but carries <c>IsInstalled</c> in its starting conds). This is the universe the
+    /// inventory editor's add-picker draws from; a given container narrows it with <see cref="ContainerFilter"/>.
+    /// Sorted by friendly name. Empty in synthetic test catalogs.</summary>
+    public IReadOnlyList<PartDef> LooseItems { get; init; } = [];
+
     /// <summary>The ticker templates a freshly-installed instance of <paramref name="part"/> would carry: each of
     /// the def's declared <c>aTickers</c> names resolved to its template. Empty for a non-device part, or when a
     /// referenced ticker isn't loaded.</summary>
@@ -253,6 +259,16 @@ public sealed class Catalog
             .ToDictionary(kv => kv.Key, kv => kv.Value.El.Clone(), StringComparer.Ordinal);
         var slots = index.Type("slots").ToDictionary(kv => kv.Key, kv => SlotDef.Parse(kv.Value.El), StringComparer.Ordinal);
 
+        // Loose cargo items for the inventory editor's add-picker: condowners typed "Item" minus installed
+        // structure (a wall is strType "Item" too but carries IsInstalled). Narrowed per container by ContainerFilter.
+        var looseItems = new List<PartDef>();
+        foreach (var (name, (el, origin)) in index.Type("condowners"))
+            if (Json.Str(el, "strType") == "Item"
+                && ResolveDef(index, name, "—", origin, [], []) is { } it
+                && !it.StartingConds.Contains("IsInstalled"))
+                looseItems.Add(it);
+        looseItems.Sort((a, b) => string.Compare(a.Friendly, b.Friendly, StringComparison.OrdinalIgnoreCase));
+
         // Resolve a buildable palette entry, warning when its sprite is missing on disk.
         PartDef? Resolve(string defName, string category, string fallbackOrigin, string[] inputs, string[] tools, bool warnMissingSprite)
         {
@@ -315,6 +331,7 @@ public sealed class Catalog
             GpmTemplates = gpmTemplates,
             TickerTemplates = tickerTemplates,
             Slots = slots,
+            LooseItems = looseItems,
             Warnings = warnings,
             Index = index,
         };

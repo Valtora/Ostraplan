@@ -86,6 +86,25 @@ public class ReplaceOpsTests
     }
 
     [Fact]
+    public void Containers_are_never_replaceable_or_a_replace_target()
+    {
+        // a container's inventory grid + cargo don't survive a def-change, so it's excluded from Replace on both
+        // sides: it can't be the source (no common class) and never appears as a target (no re-skin INTO a container).
+        if (TestData.Game is not { } g) return;
+        var container = g.Catalog.Parts.FirstOrDefault(p => p.IsContainer)
+            ?? new[] { "ItmRack1x4", "ItmStorageBin3x102", "ItmRack2x2C01", "ItmLocker01" }
+                .Select(d => g.Catalog.Lookup(d)).FirstOrDefault(p => p?.IsContainer == true);
+        if (container is null) return;
+
+        var doc = new ShipDocument(g.Catalog);
+        var c = Place(doc, container.DefName, 0, 0);
+        Assert.Null(ReplaceOps.CommonClass(doc, [c]));   // can't be the SOURCE of a replace
+
+        var cls = (g.Catalog.RenderLayer(container), container.Item.Width, container.Item.Height);
+        Assert.DoesNotContain(ReplaceOps.CompatibleTargets(g.Catalog, cls), t => t.IsContainer);   // never a TARGET
+    }
+
+    [Fact]
     public void Swap_carries_the_originals_given_ness()
     {
         // A same-layer, same-footprint swap keeps the tiles' structural role, so it must preserve

@@ -28,6 +28,20 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         return null;
     }
 
+    /// <summary>The first save whose imported player ship matches <paramref name="pred"/> — so a cargo test lands
+    /// on a save that actually has cargo (the first player-ship save may not). Null if none across all saves.</summary>
+    private static SaveEditImportResult? ImportWhere(GameEnv env, Catalog catalog, Func<ShipDocument, bool> pred)
+    {
+        foreach (var save in SaveImport.ListSaves(env))
+        {
+            SaveEditImportResult imp;
+            try { imp = SaveEditImport.ImportForEditing(save, catalog); }
+            catch { continue; }
+            if (pred(imp.Doc)) return imp;
+        }
+        return null;
+    }
+
     private static int Count(JsonNode ship, string prop) => ((JsonArray)ship[prop]!).Count;
 
     private static string ReadShipEntry(string zipPath, string regId)
@@ -194,6 +208,95 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.Empty(report.CargoDropped);
         Assert.Equal(items0 - 1, Count(ship, "aItems"));   // item gone...
         Assert.Equal(cos0 - 1, Count(ship, "aCOs"));       // ...and its 1:1 condition owner with it
+    }
+
+    [Fact]
+    public void Reskinning_a_container_preserves_and_reparents_its_cargo()
+    {
+        // the inject's cargo SAFETY NET: the UI no longer lets you re-skin a container (ReplaceOps excludes them),
+        // but if a def-change ever carries cargo the inject must keep it — re-parented onto the new part, nothing
+        // reported lost — rather than dropping it. This drives that defensive path directly (bypassing the UI guard).
+        if (TestData.Game is not { } g) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        if (ImportWhere(g.Env, g.Catalog, d => d.Placements.Any(p => !d.IsLocked(p) && p.Cargo.Count > 0)) is not { } r) return;
+
+        var target = r.Doc.Placements.First(p => !r.Doc.IsLocked(p) && p.Cargo.Count > 0);
+        var cargoIds = target.Cargo.SelectMany(c => c.SubtreeIds()).ToHashSet();
+        var topLevel = target.Cargo.Select(c => c.StrID).ToList();
+        var oldId = target.OriginStrID;
+
+        // exactly what ReplaceOps.BuildSwap produces: remove the container, place a fresh part carrying its cargo
+        var repl = new Placement { DefName = target.DefName, X = target.X, Y = target.Y, Rot = target.Rot, Cargo = target.Cargo };
+        new RemoveCommand([target]).Do(r.Doc);
+        new PlaceCommand(repl).Do(r.Doc);
+
+        var (ship, report) = SaveEdit.BuildInjectedShip(r.Doc, r.Context, g.Catalog, specs);
+
+        Assert.Empty(report.CargoDropped);   // a re-skin loses no cargo
+        var itemsById = ((JsonArray)ship["aItems"]!).Select(n => n!.AsObject())
+            .Where(o => (string?)o["strID"] is not null).ToDictionary(o => (string)o["strID"]!);
+        foreach (var cid in cargoIds) Assert.True(itemsById.ContainsKey(cid), $"cargo {cid} was dropped");
+
+        // every top-level item is re-parented onto the NEW container (a fresh id), not the deleted original
+        string? Parent(JsonObject o) => (string?)o["strParentID"] ?? (string?)o["strSlotParentID"];
+        var newParent = Parent(itemsById[topLevel[0]]);
+        Assert.NotNull(newParent);
+        Assert.NotEqual(oldId, newParent);
+        Assert.True(itemsById.ContainsKey(newParent!));
+        Assert.Equal(target.DefName, (string?)itemsById[newParent!]["strName"]);
+        foreach (var tl in topLevel) Assert.Equal(newParent, Parent(itemsById[tl]));
+    }
+
+    [Fact]
+    public void Deleting_a_container_reports_and_drops_its_cargo()
+    {
+        // the other side of the fix: a genuine delete (not a re-skin) still reports the lost cargo and drops it.
+        if (TestData.Game is not { } g) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        if (ImportWhere(g.Env, g.Catalog, d => d.Placements.Any(p => !d.IsLocked(p) && p.Cargo.Count > 0)) is not { } r) return;
+
+        var target = r.Doc.Placements.First(p => !r.Doc.IsLocked(p) && p.Cargo.Count > 0);
+        var cargoIds = r.Context.Origins[target.OriginStrID!].CargoIds;
+
+        new RemoveCommand([target]).Do(r.Doc);
+        var (ship, report) = SaveEdit.BuildInjectedShip(r.Doc, r.Context, g.Catalog, specs);
+
+        Assert.Equal(1, report.Deleted);
+        Assert.Single(report.CargoDropped);   // reported...
+        var itemIds = ((JsonArray)ship["aItems"]!).Select(n => (string?)n!["strID"]).ToHashSet();
+        foreach (var cid in cargoIds) Assert.DoesNotContain(cid, itemIds);   // ...and actually gone
+    }
+
+    [Fact]
+    public void Reskinning_a_nav_console_keeps_its_modules_and_adds_no_generic_set()
+    {
+        // nav auto-inject is empty-only: a console that already carries modules (kept, or transferred through a
+        // re-skin) keeps exactly those — it must NOT also receive the generic 14-module set.
+        if (TestData.Game is not { } g) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        if (ImportWhere(g.Env, g.Catalog, d => d.Placements.Any(p =>
+                !d.IsLocked(p) && NavConsole.IsConsole(d.Part(p)) && p.Cargo.Count > 0)) is not { } r) return;
+
+        var console = r.Doc.Placements.First(p => !r.Doc.IsLocked(p) && NavConsole.IsConsole(r.Doc.Part(p)) && p.Cargo.Count > 0);
+        var moduleIds = console.Cargo.SelectMany(c => c.SubtreeIds()).ToHashSet();
+        var topCount = console.Cargo.Count;   // top-level modules on the console
+
+        var repl = new Placement { DefName = console.DefName, X = console.X, Y = console.Y, Rot = console.Rot, Cargo = console.Cargo };
+        new RemoveCommand([console]).Do(r.Doc);
+        new PlaceCommand(repl).Do(r.Doc);
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(r.Doc, r.Context, g.Catalog, specs);
+        var items = ((JsonArray)ship["aItems"]!).Select(n => n!.AsObject()).ToList();
+
+        var itemIds = items.Select(o => (string?)o["strID"]).ToHashSet();
+        foreach (var mid in moduleIds) Assert.Contains(mid, itemIds);   // real modules preserved
+
+        // the new console has exactly the transferred top-level modules parented to it — no generic set appended
+        string? Parent(JsonObject o) => (string?)o["strParentID"] ?? (string?)o["strSlotParentID"];
+        var newConsoleId = Parent(items.First(o => (string?)o["strID"] == console.Cargo[0].StrID));
+        Assert.NotNull(newConsoleId);
+        var childCount = items.Count(o => Parent(o) == newConsoleId);
+        Assert.Equal(topCount, childCount);
     }
 
     [Fact]

@@ -68,22 +68,33 @@ public static class SaveEdit
         }
         var added = diff.OfKind(PartChangeKind.New).Select(c => c.Placement!).ToList();
 
+        // A re-skinned/replaced container is a NEW part carrying its old cargo (Placement.Cargo). That cargo must
+        // be preserved and re-parented onto the new part (below), NOT dropped with the old container — so collect
+        // every transferred cargo strID up front to exclude it from the delete drop set.
+        var transferredIds = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var p in added)
+            foreach (var c in p.Cargo)
+                foreach (var sid in c.SubtreeIds())
+                    transferredIds.Add(sid);
+
         // the original grid frame (world) — new/moved parts map into it; kept items are already in it
         var vx0 = Dbl2(ctx.ShipRecord, "vShipPos", "x");
         var vy0 = Dbl2(ctx.ShipRecord, "vShipPos", "y");
         var nCols0 = Int(ctx.ShipRecord, "nCols");
         var nRows0 = Int(ctx.ShipRecord, "nRows");
 
-        // drop set: deleted structural parts + their whole cargo subtrees; and the cargo-loss report
+        // drop set: deleted structural parts + their cargo subtrees, EXCEPT cargo transferred to a re-skin; the
+        // cargo-loss report lists only cargo genuinely lost, so re-skinning a container warns about nothing.
         var dropSet = new HashSet<string>(StringComparer.Ordinal);
         var cargoLosses = new List<CargoLoss>();
         foreach (var id in deleted)
         {
             dropSet.Add(id);
-            var cargo = ctx.Origins[id].CargoIds;
-            foreach (var cid in cargo) dropSet.Add(cid);
-            if (cargo.Count > 0)
-                cargoLosses.Add(new CargoLoss(id, ItemName(ctx, id), cargo.Select(cid => ItemName(ctx, cid)).ToList()));
+            var lost = new List<string>();
+            foreach (var cid in ctx.Origins[id].CargoIds)
+                if (!transferredIds.Contains(cid)) { dropSet.Add(cid); lost.Add(cid); }
+            if (lost.Count > 0)
+                cargoLosses.Add(new CargoLoss(id, ItemName(ctx, id), lost.Select(cid => ItemName(ctx, cid)).ToList()));
         }
 
         // moved parts: new world pose + a delta to rigidly shift each part's cargo subtree
@@ -101,8 +112,10 @@ public static class SaveEdit
             }
         }
 
-        // rebuild aItems: surviving originals (kept verbatim, moved repositioned, cargo shifted) + new parts
+        // rebuild aItems: surviving originals (kept verbatim, moved repositioned, cargo shifted) + new parts.
+        // Index the survivors by strID so a re-skinned container can re-parent its transferred cargo below.
         var outItems = new JsonArray();
+        var outItemsById = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
         foreach (var it in Arr(ctx.ShipRecord, "aItems"))
         {
             var id = Str(it, "strID");
@@ -117,6 +130,7 @@ public static class SaveEdit
                 clone["fX"] = Dbl(clone, "fX") + d.dx; clone["fY"] = Dbl(clone, "fY") + d.dy;
             }
             outItems.Add(clone);
+            if (id is not null) outItemsById[id] = clone;
         }
 
         // rebuild aCOs: keep every CO whose strID survived (kept/moved parts, all cargo, crew, loot-spawners).
@@ -170,11 +184,18 @@ public static class SaveEdit
             outItems.Add(item);
             outCOs.Add(SynthesizeCo(p.DefName, id, catalog, ctx.Source.RegId, ctx.Epoch));
 
-            // a newly-added nav console is an empty frame — install the standard nav-module set as contained
+            // a re-skinned/replaced CONTAINER carries its old cargo — re-parent each top-level item onto this new
+            // part (the items + their COs were kept verbatim above; nested cargo stays parented to its own parent,
+            // stack members to their lead). Positions are unchanged — a re-skin happens in place.
+            foreach (var c in p.Cargo)
+                if (outItemsById.TryGetValue(c.StrID, out var citem))
+                    citem[c.Slotted ? "strSlotParentID" : "strParentID"] = id;
+
+            // a newly-added EMPTY nav console is a bare frame — install the standard nav-module set as contained
             // children (exactly how a real ship template carries them), each a fresh item + synthesized CO so the
-            // save load keeps it. Kept consoles aren't touched here: their real modules survive verbatim in the
-            // aItems/aCOs copy above. Modules sit at the console's coordinates; GPM baked like any device.
-            if (NavConsole.IsConsole(catalog.Lookup(p.DefName)))
+            // save load keeps it. A console that already carries modules (transferred through a re-skin here, or
+            // kept verbatim above) is left alone. Modules sit at the console's coordinates; GPM baked like any device.
+            if (p.Cargo.Count == 0 && NavConsole.IsConsole(catalog.Lookup(p.DefName)))
                 foreach (var modDef in NavConsole.StandardModules)
                 {
                     var modId = Guid.NewGuid().ToString();
