@@ -18,6 +18,9 @@ public sealed class OplanFile
     [JsonPropertyName("game")] public OplanGame Game { get; set; } = new();
     [JsonPropertyName("mods")] public List<OplanMod> Mods { get; set; } = [];
     [JsonPropertyName("meta")] public OplanMeta Meta { get; set; } = new();
+    /// <summary>Set when this design was imported from a save for editing — the save + ship to write back
+    /// into. Null for from-scratch/template/layout-only designs. See <see cref="ShipDocument.SourceSave"/>.</summary>
+    [JsonPropertyName("source")] public OplanSource? Source { get; set; }
     [JsonPropertyName("parts")] public List<OplanPart> Parts { get; set; } = [];
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 
@@ -40,8 +43,9 @@ public sealed class OplanFile
                                 .Select(s => new OplanMod { Name = s.Label, Entry = s.Raw })
                                 .ToList(),
             Meta = meta,
+            Source = doc.SourceSave is { } s ? new OplanSource { SaveName = s.SaveName, RegId = s.RegId } : null,
             Parts = doc.Placements
-                       .Select(p => new OplanPart { Def = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot, Given = p.IsGiven })
+                       .Select(p => new OplanPart { Def = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot, Given = p.IsGiven, Origin = p.OriginStrID })
                        .ToList(),
         };
         file.Meta.Modified = DateTime.UtcNow;
@@ -63,7 +67,10 @@ public sealed class OplanFile
     /// <summary>Rebuild a document; parts whose def is not in the catalog are returned, not placed.</summary>
     public (ShipDocument Doc, List<OplanPart> Missing) ToDocument(Catalog catalog)
     {
-        var doc = new ShipDocument(catalog);
+        var doc = new ShipDocument(catalog)
+        {
+            SourceSave = Source is { } s ? new SaveSourceRef(s.SaveName, s.RegId) : null,
+        };
         var missing = new List<OplanPart>();
         foreach (var part in Parts)
         {
@@ -72,7 +79,7 @@ public sealed class OplanFile
                 missing.Add(part);
                 continue;
             }
-            doc.Add(new Placement { DefName = part.Def, X = part.X, Y = part.Y, Rot = GridMath.Norm(part.Rot), IsGiven = part.Given });
+            doc.Add(new Placement { DefName = part.Def, X = part.X, Y = part.Y, Rot = GridMath.Norm(part.Rot), IsGiven = part.Given, OriginStrID = part.Origin });
         }
         return (doc, missing);
     }
@@ -109,5 +116,15 @@ public sealed class OplanPart
     [JsonPropertyName("y")] public int Y { get; set; }
     [JsonPropertyName("rot")] public int Rot { get; set; }
     [JsonPropertyName("given")] public bool Given { get; set; }   // imported (pre-existing) structure — exempt from the placement-law scan
+    [JsonPropertyName("origin")] public string? Origin { get; set; }   // save-edit: the source save item's strID (see Placement.OriginStrID)
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
+}
+
+/// <summary>The save a save-edit design was imported from — persisted so the design can be re-located and
+/// injected after reopening. See <see cref="SaveSourceRef"/> for the in-memory form.</summary>
+public sealed class OplanSource
+{
+    [JsonPropertyName("saveName")] public string SaveName { get; set; } = "";
+    [JsonPropertyName("regId")] public string RegId { get; set; } = "";
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }

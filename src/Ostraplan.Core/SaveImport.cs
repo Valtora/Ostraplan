@@ -49,8 +49,9 @@ public static class SaveImport
         return TemplateImport.FromTemplate(tmpl, catalog);
     }
 
-    /// <summary>The player character's current-ship RegID: the one zip-root record carrying <c>strShip</c>.</summary>
-    private static string? PlayerShipRegId(ZipArchive zip)
+    /// <summary>The player character's current-ship RegID: the one zip-root record carrying <c>strShip</c>.
+    /// Shared with <see cref="SaveEditImport"/>.</summary>
+    internal static string? PlayerShipRegId(ZipArchive zip)
     {
         foreach (var e in zip.Entries)
         {
@@ -82,7 +83,7 @@ public static class SaveImport
     private static JsonElement Root(JsonDocument doc) =>
         doc.RootElement is { ValueKind: JsonValueKind.Array } a && a.GetArrayLength() > 0 ? a[0] : doc.RootElement;
 
-    private static string ReadText(ZipArchiveEntry e)
+    internal static string ReadText(ZipArchiveEntry e)
     {
         using var s = e.Open();
         using var r = new StreamReader(s);

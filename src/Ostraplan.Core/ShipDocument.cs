@@ -17,6 +17,18 @@ public sealed class Placement
     /// rotates the part — an edit is new construction and is checked. Precursor to save-edit's origin id.
     /// </summary>
     public bool IsGiven { get; set; }
+
+    /// <summary>
+    /// The <c>strID</c> of the save item this part came from, set when the document was imported from a save
+    /// <b>for editing</b> (<see cref="SaveEditImport"/>); null for parts the user added. Unlike
+    /// <see cref="IsGiven"/>, it is <b>preserved</b> across move / rotate / group-rotate — the part keeps its
+    /// identity so its live-state CO and cargo travel with it on write-back. It is dropped only by operations
+    /// that create a genuinely new part: duplicate, paste, paint, box-fill, symmetry-mirror, a def-changing
+    /// replace / re-skin, and layout-only template/save import (all of which build a fresh <see cref="Placement"/>
+    /// without copying it). Drives the save-edit diff (<see cref="ShipDiff"/>). Init-only: identity is fixed at
+    /// creation and never reassigned.
+    /// </summary>
+    public string? OriginStrID { get; init; }
 }
 
 /// <summary>
@@ -33,6 +45,14 @@ public sealed class ShipDocument
     public Catalog Catalog { get; }
     public TileConds Conds { get; }
     public string? FilePath { get; set; }
+
+    /// <summary>
+    /// When this design was imported from a save <b>for editing</b>, the save + ship it came from — so an
+    /// edit can be written back into a copy of that save. Persisted in the .oplan (see <see cref="OplanFile"/>)
+    /// and restored on reopen; null for from-scratch, template, or layout-only save designs. The heavy
+    /// per-item <see cref="SaveShipContext"/> is held alongside in-session and rebuilt from this on reopen.
+    /// </summary>
+    public SaveSourceRef? SourceSave { get; set; }
 
     public event Action? Changed;
 
@@ -85,7 +105,7 @@ public sealed class ShipDocument
     {
         var copy = new ShipDocument(Catalog);
         foreach (var p in _placements)
-            copy.Add(new Placement { DefName = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot, IsGiven = p.IsGiven });
+            copy.Add(new Placement { DefName = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot, IsGiven = p.IsGiven, OriginStrID = p.OriginStrID });
         return copy;
     }
 
@@ -247,6 +267,7 @@ public sealed class ShipDocument
         p.X = x;
         p.Y = y;
         p.IsGiven = false;   // moved = new construction; it's now the user's and gets validated
+        // OriginStrID is deliberately NOT cleared: a moved part is still the same original save item.
         if (part is not null) Conds.Apply(p, part.Item, +1);
         Index(p);
         RaiseChanged();
@@ -260,7 +281,7 @@ public sealed class ShipDocument
         p.X = x;
         p.Y = y;
         p.Rot = GridMath.Norm(rot);
-        p.IsGiven = false;
+        p.IsGiven = false;   // OriginStrID kept — a repositioned part is still its original save item
         if (part is not null) Conds.Apply(p, part.Item, +1);
         Index(p);
         RaiseChanged();

@@ -1,6 +1,6 @@
 # Ostraplan — Edit-your-live-ship-in-a-save: scope & design
 
-**Status:** SCOPE LOCKED (2026-07-05) — investigation complete, all decisions settled (§1, §10); **no feature code written yet**, ready to start Phase 1 on the user's go-ahead.
+**Status:** SCOPE LOCKED (2026-07-05) — investigation complete, all decisions settled (§1, §10). **Phase 1 SHIPPED 2026-07-06** (identity + context + diff, no save writes): `Placement.OriginStrID`, `ShipDocument.SourceSave`, `SaveEditImport.ImportForEditing` retaining a full `SaveShipContext`, `.oplan` persistence, and the pure `ShipDiff` engine — 124 tests green (verified end-to-end against a real 5,116-part station save). **Phase 2** (inject to a save copy + UI) and **Phase 3** (harden) are next.
 This scopes the feature requested after P3: *import your active ship from a save, redesign it out-of-game, and write it back into your playthrough — keeping crew, cargo, position and ship identity* — writing to a **copy** of the save (never the original).
 
 > This is a distinct, riskier feature from P3's **layout-only** import/export. Call it **P5 (Save Edit)**; P4 (QoL) stays next unless re-prioritised.

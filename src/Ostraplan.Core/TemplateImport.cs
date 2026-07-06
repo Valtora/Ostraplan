@@ -51,8 +51,18 @@ public static class TemplateImport
         return FromTemplate(tmpl, catalog);
     }
 
-    /// <summary>Build an editable document from a parsed template.</summary>
-    public static ImportResult FromTemplate(ShipTemplate tmpl, Catalog catalog)
+    /// <summary>Build an editable, layout-only document from a parsed template. Placed parts carry no
+    /// save identity — for the save-edit import that tags each part, see <see cref="SaveEditImport"/>.</summary>
+    public static ImportResult FromTemplate(ShipTemplate tmpl, Catalog catalog) =>
+        Build(tmpl, catalog, retainOrigin: false);
+
+    /// <summary>
+    /// Shared import core. With <paramref name="retainOrigin"/> set (the save-edit path), each placed part
+    /// is tagged with its source item <c>strID</c> via <see cref="Placement.OriginStrID"/>; otherwise
+    /// (template / layout-only save import) that stays null and the part is treated as new construction on
+    /// any later write-back. Behaviour is identical for both paths in every other respect.
+    /// </summary>
+    internal static ImportResult Build(ShipTemplate tmpl, Catalog catalog, bool retainOrigin)
     {
         var doc = new ShipDocument(catalog);
         var skipped = new Dictionary<string, int>(StringComparer.Ordinal);
@@ -79,7 +89,11 @@ public static class TemplateImport
                     item.FX, item.FY, item.FRotation, part.Item.Width, part.Item.Height, tmpl.VShipPosX, tmpl.VShipPosY);
                 // imported structure is "given" — pre-existing, not user-authored, so the placement
                 // law (which the game applies only to new construction) doesn't re-validate it
-                new PlaceCommand(new Placement { DefName = item.DefName, X = col, Y = row, Rot = rot, IsGiven = true }).Do(doc);
+                new PlaceCommand(new Placement
+                {
+                    DefName = item.DefName, X = col, Y = row, Rot = rot, IsGiven = true,
+                    OriginStrID = retainOrigin ? item.StrID : null,
+                }).Do(doc);
             }
         }
 
