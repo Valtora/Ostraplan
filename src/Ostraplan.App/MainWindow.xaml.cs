@@ -1310,7 +1310,8 @@ public partial class MainWindow : Window
 
         MessageBox.Show(this,
             $"Written to a new save:\n{Path.GetFileName(outDir)}\n\n{summary}\n\n" +
-            "Load it from the in-game Load menu to see your edited ship — crew and cargo intact. " +
+            "In the in-game Load menu, press Refresh first — Ostranauts won't list a newly-written save until " +
+            $"you do — then load \"{Path.GetFileName(outDir)}\" to see your edited ship, crew and cargo intact. " +
             "Your original save is unchanged.",
             "Ship updated", MessageBoxButton.OK, MessageBoxImage.Information);
     }

@@ -21,8 +21,9 @@ public sealed record InjectReport(
 /// Writes an edited design back into the player's ship — the inject half of save-edit. It takes the edited
 /// <see cref="ShipDocument"/> and its <see cref="SaveShipContext"/>, computes the structural
 /// <see cref="ShipDiff"/>, and rebuilds the ship record: kept parts verbatim, moved parts repositioned
-/// (cargo shifted with them), new parts as fresh item entries the game defaults a CO for, deleted parts
-/// (and their cargo) dropped; <c>aRooms</c>/<c>aRating</c>/grid are recomputed by the P2 engine, and every
+/// (cargo shifted with them), new parts as a fresh item entry <b>plus a synthesized pristine CO</b> (a save
+/// load skips any item lacking one), deleted parts (and their cargo) dropped; <c>aRooms</c>/<c>aRating</c>/grid
+/// are recomputed by the P2 engine, and every
 /// other field — crew, world position, docking, economy, identity — is preserved verbatim off the retained
 /// record. Then it writes to a <b>copy</b> of the save (the original is never opened for writing).
 ///
@@ -108,16 +109,6 @@ public static class SaveEdit
             }
             outItems.Add(clone);
         }
-        foreach (var p in added)
-        {
-            var (w, h) = Footprint(catalog, p);
-            var (fx, fy, frot) = DocPoseToWorld(p, w, h, vx0, vy0);
-            outItems.Add(new JsonObject
-            {
-                ["strName"] = p.DefName, ["fX"] = fx, ["fY"] = fy, ["fRotation"] = frot,
-                ["strID"] = Guid.NewGuid().ToString(),   // fresh id -> the game builds a default CO from the def
-            });
-        }
 
         // rebuild aCOs: keep every CO whose strID survived (kept/moved parts, all cargo, crew, loot-spawners)
         var outCOs = new JsonArray();
@@ -126,6 +117,22 @@ public static class SaveEdit
             var id = Str(co, "strID");
             if (id is not null && dropSet.Contains(id)) continue;
             outCOs.Add(co.DeepClone());
+        }
+
+        // new parts need BOTH a fresh aItems entry and a matching aCOs entry. Loading a save (unlike a template)
+        // does NOT default a missing CO — DataHandler.SpawnItems skips any item whose strID isn't in dictCOSaves
+        // ("Trying to load a CO ... with missing save data ... Skipping"). aConds=["DEFAULT"] makes CondOwner.SetData
+        // repopulate the def's own starting conds on load, i.e. a pristine item exactly like one freshly built.
+        foreach (var p in added)
+        {
+            var (w, h) = Footprint(catalog, p);
+            var (fx, fy, frot) = DocPoseToWorld(p, w, h, vx0, vy0);
+            var id = Guid.NewGuid().ToString();
+            outItems.Add(new JsonObject
+            {
+                ["strName"] = p.DefName, ["fX"] = fx, ["fY"] = fy, ["fRotation"] = frot, ["strID"] = id,
+            });
+            outCOs.Add(SynthesizeCo(p.DefName, id, catalog, ctx.Source.RegId));
         }
 
         // grid frame: never shrink below the original (keeps nDestTile valid); grow to fit new parts
@@ -293,6 +300,16 @@ public static class SaveEdit
         foreach (var co in (ship["aCOs"] as JsonArray)!)
             if (Str(co, "strID") is { } id) coIds.Add(id);
 
+        // THE invariant a save load enforces (DataHandler.SpawnItems): every item needs a matching CO, or the
+        // game logs "missing save data" and silently skips it. This is a hard guard against a broken ship.
+        foreach (var it in (ship["aItems"] as JsonArray)!)
+        {
+            var id = Str(it, "strID");
+            if (id is { Length: > 0 } && !coIds.Contains(id) && !id.Contains("MP|"))
+                throw new InvalidDataException(
+                    $"Item '{id}' ({Str(it, "strName")}) has no condition owner — the game would skip it on load. Inject aborted.");
+        }
+
         foreach (var it in (ship["aItems"] as JsonArray)!)
         {
             var parent = Str(it, "strParentID") ?? Str(it, "strSlotParentID");
@@ -329,6 +346,29 @@ public static class SaveEdit
 
     private static (int W, int H) Footprint(Catalog catalog, Placement p) =>
         catalog.Lookup(p.DefName) is { } part ? GridMath.Size(part.Item.Width, part.Item.Height, p.Rot) : (1, 1);
+
+    /// <summary>
+    /// A pristine condition owner for a newly-added part, keyed to its item's <paramref name="strID"/>. A save
+    /// load requires one CO per item; <c>aConds = ["DEFAULT"]</c> tells <c>CondOwner.SetData</c> to repopulate the
+    /// def's own starting conds (verified against the decompile), so the part comes up freshly-built — the same
+    /// pattern the game and <see cref="ShipExport"/> use. Cooverlay skins resolve through
+    /// <c>DataHandler.GetCondOwnerDef</c> to their base def, so this works for any buildable def.
+    /// </summary>
+    private static JsonObject SynthesizeCo(string def, string strID, Catalog catalog, string regId)
+    {
+        var co = new JsonObject
+        {
+            ["strID"] = strID,
+            ["strCODef"] = def,
+            ["bAlive"] = true,
+            ["aConds"] = new JsonArray("DEFAULT"),
+            ["strCondID"] = def + strID,
+            ["strIdleAnim"] = "Idle",
+            ["strRegIDLast"] = regId,
+        };
+        if (catalog.Lookup(def)?.Friendly is { Length: > 0 } friendly) co["strFriendlyName"] = friendly;
+        return co;
+    }
 
     private static string SourceDir(SaveShipContext ctx) => Path.GetDirectoryName(ctx.ZipPath)!;
 
