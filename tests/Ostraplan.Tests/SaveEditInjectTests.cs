@@ -115,6 +115,39 @@ public class SaveEditInjectTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Moving_a_part_keeps_its_exact_condition_and_condition_owner()
+    {
+        // answers "does moving a wall keep it in the same condition?": a moved part keeps its strID, its item
+        // entry (incl. aCondOverrides = wear/damage) verbatim bar the pose, and its whole CO (all live state).
+        if (TestData.Game is not { } g) return;
+        if (FirstImport(g.Env, g.Catalog) is not { } r) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+
+        // prefer a part carrying wear/damage (aCondOverrides) so "condition preserved" is a real assertion
+        var target = r.Doc.Placements.FirstOrDefault(p => !r.Doc.IsLocked(p)
+                         && p.OriginStrID is { } id && r.Context.ItemsById[id]["aCondOverrides"] is JsonArray)
+                     ?? r.Doc.Placements.FirstOrDefault(p => !r.Doc.IsLocked(p));
+        if (target?.OriginStrID is not { } oid) return;
+
+        var origItem = r.Context.ItemsById[oid].AsObject();
+        var origOverrides = origItem["aCondOverrides"]?.ToJsonString();
+        var origCoConds = r.Context.CosById[oid].AsObject()["aConds"]?.ToJsonString();
+        var origFx = origItem["fX"]!.GetValue<double>();
+
+        new MoveCommand([target], 3, 0).Do(r.Doc);
+        var (ship, report) = SaveEdit.BuildInjectedShip(r.Doc, r.Context, g.Catalog, specs);
+
+        Assert.Equal(1, report.Moved);
+        // SAME item (strID survives), its condition overrides intact, only the pose changed
+        var moved = ((JsonArray)ship["aItems"]!).Select(n => n!.AsObject()).Single(it => (string?)it["strID"] == oid);
+        Assert.Equal(origOverrides, moved["aCondOverrides"]?.ToJsonString());
+        Assert.NotEqual(origFx, moved["fX"]!.GetValue<double>());
+        // and its condition owner (wear, power, gas, inventory, door state) is kept verbatim
+        var co = ((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()).Single(c => (string?)c["strID"] == oid);
+        Assert.Equal(origCoConds, co["aConds"]?.ToJsonString());
+    }
+
+    [Fact]
     public void Deleting_a_cargoless_part_drops_its_item_and_co()
     {
         if (TestData.Game is not { } g) return;
