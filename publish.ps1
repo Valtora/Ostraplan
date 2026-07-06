@@ -36,4 +36,8 @@ $exe = Get-Item $named
 
 "`n{0}`n  v{1}   {2:N1} MB   single-file, self-contained win-x64   (WPF smoke passed)" -f `
     $exe.FullName, $exe.VersionInfo.ProductVersion, ($exe.Length / 1MB)
+
+# Launch the freshly-built exe so the release can be eyeballed immediately.
+# Start-Process is non-blocking, so the GUI opens and this script returns.
+Start-Process -FilePath $exe.FullName
 exit 0
