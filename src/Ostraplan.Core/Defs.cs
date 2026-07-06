@@ -39,19 +39,21 @@ public sealed record ItemDef(
 /// a CO by name it falls back to dictCOOverlays and uses strCOBase with the
 /// overlay's cosmetic overrides (DataHandler.LoadCO).
 /// </summary>
-public sealed record CoOverlayDef(string Name, string? NameFriendly, string? Img, string? COBase)
+public sealed record CoOverlayDef(string Name, string? NameFriendly, string? Img, string? COBase, string[] GpmNames)
 {
     public static CoOverlayDef Parse(JsonElement e) => new(
         Json.Str(e, "strName") ?? "",
         Json.Str(e, "strNameFriendly"),
         Json.Str(e, "strImg"),
-        Json.Str(e, "strCOBase"));
+        Json.Str(e, "strCOBase"),
+        Json.StrArray(e, "mapGUIPropMaps"));
 }
 
 public sealed record CondOwnerDef(
     string Name, string? NameFriendly, string? ItemDefName, string[] StartingCondNames,
     IReadOnlyDictionary<string, double> StartingCondValues,
-    IReadOnlyDictionary<string, (double X, double Y)> MapPoints)
+    IReadOnlyDictionary<string, (double X, double Y)> MapPoints,
+    string[] GpmNames)   // GUI-prop-map declarations (the "Panel A"/"Electrical"/... a device wires up on install)
 {
     public static CondOwnerDef Parse(JsonElement e)
     {
@@ -62,7 +64,8 @@ public sealed record CondOwnerDef(
             Json.Str(e, "strItemDef"),
             conds.Select(LootDef.CondName).ToArray(),
             ParseCondValues(conds),
-            ParseMapPoints(Json.StrArray(e, "mapPoints")));
+            ParseMapPoints(Json.StrArray(e, "mapPoints")),
+            Json.StrArray(e, "mapGUIPropMaps"));
     }
 
     /// <summary>

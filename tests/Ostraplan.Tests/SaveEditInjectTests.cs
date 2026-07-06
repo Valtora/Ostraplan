@@ -1,6 +1,7 @@
 using System.IO;
 using System.IO.Compression;
 using System.Linq;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Ostraplan.Core;
 using Xunit;
@@ -228,6 +229,56 @@ public class SaveEditInjectTests(ITestOutputHelper output)
             Assert.Empty(orphans);   // no item may lack a CO, or the game skips it on load
         }
         finally { if (Directory.Exists(temp)) Directory.Delete(temp, recursive: true); }
+    }
+
+    [Fact]
+    public void GpmSettingsFor_expands_the_def_pairs_against_the_templates()
+    {
+        var electrical = JsonDocument.Parse("[\"status\",\"true\"]").RootElement.Clone();
+        var panel = JsonDocument.Parse("[\"strGUIPrefab\",\"GUIAirPump\"]").RootElement.Clone();
+        var cat = new Catalog
+        {
+            Parts = [],
+            ByDefName = new Dictionary<string, PartDef>(),
+            Loots = new Dictionary<string, LootDef>(),
+            Triggers = new Dictionary<string, CondTriggerDef>(),
+            Warnings = [],
+            GpmTemplates = new Dictionary<string, JsonElement> { ["Electrical"] = electrical, ["AirPump"] = panel },
+        };
+        var part = new PartDef("Dev", "Dev", "MISC", "core",
+            new ItemDef("Dev", "", false, null, 0, 1, ["L"], [], []), null, [], [], [],
+            new Dictionary<string, double>(), new Dictionary<string, (double, double)>())
+        {
+            Gpm = [("Panel A", "AirPump"), ("Electrical", "Electrical")],
+        };
+
+        var settings = cat.GpmSettingsFor(part);
+        Assert.Equal(["Panel A", "Electrical"], settings.Select(s => s.Instance));
+        Assert.Empty(cat.GpmSettingsFor(part with { Gpm = [("X", "NoSuchTemplate")] }));   // unknown template -> nothing
+    }
+
+    [Fact]
+    public void Adding_a_powered_device_bakes_its_gpm_so_it_wires_on_load()
+    {
+        if (TestData.Game is not { } g) return;
+        if (FirstImport(g.Env, g.Catalog) is not { } r) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        if (r.Doc.Bounds() is not { } b) return;
+        if (g.Catalog.Lookup("ItmAirPump03OnG") is not { } pumpDef) return;
+
+        // the def resolves its GUI-prop-maps (control panel + the Electrical power map) and the templates load
+        Assert.Contains(pumpDef.Gpm, t => t.Template == "Electrical");
+        Assert.Contains(g.Catalog.GpmSettingsFor(pumpDef), s => s.Instance == "Electrical");
+
+        new PlaceCommand(new Placement { DefName = "ItmAirPump03OnG", X = b.MinX, Y = b.MinY }).Do(r.Doc);
+        var (ship, report) = SaveEdit.BuildInjectedShip(r.Doc, r.Context, g.Catalog, specs);
+        Assert.Equal(1, report.Added);
+
+        // the new pump (appended last) carries an aGPMSettings including the Electrical power map
+        var pump = ((JsonArray)ship["aItems"]!).Select(n => n!.AsObject()).Last(it => (string?)it["strName"] == "ItmAirPump03OnG");
+        var gpm = pump["aGPMSettings"] as JsonArray;
+        Assert.NotNull(gpm);
+        Assert.Contains(gpm!.Select(n => n!.AsObject()), o => (string?)o["strName"] == "Electrical");
     }
 
     [Fact]

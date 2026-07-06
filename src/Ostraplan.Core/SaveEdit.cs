@@ -128,10 +128,15 @@ public static class SaveEdit
             var (w, h) = Footprint(catalog, p);
             var (fx, fy, frot) = DocPoseToWorld(p, w, h, vx0, vy0);
             var id = Guid.NewGuid().ToString();
-            outItems.Add(new JsonObject
+            var item = new JsonObject
             {
                 ["strName"] = p.DefName, ["fX"] = fx, ["fY"] = fy, ["fRotation"] = frot, ["strID"] = id,
-            });
+            };
+            // a powered/controlled device needs its GUI-prop-maps (Electrical + panels) baked, or it loads
+            // installed-but-unwired until the player uninstalls/reinstalls it (the game only restores these
+            // from the save, it doesn't rebuild them on load).
+            if (GpmSettings(catalog, p.DefName) is { } gpm) item["aGPMSettings"] = gpm;
+            outItems.Add(item);
             outCOs.Add(SynthesizeCo(p.DefName, id, catalog, ctx.Source.RegId));
         }
 
@@ -368,6 +373,24 @@ public static class SaveEdit
         };
         if (catalog.Lookup(def)?.Friendly is { Length: > 0 } friendly) co["strFriendlyName"] = friendly;
         return co;
+    }
+
+    /// <summary>
+    /// Bake a new device's <c>aGPMSettings</c> — its GUI-prop-maps (the <c>Electrical</c> power map + control
+    /// panels) resolved from the def, matching what install produces — so it wires to power and its panels on
+    /// load. Null when the def declares no GPM (walls, floors, tools). Connection lists stay empty: the game
+    /// re-derives them from the device's power-map points touching a conduit at load, so the device still only
+    /// powers if it's placed on the conduit network.
+    /// </summary>
+    private static JsonArray? GpmSettings(Catalog catalog, string defName)
+    {
+        if (catalog.Lookup(defName) is not { } part) return null;
+        var settings = catalog.GpmSettingsFor(part);
+        if (settings.Count == 0) return null;
+        var arr = new JsonArray();
+        foreach (var (instance, dict) in settings)
+            arr.Add(new JsonObject { ["strName"] = instance, ["dictGUIPropMap"] = JsonNode.Parse(dict.GetRawText()) });
+        return arr;
     }
 
     private static string SourceDir(SaveShipContext ctx) => Path.GetDirectoryName(ctx.ZipPath)!;

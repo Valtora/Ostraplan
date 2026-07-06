@@ -1,4 +1,5 @@
 using System.Collections.Concurrent;
+using System.Text.Json;
 
 namespace Ostraplan.Core;
 
@@ -14,7 +15,14 @@ public sealed record PartDef(
     string[] Tools,
     string[] StartingConds,  // the placed condowner's aStartingConds cond names
     IReadOnlyDictionary<string, double> StartingCondValues,  // name -> magnitude/amount (StatMass kg, StatPower, ...); see LootDef.CondAmount
-    IReadOnlyDictionary<string, (double X, double Y)> MapPoints);  // condowner mapPoints (DockA/DockB, RoomA/B, ...)
+    IReadOnlyDictionary<string, (double X, double Y)> MapPoints)  // condowner mapPoints (DockA/DockB, RoomA/B, ...)
+{
+    /// <summary>Resolved GUI-prop-map declarations — (instance, template) name pairs from the def's
+    /// <c>mapGUIPropMaps</c> (base condowner + cooverlay). Drives the <c>aGPMSettings</c> baked onto a
+    /// newly-injected device so it wires to power/panels on load (see <see cref="Catalog.GpmSettingsFor"/>).
+    /// Empty for non-device parts (walls, floors, tools).</summary>
+    public IReadOnlyList<(string Instance, string Template)> Gpm { get; init; } = [];
+}
 
 /// <summary>
 /// The buildable catalog, derived the way the game builds its install menu:
@@ -42,6 +50,26 @@ public sealed class Catalog
     /// <summary>The effective data, kept so any <b>placed</b> def can be resolved on demand
     /// (imports reference far more than the buildable menu). Null in synthetic test catalogs.</summary>
     public DataIndex? Index { get; init; }
+
+    /// <summary>GUI-prop-map templates by name (from <c>data/guipropmaps</c>) — the <c>dictGUIPropMap</c> array
+    /// each named map (e.g. "Electrical", "AirPump") expands to. Used to bake a new device's <c>aGPMSettings</c>
+    /// so it wires up on load. Empty in synthetic test catalogs.</summary>
+    public IReadOnlyDictionary<string, JsonElement> GpmTemplates { get; init; } = new Dictionary<string, JsonElement>();
+
+    /// <summary>
+    /// The <c>aGPMSettings</c> a freshly-built instance of <paramref name="part"/> would have: for each of the
+    /// def's (instance, template) GUI-prop-map declarations, the template's <c>dictGUIPropMap</c>. Empty for a
+    /// non-device part, or when a referenced template isn't loaded. This is what install produces and what the
+    /// save load restores — a device injected without it loads unwired to power/panels.
+    /// </summary>
+    public IReadOnlyList<(string Instance, JsonElement Dict)> GpmSettingsFor(PartDef part)
+    {
+        var result = new List<(string, JsonElement)>();
+        foreach (var (instance, template) in part.Gpm)
+            if (GpmTemplates.TryGetValue(template, out var dict))
+                result.Add((instance, dict));
+        return result;
+    }
 
     private readonly ConcurrentDictionary<string, PartDef?> _placed = new(StringComparer.Ordinal);
 
@@ -152,6 +180,9 @@ public sealed class Catalog
 
         var loots = index.Type("loot").ToDictionary(kv => kv.Key, kv => LootDef.Parse(kv.Value.El), StringComparer.Ordinal);
         var trigs = index.Type("condtrigs").ToDictionary(kv => kv.Key, kv => CondTriggerDef.Parse(kv.Value.El), StringComparer.Ordinal);
+        var gpmTemplates = index.Type("guipropmaps")
+            .Where(kv => kv.Value.El is { ValueKind: JsonValueKind.Object } el && el.TryGetProperty("dictGUIPropMap", out _))
+            .ToDictionary(kv => kv.Key, kv => kv.Value.El.GetProperty("dictGUIPropMap").Clone(), StringComparer.Ordinal);
 
         // Resolve a buildable palette entry, warning when its sprite is missing on disk.
         PartDef? Resolve(string defName, string category, string fallbackOrigin, string[] inputs, string[] tools, bool warnMissingSprite)
@@ -212,6 +243,7 @@ public sealed class Catalog
             ByDefName = byDefName,
             Loots = loots,
             Triggers = trigs,
+            GpmTemplates = gpmTemplates,
             Warnings = warnings,
             Index = index,
         };
@@ -256,6 +288,37 @@ public sealed class Catalog
             defName, friendly, category, origin, item, index.ResolveImage(item.Img), inputs, tools,
             co?.StartingCondNames ?? [],
             co?.StartingCondValues ?? new Dictionary<string, double>(),
-            co?.MapPoints ?? new Dictionary<string, (double, double)>());
+            co?.MapPoints ?? new Dictionary<string, (double, double)>())
+        {
+            Gpm = ResolveGpm(co?.GpmNames, overlay?.GpmNames),
+        };
+    }
+
+    /// <summary>
+    /// Merge a condowner's and its cooverlay's <c>mapGUIPropMaps</c> into ordered (instance, template) pairs.
+    /// The flat list alternates instance/template names; a trailing single name — the odd "Electrical" the
+    /// game's own <c>ConvertStringArrayToDict</c> drops but adds back via power-connection logic — is taken as
+    /// instance == template. The overlay's entries override the base's by instance name (the game applies the
+    /// base first, then the skin).
+    /// </summary>
+    private static IReadOnlyList<(string, string)> ResolveGpm(string[]? baseNames, string[]? overlayNames)
+    {
+        var map = new Dictionary<string, string>(StringComparer.Ordinal);
+        var order = new List<string>();
+        void Add(string[]? names)
+        {
+            if (names is null) return;
+            for (var i = 0; i < names.Length; i += 2)
+            {
+                var instance = names[i];
+                if (string.IsNullOrEmpty(instance)) continue;
+                var template = i + 1 < names.Length && !string.IsNullOrEmpty(names[i + 1]) ? names[i + 1] : instance;
+                if (!map.ContainsKey(instance)) order.Add(instance);
+                map[instance] = template;
+            }
+        }
+        Add(baseNames);
+        Add(overlayNames);
+        return order.Select(k => (k, map[k])).ToList();
     }
 }
