@@ -134,18 +134,27 @@ public sealed class ShipGrid
             return new ShipGrid(1, 1, 0, 0, new TileConds(catalog), []);
 
         const int pad = 1;
-        var originX = b.MinX - pad;
-        var originY = b.MinY - pad;
-        var nCols = (b.MaxX - b.MinX + 1) + 2 * pad;
-        var nRows = (b.MaxY - b.MinY + 1) + 2 * pad;
+        return FromDocumentFramed(doc, catalog, b.MinX - pad, b.MinY - pad,
+            (b.MaxX - b.MinX + 1) + 2 * pad, (b.MaxY - b.MinY + 1) + 2 * pad);
+    }
 
+    /// <summary>
+    /// Build an analysis grid from a live document in an <b>explicit</b> frame: document tile
+    /// (<paramref name="originCol"/>, <paramref name="originRow"/>) maps to grid (0,0), and the grid is
+    /// <paramref name="nCols"/>×<paramref name="nRows"/>. Save-edit inject uses this to compute rooms/rating in
+    /// the injected ship's own grid — the original size (so grid-relative indices stay put) or grown to fit
+    /// new parts — rather than the bounds-plus-pad frame <see cref="FromDocument"/> picks. VShipPos carries
+    /// the document-coord origin, as in FromDocument; room building ignores it.
+    /// </summary>
+    public static ShipGrid FromDocumentFramed(ShipDocument doc, Catalog catalog, int originCol, int originRow, int nCols, int nRows)
+    {
         var conds = new TileConds(catalog);
         var parts = new List<PlacedPart>();
         foreach (var p in doc.Placements)
         {
             if (doc.Part(p) is not { } part) continue;
-            var gx = p.X - originX;
-            var gy = p.Y - originY;
+            var gx = p.X - originCol;
+            var gy = p.Y - originRow;
             conds.Apply(new Placement { DefName = p.DefName, X = gx, Y = gy, Rot = p.Rot }, part.Item, +1);
 
             var (w, h) = GridMath.Size(part.Item.Width, part.Item.Height, p.Rot);
@@ -159,7 +168,7 @@ public sealed class ShipGrid
         }
 
         // VShipPos doubles as the grid origin in document coords (position of tile 0,0)
-        return new ShipGrid(nCols, nRows, originX, originY, conds, parts);
+        return new ShipGrid(nCols, nRows, originCol, originRow, conds, parts);
     }
 
     /// <summary>Map a grid tile index back to document tile coords (grid origin = VShipPos).</summary>

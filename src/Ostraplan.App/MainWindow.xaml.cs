@@ -3,6 +3,7 @@ using System.IO;
 using System.Net.Http;
 using System.Reflection;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
@@ -29,6 +30,7 @@ public partial class MainWindow : Window
     private List<PartVM> _allParts = [];
     private readonly List<ListBox> _paletteLists = [];
     private ShipDocument? _doc;
+    private SaveShipContext? _saveContext;   // set when a design was imported from a save FOR EDITING — enables writing it back
     private OplanMeta _meta = new();
     private bool _syncingPalette;
     private IReadOnlyList<RoomSpecDef>? _roomSpecs;   // lazily loaded once for the Ship Rating analysis
@@ -264,11 +266,17 @@ public partial class MainWindow : Window
             new PlaceCommand(new Placement { DefName = Catalog.PrimaryDocksysDef, X = 0, Y = 0 }).Do(_doc);
         _doc.Changed += OnDocChanged;
         _meta = new OplanMeta();
+        _saveContext = null;
         _stack.Reset();
         Board.SetDocument(_doc);
         OnDocChanged();
         UpdateInspector();
+        UpdateSaveEditUi();
     }
+
+    /// <summary>Enable "Update Ship in Save…" only for a save-derived design (fresh import, or reopened .oplan
+    /// carrying a source reference — the context is re-located on demand).</summary>
+    private void UpdateSaveEditUi() => BtnUpdateSave.IsEnabled = _doc?.SourceSave is not null;
 
     private void OnDocChanged()
     {
@@ -512,11 +520,13 @@ public partial class MainWindow : Window
         _doc.FilePath = dlg.FileName;
         _doc.Changed += OnDocChanged;
         _meta = file.Meta;
+        _saveContext = null;   // a reopened save-derived design re-locates its context on demand (from SourceSave)
         _stack.Reset();
         Board.SetDocument(_doc);
         Board.FitContent();
         OnDocChanged();
         UpdateInspector();
+        UpdateSaveEditUi();
         _settings.Touch(dlg.FileName);
         _settings.Save();
 
@@ -1112,10 +1122,14 @@ public partial class MainWindow : Window
         var menu = new ContextMenu { PlacementTarget = BtnImport, Placement = PlacementMode.Bottom };
         var fromTemplate = new MenuItem { Header = "From ship template…" };
         fromTemplate.Click += (_, _) => ImportTemplate();
-        var fromSave = new MenuItem { Header = "From save game…" };
+        var fromSave = new MenuItem { Header = "From save game (layout only)…" };
         fromSave.Click += (_, _) => ImportSave();
+        var forEditing = new MenuItem { Header = "Your ship, for editing (write back to the save)…" };
+        forEditing.Click += (_, _) => ImportSaveForEditing();
         menu.Items.Add(fromTemplate);
         menu.Items.Add(fromSave);
+        menu.Items.Add(new Separator());
+        menu.Items.Add(forEditing);
         menu.IsOpen = true;
     }
 
@@ -1164,6 +1178,156 @@ public partial class MainWindow : Window
         InstallImportedDocument(result);
     }
 
+    /// <summary>Import the player's ship FOR EDITING: keeps each part's save identity plus a full context, so
+    /// the edited layout can be written back into a copy of the save with crew and cargo preserved.</summary>
+    private async void ImportSaveForEditing()
+    {
+        if (_catalog is null || _env is null || !ConfirmDiscardChanges()) return;
+
+        var saves = SaveImport.ListSaves(_env);
+        if (saves.Count == 0)
+        {
+            MessageBox.Show(this, "No save games found in your Ostranauts Saves folder.", "Import",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        var picker = new SavePickerDialog(saves) { Owner = this };
+        if (picker.ShowDialog() != true || picker.Selected is not { } save) return;
+
+        var ship = save.ShipName.Length > 0 ? $"\"{save.ShipName}\"" : "the player's ship";
+        if (MessageBox.Show(this,
+                $"Import {ship} from save \"{save.Name}\" for editing?\n\n" +
+                "You'll redesign the ship's structure out-of-game. When you choose \"Update Ship in Save…\", " +
+                "Ostraplan writes the result into a COPY of this save — crew, cargo, world position and ship " +
+                "identity are preserved, and the original save is never touched.",
+                "Import for editing", MessageBoxButton.OKCancel, MessageBoxImage.Information) != MessageBoxResult.OK)
+            return;
+
+        var (catalog, entry) = (_catalog, save);
+        SaveEditImportResult edit;
+        Mouse.OverrideCursor = Cursors.Wait;
+        try
+        {
+            edit = await Task.Run(() => SaveEditImport.ImportForEditing(entry, catalog));
+        }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "Import failed:\n\n" + ex.Message, "Import", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        finally { Mouse.OverrideCursor = null; }
+
+        InstallImportedDocument(edit.Import, edit.Context);
+    }
+
+    /// <summary>Write the edited ship back into a COPY of the save it came from (crew/cargo preserved, original
+    /// untouched). Enabled only for a save-derived design; re-locates the context on demand for a reopened .oplan.</summary>
+    private async void OnUpdateSaveClick(object sender, RoutedEventArgs e)
+    {
+        if (_doc is null || _catalog is null || _index is null || _env is null) return;
+        if (_doc.SourceSave is not { } src)
+        {
+            MessageBox.Show(this, "This design wasn't imported from a save. Use Import ▸ \"Your ship, for editing\" first.",
+                "Update ship in save", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        // resolve the context: the in-session one, or re-locate it from the source save (a reopened .oplan)
+        var ctx = _saveContext;
+        if (ctx is null)
+        {
+            var match = SaveImport.ListSaves(_env).FirstOrDefault(s => string.Equals(s.Name, src.SaveName, StringComparison.Ordinal));
+            if (match is null)
+            {
+                MessageBox.Show(this,
+                    $"The source save \"{src.SaveName}\" is no longer in your Saves folder, so this design can't be " +
+                    "written back. You can still Export it as a spawnable mod.",
+                    "Update ship in save", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            var (catalog0, zip0, name0, reg0) = (_catalog, match.ZipPath, match.Name, src.RegId);
+            Mouse.OverrideCursor = Cursors.Wait;
+            try { ctx = await Task.Run(() => SaveEditImport.RelocateContext(zip0, name0, reg0, catalog0)); }
+            catch (Exception ex)
+            {
+                MessageBox.Show(this, "Couldn't re-locate the ship in that save:\n\n" + ex.Message +
+                    "\n\nYou can still Export it as a mod.", "Update ship in save", MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            finally { Mouse.OverrideCursor = null; }
+            _saveContext = ctx;   // cache for further writes this session
+        }
+
+        _roomSpecs ??= RoomCertifier.LoadSpecs(_index);
+        var (doc, catalog, specs, context) = (_doc, _catalog, _roomSpecs, ctx);
+
+        // build the injected ship off-thread (runs the room/rating engine); a hard integrity failure surfaces here
+        JsonObject shipObj;
+        InjectReport report;
+        Mouse.OverrideCursor = Cursors.Wait;
+        try { (shipObj, report) = await Task.Run(() => SaveEdit.BuildInjectedShip(doc, context, catalog, specs)); }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "The edit can't be written back:\n\n" + ex.Message, "Update ship in save",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+        finally { Mouse.OverrideCursor = null; }
+
+        // loud cargo-loss warning: deleting a container that still holds cargo drops it
+        if (report.CargoDropped.Count > 0 && !ConfirmCargoLoss(report.CargoDropped)) return;
+
+        // where the copy lands; overwrite the previous copy only after an explicit confirm
+        var outDir = SaveEdit.DefaultOutputDir(context);
+        var overwrite = false;
+        if (Directory.Exists(outDir))
+        {
+            if (MessageBox.Show(this, $"A copy already exists:\n{outDir}\n\nReplace it with this version?",
+                    "Update ship in save", MessageBoxButton.OKCancel, MessageBoxImage.Warning) != MessageBoxResult.OK)
+                return;
+            overwrite = true;
+        }
+
+        var summary = $"{report.Kept} kept · {report.Moved} moved · {report.Added} added · {report.Deleted} deleted";
+        var warn = report.Warnings.Count > 0
+            ? $"\n\nNote: {report.Warnings.Count} placement-law warning(s) — the ship is still written (load the copy to check):\n" +
+              string.Join("\n", report.Warnings.Take(6).Select(w => "  • " + w))
+            : "";
+        if (MessageBox.Show(this,
+                $"Write your edited ship into a copy of \"{src.SaveName}\"?\n\n{summary}{warn}\n\n" +
+                $"Copy:\n{outDir}\n\nYour original save is not touched.",
+                "Update ship in save", MessageBoxButton.OKCancel, MessageBoxImage.Question) != MessageBoxResult.OK)
+            return;
+
+        try { SaveEdit.WriteCopy(context, shipObj, outDir, overwrite); }
+        catch (Exception ex)
+        {
+            MessageBox.Show(this, "Writing the copy failed:\n\n" + ex.Message, "Update ship in save",
+                MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        MessageBox.Show(this,
+            $"Written to a new save:\n{Path.GetFileName(outDir)}\n\n{summary}\n\n" +
+            "Load it from the in-game Load menu to see your edited ship — crew and cargo intact. " +
+            "Your original save is unchanged.",
+            "Ship updated", MessageBoxButton.OK, MessageBoxImage.Information);
+    }
+
+    /// <summary>The loud, explicit confirmation before an inject drops cargo from deleted containers.</summary>
+    private bool ConfirmCargoLoss(IReadOnlyList<CargoLoss> losses)
+    {
+        var lines = losses.Take(8).Select(l =>
+            $"  • {l.ContainerName}: {string.Join(", ", l.Items.Take(6))}{(l.Items.Count > 6 ? $" …(+{l.Items.Count - 6})" : "")}");
+        var total = losses.Sum(l => l.Items.Count);
+        return MessageBox.Show(this,
+            $"You deleted {losses.Count} container(s) that still hold {total} cargo item(s). Writing this back will " +
+            "DELETE that cargo:\n\n" + string.Join("\n", lines) +
+            "\n\nTo keep it, cancel — empty those containers in-game, then re-import and edit. Delete the cargo and continue?",
+            "Cargo will be lost", MessageBoxButton.OKCancel, MessageBoxImage.Warning) == MessageBoxResult.OK;
+    }
+
     /// <summary>Browse core+mod ship templates and import the chosen one as a fresh design.</summary>
     private async void ImportTemplate()
     {
@@ -1200,19 +1364,22 @@ public partial class MainWindow : Window
         InstallImportedDocument(result);
     }
 
-    /// <summary>Swap an imported ship in as the active document (no file path — Save prompts Save As).</summary>
-    private void InstallImportedDocument(ImportResult result)
+    /// <summary>Swap an imported ship in as the active document (no file path — Save prompts Save As). The
+    /// optional context is retained when the ship was imported FOR EDITING, enabling write-back to the save.</summary>
+    private void InstallImportedDocument(ImportResult result, SaveShipContext? context = null)
     {
         if (_doc is not null) _doc.Changed -= OnDocChanged;
         _doc = result.Doc;
         _doc.FilePath = null;
         _doc.Changed += OnDocChanged;
         _meta = new OplanMeta { Name = result.ShipName };
+        _saveContext = context;
         _stack.Reset();
         Board.SetDocument(_doc);
         Board.FitContent();
         OnDocChanged();
         UpdateInspector();
+        UpdateSaveEditUi();
         ReportImport(result);
     }
 

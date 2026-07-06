@@ -29,26 +29,41 @@ public static class SaveEditImport
     public static SaveEditImportResult ImportForEditing(SaveEntry save, Catalog catalog)
     {
         using var zip = ZipFile.OpenRead(save.ZipPath);
-
         var regId = SaveImport.PlayerShipRegId(zip)
             ?? throw new InvalidDataException("Couldn't find the player's ship in this save (no character record naming a current ship).");
+        return ImportShip(save.ZipPath, save.Name, regId, catalog);
+    }
+
+    /// <summary>
+    /// Rebuild just the <see cref="SaveShipContext"/> for a design reopened from an <c>.oplan</c> — the document
+    /// already came from the file (with its <see cref="Placement.OriginStrID"/> tags), so this re-locates the
+    /// <b>specific</b> ship (<paramref name="regId"/>) in the chosen save and returns the maps needed to inject.
+    /// Throws if that ship is no longer in the save. The throwaway document it builds is discarded.
+    /// </summary>
+    public static SaveShipContext RelocateContext(string zipPath, string saveName, string regId, Catalog catalog) =>
+        ImportShip(zipPath, saveName, regId, catalog).Context;
+
+    /// <summary>Load one ship (by RegID) from a save zip, build the editable document, and retain the context.</summary>
+    private static SaveEditImportResult ImportShip(string zipPath, string saveName, string regId, Catalog catalog)
+    {
+        using var zip = ZipFile.OpenRead(zipPath);
         var shipEntry = zip.GetEntry($"ships/{regId}.json")
-            ?? throw new InvalidDataException($"The player's ship '{regId}' is not among this save's ships.");
+            ?? throw new InvalidDataException($"The ship '{regId}' is not among save \"{saveName}\"'s ships.");
         var text = SaveImport.ReadText(shipEntry);
 
         // Parse the same text two ways: a ShipTemplate to drive the placement pipeline, and a mutable
-        // JsonNode to retain the verbatim item/CO maps Phase 2 needs. Both select the ship with the most
+        // JsonNode to retain the verbatim item/CO maps the inject needs. Both select the ship with the most
         // items, so their strIDs describe the same ship.
         var tmpl = ShipTemplate.ParseFile(text).OrderByDescending(s => s.Items.Count).FirstOrDefault()
-            ?? throw new InvalidDataException($"The player's ship '{regId}' could not be parsed.");
+            ?? throw new InvalidDataException($"The ship '{regId}' could not be parsed.");
         var shipNode = LargestShip(JsonNode.Parse(text))
-            ?? throw new InvalidDataException($"The player's ship '{regId}' has no readable record.");
+            ?? throw new InvalidDataException($"The ship '{regId}' has no readable record.");
 
         var import = TemplateImport.Build(tmpl, catalog, retainOrigin: true);
-        var source = new SaveSourceRef(save.Name, regId);
+        var source = new SaveSourceRef(saveName, regId);
         import.Doc.SourceSave = source;
 
-        var context = BuildContext(source, save.ZipPath, shipNode, import.Doc);
+        var context = BuildContext(source, zipPath, shipNode, import.Doc);
         return new SaveEditImportResult(import, context);
     }
 

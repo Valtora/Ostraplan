@@ -58,6 +58,9 @@
                             ToolTip="Start a design from an existing ship — an in-game ship or a save game"/>
                     <Button x:Name="BtnExport" Content="Export…" Padding="10,3" Margin="0,0,3,0" Click="OnExportClick"
                             ToolTip="Export the design as a spawnable local data mod (data/ships) with precomputed rooms &amp; rating"/>
+                    <Button x:Name="BtnUpdateSave" Content="Update Ship in Save…" Padding="10,3" Margin="0,0,3,0" Click="OnUpdateSaveClick"
+                            IsEnabled="False"
+                            ToolTip="Write this edited ship back into a COPY of the save it came from, keeping crew and cargo (enabled only for a design imported for editing)"/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 
