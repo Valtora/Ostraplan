@@ -407,4 +407,36 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         }
         finally { if (Directory.Exists(temp)) Directory.Delete(temp, recursive: true); }
     }
+
+    [Fact]
+    public void Adding_a_nav_console_installs_the_standard_module_set_with_cos()
+    {
+        // a newly-added nav console spawns as an empty frame — the inject must add the standard module set as
+        // contained children, each with a synthesized CO (a save load skips any item lacking one).
+        if (TestData.Game is not { } g) return;
+        if (FirstImport(g.Env, g.Catalog) is not { } r) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        if (r.Doc.Bounds() is not { } b) return;
+        if (g.Catalog.Lookup("ItmStationNav") is not { } consoleDef || !NavConsole.IsConsole(consoleDef)) return;
+
+        var items0 = Count(r.Context.ShipRecord, "aItems");
+        var cos0 = Count(r.Context.ShipRecord, "aCOs");
+        var n = NavConsole.StandardModules.Count;
+
+        new PlaceCommand(new Placement { DefName = "ItmStationNav", X = b.MinX, Y = b.MinY }).Do(r.Doc);
+        var (ship, report) = SaveEdit.BuildInjectedShip(r.Doc, r.Context, g.Catalog, specs);
+
+        Assert.Equal(1, report.Added);                       // one placement (the console); its modules ride along
+        Assert.Equal(items0 + 1 + n, Count(ship, "aItems")); // console + N modules
+        Assert.Equal(cos0 + 1 + n, Count(ship, "aCOs"));     // each gets a CO (DataHandler.SpawnItems skips CO-less items)
+
+        var items = ((JsonArray)ship["aItems"]!).Select(x => x!.AsObject()).ToList();
+        var consoleId = (string?)items.Last(it => (string?)it["strName"] == "ItmStationNav")["strID"];
+        var modules = items.Where(it => (string?)it["strParentID"] == consoleId).ToList();
+        Assert.Equal(NavConsole.StandardModules.OrderBy(x => x),
+                     modules.Select(m => (string?)m["strName"]).OrderBy(x => x));   // the full set, parented to the console
+
+        var coIds = ((JsonArray)ship["aCOs"]!).Select(c => (string?)c!["strID"]).ToHashSet();
+        Assert.All(modules, m => Assert.Contains((string?)m["strID"], coIds));      // every module has its 1:1 CO
+    }
 }

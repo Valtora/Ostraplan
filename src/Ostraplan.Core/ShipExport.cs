@@ -60,14 +60,28 @@ public static class ShipExport
             var (w, h) = GridMath.Size(part.Part.Item.Width, part.Part.Item.Height, part.Rot);
             // inverse of ShipGrid.FromTemplate with vShipPos=(0,0): centre = top-left + (size/2 − 0.5),
             // y flips (grid is y-down, the game is y-up), and fRotation is CCW = Norm(−Rot).
+            var fx = part.TopLeftCol + (w / 2.0 - 0.5);
+            var fy = -(part.TopLeftRow + (h / 2.0 - 0.5));
+            var strID = Guid.NewGuid().ToString();
             items.Add(new ExportedItem
             {
                 StrName = part.Part.DefName,
-                FX = part.TopLeftCol + (w / 2.0 - 0.5),
-                FY = -(part.TopLeftRow + (h / 2.0 - 0.5)),
+                FX = fx,
+                FY = fy,
                 FRotation = GridMath.Norm(-part.Rot),
-                StrID = Guid.NewGuid().ToString(),
+                StrID = strID,
             });
+
+            // A nav console is an empty frame: its interface is assembled from hot-swappable module items
+            // contained inside it. Ostraplan places only the console, so install the standard module set here or
+            // it spawns blank. On a template load the game defaults each module's CO + GUI-prop-map from its def,
+            // so a bare parented item at the console's own coordinates is enough (see NavConsole / Babak.json).
+            if (NavConsole.IsConsole(part.Part))
+                foreach (var modDef in NavConsole.StandardModules)
+                    items.Add(new ExportedItem
+                    {
+                        StrName = modDef, FX = fx, FY = fy, FRotation = 0, StrID = Guid.NewGuid().ToString(), StrParentID = strID,
+                    });
         }
 
         var rooms = partition.Rooms.Select(r => new ExportedRoom
@@ -102,6 +116,12 @@ public static class ShipExport
     /// <summary>Serialize the ship as the game expects a <c>data/ships</c> file: a one-element top-level array.</summary>
     public static string Serialize(ExportedShip ship) => JsonSerializer.Serialize(new[] { ship }, Json);
 
+    /// <summary>Serialize the mod metadata as the game expects <c>mod_info.json</c>: a one-element top-level
+    /// array, the same shape as every core data file. A bare object parses to an empty collection, so the
+    /// loader (<c>DataHandler.JsonToData</c>) falls back to a default name and logs a spurious
+    /// "Missing mod_info.json" warning plus an "Error loading file" for the mod.</summary>
+    public static string SerializeModInfo(ModInfo modInfo) => JsonSerializer.Serialize(new[] { modInfo }, Json);
+
     /// <summary>
     /// Build the design and write a complete mod folder (<c>mod_info.json</c> + <c>data/ships/&lt;Name&gt;.json</c>)
     /// under <see cref="ExportOptions.DestinationParent"/>. Overwrites an existing same-named mod folder's two
@@ -121,7 +141,7 @@ public static class ShipExport
         File.WriteAllText(shipPath, Serialize(ship));
 
         var modInfoPath = Path.Combine(modDir, "mod_info.json");
-        File.WriteAllText(modInfoPath, JsonSerializer.Serialize(new ModInfo
+        var modInfo = new ModInfo
         {
             StrName = opts.ShipName,
             StrAuthor = opts.Author,
@@ -130,7 +150,8 @@ public static class ShipExport
             StrNotes = string.IsNullOrWhiteSpace(opts.Notes)
                 ? $"\"{opts.ShipName}\", a ship design exported from Ostraplan."
                 : opts.Notes,
-        }, Json));
+        };
+        File.WriteAllText(modInfoPath, SerializeModInfo(modInfo));
 
         return new ExportResult(modDir, shipPath, modInfoPath, ship.AItems.Length, roomCount, rating, warnings);
     }
@@ -212,7 +233,8 @@ public sealed class ExportedShip
     [JsonPropertyName("nGridRotation")] public int NGridRotation { get; set; }
 }
 
-/// <summary>One placed item, top-level (authored designs have no contained/slotted sub-objects).</summary>
+/// <summary>One item in the exported ship: a top-level placed part, or a contained sub-object — a nav-console
+/// module — when <see cref="StrParentID"/> is set (see <see cref="NavConsole"/>).</summary>
 public sealed class ExportedItem
 {
     [JsonPropertyName("strName")] public string StrName { get; set; } = "";
@@ -220,6 +242,10 @@ public sealed class ExportedItem
     [JsonPropertyName("fY")] public double FY { get; set; }
     [JsonPropertyName("fRotation")] public double FRotation { get; set; }
     [JsonPropertyName("strID")] public string StrID { get; set; } = "";
+
+    /// <summary>Set only on a contained sub-object: the <c>strID</c> of the item that holds it (a nav console for
+    /// its modules). Null — and omitted from the JSON — for an ordinary top-level part.</summary>
+    [JsonPropertyName("strParentID")] public string? StrParentID { get; set; }
 }
 
 /// <summary>A baked room: tile indices (row-major into nCols×nRows), certified spec, void flag.</summary>

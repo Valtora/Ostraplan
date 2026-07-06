@@ -169,6 +169,23 @@ public static class SaveEdit
             if (GpmSettings(catalog, p.DefName) is { } gpm) item["aGPMSettings"] = gpm;
             outItems.Add(item);
             outCOs.Add(SynthesizeCo(p.DefName, id, catalog, ctx.Source.RegId, ctx.Epoch));
+
+            // a newly-added nav console is an empty frame — install the standard nav-module set as contained
+            // children (exactly how a real ship template carries them), each a fresh item + synthesized CO so the
+            // save load keeps it. Kept consoles aren't touched here: their real modules survive verbatim in the
+            // aItems/aCOs copy above. Modules sit at the console's coordinates; GPM baked like any device.
+            if (NavConsole.IsConsole(catalog.Lookup(p.DefName)))
+                foreach (var modDef in NavConsole.StandardModules)
+                {
+                    var modId = Guid.NewGuid().ToString();
+                    var modItem = new JsonObject
+                    {
+                        ["strName"] = modDef, ["fX"] = fx, ["fY"] = fy, ["fRotation"] = 0.0, ["strID"] = modId, ["strParentID"] = id,
+                    };
+                    if (GpmSettings(catalog, modDef) is { } modGpm) modItem["aGPMSettings"] = modGpm;
+                    outItems.Add(modItem);
+                    outCOs.Add(SynthesizeCo(modDef, modId, catalog, ctx.Source.RegId, ctx.Epoch));
+                }
         }
 
         // grid frame: never shrink below the original (keeps nDestTile valid); grow to fit new parts

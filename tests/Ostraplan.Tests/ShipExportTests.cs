@@ -1,6 +1,7 @@
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
+using System.Text.Json;
 using Ostraplan.Core;
 using Xunit;
 
@@ -138,13 +139,72 @@ public class ShipExportTests
             var tmpl = Assert.Single(ShipTemplate.ParseFile(File.ReadAllText(result.ShipJsonPath)).ToList());
             Assert.Equal(ShipGrid.FromDocument(doc, g.Catalog).NCols, tmpl.NCols);
 
-            // mod_info carries the name; the Law: registration is single-owner, so NO loading_order.json is written
-            Assert.Contains("\"strName\"", File.ReadAllText(result.ModInfoPath));
+            // mod_info is the game's loader shape — a one-element array (NOT a bare object) carrying the name
+            using (var modInfo = JsonDocument.Parse(File.ReadAllText(result.ModInfoPath)))
+            {
+                Assert.Equal(JsonValueKind.Array, modInfo.RootElement.ValueKind);
+                var only = Assert.Single(modInfo.RootElement.EnumerateArray().ToList());
+                Assert.Equal("My Test Ship", only.GetProperty("strName").GetString());
+            }
+
+            // the Law: registration is single-owner, so NO loading_order.json is written
             Assert.Empty(Directory.EnumerateFiles(dest, "loading_order.json", SearchOption.AllDirectories));
         }
         finally
         {
             Directory.Delete(dest, recursive: true);
         }
+    }
+
+    [Fact]
+    public void SerializeModInfo_is_a_one_element_array_carrying_the_name()
+    {
+        // Regression: the game's mod loader (DataHandler.JsonToData) reads mod_info.json as an ARRAY
+        // of objects, like every core data file. Ostraplan used to write a bare object, which parses
+        // to an empty collection — the game then fell back to a default name and logged a spurious
+        // "Missing mod_info.json" warning + "Error loading file". No game install needed for this one.
+        var json = ShipExport.SerializeModInfo(new ModInfo { StrName = "Classic Parasite" });
+
+        using var doc = JsonDocument.Parse(json);
+        Assert.Equal(JsonValueKind.Array, doc.RootElement.ValueKind);
+        var only = Assert.Single(doc.RootElement.EnumerateArray().ToList());
+        Assert.Equal("Classic Parasite", only.GetProperty("strName").GetString());
+    }
+
+    [Fact]
+    public void Export_installs_the_standard_nav_module_set_into_a_console()
+    {
+        // a nav console is only a frame — the interface is built from module items contained inside it, which
+        // Ostraplan doesn't model as placed parts. The export must add the standard set or the console spawns
+        // empty (the in-game symptom). Modules are parented to the console and sit at its coordinates.
+        if (TestData.Game is not { } g || !Ready(g)) return;
+        if (g.Catalog.Lookup("ItmStationNav") is not { } consoleDef || !NavConsole.IsConsole(consoleDef)) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+
+        var doc = new ShipDocument(g.Catalog);
+        Place(doc, "ItmStationNav", 4, 4);
+
+        var (ship, _, _) = ShipExport.Build(doc, g.Catalog, specs, "Nav Test");
+
+        var console = Assert.Single(ship.AItems, i => i.StrName == "ItmStationNav");
+        var modules = ship.AItems.Where(i => i.StrParentID == console.StrID).ToList();
+        Assert.Equal(NavConsole.StandardModules.OrderBy(x => x, System.StringComparer.Ordinal),
+                     modules.Select(m => m.StrName).OrderBy(x => x, System.StringComparer.Ordinal));   // the full set, parented
+        Assert.All(modules, m => { Assert.Equal(console.FX, m.FX); Assert.Equal(console.FY, m.FY); Assert.Equal(0.0, m.FRotation); });
+        Assert.Equal(ship.AItems.Length, ship.AItems.Select(i => i.StrID).Distinct().Count());   // fresh, unique ids throughout
+    }
+
+    [Fact]
+    public void Export_adds_no_child_items_when_there_is_no_console()
+    {
+        // guard against over-eager injection: a design with no nav console stays 1:1 with its placements.
+        if (TestData.Game is not { } g || !Ready(g)) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        var doc = BuildDooredHull(g.Catalog);   // walls/floor/door — no nav console
+
+        var (ship, _, _) = ShipExport.Build(doc, g.Catalog, specs, "No Nav");
+
+        Assert.Equal(doc.Placements.Count, ship.AItems.Length);
+        Assert.All(ship.AItems, i => Assert.Null(i.StrParentID));
     }
 }
