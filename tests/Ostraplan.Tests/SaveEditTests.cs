@@ -54,7 +54,7 @@ public class SaveEditTests(ITestOutputHelper output)
     }
 
     [Fact]
-    public void OriginStrID_survives_move_and_rotate_but_isgiven_clears()
+    public void OriginStrID_and_given_ness_both_survive_move_and_rotate()
     {
         var doc = new ShipDocument(EmptyCat());
         var p = new Placement { DefName = "X", X = 0, Y = 0, IsGiven = true, OriginStrID = "id1" };
@@ -62,10 +62,11 @@ public class SaveEditTests(ITestOutputHelper output)
 
         new MoveCommand([p], 2, 3).Do(doc);
         Assert.Equal("id1", p.OriginStrID);   // identity kept across a move...
-        Assert.False(p.IsGiven);              // ...but the part is now re-checkable
+        Assert.True(p.IsGiven);               // ...and so is given-ness (the game never re-checks existing structure)
 
         new RotateCommand(doc, p, 90).Do(doc);
-        Assert.Equal("id1", p.OriginStrID);   // and across a rotate (SetPose)
+        Assert.Equal("id1", p.OriginStrID);   // and both survive a rotate (SetPose)
+        Assert.True(p.IsGiven);
     }
 
     [Fact]

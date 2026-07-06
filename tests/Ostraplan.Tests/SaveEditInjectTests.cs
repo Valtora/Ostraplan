@@ -115,6 +115,25 @@ public class SaveEditInjectTests(ITestOutputHelper output)
     }
 
     [Fact]
+    public void Rearranging_imported_structure_does_not_resurrect_construction_flags()
+    {
+        // the reported false positives: the game never re-validates existing structure, but moving a part used
+        // to clear its given-ness, so rearranging an imported ship re-ran CheckFit on game-legal-but-not-
+        // constructibly-ordered stacks (fixtures through walls, conduits on walls) and flagged "tile occupied".
+        if (TestData.Game is not { } g) return;
+        if (FirstImport(g.Env, g.Catalog) is not { } r) return;
+
+        int Blocking() => ProblemScan.Scan(r.Doc, g.Catalog).Count(p => p.Severity == ProblemSeverity.Blocking);
+        var before = Blocking();
+
+        // "move" every imported part onto its own tile — zero displacement, but exercises the move path
+        foreach (var p in r.Doc.Placements.Where(p => !r.Doc.IsLocked(p)).ToList())
+            new MoveCommand([p], 0, 0).Do(r.Doc);
+
+        Assert.Equal(before, Blocking());   // rearranging existing structure must not resurrect construction-time flags
+    }
+
+    [Fact]
     public void Moving_a_part_keeps_its_exact_condition_and_condition_owner()
     {
         // answers "does moving a wall keep it in the same condition?": a moved part keeps its strID, its item
