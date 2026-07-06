@@ -295,6 +295,27 @@ public static class SaveEdit
         return m.Success ? m.Groups[1].Value.TrimEnd() : name;
     }
 
+    /// <summary>A never-colliding backup folder in the Saves root (the source save's parent): "&lt;name&gt; (backup)",
+    /// then "(backup 2)"… It sits <b>beside</b> the save, never inside it, so deleting the (possibly broken) edited
+    /// save can't delete its backup. Public so the UI can name it. See <see cref="WriteInPlace"/>.</summary>
+    public static string SuggestBackupDir(SaveShipContext ctx)
+    {
+        var srcDir = SourceDir(ctx);
+        var parent = Path.GetDirectoryName(srcDir)!;
+        var baseName = StripBackupSuffix(StripOstraplanSuffix(new DirectoryInfo(srcDir).Name));
+        var candidate = Path.Combine(parent, $"{baseName} (backup)");
+        for (var n = 2; Directory.Exists(candidate); n++)
+            candidate = Path.Combine(parent, $"{baseName} (backup {n})");
+        return candidate;
+    }
+
+    /// <summary>Strip a trailing " (backup)" / " (backup N)" so backing up a backup doesn't stack the tag.</summary>
+    private static string StripBackupSuffix(string name)
+    {
+        var m = Regex.Match(name, @"^(.*?)\s*\(backup(?:\s+\d+)?\)\s*$");
+        return m.Success ? m.Groups[1].Value.TrimEnd() : name;
+    }
+
     /// <summary>
     /// Duplicate the source save <b>folder</b> to <paramref name="outputSaveDir"/> and, inside the copy,
     /// replace only <c>ships/&lt;RegID&gt;.json</c> with <paramref name="ship"/>; the copied zip is renamed to match
@@ -303,46 +324,31 @@ public static class SaveEdit
     /// </summary>
     public static void WriteCopy(SaveShipContext ctx, JsonObject ship, string outputSaveDir, bool overwrite, double? newMoney = null)
     {
-        var srcDir = SourceDir(ctx);
         if (Directory.Exists(outputSaveDir))
         {
             if (!overwrite) throw new IOException($"'{Path.GetFileName(outputSaveDir)}' already exists.");
             Directory.Delete(outputSaveDir, recursive: true);
         }
-        CopyDir(srcDir, outputSaveDir);
-
-        var newName = new DirectoryInfo(outputSaveDir).Name;
-
-        // rename the copied zip to "<newFolder>.zip" (the game's <folder>/<folder>.zip convention)
-        var copiedZip = Path.Combine(outputSaveDir, Path.GetFileName(ctx.ZipPath));
-        var targetZip = Path.Combine(outputSaveDir, newName + ".zip");
-        if (!string.Equals(copiedZip, targetZip, StringComparison.OrdinalIgnoreCase))
-        {
-            if (File.Exists(targetZip)) File.Delete(targetZip);
-            File.Move(copiedZip, targetZip);
-        }
-
-        // point saveInfo.json's display name at the copy (and mirror the deducted balance, if any)
-        var saveInfoPath = Path.Combine(outputSaveDir, "saveInfo.json");
-        if (File.Exists(saveInfoPath)) UpdateSaveInfo(saveInfoPath, newName, newMoney);
-
+        var targetZip = MaterializeCopy(SourceDir(ctx), Path.GetFileName(ctx.ZipPath), outputSaveDir, newMoney);
         SpliceShipInZip(targetZip, ctx.Source.RegId, ship);
     }
 
     /// <summary>
-    /// Write the edit <b>into the original save</b>, in place: back the whole zip up to <c>&lt;name&gt;.zip.bak</c>
-    /// first, then splice <c>ships/&lt;RegID&gt;.json</c> in the original zip and mirror the deducted balance into
-    /// <c>saveInfo.money</c>. The save keeps its folder, zip name and display name. This is the opt-in alternative
-    /// to <see cref="WriteCopy"/> — the caller is responsible for confirming and for the game not being in that
-    /// save when it runs.
+    /// Write the edit <b>into the original save</b>, in place. First it copies the whole save to a separate,
+    /// loadable backup save <b>in the Saves folder</b> (beside the save, never inside it, so deleting a broken
+    /// edited save can't take its backup with it), then splices <c>ships/&lt;RegID&gt;.json</c> into the original zip
+    /// and mirrors the deducted balance into <c>saveInfo.money</c>. Returns the backup folder's path. This is the
+    /// opt-in alternative to <see cref="WriteCopy"/>; the caller confirms and ensures the game isn't in that save.
     /// </summary>
-    public static void WriteInPlace(SaveShipContext ctx, JsonObject ship, double? newMoney = null)
+    public static string WriteInPlace(SaveShipContext ctx, JsonObject ship, double? newMoney = null)
     {
-        var zip = ctx.ZipPath;
-        File.Copy(zip, zip + ".bak", overwrite: true);   // full-zip backup before mutating in place
-        SpliceShipInZip(zip, ctx.Source.RegId, ship);
+        var backupDir = SuggestBackupDir(ctx);
+        MaterializeCopy(SourceDir(ctx), Path.GetFileName(ctx.ZipPath), backupDir, null);   // pre-edit backup, beside the save
+
+        SpliceShipInZip(ctx.ZipPath, ctx.Source.RegId, ship);
         var saveInfoPath = Path.Combine(SourceDir(ctx), "saveInfo.json");
         if (newMoney is not null && File.Exists(saveInfoPath)) UpdateSaveInfo(saveInfoPath, null, newMoney);
+        return backupDir;
     }
 
     // ---- internals ----
@@ -574,6 +580,26 @@ public static class SaveEdit
             File.Copy(file, Path.Combine(dst, Path.GetFileName(file)), overwrite: false);
         foreach (var dir in Directory.EnumerateDirectories(src))
             CopyDir(dir, Path.Combine(dst, Path.GetFileName(dir)));
+    }
+
+    /// <summary>Copy a save FOLDER to <paramref name="destDir"/> as a self-standing, loadable save: rename the copied
+    /// zip to match the new folder (the game's <c>&lt;folder&gt;/&lt;folder&gt;.zip</c> convention) and repoint saveInfo's
+    /// display name (and money, when given). Assumes <paramref name="destDir"/> does not yet exist. Returns the new
+    /// zip's path. Shared by <see cref="WriteCopy"/> and the <see cref="WriteInPlace"/> pre-edit backup.</summary>
+    private static string MaterializeCopy(string srcDir, string srcZipName, string destDir, double? newMoney)
+    {
+        CopyDir(srcDir, destDir);
+        var newName = new DirectoryInfo(destDir).Name;
+        var copiedZip = Path.Combine(destDir, srcZipName);
+        var targetZip = Path.Combine(destDir, newName + ".zip");
+        if (!string.Equals(copiedZip, targetZip, StringComparison.OrdinalIgnoreCase))
+        {
+            if (File.Exists(targetZip)) File.Delete(targetZip);
+            File.Move(copiedZip, targetZip);
+        }
+        var saveInfoPath = Path.Combine(destDir, "saveInfo.json");
+        if (File.Exists(saveInfoPath)) UpdateSaveInfo(saveInfoPath, newName, newMoney);
+        return targetZip;
     }
 
     private static string ItemName(SaveShipContext ctx, string strID) =>

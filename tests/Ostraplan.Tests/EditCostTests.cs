@@ -119,4 +119,51 @@ public class EditCostTests
         }
         finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
     }
+
+    [Fact]
+    public void SuggestBackupDir_places_the_backup_in_the_saves_root_not_inside_the_save()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ostraplan_bak_{System.Guid.NewGuid():N}");
+        var srcDir = Path.Combine(root, "My Save");
+        Directory.CreateDirectory(srcDir);
+        try
+        {
+            var ctx = Ctx("My Save", Path.Combine(srcDir, "My Save.zip"));
+            var backup = SaveEdit.SuggestBackupDir(ctx);
+
+            // the whole point of the change: the backup sits in the SAVES ROOT (the save's parent),
+            // NOT inside the save folder — so deleting a broken save can't delete its backup.
+            Assert.Equal(root, Path.GetDirectoryName(backup));
+            Assert.NotEqual(srcDir, Path.GetDirectoryName(backup));
+            Assert.Equal("My Save (backup)", Path.GetFileName(backup));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
+    }
+
+    [Fact]
+    public void SuggestBackupDir_numbers_on_clash_and_never_stacks_the_tag()
+    {
+        var root = Path.Combine(Path.GetTempPath(), $"ostraplan_bak2_{System.Guid.NewGuid():N}");
+        var srcDir = Path.Combine(root, "My Save (backup)");   // backing up a backup shouldn't stack the tag
+        Directory.CreateDirectory(srcDir);
+        try
+        {
+            var ctx = Ctx("My Save (backup)", Path.Combine(srcDir, "My Save (backup).zip"));
+            // strip -> "My Save"; "My Save (backup)" already exists (== srcDir) -> "My Save (backup 2)"
+            var backup = SaveEdit.SuggestBackupDir(ctx);
+            Assert.Equal("My Save (backup 2)", Path.GetFileName(backup));
+            Assert.False(Directory.Exists(backup));
+        }
+        finally { if (Directory.Exists(root)) Directory.Delete(root, recursive: true); }
+    }
+
+    private static SaveShipContext Ctx(string name, string zipPath) => new()
+    {
+        Source = new SaveSourceRef(name, "REG"),
+        ZipPath = zipPath,
+        ShipRecord = new JsonObject(),
+        Origins = new Dictionary<string, OriginPart>(),
+        ItemsById = new Dictionary<string, JsonNode>(),
+        CosById = new Dictionary<string, JsonNode>(),
+    };
 }

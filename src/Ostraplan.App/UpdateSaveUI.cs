@@ -75,8 +75,9 @@ public sealed class UpdateSaveDialog : Window
         body.Children.Add(_inPlace);
         body.Children.Add(new TextBlock
         {
-            Text = "In-place editing modifies the original. Ostraplan first backs the save up to “<name>.zip.bak”. " +
-                   "Return to the Main Menu in-game before writing, or the game may overwrite it on its next autosave.",
+            Text = "Editing in place modifies the original save. Ostraplan first copies it to a separate backup save " +
+                   "in your Saves folder, beside this one. Return to the Main Menu in game before writing, or the game " +
+                   "may overwrite your edit on its next autosave.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(20, 0, 0, 0),
         });
 
