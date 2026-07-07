@@ -98,7 +98,7 @@ Save-editing features want to create a **copy** by default unless **you opt into
 
 ## Quick start
 
-Download `Ostraplan.exe` from the [Releases](https://github.com/Valtora/Ostraplan/releases) page and double-click it. It's a self-contained executable and if you don't trust me you can build it yourself by following the instructions below.
+Download the latest `Ostraplan-vX.Y.Z.exe` from the [Releases](https://github.com/Valtora/Ostraplan/releases) page and double-click it. It's a self-contained executable and if you don't trust me you can build it yourself by following the instructions below.
 
 **Requirements:** Windows, and a **local Ostranauts install**. Ostraplan finds
 the game automatically if its installed and reads its data and sprites at runtime. Without this, Ostraplan just doesn't work.
