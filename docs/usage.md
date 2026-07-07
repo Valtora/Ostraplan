@@ -27,7 +27,7 @@ right, but treat a mismatch as "double-check in-game".
 | **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**. Search by friendly or internal name. Modded parts show a small origin badge. |
 | **Canvas** (centre) | The tile grid. Place, paint, select, pan and zoom here. |
 | **Inspector** (right) | The selected part's details, ship stats, the **Problems** list, and the **Law report**. |
-| **Toolbar** (top) | Grouped **File · Edit · Design · Analyse · View**, with the theme picker and Help on the right. An **Update** button appears when a newer release exists. |
+| **Toolbar** (top) | Grouped **File · Edit · Design · Analyse · View**, with the theme picker and the **Help ▾** menu on the right. An **Update** button appears when a newer release exists. |
 
 ## Placing parts
 
@@ -137,8 +137,24 @@ identity*, so you can redesign the structure out-of-game and write it back.
 Editing a ship you don't own (a station, another vessel) is gated behind a stern
 warning — it's unsupported.
 
+## Containers & cargo
+
+Right-click a container — a locker, a nav console, a crate from a save-imported
+ship — and choose **View contents…** to see its inventory laid out on the grid and
+drill into nested containers. On an editable design you can also **add, remove and
+rearrange** loose cargo; contents travel with the ship through **Export** and save
+write-back.
+
 ## Theming
 
 The **Theme** picker (top-right) switches the app chrome between System / Light /
 Dark; the choice persists. The ship canvas always stays dark — the sprites are
 drawn for dark space.
+
+## Help & reporting a bug
+
+- **F1** — the full keybinding table.
+- **Help ▾** (top-right) — that reference, plus **Report a Bug** (opens a
+  pre-filled GitHub issue with diagnostics) and the **activity log**: an on-disk
+  record of your actions (**View** / **Open folder** / **Clear**) that helps pin
+  down a problem after it happens.

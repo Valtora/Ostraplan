@@ -9,11 +9,11 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **0.15.1.6**).
 
-## [0.5.0] — 2026-07-06 — first public release
+## [0.6.0] — 2026-07-07 — first public release
 
-The first public build. Consolidates the full editing suite, the complete
-validation Law, interop (export/import), and live-ship save editing, plus the
-public-release housekeeping below.
+The first public build of Ostraplan. Consolidates the full editing suite, the
+complete validation Law, interop (export/import), live-ship save editing, and the
+container/cargo viewer and editor — plus in-app bug reporting and an activity log.
 
 ### Added
 - **The full Law:** placement sockets (`Item.CheckFit`), room/airtightness
@@ -31,6 +31,12 @@ public-release housekeeping below.
   unbounded undo/redo.
 - **Bill of materials** (install-kit counts), **PNG snapshot**, light/dark
   **theming**, and a GitHub **update check**.
+- **Containers & cargo:** view any container's contents on the grid (right-click ▸
+  **View contents**), drill into nesting, and add / remove / rearrange loose
+  cargo — carried through Export and save write-back.
+- **Report a Bug** (Help menu) opens a pre-filled GitHub issue with diagnostics; an
+  on-disk **activity log** records your actions for troubleshooting; and the app
+  **version** now shows in the title bar.
 
 ### Changed
 - **Missing-mod designs now open read-only.** Opening an `.oplan` while a mod it
@@ -43,8 +49,6 @@ public-release housekeeping below.
   docs now spell out that an `.oplan` from a save references the ship's live state
   (crew/cargo/wear) rather than embedding it, and that Export is the way to a
   save-independent, shareable ship.
-- Version aligned to the roadmap (`0.5.0`), so the update check and Help window
-  report correctly.
 
 ### Docs
 - Public-facing README, a usage guide ([docs/usage.md](docs/usage.md)), and this
@@ -52,6 +56,11 @@ public-release housekeeping below.
 - SPEC reconciled with the code — notably the `.oplan` format
   ([SPEC §8.1](docs/SPEC.md)) and a new save-edit round-trip section
   ([SPEC §8.5](docs/SPEC.md)); dropped/again-planned items corrected.
+
+### Known limitations
+- **Ship Zones aren't drawn yet.** Any ship you import or export will lose or move
+  its zones, so they need to be deleted and redrawn. This is under active
+  development and will be addressed in an update over the coming weeks.
 
 ## Development history (pre-public milestones)
 
