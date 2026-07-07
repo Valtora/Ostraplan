@@ -29,9 +29,23 @@ public sealed record CargoItem(
     public int GridY { get; init; }
 
     /// <summary>The item's footprint on the grid in tiles (the resolved <see cref="PartDef.InvSize"/>); 1×1 when
-    /// the def is unknown.</summary>
+    /// the def is unknown. This is the <b>un-rotated</b> footprint; see <see cref="EffW"/>/<see cref="EffH"/> for
+    /// the footprint after <see cref="GridRot"/>.</summary>
     public int GridW { get; init; } = 1;
     public int GridH { get; init; } = 1;
+
+    /// <summary>The item's inventory rotation in degrees (0/90/180/270). The game stores an inventory item's
+    /// rotation in the same <c>fRotation</c> field a placed part uses (save load: <c>item.fLastRotation =
+    /// objItem.fRotation</c>); at 90°/270° the grid footprint is swapped (<see cref="EffW"/>/<see cref="EffH"/>).
+    /// 0 for an unrotated item; kept normalized to {0, 90, 180, 270}.</summary>
+    public int GridRot { get; init; }
+
+    /// <summary>The effective grid footprint width after <see cref="GridRot"/> — swapped with the height at
+    /// 90°/270°, matching the game's <c>Swap(itemWidthOnGrid, itemHeightOnGrid)</c> on rotate.</summary>
+    public int EffW => GridRot % 180 == 0 ? GridW : GridH;
+
+    /// <summary>The effective grid footprint height after <see cref="GridRot"/> (swapped with width at 90°/270°).</summary>
+    public int EffH => GridRot % 180 == 0 ? GridH : GridW;
 
     /// <summary>How many identical items are stacked here — the game's <c>StackCount</c> = the number of same-def
     /// stack members (held as this item's children) + 1. 1 for a single, unstacked item. (Do <b>not</b> read this
@@ -113,6 +127,7 @@ public static class Cargo
                 {
                     GridX = Int(co, "inventoryX"),
                     GridY = Int(co, "inventoryY"),
+                    GridRot = GridMath.Norm((int)Math.Round(Dbl(item, "fRotation"))),   // inventory rotation rides on the item's fRotation
                     GridW = gw,
                     GridH = gh,
                     Stack = isStack ? sub.Count + 1 : 1,
@@ -143,4 +158,7 @@ public static class Cargo
 
     private static int Int(JsonNode? n, string prop) =>
         (n as JsonObject)?[prop] is JsonValue v && v.TryGetValue<int>(out var i) ? i : 0;
+
+    private static double Dbl(JsonNode? n, string prop) =>
+        (n as JsonObject)?[prop] is JsonValue v && v.TryGetValue<double>(out var d) ? d : 0.0;
 }

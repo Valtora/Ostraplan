@@ -36,7 +36,7 @@ public static class InventoryGrid
         {
             var key = (it.DefName, it.GridX, it.GridY);
             if (byKey.TryGetValue(key, out var existing)) { existing.Count += Math.Max(1, it.Stack); continue; }
-            var b = new Block(it, it.GridX, it.GridY, Math.Clamp(it.GridW, 1, width), Math.Max(1, it.GridH), Math.Max(1, it.Stack));
+            var b = new Block(it, it.GridX, it.GridY, Math.Clamp(it.EffW, 1, width), Math.Max(1, it.EffH), Math.Max(1, it.Stack));
             byKey[key] = b;
             blocks.Add(b);
         }

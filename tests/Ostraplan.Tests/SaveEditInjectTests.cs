@@ -676,4 +676,83 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         var file = OplanFile.FromDocument(doc, g.Index, new OplanMeta());
         Assert.Null(Assert.Single(file.Parts).Cargo);   // un-edited container -> cargo re-read from the save, not stored
     }
+
+    [Fact]
+    public void Moving_original_cargo_writes_its_new_grid_position_to_the_co()
+    {
+        // rearranging an original item persists: its CO's inventoryX/inventoryY are overwritten to the new cell.
+        if (TestData.Game is not { } g) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        if (ImportWhere(g.Env, g.Catalog, d => d.Placements.Any(p => !d.IsLocked(p)
+                && (d.Part(p)?.ContainerGrid ?? (0, 0)).Item1 >= 2
+                && p.Cargo.Any(c => !c.IsStack && !c.Slotted && c.Children.Count == 0))) is not { } r) return;
+
+        var container = r.Doc.Placements.First(p => !r.Doc.IsLocked(p)
+            && (r.Doc.Part(p)?.ContainerGrid ?? (0, 0)).Item1 >= 2
+            && p.Cargo.Any(c => !c.IsStack && !c.Slotted && c.Children.Count == 0));
+        var grid = r.Doc.Part(container)!.ContainerGrid!.Value;
+        var item = container.Cargo.First(c => !c.IsStack && !c.Slotted && c.Children.Count == 0);
+        if (!r.Context.CosById.ContainsKey(item.StrID)) return;
+
+        var tx = grid.W - 1;   // a distinct column (grid is ≥2 wide)
+        if (CargoEdit.Move(container.Cargo, item.StrID, null, grid, tx, 0) is not { } moved) return;   // too full to relocate
+        new SetCargoCommand(container, container.Cargo, moved).Do(r.Doc);
+
+        var (ship, report) = SaveEdit.BuildInjectedShip(r.Doc, r.Context, g.Catalog, specs);
+        Assert.Empty(report.CargoDropped);
+        var ids = ((JsonArray)ship["aItems"]!).Select(n => (string?)n!["strID"]).ToHashSet();
+        Assert.Contains(item.StrID, ids);   // still present (moved, not dropped)
+        var co = ((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()).First(c => (string?)c["strID"] == item.StrID);
+        Assert.Equal(tx, co["inventoryX"]!.GetValue<int>());
+        Assert.Equal(0, co["inventoryY"]!.GetValue<int>());
+    }
+
+    [Fact]
+    public void Rotating_original_cargo_writes_its_rotation_to_the_item()
+    {
+        // rotating an original item persists to its aItems fRotation (the field the game reads inventory rotation from).
+        if (TestData.Game is not { } g) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        if (ImportWhere(g.Env, g.Catalog, d => d.Placements.Any(p => !d.IsLocked(p)
+                && d.Part(p)?.ContainerGrid is not null
+                && p.Cargo.Any(c => !c.IsStack && !c.Slotted))) is not { } r) return;
+
+        var container = r.Doc.Placements.First(p => !r.Doc.IsLocked(p)
+            && r.Doc.Part(p)?.ContainerGrid is not null
+            && p.Cargo.Any(c => !c.IsStack && !c.Slotted));
+        var grid = r.Doc.Part(container)!.ContainerGrid!.Value;
+        var item = container.Cargo.First(c => !c.IsStack && !c.Slotted);
+        if (item.GridRot != 0) return;   // start from unrotated so a 90° write is observable
+
+        if (CargoEdit.Rotate(container.Cargo, item.StrID, null, grid) is not { } rotated) return;
+        new SetCargoCommand(container, container.Cargo, rotated).Do(r.Doc);
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(r.Doc, r.Context, g.Catalog, specs);
+        var it = ((JsonArray)ship["aItems"]!).Select(n => n!.AsObject()).First(o => (string?)o["strID"] == item.StrID);
+        Assert.Equal(90.0, it["fRotation"]!.GetValue<double>());
+    }
+
+    [Fact]
+    public void Oplan_round_trips_an_authored_items_rotation()
+    {
+        if (TestData.Game is not { } g) return;
+        var containerDef = g.Catalog.Parts.FirstOrDefault(p => p.ContainerGrid is not null
+            && ContainerFilter.AcceptedBy(g.Catalog, p).Any(i => i.SpriteAbs is not null));
+        if (containerDef is null) return;
+        var itemDef = ContainerFilter.AcceptedBy(g.Catalog, containerDef).First(i => i.SpriteAbs is not null);
+        var grid = containerDef.ContainerGrid!.Value;
+
+        var doc = new ShipDocument(g.Catalog);
+        var p = new Placement { DefName = containerDef.DefName };
+        new PlaceCommand(p).Do(doc);
+        if (CargoEdit.Add(p.Cargo, null, grid, itemDef, 1) is not { } added) return;
+        var itemId = added[0].StrID;
+        if (CargoEdit.Rotate(added, itemId, null, grid) is not { } rotated) return;
+        new SetCargoCommand(p, p.Cargo, rotated).Do(doc);
+
+        var file = OplanFile.FromDocument(doc, g.Index, new OplanMeta());
+        var (doc2, _) = file.ToDocument(g.Catalog);
+        var restored = doc2.Placements.Single().Cargo.Single();
+        Assert.Equal(90, restored.GridRot);   // rotation survives save + reopen
+    }
 }

@@ -145,6 +145,7 @@ public static class SaveEdit
         // the data granted the ticker) is permanently dead — the game loads tickers from the save, not the def.
         // Re-attach the missing Power ticker so it can draw power again (the ShipsWater fix, at the data level).
         var outCOs = new JsonArray();
+        var outCosById = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
         var powerFixed = 0;
         foreach (var co in Arr(ctx.ShipRecord, "aCOs"))
         {
@@ -155,6 +156,7 @@ public static class SaveEdit
                 && BakeTickers(clone, cpart, ctx.Epoch, catalog, onlyPower: true) > 0)
                 powerFixed++;
             outCOs.Add(clone);
+            if (id is not null) outCosById[id] = clone;   // for re-positioning moved/rotated original cargo below
         }
 
         // opt-in cost deduction: rewrite the player CO's StatUSD (the authoritative balance) to the new total.
@@ -171,11 +173,14 @@ public static class SaveEdit
                     "Uncheck \"Deduct edit cost\" and try again.");
         }
 
-        // Emit contained cargo for every surviving container from its current Placement.Cargo. An AUTHORED item
-        // becomes a fresh item + synthesized-CO entry (a save load skips any item lacking a CO); an ORIGINAL item
-        // was already written verbatim above and only needs re-parenting onto a NEW container (a re-skin). Recurses
-        // so nested authoring and topped-up stacks (authored members hanging off a kept lead) are handled at depth.
-        void EmitCargo(IReadOnlyList<CargoItem> nodes, string parentId, double px, double py, bool parentIsNew)
+        // Emit contained cargo for every surviving container from its current Placement.Cargo — the tree is the
+        // authoritative structure. An AUTHORED item becomes a fresh item + synthesized-CO entry (a save load skips
+        // any item lacking a CO). An ORIGINAL item was already written verbatim above; here its parent, grid
+        // position and rotation are reconciled to the tree so a re-parent (re-skin / move between containers), a
+        // rearrange, or a rotate persists — writes are guarded to what actually changed, so an untouched item (or a
+        // non-grid contained item like a nav module) is left exactly as it was. Recurses for nesting; a stack's
+        // members are verbatim (parented to their lead) so we don't descend into them.
+        void EmitCargo(IReadOnlyList<CargoItem> nodes, string parentId, double px, double py)
         {
             foreach (var c in nodes)
             {
@@ -184,7 +189,7 @@ public static class SaveEdit
                     var cid = Guid.NewGuid().ToString();
                     var citem = new JsonObject
                     {
-                        ["strName"] = c.DefName, ["fX"] = px, ["fY"] = py, ["fRotation"] = 0.0, ["strID"] = cid,
+                        ["strName"] = c.DefName, ["fX"] = px, ["fY"] = py, ["fRotation"] = (double)c.GridRot, ["strID"] = cid,
                         [c.Slotted ? "strSlotParentID" : "strParentID"] = parentId,
                     };
                     outItems.Add(citem);
@@ -192,14 +197,23 @@ public static class SaveEdit
                     var cco = SynthesizeCo(c.DefName, cid, catalog, ctx.Source.RegId, ctx.Epoch);
                     if (c.GridX != 0 || c.GridY != 0) { cco["inventoryX"] = c.GridX; cco["inventoryY"] = c.GridY; }
                     outCOs.Add(cco);
-                    EmitCargo(c.Children, cid, px, py, parentIsNew: true);   // stack members / nested authored contents
+                    EmitCargo(c.Children, cid, px, py);   // stack members / nested authored contents
                 }
-                else
+                else if (outItemsById.TryGetValue(c.StrID, out var orig))
                 {
-                    if (parentIsNew && outItemsById.TryGetValue(c.StrID, out var orig))
-                        orig[c.Slotted ? "strSlotParentID" : "strParentID"] = parentId;   // re-parent onto the re-skin
-                    var self = outItemsById.GetValueOrDefault(c.StrID);   // original item (kept verbatim; may be shifted)
-                    EmitCargo(c.Children, c.StrID, self is null ? px : Dbl(self, "fX"), self is null ? py : Dbl(self, "fY"), parentIsNew: false);
+                    var parentField = c.Slotted ? "strSlotParentID" : "strParentID";
+                    if (Str(orig, parentField) != parentId) orig[parentField] = parentId;   // re-skin / cross-container move
+                    var origItem = ctx.ItemsById.GetValueOrDefault(c.StrID);
+                    if (origItem is null || GridMath.Norm((int)Math.Round(Dbl(origItem, "fRotation"))) != c.GridRot)
+                        orig["fRotation"] = (double)c.GridRot;                                // inventory rotation
+                    if (outCosById.TryGetValue(c.StrID, out var co))
+                    {
+                        var origCo = ctx.CosById.GetValueOrDefault(c.StrID);
+                        if (origCo is null || Int(origCo, "inventoryX") != c.GridX) co["inventoryX"] = c.GridX;
+                        if (origCo is null || Int(origCo, "inventoryY") != c.GridY) co["inventoryY"] = c.GridY;
+                    }
+                    if (!c.IsStack)   // real container: recurse; a stack's members stay verbatim under their lead
+                        EmitCargo(c.Children, c.StrID, Dbl(orig, "fX"), Dbl(orig, "fY"));
                 }
             }
         }
@@ -254,7 +268,7 @@ public static class SaveEdit
                 fx = self is null ? 0 : Dbl(self, "fX");
                 fy = self is null ? 0 : Dbl(self, "fY");
             }
-            EmitCargo(p.Cargo, containerId, fx, fy, parentIsNew: chg.Kind == PartChangeKind.New);
+            EmitCargo(p.Cargo, containerId, fx, fy);
         }
 
         // grid frame: never shrink below the original (keeps nDestTile valid); grow to fit new parts

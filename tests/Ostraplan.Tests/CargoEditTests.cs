@@ -109,4 +109,61 @@ public class CargoEditTests
         var box = new CargoItem("box", "ItmCrate", "Crate", Slotted: false, [inner]);
         Assert.Empty(CargoEdit.RemoveWhole([box], "box"));   // box + its contents leave the tree together
     }
+
+    // ---- move / rotate ----
+
+    private static CargoItem Cargo(string id, int x = 0, int y = 0, int w = 1, int h = 1) =>
+        new(id, "Itm" + id, id, Slotted: false, []) { GridX = x, GridY = y, GridW = w, GridH = h };
+
+    [Fact]
+    public void Move_relocates_an_item_to_a_free_cell()
+    {
+        var result = CargoEdit.Move([Cargo("a")], "a", null, (6, 6), 3, 2);
+        var moved = Assert.Single(result!);
+        Assert.Equal("a", moved.StrID);
+        Assert.Equal((3, 2), (moved.GridX, moved.GridY));
+    }
+
+    [Fact]
+    public void Move_returns_null_when_the_target_cell_is_occupied()
+    {
+        // b materializes at its stored (1,0); moving a onto it collides -> snap back (null)
+        Assert.Null(CargoEdit.Move([Cargo("a", 0, 0), Cargo("b", 1, 0)], "a", null, (6, 6), 1, 0));
+    }
+
+    [Fact]
+    public void Move_returns_null_when_out_of_bounds()
+    {
+        // a 2-wide item can't sit at x=1 in a 2-wide grid (would overflow the right edge)
+        Assert.Null(CargoEdit.Move([Cargo("a", w: 2)], "a", null, (2, 2), 1, 0));
+    }
+
+    [Fact]
+    public void Move_between_containers_reparents_the_item()
+    {
+        var box = new CargoItem("box", "ItmCrate", "Crate", Slotted: false, []);
+        var result = CargoEdit.Move([box, Cargo("a", 1, 0)], "a", "box", (3, 3), 0, 0);
+        Assert.NotNull(result);
+        var outerBox = result!.Single(c => c.StrID == "box");
+        Assert.Single(outerBox.Children);
+        Assert.Equal("a", outerBox.Children[0].StrID);          // a is now inside box...
+        Assert.DoesNotContain(result, c => c.StrID == "a");     // ...and no longer a root item
+    }
+
+    [Fact]
+    public void Rotate_swaps_the_footprint()
+    {
+        var result = CargoEdit.Rotate([Cargo("a", w: 2, h: 1)], "a", null, (6, 6));
+        var rot = Assert.Single(result!);
+        Assert.Equal(90, rot.GridRot);
+        Assert.Equal(1, rot.EffW);   // a 2×1 becomes 1×2 at 90°
+        Assert.Equal(2, rot.EffH);
+    }
+
+    [Fact]
+    public void Rotate_returns_null_when_the_rotated_footprint_wont_fit()
+    {
+        // a 3×1 in a 3×1 grid: rotating to 1×3 exceeds the one-tall grid -> reject
+        Assert.Null(CargoEdit.Rotate([Cargo("a", w: 3, h: 1)], "a", null, (3, 1)));
+    }
 }

@@ -57,6 +57,92 @@ public static class CargoEdit
     public static IReadOnlyList<CargoItem> RemoveWhole(IReadOnlyList<CargoItem> rootCargo, string targetId) =>
         Rewrite(rootCargo, targetId, _ => []);
 
+    // ---- move / rotate ----
+
+    /// <summary>
+    /// Move the loose item <paramref name="itemId"/> to cell (<paramref name="x"/>,<paramref name="y"/>) of the
+    /// container <paramref name="targetContainerId"/> (<c>null</c> = the root placement) — a rearrange within a
+    /// container, or a move between containers (drop onto / drag out of one). The item detaches from wherever it
+    /// is and lands in the target; the target's other loose items are pinned to their shown cells first, so the
+    /// drop is predictable. Returns <c>null</c> (the caller snaps back) if the item's footprint (rotation-adjusted)
+    /// doesn't fit at the cell or the target isn't in the tree. The caller enforces the container's item filter
+    /// (<see cref="ContainerFilter"/>) for a cross-container move.
+    /// </summary>
+    public static IReadOnlyList<CargoItem>? Move(
+        IReadOnlyList<CargoItem> rootCargo, string itemId, string? targetContainerId, (int W, int H) targetGrid, int x, int y)
+    {
+        if (!TryDetach(rootCargo, itemId, out var node, out var without) || node.Slotted) return null;
+        var kids = ChildrenOf(without, targetContainerId);
+        if (kids is null) return null;   // target container no longer exists
+        var loose = Materialize(kids.Where(k => !k.Slotted).ToList(), targetGrid);
+        if (!FitsAt(loose, targetGrid, node.EffW, node.EffH, x, y)) return null;
+        var newKids = new List<CargoItem>(loose) { node with { GridX = x, GridY = y } };
+        newKids.AddRange(kids.Where(k => k.Slotted));
+        return ReplaceChildren(without, targetContainerId, newKids);
+    }
+
+    /// <summary>Rotate the loose item <paramref name="itemId"/> 90° clockwise in place within container
+    /// <paramref name="containerId"/> (<c>null</c> = root), swapping its footprint (the game's inventory rotate).
+    /// Returns <c>null</c> if the rotated footprint no longer fits its cell (the caller leaves it unrotated).</summary>
+    public static IReadOnlyList<CargoItem>? Rotate(IReadOnlyList<CargoItem> rootCargo, string itemId, string? containerId, (int W, int H) grid)
+    {
+        var kids = ChildrenOf(rootCargo, containerId);
+        if (kids is null) return null;
+        var loose = Materialize(kids.Where(k => !k.Slotted).ToList(), grid);
+        var idx = loose.FindIndex(i => i.StrID == itemId);
+        if (idx < 0) return null;
+        var rotated = loose[idx] with { GridRot = GridMath.Norm(loose[idx].GridRot + 90) };
+        var others = loose.Where((_, i) => i != idx).ToList();
+        if (!FitsAt(others, grid, rotated.EffW, rotated.EffH, rotated.GridX, rotated.GridY)) return null;
+        loose[idx] = rotated;
+        var newKids = new List<CargoItem>(loose);
+        newKids.AddRange(kids.Where(k => k.Slotted));
+        return ReplaceChildren(rootCargo, containerId, newKids);
+    }
+
+    /// <summary>Detach the node with <paramref name="id"/> from anywhere in the tree: yields the node and the tree
+    /// without it. False if no such node exists.</summary>
+    private static bool TryDetach(IReadOnlyList<CargoItem> root, string id, out CargoItem node, out IReadOnlyList<CargoItem> without)
+    {
+        CargoItem? found = null;
+        IReadOnlyList<CargoItem> Strip(IReadOnlyList<CargoItem> items)
+        {
+            var result = new List<CargoItem>(items.Count);
+            foreach (var it in items)
+            {
+                if (it.StrID == id) { found = it; continue; }
+                result.Add(it.Children.Count == 0 ? it : it with { Children = Strip(it.Children) });
+            }
+            return result;
+        }
+        without = Strip(root);
+        node = found ?? null!;
+        return found is not null;
+    }
+
+    /// <summary>Pin each loose item to the cell it currently shows at (its packed position), so an edit against the
+    /// grid is WYSIWYG and other items don't shuffle — mirroring the game materializing a layout when opened.</summary>
+    private static List<CargoItem> Materialize(IReadOnlyList<CargoItem> loose, (int W, int H) grid)
+    {
+        var layout = InventoryGrid.Pack(grid.W, grid.H, loose);
+        var pos = new Dictionary<string, (int X, int Y)>(StringComparer.Ordinal);
+        foreach (var p in layout.Items) pos[p.Item.StrID] = (p.X, p.Y);
+        return loose.Select(it => pos.TryGetValue(it.StrID, out var c) && (it.GridX != c.X || it.GridY != c.Y)
+            ? it with { GridX = c.X, GridY = c.Y } : it).ToList();
+    }
+
+    /// <summary>True if a <paramref name="w"/>×<paramref name="h"/> rect at (<paramref name="x"/>,<paramref name="y"/>)
+    /// fits inside the grid and overlaps none of the (already-pinned) <paramref name="siblings"/>.</summary>
+    private static bool FitsAt(IReadOnlyList<CargoItem> siblings, (int W, int H) grid, int w, int h, int x, int y)
+    {
+        var gw = grid.W > 0 ? grid.W : 6;
+        var gh = grid.H > 0 ? grid.H : 6;
+        if (x < 0 || y < 0 || x + w > gw || y + h > gh) return false;
+        foreach (var s in siblings)
+            if (x < s.GridX + s.EffW && s.GridX < x + w && y < s.GridY + s.EffH && s.GridY < y + h) return false;
+        return true;
+    }
+
     // ---- placement / stacking ----
 
     private static IReadOnlyList<CargoItem>? PlaceInto(IReadOnlyList<CargoItem> kids, (int W, int H) grid, PartDef def, int quantity)

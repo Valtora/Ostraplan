@@ -109,6 +109,7 @@ public sealed class OplanFile
         SlotName = c.SlotName,
         X = c.GridX,
         Y = c.GridY,
+        Rot = c.GridRot,
         Stack = c.Stack,
         IsStack = c.IsStack,
         Children = c.Children.Count > 0 ? c.Children.Select(ToOplanCargo).ToList() : null,
@@ -124,6 +125,7 @@ public sealed class OplanFile
         {
             GridX = o.X,
             GridY = o.Y,
+            GridRot = GridMath.Norm(o.Rot),
             GridW = gw,
             GridH = gh,
             Stack = o.Stack <= 0 ? 1 : o.Stack,
@@ -186,6 +188,7 @@ public sealed class OplanCargo
     [JsonPropertyName("slot")] public string? SlotName { get; set; }
     [JsonPropertyName("x")] public int X { get; set; }
     [JsonPropertyName("y")] public int Y { get; set; }
+    [JsonPropertyName("rot")] public int Rot { get; set; }
     [JsonPropertyName("stack")] public int Stack { get; set; } = 1;
     [JsonPropertyName("isStack")] public bool IsStack { get; set; }
     [JsonPropertyName("children")] public List<OplanCargo>? Children { get; set; }
