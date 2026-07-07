@@ -10,7 +10,7 @@ public class RatingTests(ITestOutputHelper output)
 {
     private readonly ITestOutputHelper _out = output;
 
-    [Fact]
+    [SkippableFact]
     public void Condition_maneuver_size_cutoffs_are_pinned()
     {
         // condition A-E (mean of 1-damageRate)
@@ -45,10 +45,10 @@ public class RatingTests(ITestOutputHelper output)
         Assert.Equal("Ultra Large", Rating.SizeClass(3700));
     }
 
-    [Fact]
+    [SkippableFact]
     public void Rating_parity_on_baked_rating_templates()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var resolver = new PartResolver(g.Index);
         var specs = RoomCertifier.LoadSpecs(g.Index);
 

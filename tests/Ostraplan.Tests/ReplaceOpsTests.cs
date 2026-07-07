@@ -19,10 +19,11 @@ public class ReplaceOpsTests
         return p;
     }
 
-    [Fact]
+    [SkippableFact]
     public void Common_class_is_null_when_layers_differ()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey(Wall)) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall)) return;
         if (OneByOne(g.Catalog, Catalog.LayerFloor) is not { } floor) return;
 
         var doc = new ShipDocument(g.Catalog);
@@ -33,10 +34,11 @@ public class ReplaceOpsTests
         Assert.NotNull(ReplaceOps.CommonClass(doc, [w]));         // a lone wall does
     }
 
-    [Fact]
+    [SkippableFact]
     public void Compatible_targets_share_layer_and_footprint_only()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey(Wall)) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall)) return;
         if (OneByOne(g.Catalog, Catalog.LayerFloor) is not { } floor) return;
 
         var doc = new ShipDocument(g.Catalog);
@@ -55,10 +57,11 @@ public class ReplaceOpsTests
         Assert.DoesNotContain(targets, t => t.DefName == Wall);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Swap_preserves_position_and_is_one_step()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey(Wall)) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall)) return;
         var doc = new ShipDocument(g.Catalog);
         var a = Place(doc, Wall, 0, 0);
         var b = Place(doc, Wall, 1, 0);
@@ -85,12 +88,12 @@ public class ReplaceOpsTests
         Assert.Equal((1, 0), coords[1]);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Containers_are_never_replaceable_or_a_replace_target()
     {
         // a container's inventory grid + cargo don't survive a def-change, so it's excluded from Replace on both
         // sides: it can't be the source (no common class) and never appears as a target (no re-skin INTO a container).
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var container = g.Catalog.Parts.FirstOrDefault(p => p.IsContainer)
             ?? new[] { "ItmRack1x4", "ItmStorageBin3x102", "ItmRack2x2C01", "ItmLocker01" }
                 .Select(d => g.Catalog.Lookup(d)).FirstOrDefault(p => p?.IsContainer == true);
@@ -104,13 +107,14 @@ public class ReplaceOpsTests
         Assert.DoesNotContain(ReplaceOps.CompatibleTargets(g.Catalog, cls), t => t.IsContainer);   // never a TARGET
     }
 
-    [Fact]
+    [SkippableFact]
     public void Swap_carries_the_originals_given_ness()
     {
         // A same-layer, same-footprint swap keeps the tiles' structural role, so it must preserve
         // given-ness — else re-skinning imported (given) structure would re-validate a valid ship
         // the game never re-checks. Given -> given, authored -> authored.
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey(Wall)) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall)) return;
         var doc = new ShipDocument(g.Catalog);
         var given = new Placement { DefName = Wall, X = 0, Y = 0, IsGiven = true };
         new PlaceCommand(given).Do(doc);

@@ -7,10 +7,10 @@ namespace Ostraplan.Tests;
 /// scan and repaint run once per undo step, not once per part. No-ops without the game.</summary>
 public class CommandBatchTests
 {
-    [Fact]
+    [SkippableFact]
     public void A_composite_fires_changed_once_not_per_part()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (!g.Catalog.ByDefName.ContainsKey("ItmWall1x1")) return;
 
         var doc = new ShipDocument(g.Catalog);

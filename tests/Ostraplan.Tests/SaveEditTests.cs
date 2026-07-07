@@ -30,7 +30,7 @@ public class SaveEditTests(ITestOutputHelper output)
 
     // ---- pure logic (no install needed) ----
 
-    [Fact]
+    [SkippableFact]
     public void Diff_classifies_kept_moved_new_deleted()
     {
         var doc = new ShipDocument(EmptyCat());
@@ -53,7 +53,7 @@ public class SaveEditTests(ITestOutputHelper output)
         Assert.Equal("gone", Assert.Single(diff.OfKind(PartChangeKind.Deleted)).OriginStrID);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Origin_survives_but_given_ness_clears_on_move_and_rotate()
     {
         var doc = new ShipDocument(EmptyCat());
@@ -71,7 +71,7 @@ public class SaveEditTests(ITestOutputHelper output)
         Assert.False(p.IsGiven);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Snapshot_carries_origin()
     {
         var doc = new ShipDocument(EmptyCat());
@@ -92,10 +92,10 @@ public class SaveEditTests(ITestOutputHelper output)
         return null;
     }
 
-    [Fact]
+    [SkippableFact]
     public void Import_for_editing_builds_full_context_with_1to1_identity()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
 
         // every placed part is tagged, and its id is an origin
@@ -119,10 +119,10 @@ public class SaveEditTests(ITestOutputHelper output)
             $"{r.Context.ItemsById.Count} items, {r.Context.CosById.Count} COs, source={r.Doc.SourceSave}");
     }
 
-    [Fact]
+    [SkippableFact]
     public void ListPlayerShips_lists_owned_ships_and_flags_the_current_one()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         // the first save that yields an owned ship (aMyShips populated)
         var save = SaveImport.ListSaves(g.Env).FirstOrDefault(s => SaveImport.ListPlayerShips(s.ZipPath).Any(c => c.Owned));
         if (save is null) return;
@@ -135,12 +135,12 @@ public class SaveEditTests(ITestOutputHelper output)
         _out.WriteLine(string.Join("\n", ships.Select(c => $"{(c.Owned ? "own" : "NOT")} {(c.Current ? "[here]" : "     ")} {c.RegId}: {c.Name} — {c.Sub}")));
     }
 
-    [Fact]
+    [SkippableFact]
     public void ShipValue_broker_estimate_exceeds_build_cost_on_a_real_ship()
     {
         // the broker prices off room value (contents × room modifier × 1.25, ×3 with an O2 pump), so a real ship's
         // broker value is well above its raw parts/build cost, and buy > sell.
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
 
@@ -151,10 +151,10 @@ public class SaveEditTests(ITestOutputHelper output)
         _out.WriteLine($"build {v.BuildCost:n0} · ship {v.ShipValue:n0} · sell {v.SellEstimate:n0} · buy {v.BuyEstimate:n0}");
     }
 
-    [Fact]
+    [SkippableFact]
     public void Noop_diff_is_all_kept()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
 
         var diff = ShipDiff.Compute(r.Doc, r.Context);
@@ -164,10 +164,10 @@ public class SaveEditTests(ITestOutputHelper output)
         Assert.Equal(0, diff.DeletedCount);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Moving_one_part_yields_one_moved()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
 
         var count = r.Doc.Placements.Count;
@@ -181,10 +181,10 @@ public class SaveEditTests(ITestOutputHelper output)
         Assert.Equal(0, diff.DeletedCount);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Deleting_one_part_yields_one_deleted()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
 
         var count = r.Doc.Placements.Count;
@@ -198,10 +198,10 @@ public class SaveEditTests(ITestOutputHelper output)
         Assert.Equal(0, diff.NewCount);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Adding_one_part_yields_one_new()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
 
         var count = r.Doc.Placements.Count;
@@ -215,10 +215,11 @@ public class SaveEditTests(ITestOutputHelper output)
         Assert.Equal(0, diff.DeletedCount);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Replace_drops_origin_identity_but_keeps_given()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey("ItmWall1x1")) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey("ItmWall1x1")) return;
 
         var doc = new ShipDocument(g.Catalog);
         var p = new Placement { DefName = "ItmWall1x1", X = 0, Y = 0, IsGiven = true, OriginStrID = "id1" };
@@ -235,10 +236,10 @@ public class SaveEditTests(ITestOutputHelper output)
         Assert.All(swap.Value.New, np => Assert.True(np.IsGiven));       // but given-ness still inherited
     }
 
-    [Fact]
+    [SkippableFact]
     public void Oplan_roundtrips_origin_and_source()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (g.Catalog.Parts.FirstOrDefault()?.DefName is not { } def) return;
 
         var doc = new ShipDocument(g.Catalog);

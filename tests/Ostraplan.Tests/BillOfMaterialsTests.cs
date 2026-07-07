@@ -17,10 +17,11 @@ public class BillOfMaterialsTests
         return p;
     }
 
-    [Fact]
+    [SkippableFact]
     public void Counts_buildable_parts_by_def()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey(Wall) || !g.Catalog.ByDefName.ContainsKey(Floor)) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall) || !g.Catalog.ByDefName.ContainsKey(Floor)) return;
 
         var doc = new ShipDocument(g.Catalog);
         Place(doc, Wall, 0, 0);
@@ -38,10 +39,11 @@ public class BillOfMaterialsTests
         Assert.Equal(2, bom.Lines.Single(l => l.DefName == Floor).Count);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Each_line_carries_the_parts_install_kit()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey(Wall)) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall)) return;
 
         var doc = new ShipDocument(g.Catalog);
         Place(doc, Wall, 0, 0);
@@ -52,10 +54,11 @@ public class BillOfMaterialsTests
         Assert.Equal(g.Catalog.ByDefName[Wall].Inputs, line.Kits);
     }
 
-    [Fact]
+    [SkippableFact]
     public void The_primary_airlock_needs_no_kit()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey(Wall)) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall)) return;
 
         var doc = new ShipDocument(g.Catalog);
         Place(doc, Catalog.PrimaryDocksysDef, 0, 0);   // fixed airlock: no install job, no kit
@@ -68,10 +71,11 @@ public class BillOfMaterialsTests
         Assert.Equal(2, bom.TotalParts);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Selection_scopes_the_bill()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey(Wall) || !g.Catalog.ByDefName.ContainsKey(Floor)) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall) || !g.Catalog.ByDefName.ContainsKey(Floor)) return;
 
         var doc = new ShipDocument(g.Catalog);
         var w1 = Place(doc, Wall, 0, 0);

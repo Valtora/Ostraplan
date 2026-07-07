@@ -7,10 +7,10 @@ namespace Ostraplan.Tests;
 /// <summary>The loose-cargo catalog + container filter for the inventory editor's add-picker. Install-gated.</summary>
 public class LooseItemCatalogTests
 {
-    [Fact]
+    [SkippableFact]
     public void LooseItems_includes_cargo_and_excludes_installed_structure()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
 
         Assert.NotEmpty(g.Catalog.LooseItems);
         var names = g.Catalog.LooseItems.Select(p => p.DefName).ToHashSet();
@@ -18,10 +18,10 @@ public class LooseItemCatalogTests
         Assert.DoesNotContain("ItmWall1x1", names);    // installed structure (carries IsInstalled)
     }
 
-    [Fact]
+    [SkippableFact]
     public void Container_filter_accepts_loose_cargo_and_rejects_installed_structure()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
 
         var backpack = g.Catalog.Lookup("ItmBackpack01");
         var scrap = g.Catalog.Lookup("ItmScrapAluminum");

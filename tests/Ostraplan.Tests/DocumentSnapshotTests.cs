@@ -9,10 +9,11 @@ public class DocumentSnapshotTests
 {
     private const string Wall = "ItmWall1x1";
 
-    [Fact]
+    [SkippableFact]
     public void Snapshot_is_independent_and_preserves_given_flag()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey(Wall)) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall)) return;
 
         var doc = new ShipDocument(g.Catalog);
         var given = new Placement { DefName = Wall, X = 0, Y = 0, IsGiven = true };
@@ -29,10 +30,11 @@ public class DocumentSnapshotTests
         Assert.Equal(2, snap.Placements.Count);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Snapshot_scans_the_same_as_the_original()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey(Wall)) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall)) return;
 
         var doc = new ShipDocument(g.Catalog);
         for (var x = 0; x < 6; x++)

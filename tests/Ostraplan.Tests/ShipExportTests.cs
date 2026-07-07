@@ -61,10 +61,11 @@ public class ShipExportTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public void Export_roundtrips_tiles_rooms_and_rating()
     {
-        if (TestData.Game is not { } g || !Ready(g)) return;
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
         var doc = BuildDooredHull(g.Catalog);
 
@@ -93,14 +94,15 @@ public class ShipExportTests
         Assert.Equal(rating.RoomCount, ship.ARating[2]);
     }
 
-    [Theory]
+    [SkippableTheory]
     [InlineData(0)]
     [InlineData(90)]
     [InlineData(180)]
     [InlineData(270)]
     public void Export_roundtrips_a_rotated_multitile_fixture(int rot)
     {
-        if (TestData.Game is not { } g || !Ready(g)) return;
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
         if (!g.Catalog.ByDefName.ContainsKey("ItmBed01Off")) return;   // a 3×5 non-sheet fixture
         var specs = RoomCertifier.LoadSpecs(g.Index);
 
@@ -116,10 +118,11 @@ public class ShipExportTests
         Assert.Equal(GridMath.Norm(-rot), (int)item.FRotation);   // fRotation is CCW
     }
 
-    [Fact]
+    [SkippableFact]
     public void Write_produces_a_mod_folder_and_never_touches_loading_order()
     {
-        if (TestData.Game is not { } g || !Ready(g)) return;
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
         var doc = BuildDooredHull(g.Catalog);
 
@@ -156,7 +159,7 @@ public class ShipExportTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public void SerializeModInfo_is_a_one_element_array_carrying_the_name()
     {
         // Regression: the game's mod loader (DataHandler.JsonToData) reads mod_info.json as an ARRAY
@@ -171,13 +174,14 @@ public class ShipExportTests
         Assert.Equal("Classic Parasite", only.GetProperty("strName").GetString());
     }
 
-    [Fact]
+    [SkippableFact]
     public void Export_installs_the_standard_nav_module_set_into_a_console()
     {
         // a nav console is only a frame — the interface is built from module items contained inside it, which
         // Ostraplan doesn't model as placed parts. The export must add the standard set or the console spawns
         // empty (the in-game symptom). Modules are parented to the console and sit at its coordinates.
-        if (TestData.Game is not { } g || !Ready(g)) return;
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
         if (g.Catalog.Lookup("ItmStationNav") is not { } consoleDef || !NavConsole.IsConsole(consoleDef)) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
 
@@ -194,11 +198,12 @@ public class ShipExportTests
         Assert.Equal(ship.AItems.Length, ship.AItems.Select(i => i.StrID).Distinct().Count());   // fresh, unique ids throughout
     }
 
-    [Fact]
+    [SkippableFact]
     public void Export_adds_no_child_items_when_there_is_no_console()
     {
         // guard against over-eager injection: a design with no nav console stays 1:1 with its placements.
-        if (TestData.Game is not { } g || !Ready(g)) return;
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
         var doc = BuildDooredHull(g.Catalog);   // walls/floor/door — no nav console
 
@@ -208,11 +213,12 @@ public class ShipExportTests
         Assert.All(ship.AItems, i => Assert.Null(i.StrParentID));
     }
 
-    [Fact]
+    [SkippableFact]
     public void Export_carries_a_containers_cargo_as_parented_items()
     {
         // a container's contents travel into the exported ship as pristine parented items at the container's coords.
-        if (TestData.Game is not { } g || !Ready(g)) return;
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
         var containerDef = g.Catalog.Parts.FirstOrDefault(p => p.ContainerGrid is not null
             && ContainerFilter.AcceptedBy(g.Catalog, p).Any(i => i.SpriteAbs is not null));
@@ -235,11 +241,12 @@ public class ShipExportTests
         Assert.Equal(ship.AItems.Length, ship.AItems.Select(i => i.StrID).Distinct().Count());   // fresh, unique ids
     }
 
-    [Fact]
+    [SkippableFact]
     public void Export_carries_a_stack_as_a_lead_plus_members()
     {
         // a stack exports the way the game stores it: a lead item parented to the container, its copies parented to the lead.
-        if (TestData.Game is not { } g || !Ready(g)) return;
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
         var containerDef = g.Catalog.Parts.FirstOrDefault(p => p.ContainerGrid is not null
             && ContainerFilter.AcceptedBy(g.Catalog, p).Any(i => i.SpriteAbs is not null && i.StackLimit >= 2));

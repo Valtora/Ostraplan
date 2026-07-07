@@ -13,7 +13,7 @@ public class ContainerModelTests(ITestOutputHelper output)
 {
     private readonly ITestOutputHelper _out = output;
 
-    [Fact]
+    [SkippableFact]
     public void CondOwnerDef_parses_container_and_slot_fields()
     {
         var e = JsonDocument.Parse("""
@@ -44,10 +44,10 @@ public class ContainerModelTests(ITestOutputHelper output)
         Assert.Equal(new[] { "body" }, co.SlotKeys);   // mapSlotEffects keys (even indices)
     }
 
-    [Fact]
+    [SkippableFact]
     public void Catalog_resolves_a_real_container_grid_and_slots()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
 
         Assert.NotEmpty(g.Catalog.Slots);   // data/slots indexed
 
@@ -61,10 +61,10 @@ public class ContainerModelTests(ITestOutputHelper output)
         Assert.True(g.Catalog.Slots.ContainsKey("pocket_pouchSm01"));
     }
 
-    [Fact]
+    [SkippableFact]
     public void Imported_save_cargo_resolves_and_packs()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
 
         // Scan every save's player ship for one that actually has cargo on a STRUCTURAL (grid-placed) part —
         // a nav console with modules, a filled crate, etc. Most cargo in a save hangs off crew, which Ostraplan

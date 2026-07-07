@@ -34,7 +34,7 @@ public class CertTests
         Warnings = [],
     };
 
-    [Fact]
+    [SkippableFact]
     public void Certifier_requires_multiplicity()
     {
         var cat = CatalogWith(new CondTriggerDef("TChair", ["IsChair", "IsInstalled"], [], false));
@@ -48,7 +48,7 @@ public class CertTests
         Assert.Equal("Lounge", RoomCertifier.Certify(Room(10, false, chair(), chair(), chair(), chair()), specs, cat)); // 4
     }
 
-    [Fact]
+    [SkippableFact]
     public void Certifier_honors_priority_then_forbids_then_size_then_void()
     {
         var cat = CatalogWith(
@@ -71,7 +71,7 @@ public class CertTests
         Assert.Equal("Blank", RoomCertifier.Certify(Room(10, true, Part("IsBed", "IsInstalled")), specs, cat));
     }
 
-    [Fact]
+    [SkippableFact]
     public void Certifier_ignores_floor_grate_members()
     {
         var cat = CatalogWith(new CondTriggerDef("TChair", ["IsChair"], [], false),
@@ -81,10 +81,10 @@ public class CertTests
         Assert.Equal("R", RoomCertifier.Certify(Room(4, false, Part("IsChair"), Part("IsBad", "IsFloorGrate")), specs, cat));
     }
 
-    [Fact]
+    [SkippableFact]
     public void CondEval_nested_OR_and_forbids_on_real_triggers()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         bool Fires(string trig, params string[] conds) =>
             g.Catalog.Triggers.TryGetValue(trig, out var ct) && CondEval.Triggered(ct, conds, g.Catalog);
 

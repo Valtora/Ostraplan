@@ -7,10 +7,10 @@ namespace Ostraplan.Tests;
 /// <summary>Assertions against the live install; every test no-ops on a machine without the game.</summary>
 public class GameDataTests
 {
-    [Fact]
+    [SkippableFact]
     public void Install_located_and_catalog_builds()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         Assert.NotNull(g.Env.InstalledVersion);
         // core alone has 331 unique menu install defs (154 of them HULL); mods only add
         Assert.True(g.Catalog.Parts.Count >= 300, $"only {g.Catalog.Parts.Count} buildable parts found");
@@ -46,10 +46,10 @@ public class GameDataTests
         Assert.False(doc.IsLocked(new Placement { DefName = "ItmDockSys03Closed" }));
     }
 
-    [Fact]
+    [SkippableFact]
     public void Door_open_and_closed_states_both_resolve_and_toggle()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var cat = g.Catalog;
         if (!cat.ByDefName.ContainsKey("ItmDoor01Open")) return;
 
@@ -86,10 +86,10 @@ public class GameDataTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public void Known_parts_have_game_exact_footprints_and_sprites()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
 
         Assert.True(g.Catalog.ByDefName.TryGetValue("ItmWall1x1", out var wall), "wall not in palette");
         Assert.True(wall!.Item.HasSpriteSheet);
@@ -110,20 +110,20 @@ public class GameDataTests
         Assert.Equal(5, bed.Height);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Wall_socket_loot_expands_to_IsWall_and_trigger_reads_it()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         Assert.True(g.Catalog.Loots.TryGetValue("TILWallAdds", out var loot), "TILWallAdds loot missing");
         Assert.Contains("IsWall", loot!.Conds);
         Assert.True(g.Catalog.Triggers.TryGetValue("TIsWall", out var ct), "TIsWall trigger missing");
         Assert.Contains("IsWall", ct!.Reqs);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Wall_autotiling_sees_neighbors_including_door_frames()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var doc = new ShipDocument(g.Catalog);
         void Place(string def, int x, int y) =>
             new PlaceCommand(new Placement { DefName = def, X = x, Y = y }).Do(doc);
@@ -142,10 +142,10 @@ public class GameDataTests
         }
     }
 
-    [Fact]
+    [SkippableFact]
     public void Real_wall_is_free_standing_but_will_not_stack()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var wall = g.Catalog.ByDefName["ItmWall1x1"];
         var doc = new ShipDocument(g.Catalog);
 
@@ -158,10 +158,10 @@ public class GameDataTests
         Assert.Contains((8, 8), stacked.FailedCells);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Real_bed_requires_a_sealed_floor_beneath_and_a_wall_at_its_head()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (!g.Catalog.ByDefName.TryGetValue("ItmBed01Off", out var bed)) return;
         if (!g.Catalog.ByDefName.ContainsKey("ItmFloorGrate01") || !g.Catalog.ByDefName.ContainsKey("ItmWall1x1")) return;
 
@@ -187,10 +187,10 @@ public class GameDataTests
         Assert.True(CheckFit.Check(doc, bed, 20, 20, 0, includeEnvelope: false).Ok);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Real_envelope_makes_construction_beyond_the_airlock_unplaceable()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (!g.Catalog.ByDefName.TryGetValue("ItmDockSys03Closed", out var dock)) return;
         var wall = g.Catalog.ByDefName["ItmWall1x1"];
         var doc = new ShipDocument(g.Catalog);
@@ -203,10 +203,10 @@ public class GameDataTests
         Assert.True(CheckFit.Check(doc, wall, 2, 5, 0, includeEnvelope: true).Ok);   // inside the hull
     }
 
-    [Fact]
+    [SkippableFact]
     public void Large_tank_footprint_is_the_7x7_socket_grid_not_the_3x3_sprite()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var tank = ItemDef.Parse(g.Index.Type("items")["ItmCanisterLH02"].El);
 
         // The footprint IS 7x7 (nCols=7, 49 adds): the game requires a 7x7 sealed-floor

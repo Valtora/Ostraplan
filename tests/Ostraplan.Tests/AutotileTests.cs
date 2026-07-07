@@ -11,10 +11,11 @@ namespace Ostraplan.Tests;
 /// </summary>
 public class AutotileTests
 {
-    [Fact]
+    [SkippableFact]
     public void Conduits_connect_by_OR_and_autotile_as_a_run()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey("ItmConduit01")) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey("ItmConduit01")) return;
 
         var doc = new ShipDocument(g.Catalog);
         void P(int x, int y) => new PlaceCommand(new Placement { DefName = "ItmConduit01", X = x, Y = y }).Do(doc);
@@ -28,10 +29,11 @@ public class AutotileTests
         Assert.NotEqual(0, Autotile.MaskAt(doc.Conds, "TIsConduitSprite", 7, 0));                                      // W end (connected, not isolated)
     }
 
-    [Fact]
+    [SkippableFact]
     public void Walls_still_connect_by_single_AND_req()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey("ItmWall1x1")) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey("ItmWall1x1")) return;
 
         var doc = new ShipDocument(g.Catalog);
         void P(int x, int y) => new PlaceCommand(new Placement { DefName = "ItmWall1x1", X = x, Y = y }).Do(doc);

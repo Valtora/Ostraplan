@@ -34,10 +34,10 @@ public class ShipImportTests(ITestOutputHelper output)
     private static List<int> NonVoidRoomSizes(RoomPartition p) =>
         p.Rooms.Where(r => !r.Void).Select(r => r.TileCount).OrderBy(n => n).ToList();
 
-    [Fact]
+    [SkippableFact]
     public void Import_reproduces_a_core_ships_interior_compartments()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var resolver = new PartResolver(g.Index);
 
         var checkedShips = 0;
@@ -66,10 +66,11 @@ public class ShipImportTests(ITestOutputHelper output)
         Assert.True(checkedShips > 0, "no core ships with interior compartments were checked");
     }
 
-    [Fact]
+    [SkippableFact]
     public void Export_then_import_is_identity_up_to_translation()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey("ItmWall1x1")
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey("ItmWall1x1")
             || !g.Catalog.ByDefName.ContainsKey("ItmFloorGrate01")) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
 
@@ -99,10 +100,11 @@ public class ShipImportTests(ITestOutputHelper output)
             .OrderBy(t => t).ToList();
     }
 
-    [Fact]
+    [SkippableFact]
     public void Unresolvable_defs_are_skipped_and_reported_while_the_rest_import()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey("ItmWall1x1")) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey("ItmWall1x1")) return;
 
         var tmpl = new ShipTemplate
         {
@@ -126,13 +128,13 @@ public class ShipImportTests(ITestOutputHelper output)
         Assert.Equal(1, skip.Count);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Imported_structure_is_given_and_a_valid_ship_flags_no_placement_law_problems()
     {
         // A real ship stacks parts (fixtures on floors, thrusters through walls) that the game
         // built incrementally and never re-validates. Imported parts are "given" and exempt from
         // the placement-law scan, so a valid ship must surface no socket / airlock false positives.
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
 
         var checkedShips = 0;
         foreach (var (file, ship) in CoreShips(g.Env))
@@ -154,10 +156,11 @@ public class ShipImportTests(ITestOutputHelper output)
         Assert.True(checkedShips > 0, "no core ships were checked");
     }
 
-    [Fact]
+    [SkippableFact]
     public void System_objects_are_filtered_on_import()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey("ItmWall1x1")) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey("ItmWall1x1")) return;
         if (g.Catalog.Lookup("SysLootSpawner") is null) return;   // needs the spawner def in this install
 
         var tmpl = new ShipTemplate
@@ -177,13 +180,13 @@ public class ShipImportTests(ITestOutputHelper output)
         Assert.All(r.Doc.Placements, p => Assert.True(p.IsGiven));
     }
 
-    [Fact]
+    [SkippableFact]
     public void Importing_then_exporting_a_core_ship_stays_a_valid_spawnable()
     {
         // The P3 acceptance path end-to-end on real data: a real ship → import → export as a mod →
         // re-parse. The exported template's baked aRooms must equal the game's recompute (no rating
         // drift on load) and preserve the ship's compartments through the round-trip.
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var specs = RoomCertifier.LoadSpecs(g.Index);
         var resolver = new PartResolver(g.Index);
 

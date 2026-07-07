@@ -15,10 +15,10 @@ public class ShipSaveImportTests(ITestOutputHelper output)
 {
     private readonly ITestOutputHelper _out = output;
 
-    [Fact]
+    [SkippableFact]
     public void ListSaves_finds_saves_with_readable_metadata()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var saves = SaveImport.ListSaves(g.Env);
         if (saves.Count == 0) return;   // machine with no saves
 
@@ -27,10 +27,10 @@ public class ShipSaveImportTests(ITestOutputHelper output)
         _out.WriteLine($"{saves.Count} saves: {string.Join(", ", saves.Select(s => $"{s.Name}→{s.ShipName}"))}");
     }
 
-    [Fact]
+    [SkippableFact]
     public void Imports_the_players_own_ship_layout_only()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var saves = SaveImport.ListSaves(g.Env);
         if (saves.Count == 0) return;
 

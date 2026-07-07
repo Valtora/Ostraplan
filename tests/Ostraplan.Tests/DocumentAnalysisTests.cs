@@ -43,10 +43,11 @@ public class DocumentAnalysisTests
     private static bool Ready((GameEnv, DataIndex, Catalog)? g) =>
         g is { } gg && gg.Item3.ByDefName.ContainsKey("ItmWall1x1") && gg.Item3.ByDefName.ContainsKey("ItmFloorGrate01");
 
-    [Fact]
+    [SkippableFact]
     public void Sealed_interior_is_a_nonvoid_compartment_with_no_breaches()
     {
-        if (TestData.Game is not { } g || !Ready(g)) return;
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
         var report = Analyse(g, Mode.Sealed);
 
         Assert.Contains(report.Rooms, r => !r.Void && r.TileCount == 9);   // the enclosed 3×3
@@ -56,29 +57,32 @@ public class DocumentAnalysisTests
         Assert.Equal("A", report.Rating.Condition);
     }
 
-    [Fact]
+    [SkippableFact]
     public void A_floor_hole_in_an_enclosed_room_is_an_unsealed_breach()
     {
-        if (TestData.Game is not { } g || !Ready(g)) return;
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
         var breach = Assert.Single(Analyse(g, Mode.FloorHole).Breaches);
         Assert.False(breach.OpenToSpace);                 // enclosed, just missing floor
         Assert.Contains((2, 2), breach.Tiles);            // the hole is surfaced for the canvas highlight
     }
 
-    [Fact]
+    [SkippableFact]
     public void A_wall_gap_is_pinpointed_to_the_missing_wall_not_the_whole_room()
     {
-        if (TestData.Game is not { } g || !Ready(g)) return;
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
         var breach = Assert.Single(Analyse(g, Mode.WallGap).Breaches);
         Assert.True(breach.OpenToSpace);                     // the interior escaped through the gap
         Assert.Equal(9, breach.ExposedFloorCount);           // the whole 3×3 interior vents to space
         Assert.Equal((0, 2), Assert.Single(breach.Tiles));   // highlight is ONLY the one missing-wall tile
     }
 
-    [Fact]
+    [SkippableFact]
     public void Floor_with_no_walls_highlights_the_perimeter_where_walls_are_missing()
     {
-        if (TestData.Game is not { } g || !Ready(g)) return;
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
         var report = Analyse(g, Mode.FloorOnly);
         var breach = Assert.Single(report.Breaches);
         Assert.True(breach.OpenToSpace);
@@ -108,10 +112,11 @@ public class DocumentAnalysisTests
         return doc;
     }
 
-    [Fact]
+    [SkippableFact]
     public void A_door_partitions_a_hull_into_two_sealed_rooms_open_or_closed()
     {
-        if (TestData.Game is not { } g || !Ready(g)) return;
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
         if (!g.Catalog.ByDefName.ContainsKey("ItmDoor01Open") || !g.Catalog.ByDefName.ContainsKey("ItmDoor01Closed")) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
 

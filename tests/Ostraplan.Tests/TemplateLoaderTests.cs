@@ -13,20 +13,19 @@ namespace Ostraplan.Tests;
 /// </summary>
 public class TemplateLoaderTests
 {
-    private static ShipTemplate? LoadShip(string file, out (GameEnv Env, DataIndex Index, Catalog Catalog)? game)
+    private static ShipTemplate? LoadShip(string file, out (GameEnv Env, DataIndex Index, Catalog Catalog) game)
     {
-        game = TestData.Game;
-        if (game is not { } g) return null;
-        var path = Path.Combine(g.Env.CoreDataDir, "ships", file);
+        game = TestData.RequireGame();   // loud skip when there's no install
+        var path = Path.Combine(game.Env.CoreDataDir, "ships", file);
         return File.Exists(path)
             ? ShipTemplate.ParseFile(File.ReadAllText(path)).FirstOrDefault(t => t.Rooms.Count > 0)
             : null;
     }
 
-    [Fact]
+    [SkippableFact]
     public void Babak_grid_dims_and_part_count()
     {
-        if (LoadShip("Babak.json", out var game) is not { } tmpl || game is not { } g) return;
+        if (LoadShip("Babak.json", out var g) is not { } tmpl) return;   // Babak.json absent → data skip
         Assert.Equal(37, tmpl.NCols);
         Assert.Equal(95, tmpl.NRows);
 
@@ -34,10 +33,10 @@ public class TemplateLoaderTests
         Assert.True(grid.Parts.Count > 4000, $"only {grid.Parts.Count} of {tmpl.Items.Count} items resolved");
     }
 
-    [Fact]
+    [SkippableFact]
     public void Babak_solid_walls_are_the_room_complement()
     {
-        if (LoadShip("Babak.json", out var game) is not { } tmpl || game is not { } g) return;
+        if (LoadShip("Babak.json", out var g) is not { } tmpl) return;   // Babak.json absent → data skip
         var warnings = new List<string>();
         var grid = ShipGrid.FromTemplate(tmpl, new PartResolver(g.Index), g.Catalog, warnings);
         Assert.True(warnings.Count == 0,

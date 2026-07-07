@@ -111,9 +111,13 @@ Needs the .NET 10 SDK.
 
 ```powershell
 dotnet run --project src\Ostraplan.App     # launch
-dotnet test                                # engine + live-data + render-smoke tests
+.\test.ps1                                 # run the test suite (most tests are game-free)
+.\test.ps1 -Filter Rooms                   # run a subset by name
 .\publish.ps1                              # build publish\Ostraplan.exe (self-contained)
 ```
+
+Most tests run without the game; the ones that need a local Ostranauts install report as
+**skipped** (never a false pass) when it's absent. See [docs/TESTING.md](docs/TESTING.md).
 
 ## Documentation
 
@@ -122,3 +126,5 @@ dotnet test                                # engine + live-data + render-smoke t
 - [docs/SPEC.md](docs/SPEC.md) — design, scope, the `.oplan` format, and the roadmap.
 - [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) — the reverse-engineering
   reference: what's ported, deferred, and excluded.
+- [docs/TESTING.md](docs/TESTING.md) — how the test suite is structured (game-free vs
+  game-gated), how to run it, and how to add a test.

@@ -20,10 +20,11 @@ public class ThemeOpsTests
     private static string? OtherSkin(Catalog cat, int layer, int w, int h, string not) =>
         ReplaceOps.CompatibleTargets(cat, (layer, w, h)).FirstOrDefault(t => t.DefName != not)?.DefName;
 
-    [Fact]
+    [SkippableFact]
     public void Reskin_swaps_every_wall_ship_wide_in_one_step()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey(Wall)) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall)) return;
         if (OtherSkin(g.Catalog, Catalog.LayerWall, 1, 1, Wall) is not { } skin) return;
 
         var doc = new ShipDocument(g.Catalog);
@@ -43,10 +44,11 @@ public class ThemeOpsTests
         Assert.All(doc.Placements, p => Assert.Equal(skin, p.DefName));
     }
 
-    [Fact]
+    [SkippableFact]
     public void Reskin_applies_walls_and_floors_together_and_leaves_others()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey(Wall) || !g.Catalog.ByDefName.ContainsKey(Floor)) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall) || !g.Catalog.ByDefName.ContainsKey(Floor)) return;
         if (OtherSkin(g.Catalog, Catalog.LayerWall, 1, 1, Wall) is not { } wallSkin) return;
         if (OtherSkin(g.Catalog, Catalog.LayerFloor, 1, 1, Floor) is not { } floorSkin) return;
         // a fixture (some non-wall, non-floor 1×1 part) to prove it's untouched
@@ -68,10 +70,11 @@ public class ThemeOpsTests
         if (fx is not null) Assert.Contains(fx, doc.Placements);    // fixture kept its def and identity
     }
 
-    [Fact]
+    [SkippableFact]
     public void Reskin_is_a_no_op_when_all_parts_already_match()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey(Wall)) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall)) return;
 
         var doc = new ShipDocument(g.Catalog);
         Place(doc, Wall, 0, 0);
@@ -81,10 +84,11 @@ public class ThemeOpsTests
         Assert.Null(ThemeOps.BuildReskin(doc, null, null));         // nothing chosen
     }
 
-    [Fact]
+    [SkippableFact]
     public void Same_class_placements_ignore_the_locked_primary_airlock()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey(Wall)) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall)) return;
 
         var doc = new ShipDocument(g.Catalog);
         Place(doc, Catalog.PrimaryDocksysDef, 0, 0);               // locked, HULL — never re-skinned
@@ -95,10 +99,11 @@ public class ThemeOpsTests
         Assert.DoesNotContain(walls, p => p.DefName == Catalog.PrimaryDocksysDef);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Reskin_reverses_cleanly_as_one_undo()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey(Wall)) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall)) return;
         if (OtherSkin(g.Catalog, Catalog.LayerWall, 1, 1, Wall) is not { } skin) return;
 
         var doc = new ShipDocument(g.Catalog);
@@ -115,13 +120,14 @@ public class ThemeOpsTests
         Assert.All(doc.Placements, p => Assert.Equal(Wall, p.DefName));
     }
 
-    [Fact]
+    [SkippableFact]
     public void Reskinning_imported_structure_keeps_it_given()
     {
         // Re-skinning given (imported) walls/floors must keep them given, so a bulk theme change
         // doesn't re-validate a valid imported ship the game never re-checks (the reported bug:
         // Theme replace flagged "tile occupied" on a clean Charon after re-skinning).
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey(Wall)) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall)) return;
         if (OtherSkin(g.Catalog, Catalog.LayerWall, 1, 1, Wall) is not { } skin) return;
 
         var doc = new ShipDocument(g.Catalog);

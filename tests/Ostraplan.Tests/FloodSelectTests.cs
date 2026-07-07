@@ -14,7 +14,8 @@ public class FloodSelectTests
     private static ShipDocument? Doc(out string other)
     {
         other = "";
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey(Wall)) return null;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall)) return null;
         // any other 1×1 buildable def, to prove the flood stops at a different type
         var alt = g.Catalog.Parts.FirstOrDefault(p =>
             p.DefName != Wall && GridMath.Size(p.Item.Width, p.Item.Height, 0) == (1, 1));
@@ -30,7 +31,7 @@ public class FloodSelectTests
         return p;
     }
 
-    [Fact]
+    [SkippableFact]
     public void Floods_a_connected_L_of_the_same_def()
     {
         if (Doc(out _) is not { } doc) return;
@@ -47,7 +48,7 @@ public class FloodSelectTests
         Assert.Contains(seed, region);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Stops_at_a_diagonal_gap()
     {
         if (Doc(out _) is not { } doc) return;
@@ -61,7 +62,7 @@ public class FloodSelectTests
         Assert.Same(seed, region[0]);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Does_not_cross_into_a_different_def()
     {
         if (Doc(out var other) is not { } doc) return;
@@ -76,10 +77,10 @@ public class FloodSelectTests
         Assert.DoesNotContain(barrier, region);
     }
 
-    [Fact]
+    [SkippableFact]
     public void A_multitile_seed_returns_just_itself()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var multi = g.Catalog.Parts.FirstOrDefault(p => GridMath.Size(p.Item.Width, p.Item.Height, 0) is var (w, h) && (w > 1 || h > 1));
         if (multi is null) return;
 

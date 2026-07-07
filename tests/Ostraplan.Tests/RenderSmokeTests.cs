@@ -15,17 +15,17 @@ namespace Ostraplan.Tests;
 /// </summary>
 public class RenderSmokeTests
 {
-    [Fact]
+    [SkippableFact]
     public void Render_small_ship_to_png()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         RunSta(() => Run(g.Catalog));
     }
 
-    [Fact]
+    [SkippableFact]
     public void Render_primary_airlock_stripes_and_rotated_view()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         RunSta(() =>
         {
             var doc = new ShipDocument(g.Catalog);
@@ -52,10 +52,10 @@ public class RenderSmokeTests
         });
     }
 
-    [Fact]
+    [SkippableFact]
     public void Render_illegal_placement_hazard_tint()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         RunSta(() =>
         {
             var doc = new ShipDocument(g.Catalog);
@@ -86,10 +86,10 @@ public class RenderSmokeTests
         });
     }
 
-    [Fact]
+    [SkippableFact]
     public void Large_tank_sprite_is_3x3_inside_its_7x7_footprint()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var def = ItemDef.Parse(g.Index.Type("items")["ItmCanisterLH02"].El);
         var part = new PartDef("ItmCanisterLH02", "D2O Tank", "POWR", "core", def,
             g.Index.ResolveImage(def.Img), [], [], [], new Dictionary<string, double>(), new Dictionary<string, (double, double)>());
@@ -98,10 +98,10 @@ public class RenderSmokeTests
         Assert.Equal((3, 3), new SpriteCache().SpriteTiles(part));   // 48x48 sprite -> drawn 3x3, centered
     }
 
-    [Fact]
+    [SkippableFact]
     public void Render_large_tank_sprite_centered_in_footprint()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var tank = g.Catalog.Parts.FirstOrDefault(p => p.Item.Width == 7 && p.Item.Height == 7);
         if (tank is null || !g.Catalog.ByDefName.ContainsKey("ItmFloorGrate01")) return;
         RunSta(() =>
@@ -129,10 +129,10 @@ public class RenderSmokeTests
         });
     }
 
-    [Fact]
+    [SkippableFact]
     public void Render_tank_ghost_shades_the_under_floor_reservation()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var tank = g.Catalog.Parts.FirstOrDefault(p => p.Item.Width == 7 && p.Item.Height == 7);
         if (tank is null || !g.Catalog.ByDefName.ContainsKey("ItmFloorGrate01")) return;
         RunSta(() =>
@@ -161,10 +161,11 @@ public class RenderSmokeTests
         });
     }
 
-    [Fact]
+    [SkippableFact]
     public void Snapshot_renders_the_ship_to_a_sized_png()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.ContainsKey("ItmFloorGrate01")) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey("ItmFloorGrate01")) return;
         RunSta(() =>
         {
             var doc = new ShipDocument(g.Catalog);

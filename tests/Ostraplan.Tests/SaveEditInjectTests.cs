@@ -51,10 +51,10 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         return r.ReadToEnd();
     }
 
-    [Fact]
+    [SkippableFact]
     public void Noop_inject_preserves_every_item_and_co()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
 
@@ -73,10 +73,10 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         _out.WriteLine($"no-op: {report.Kept} kept, {origItems} items, {origCOs} COs, {report.NCols}x{report.NRows}, {report.Warnings.Count} warnings");
     }
 
-    [Fact]
+    [SkippableFact]
     public void Adding_a_part_adds_one_item_and_a_synthesized_pristine_co()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
         if (r.Doc.Bounds() is not { } b) return;
@@ -101,12 +101,12 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.Contains("DEFAULT", ((JsonArray)newCo["aConds"]!).Select(n => (string?)n));
     }
 
-    [Fact]
+    [SkippableFact]
     public void Reskinning_a_part_gives_the_new_skin_a_co_so_it_is_not_skipped_on_load()
     {
         // regression for the catastrophic in-game failure: re-skinning drops identity (def change = new part),
         // so every re-skinned tile needs a synthesized CO or the game logs "missing save data" and skips it.
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
 
@@ -129,13 +129,13 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.Contains(((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()), c => (string?)c["strCODef"] == other.DefName);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Moving_an_imported_part_clears_immunity_and_the_law_reapplies()
     {
         // an unmoved imported part is immune (the game never re-validates existing structure), but MOVING it is
         // an authoring act — given-ness clears and the placement law re-applies. Dragged into open space, a part
         // that needs support (has socket reqs) must now flag; the imported ship flagged nothing before.
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
 
         // a non-locked imported part that requires structure around it — deep empty space fails its socket reqs
@@ -154,12 +154,12 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.True(Blocking() > before);   // ...and the law now flags the unsupported part
     }
 
-    [Fact]
+    [SkippableFact]
     public void Moving_a_part_keeps_its_exact_condition_and_condition_owner()
     {
         // answers "does moving a wall keep it in the same condition?": a moved part keeps its strID, its item
         // entry (incl. aCondOverrides = wear/damage) verbatim bar the pose, and its whole CO (all live state).
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
 
@@ -187,10 +187,10 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.Equal(origCoConds, co["aConds"]?.ToJsonString());
     }
 
-    [Fact]
+    [SkippableFact]
     public void Deleting_a_cargoless_part_drops_its_item_and_co()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
 
@@ -210,13 +210,13 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.Equal(cos0 - 1, Count(ship, "aCOs"));       // ...and its 1:1 condition owner with it
     }
 
-    [Fact]
+    [SkippableFact]
     public void Reskinning_a_container_preserves_and_reparents_its_cargo()
     {
         // the inject's cargo SAFETY NET: the UI no longer lets you re-skin a container (ReplaceOps excludes them),
         // but if a def-change ever carries cargo the inject must keep it — re-parented onto the new part, nothing
         // reported lost — rather than dropping it. This drives that defensive path directly (bypassing the UI guard).
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var specs = RoomCertifier.LoadSpecs(g.Index);
         if (ImportWhere(g.Env, g.Catalog, d => d.Placements.Any(p => !d.IsLocked(p) && p.Cargo.Count > 0)) is not { } r) return;
 
@@ -247,11 +247,11 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         foreach (var tl in topLevel) Assert.Equal(newParent, Parent(itemsById[tl]));
     }
 
-    [Fact]
+    [SkippableFact]
     public void Deleting_a_container_reports_and_drops_its_cargo()
     {
         // the other side of the fix: a genuine delete (not a re-skin) still reports the lost cargo and drops it.
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var specs = RoomCertifier.LoadSpecs(g.Index);
         if (ImportWhere(g.Env, g.Catalog, d => d.Placements.Any(p => !d.IsLocked(p) && p.Cargo.Count > 0)) is not { } r) return;
 
@@ -267,12 +267,12 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         foreach (var cid in cargoIds) Assert.DoesNotContain(cid, itemIds);   // ...and actually gone
     }
 
-    [Fact]
+    [SkippableFact]
     public void Reskinning_a_nav_console_keeps_its_modules_and_adds_no_generic_set()
     {
         // nav auto-inject is empty-only: a console that already carries modules (kept, or transferred through a
         // re-skin) keeps exactly those — it must NOT also receive the generic 14-module set.
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var specs = RoomCertifier.LoadSpecs(g.Index);
         if (ImportWhere(g.Env, g.Catalog, d => d.Placements.Any(p =>
                 !d.IsLocked(p) && NavConsole.IsConsole(d.Part(p)) && p.Cargo.Count > 0)) is not { } r) return;
@@ -299,13 +299,13 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.Equal(topCount, childCount);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Injected_copy_has_a_co_for_every_item_after_reskin_and_add()
     {
         // The reported catastrophe, at the file level: re-skin a batch of tiles (def change -> new parts) and
         // add one, then confirm the WRITTEN save has a CO for every item — the invariant DataHandler.SpawnItems
         // enforces (an item without a CO is skipped on load).
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
         if (r.Doc.Bounds() is not { } b) return;
@@ -340,12 +340,12 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         finally { if (Directory.Exists(temp)) Directory.Delete(temp, recursive: true); }
     }
 
-    [Fact]
+    [SkippableFact]
     public void Adding_a_powered_device_bakes_its_power_ticker_so_it_can_draw_power()
     {
         // the reported dead-device bug: an injected device with no Power ticker never gets IsReadyUsePower, so it
         // can't draw power even once conduits reach it. A synthesized CO must carry the def's Power ticker.
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
         if (r.Doc.Bounds() is not { } b) return;
@@ -365,13 +365,13 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.True(report.PowerFixed >= 0);        // self-heal ran over the kept devices too (no crash)
     }
 
-    [Fact]
+    [SkippableFact]
     public void Injected_ship_is_armed_to_refill_atmosphere_and_marked_pristine()
     {
         // the edit regenerates aRooms, orphaning per-room gas -> the ship would spawn airless. bPrefill makes the
         // game refill it on load; marking the hull pristine (DMGStatus New) keeps that fill safe on a Used/Damaged
         // ship (else bPrefill fires the break-in/damage path).
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
 
@@ -382,7 +382,7 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.Equal(0, ship["DMGStatus"]!.GetValue<int>());  // ...and the hull is marked pristine so it's safe
     }
 
-    [Fact]
+    [SkippableFact]
     public void GpmSettingsFor_expands_the_def_pairs_against_the_templates()
     {
         var electrical = JsonDocument.Parse("[\"status\",\"true\"]").RootElement.Clone();
@@ -408,10 +408,10 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.Empty(cat.GpmSettingsFor(part with { Gpm = [("X", "NoSuchTemplate")] }));   // unknown template -> nothing
     }
 
-    [Fact]
+    [SkippableFact]
     public void Adding_a_powered_device_bakes_its_gpm_so_it_wires_on_load()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
         if (r.Doc.Bounds() is not { } b) return;
@@ -432,12 +432,12 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.Contains(gpm!.Select(n => n!.AsObject()), o => (string?)o["strName"] == "Electrical");
     }
 
-    [Fact]
+    [SkippableFact]
     public void Charging_an_edit_deducts_statusd_on_the_player_co_and_saveinfo_money()
     {
         // the cost deduction: rewrite the player CO's StatUSD (authoritative balance) and mirror saveInfo.money
         // into the written copy; the player CO lives on their own ship, so it's the file we already splice.
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
         if (SaveEdit.CurrentBalance(r.Context) is not { } balance) return;   // save has no player balance -> skip
@@ -481,10 +481,10 @@ public class SaveEditInjectTests(ITestOutputHelper output)
             System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0;
     }
 
-    [Fact]
+    [SkippableFact]
     public void WriteCopy_makes_a_loadable_copy_and_leaves_the_original_untouched()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
 
@@ -511,12 +511,12 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         finally { if (Directory.Exists(temp)) Directory.Delete(temp, recursive: true); }
     }
 
-    [Fact]
+    [SkippableFact]
     public void Adding_a_nav_console_installs_the_standard_module_set_with_cos()
     {
         // a newly-added nav console spawns as an empty frame — the inject must add the standard module set as
         // contained children, each with a synthesized CO (a save load skips any item lacking one).
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
         if (r.Doc.Bounds() is not { } b) return;
@@ -543,12 +543,12 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.All(modules, m => Assert.Contains((string?)m["strID"], coIds));      // every module has its 1:1 CO
     }
 
-    [Fact]
+    [SkippableFact]
     public void Imported_placements_carry_their_container_cargo()
     {
         // save-import now attaches each container's contents tree to its placement (Placement.Cargo). The trees
         // must cover exactly the subtree the context recorded, with unique ids that resolve to real save items.
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
 
         var cargoIds = r.Doc.Placements.SelectMany(p => p.Cargo.SelectMany(c => c.SubtreeIds())).ToList();
@@ -564,12 +564,12 @@ public class SaveEditInjectTests(ITestOutputHelper output)
             Assert.Contains(console.Cargo, c => c.DefName.StartsWith("ItmNavMod", System.StringComparison.Ordinal));
     }
 
-    [Fact]
+    [SkippableFact]
     public void Adding_cargo_to_a_kept_container_writes_a_new_item_and_co_and_drops_nothing()
     {
         // Phase 4: an item added to a container's contents becomes a fresh authored item, parented to the
         // container, with a synthesized pristine CO — and no original cargo is dropped or warned about.
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var specs = RoomCertifier.LoadSpecs(g.Index);
         if (ImportWhere(g.Env, g.Catalog, d => d.Placements.Any(p =>
                 !d.IsLocked(p) && d.Part(p)?.ContainerGrid is not null)) is not { } r) return;
@@ -607,12 +607,12 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.Contains("DEFAULT", ((JsonArray)co["aConds"]!).Select(n => (string?)n));   // pristine on load
     }
 
-    [Fact]
+    [SkippableFact]
     public void Removing_cargo_from_a_kept_container_drops_the_item_without_a_loss_warning()
     {
         // removing an item from a KEPT container is an intended edit: the item + its 1:1 CO are dropped, and
         // NOTHING is reported as lost (a content edit must not fire the deleted-container "cargo will be gone" warning).
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var specs = RoomCertifier.LoadSpecs(g.Index);
         if (ImportWhere(g.Env, g.Catalog, d => d.Placements.Any(p => !d.IsLocked(p)
                 && p.Cargo.Any(c => !c.IsStack && c.Children.Count == 0 && !c.Slotted))) is not { } r) return;
@@ -635,12 +635,12 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.DoesNotContain(victim.StrID, ids);
     }
 
-    [Fact]
+    [SkippableFact]
     public void Oplan_persists_and_restores_an_edited_containers_cargo_snapshot()
     {
         // authored cargo survives .oplan save + reopen (full snapshot): FromDocument stores it for the edited
         // container, ToDocument restores it and re-marks the part edited so a re-save persists it again.
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var containerDef = g.Catalog.Parts.FirstOrDefault(p => p.ContainerGrid is not null
             && ContainerFilter.AcceptedBy(g.Catalog, p).Any(i => i.SpriteAbs is not null));
         if (containerDef is null) return;
@@ -665,10 +665,10 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.All(p2.Cargo, c => Assert.True(c.Authored));
     }
 
-    [Fact]
+    [SkippableFact]
     public void Oplan_persists_no_cargo_snapshot_for_an_unedited_container()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var containerDef = g.Catalog.Parts.FirstOrDefault(p => p.ContainerGrid is not null);
         if (containerDef is null) return;
         var doc = new ShipDocument(g.Catalog);
@@ -677,11 +677,11 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.Null(Assert.Single(file.Parts).Cargo);   // un-edited container -> cargo re-read from the save, not stored
     }
 
-    [Fact]
+    [SkippableFact]
     public void Moving_original_cargo_writes_its_new_grid_position_to_the_co()
     {
         // rearranging an original item persists: its CO's inventoryX/inventoryY are overwritten to the new cell.
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var specs = RoomCertifier.LoadSpecs(g.Index);
         if (ImportWhere(g.Env, g.Catalog, d => d.Placements.Any(p => !d.IsLocked(p)
                 && (d.Part(p)?.ContainerGrid ?? (0, 0)).Item1 >= 2
@@ -707,11 +707,11 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.Equal(0, co["inventoryY"]!.GetValue<int>());
     }
 
-    [Fact]
+    [SkippableFact]
     public void Rotating_original_cargo_writes_its_rotation_to_the_item()
     {
         // rotating an original item persists to its aItems fRotation (the field the game reads inventory rotation from).
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var specs = RoomCertifier.LoadSpecs(g.Index);
         if (ImportWhere(g.Env, g.Catalog, d => d.Placements.Any(p => !d.IsLocked(p)
                 && d.Part(p)?.ContainerGrid is not null
@@ -732,10 +732,10 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.Equal(90.0, it["fRotation"]!.GetValue<double>());
     }
 
-    [Fact]
+    [SkippableFact]
     public void Oplan_round_trips_an_authored_items_rotation()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var containerDef = g.Catalog.Parts.FirstOrDefault(p => p.ContainerGrid is not null
             && ContainerFilter.AcceptedBy(g.Catalog, p).Any(i => i.SpriteAbs is not null));
         if (containerDef is null) return;

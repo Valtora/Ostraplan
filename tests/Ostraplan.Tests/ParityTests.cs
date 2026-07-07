@@ -44,10 +44,10 @@ public class ParityTests(ITestOutputHelper output)
         ["Vector2.json"] = "interceptor airlock: the game separates the airlock opening from the exterior void by a rule 4-connectivity flood does not reproduce; affects only which Blank/void region owns a few exterior tiles",
     };
 
-    [Fact]
+    [SkippableFact]
     public void Rooms_parity_across_all_core_templates()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var resolver = new PartResolver(g.Index);
 
         int total = 0, passed = 0;
@@ -73,10 +73,10 @@ public class ParityTests(ITestOutputHelper output)
             $"only {excludedSeen.Count}/{RoomExclusions.Count} excluded templates still fail — prune RoomExclusions");
     }
 
-    [Fact]
+    [SkippableFact]
     public void Certification_parity_across_all_core_templates()
     {
-        if (TestData.Game is not { } g) return;
+        var g = TestData.RequireGame();
         var resolver = new PartResolver(g.Index);
         var specs = RoomCertifier.LoadSpecs(g.Index);
         Assert.True(specs.Count >= 15, $"only {specs.Count} room specs loaded");

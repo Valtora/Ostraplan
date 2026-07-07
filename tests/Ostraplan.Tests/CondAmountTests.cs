@@ -20,10 +20,11 @@ public class CondAmountTests
     public void Amount_is_the_number_after_x(string entry, double expected)
         => Assert.Equal(expected, LootDef.CondAmount(entry), 3);
 
-    [Fact]
+    [SkippableFact]
     public void Starting_cond_values_hold_real_magnitudes_not_the_chance()
     {
-        if (TestData.Game is not { } g || !g.Catalog.ByDefName.TryGetValue("ItmWall1x1", out var wall)) return;
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.TryGetValue("ItmWall1x1", out var wall)) return;
         // ItmWall1x1 carries "StatMass=1.0x24.0" — the parsed magnitude must be 24, not the 1.0 chance.
         Assert.Equal(24.0, wall.StartingCondValues.GetValueOrDefault("StatMass"), 3);
     }
