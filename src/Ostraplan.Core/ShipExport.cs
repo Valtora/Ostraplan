@@ -54,7 +54,28 @@ public static class ShipExport
         RoomCertifier.CertifyAll(partition, specs, catalog);
         var rating = Rating.Calculate(grid, partition, catalog);
 
+        // map a grid part back to its source placement (PlacedPart.StrID == Placement.Id) so its contained cargo
+        // travels into the export
+        var byPlacementId = doc.Placements.ToDictionary(p => p.Id.ToString());
+
         var items = new List<ExportedItem>(grid.Parts.Count);
+
+        // Emit a container's contents as pristine, parented items (template-style: no CO — a data/ships load
+        // defaults each item's CO/GPM from its def). Recurses so nested containers and stacks (a lead + its
+        // same-def members) come through; loose cargo parents by strParentID, equipped gear by strSlotParentID.
+        // Contained items sit at their container's own coordinates; rotation rides on fRotation.
+        void EmitCargo(IReadOnlyList<CargoItem> nodes, string parentStrID, double fx, double fy)
+        {
+            foreach (var c in nodes)
+            {
+                var cid = Guid.NewGuid().ToString();
+                var item = new ExportedItem { StrName = c.DefName, FX = fx, FY = fy, FRotation = c.GridRot, StrID = cid };
+                if (c.Slotted) item.StrSlotParentID = parentStrID; else item.StrParentID = parentStrID;
+                items.Add(item);
+                EmitCargo(c.Children, cid, fx, fy);
+            }
+        }
+
         foreach (var part in grid.Parts)
         {
             var (w, h) = GridMath.Size(part.Part.Item.Width, part.Part.Item.Height, part.Rot);
@@ -72,16 +93,24 @@ public static class ShipExport
                 StrID = strID,
             });
 
-            // A nav console is an empty frame: its interface is assembled from hot-swappable module items
-            // contained inside it. Ostraplan places only the console, so install the standard module set here or
-            // it spawns blank. On a template load the game defaults each module's CO + GUI-prop-map from its def,
-            // so a bare parented item at the console's own coordinates is enough (see NavConsole / Babak.json).
-            if (NavConsole.IsConsole(part.Part))
+            var placement = part.StrID is { } pid ? byPlacementId.GetValueOrDefault(pid) : null;
+            if (placement is { Cargo.Count: > 0 })
+            {
+                EmitCargo(placement.Cargo, strID, fx, fy);   // the design's contents (original + authored), pristine
+            }
+            else if (NavConsole.IsConsole(part.Part))
+            {
+                // An EMPTY nav console is a bare frame: its interface is assembled from hot-swappable module items
+                // contained inside it. Ostraplan places only the console, so install the standard module set here or
+                // it spawns blank. On a template load the game defaults each module's CO + GUI-prop-map from its def,
+                // so a bare parented item at the console's own coordinates is enough (see NavConsole / Babak.json).
+                // A console that already carries modules (a save-imported one) keeps them via EmitCargo above.
                 foreach (var modDef in NavConsole.StandardModules)
                     items.Add(new ExportedItem
                     {
                         StrName = modDef, FX = fx, FY = fy, FRotation = 0, StrID = Guid.NewGuid().ToString(), StrParentID = strID,
                     });
+            }
         }
 
         var rooms = partition.Rooms.Select(r => new ExportedRoom
@@ -234,7 +263,7 @@ public sealed class ExportedShip
 }
 
 /// <summary>One item in the exported ship: a top-level placed part, or a contained sub-object — a nav-console
-/// module — when <see cref="StrParentID"/> is set (see <see cref="NavConsole"/>).</summary>
+/// module, or a container's cargo — when <see cref="StrParentID"/>/<see cref="StrSlotParentID"/> is set.</summary>
 public sealed class ExportedItem
 {
     [JsonPropertyName("strName")] public string StrName { get; set; } = "";
@@ -243,9 +272,13 @@ public sealed class ExportedItem
     [JsonPropertyName("fRotation")] public double FRotation { get; set; }
     [JsonPropertyName("strID")] public string StrID { get; set; } = "";
 
-    /// <summary>Set only on a contained sub-object: the <c>strID</c> of the item that holds it (a nav console for
-    /// its modules). Null — and omitted from the JSON — for an ordinary top-level part.</summary>
+    /// <summary>Set only on loose contained cargo (and nav-console modules): the <c>strID</c> of the container that
+    /// holds it. Null — and omitted from the JSON — for a top-level part.</summary>
     [JsonPropertyName("strParentID")] public string? StrParentID { get; set; }
+
+    /// <summary>Set only on equipped contained gear: the <c>strID</c> of the host it is slotted into. Null — and
+    /// omitted from the JSON — otherwise.</summary>
+    [JsonPropertyName("strSlotParentID")] public string? StrSlotParentID { get; set; }
 }
 
 /// <summary>A baked room: tile indices (row-major into nCols×nRows), certified spec, void flag.</summary>

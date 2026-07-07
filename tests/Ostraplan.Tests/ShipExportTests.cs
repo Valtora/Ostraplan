@@ -207,4 +207,57 @@ public class ShipExportTests
         Assert.Equal(doc.Placements.Count, ship.AItems.Length);
         Assert.All(ship.AItems, i => Assert.Null(i.StrParentID));
     }
+
+    [Fact]
+    public void Export_carries_a_containers_cargo_as_parented_items()
+    {
+        // a container's contents travel into the exported ship as pristine parented items at the container's coords.
+        if (TestData.Game is not { } g || !Ready(g)) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        var containerDef = g.Catalog.Parts.FirstOrDefault(p => p.ContainerGrid is not null
+            && ContainerFilter.AcceptedBy(g.Catalog, p).Any(i => i.SpriteAbs is not null));
+        if (containerDef is null) return;
+        var itemDef = ContainerFilter.AcceptedBy(g.Catalog, containerDef).First(i => i.SpriteAbs is not null);
+
+        var doc = new ShipDocument(g.Catalog);
+        var p = new Placement { DefName = containerDef.DefName, X = 4, Y = 4 };
+        new PlaceCommand(p).Do(doc);
+        if (CargoEdit.Add(p.Cargo, null, containerDef.ContainerGrid!.Value, itemDef, 1) is not { } added) return;
+        new SetCargoCommand(p, p.Cargo, added).Do(doc);
+
+        var (ship, _, _) = ShipExport.Build(doc, g.Catalog, specs, "Cargo Ship");
+
+        var container = Assert.Single(ship.AItems, i => i.StrName == containerDef.DefName);
+        var cargo = Assert.Single(ship.AItems, i => i.StrParentID == container.StrID);
+        Assert.Equal(itemDef.DefName, cargo.StrName);
+        Assert.Equal(container.FX, cargo.FX);   // contained items sit at the container's coordinates
+        Assert.Equal(container.FY, cargo.FY);
+        Assert.Equal(ship.AItems.Length, ship.AItems.Select(i => i.StrID).Distinct().Count());   // fresh, unique ids
+    }
+
+    [Fact]
+    public void Export_carries_a_stack_as_a_lead_plus_members()
+    {
+        // a stack exports the way the game stores it: a lead item parented to the container, its copies parented to the lead.
+        if (TestData.Game is not { } g || !Ready(g)) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        var containerDef = g.Catalog.Parts.FirstOrDefault(p => p.ContainerGrid is not null
+            && ContainerFilter.AcceptedBy(g.Catalog, p).Any(i => i.SpriteAbs is not null && i.StackLimit >= 2));
+        if (containerDef is null) return;
+        var stackable = ContainerFilter.AcceptedBy(g.Catalog, containerDef).First(i => i.SpriteAbs is not null && i.StackLimit >= 2);
+
+        var doc = new ShipDocument(g.Catalog);
+        var p = new Placement { DefName = containerDef.DefName, X = 4, Y = 4 };
+        new PlaceCommand(p).Do(doc);
+        if (CargoEdit.Add(p.Cargo, null, containerDef.ContainerGrid!.Value, stackable, 2) is not { } added) return;
+        new SetCargoCommand(p, p.Cargo, added).Do(doc);
+
+        var (ship, _, _) = ShipExport.Build(doc, g.Catalog, specs, "Stack Ship");
+
+        var container = Assert.Single(ship.AItems, i => i.StrName == containerDef.DefName);
+        var stackItems = ship.AItems.Where(i => i.StrName == stackable.DefName).ToList();
+        Assert.Equal(2, stackItems.Count);                                     // lead + one member
+        var lead = Assert.Single(stackItems, i => i.StrParentID == container.StrID);
+        Assert.Single(stackItems, i => i.StrParentID == lead.StrID);           // the member hangs off the lead
+    }
 }
