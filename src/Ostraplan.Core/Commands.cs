@@ -6,6 +6,9 @@ public interface IDocCommand
     void Undo(ShipDocument doc);
 }
 
+/// <summary>How a command reached the stack — a fresh edit, an undo, or a redo. Drives the audit line.</summary>
+public enum CommandAction { Do, Undo, Redo }
+
 /// <summary>Classic undo/redo stack; Push executes. Dirty tracks the saved position.</summary>
 public sealed class CommandStack
 {
@@ -18,6 +21,10 @@ public sealed class CommandStack
     public bool Dirty => _undo.Count != _savedDepth;
 
     public event Action? StateChanged;
+
+    /// <summary>Raised for every command that reaches the stack (fresh edit, undo, or redo), so a
+    /// listener can log it. Seeding a document outside the stack (the primary airlock) doesn't fire.</summary>
+    public event Action<IDocCommand, CommandAction>? Applied;
 
     public void Push(ShipDocument doc, IDocCommand cmd)
     {
@@ -32,6 +39,7 @@ public sealed class CommandStack
         _redo.Clear();
         if (_savedDepth > _undo.Count - 1) _savedDepth = -1;   // saved state no longer reachable
         StateChanged?.Invoke();
+        Applied?.Invoke(cmd, CommandAction.Do);
     }
 
     public void Undo(ShipDocument doc)
@@ -41,6 +49,7 @@ public sealed class CommandStack
         cmd.Undo(doc);
         _redo.Push(cmd);
         StateChanged?.Invoke();
+        Applied?.Invoke(cmd, CommandAction.Undo);
     }
 
     public void Redo(ShipDocument doc)
@@ -50,6 +59,7 @@ public sealed class CommandStack
         cmd.Do(doc);
         _undo.Push(cmd);
         StateChanged?.Invoke();
+        Applied?.Invoke(cmd, CommandAction.Redo);
     }
 
     public void MarkSaved()

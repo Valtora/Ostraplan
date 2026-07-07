@@ -53,6 +53,8 @@ public partial class MainWindow : Window
     {
         InitializeComponent();
 
+        AuditLog.Session(AppVersion);   // open a new section in the on-disk activity trail
+
         // Reflect the saved theme in the picker (App.OnStartup already applied it). Guarded so the
         // programmatic select doesn't re-apply/persist.
         _themeInit = true;
@@ -75,6 +77,7 @@ public partial class MainWindow : Window
         Board.ContextMenuRequested += OnContextMenuRequested;
         Board.GhostReasonChanged += reason => TxtGhost.Text = reason is null ? "" : "⛔ can't place here — " + reason;
         _stack.StateChanged += RefreshChrome;
+        _stack.Applied += (cmd, action) => AuditLog.Command(action, cmd);   // audit every edit/undo/redo
 
         _scanTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
         _scanTimer.Tick += (_, _) => RunScan();
@@ -118,6 +121,7 @@ public partial class MainWindow : Window
                     return;
                 }
                 _settings.GameRootOverride = dlg.FolderName;
+                AuditLog.Setting("Game folder", dlg.FolderName);
                 _settings.Save();
             }
         }
@@ -157,6 +161,7 @@ public partial class MainWindow : Window
         NewDocument();
 
         var v = env.InstalledVersion ?? "unknown";
+        AuditLog.Add($"Loaded game data (Game {v}).");
         if (env.VersionMatchesVerified)
         {
             TxtVersion.Text = $"Game {v}";
@@ -239,6 +244,7 @@ public partial class MainWindow : Window
         _syncingPalette = false;
 
         Board.SetArmed(vm.Part);
+        AuditLog.Tool(vm.Part.Friendly);
         Board.Focus();   // keys (R, Del, Esc) belong to the canvas once a part is armed
         UpdateInspector();
     }
@@ -264,6 +270,7 @@ public partial class MainWindow : Window
         foreach (var list in _paletteLists)
             if (list.Items.Contains(vm)) { list.SelectedItem = vm; Board.Focus(); return; }
         Board.SetArmed(vm.Part);   // visible nowhere (search-filtered) — arm without a palette highlight
+        AuditLog.Tool(vm.Part.Friendly);
         Board.Focus();
     }
 
@@ -461,7 +468,7 @@ public partial class MainWindow : Window
         var star = _stack.Dirty ? " *" : "";
         var incomplete = _unresolvedParts.Count > 0 ? "  ⚠ MISSING MODS — read-only" : "";
         TxtDoc.Text = name + star + incomplete;
-        Title = $"Ostraplan — {name}{star}{incomplete}";
+        Title = $"Ostraplan v{AppVersion} — {name}{star}{incomplete}";
     }
 
     private bool ConfirmDiscardChanges()
@@ -500,6 +507,7 @@ public partial class MainWindow : Window
             return false;
         }
         _stack.MarkSaved();
+        AuditLog.Add($"Saved {_doc.FilePath}.");
         _settings.Touch(_doc.FilePath);
         _settings.Save();
         return true;
@@ -574,6 +582,7 @@ public partial class MainWindow : Window
         UpdateSaveEditUi();
         _settings.Touch(dlg.FileName);
         _settings.Save();
+        AuditLog.Add($"Opened {dlg.FileName}.");
 
         // A reopened save-derived design carries no cargo (the .oplan stores only layout); re-locate its
         // source save and hang each container's contents back on its placement, so the inventory viewer works
@@ -1067,7 +1076,7 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.N when ctrl && !e.IsRepeat:
-                if (ConfirmDiscardChanges()) NewDocument();
+                if (ConfirmDiscardChanges()) { NewDocument(); AuditLog.Add("New design."); }
                 e.Handled = true;
                 break;
             case Key.F when !ctrl:
@@ -1151,7 +1160,7 @@ public partial class MainWindow : Window
 
     private void OnNewClick(object sender, RoutedEventArgs e)
     {
-        if (ConfirmDiscardChanges()) NewDocument();
+        if (ConfirmDiscardChanges()) { NewDocument(); AuditLog.Add("New design."); }
     }
 
     private void OnOpenClick(object sender, RoutedEventArgs e) => OpenFile();
@@ -1210,6 +1219,7 @@ public partial class MainWindow : Window
         _settings.ExportAuthor = dlg.Author;
         if (!dlg.StagedIntoMods) _settings.LastExportDir = dlg.DestinationParent;
         _settings.Save();
+        AuditLog.Add($"Exported mod \"{dlg.ShipName}\" to {result.ModDir}.");
 
         var registerNote = dlg.StagedIntoMods
             ? "It's staged into the game's Mods folder.\n" +
@@ -1252,6 +1262,7 @@ public partial class MainWindow : Window
             var encoder = new PngBitmapEncoder();
             encoder.Frames.Add(BitmapFrame.Create(bmp));
             encoder.Save(fs);
+            AuditLog.Add($"Saved snapshot {dlg.FileName}.");
         }
         catch (Exception ex)
         {
@@ -1320,6 +1331,7 @@ public partial class MainWindow : Window
         }
 
         InstallImportedDocument(result);
+        AuditLog.Add($"Imported ship from save \"{save.Name}\" (layout only).");
     }
 
     /// <summary>Import the player's ship FOR EDITING: keeps each part's save identity plus a full context, so
@@ -1381,6 +1393,7 @@ public partial class MainWindow : Window
         finally { Mouse.OverrideCursor = null; }
 
         InstallImportedDocument(edit.Import, edit.Context);
+        AuditLog.Add($"Imported ship \"{chosen.Name}\" ({chosen.RegId}) for editing from save \"{save.Name}\".");
     }
 
     /// <summary>Write the edited ship back into a COPY of the save it came from (crew/cargo preserved, original
@@ -1493,6 +1506,7 @@ public partial class MainWindow : Window
             Dlg.Error(this, "Update ship in save", "Writing the save failed.\n\n" + ex.Message);
             return;
         }
+        AuditLog.Add($"Updated ship in save — wrote \"{writtenName}\".");
 
         var backup = opts.InPlace
             ? $"\n\nYour original save was backed up first, as a separate save named {backupName}.\n" +
@@ -1585,6 +1599,7 @@ public partial class MainWindow : Window
         }
 
         InstallImportedDocument(result);
+        AuditLog.Add($"Imported ship template \"{result.ShipName}\".");
     }
 
     /// <summary>Swap an imported ship in as the active document (no file path — Save prompts Save As). The
@@ -1645,7 +1660,166 @@ public partial class MainWindow : Window
 
     private void OnFitClick(object sender, RoutedEventArgs e) => Board.FitContent();
     private void OnSymClick(object sender, RoutedEventArgs e) => Board.CycleSymmetry();
-    private void OnHelpClick(object sender, RoutedEventArgs e) => ShowHelp();
+    /// <summary>The Help ▾ dropdown: controls/keybinds, report a bug, and the on-disk activity log.</summary>
+    private void OnHelpMenuClick(object sender, RoutedEventArgs e)
+    {
+        var menu = new ContextMenu { PlacementTarget = BtnHelp, Placement = PlacementMode.Bottom };
+        void Add(string header, Action act)
+        {
+            var item = new MenuItem { Header = header };
+            item.Click += (_, _) => act();
+            menu.Items.Add(item);
+        }
+        Add("Controls & keybinds (F1)", ShowHelp);
+        menu.Items.Add(new Separator());
+        Add("Report a Bug…", ReportBug);
+        menu.Items.Add(new Separator());
+        Add("View Activity Log", ViewLogs);
+        Add("Open Log Folder", OpenLogFolder);
+        Add("Clear Activity Log…", ClearLogs);
+        menu.IsOpen = true;
+    }
+
+    // ---- report a bug ----
+
+    private const int MaxIssueUrl = 7000;   // GitHub won't accept issue URLs much beyond this
+
+    /// <summary>
+    /// Open a pre-filled GitHub issue for Ostraplan in the browser: a short template (what were you
+    /// doing / what went wrong / repro / screenshots) plus auto-diagnostics, and — since the trail is
+    /// already scrubbed of usernames and paths — this session's recent activity-log lines folded into a
+    /// collapsible block. Falls back to the clipboard for the trail if the URL would get too long for GitHub.
+    /// </summary>
+    private void ReportBug()
+    {
+        try
+        {
+            var prompt =
+                "# Ostraplan bug report\n\n" +
+                "## What were you trying to do?\n\n\n" +
+                "## What went wrong?\n\n\n" +
+                "## Exact steps to reproduce (so I can see it happen too)\n\n1. \n2. \n3. \n\n" +
+                "**Screenshots**\nDrag any screenshots in here.\n\n" +
+                "---\n" +
+                "*Diagnostics (please keep these — they help me reproduce it):*\n" +
+                $"- Ostraplan: v{AppVersion}\n" +
+                $"- OS: {DescribeOs()}\n" +
+                $"- Game: {_env?.InstalledVersion ?? "unknown"} (Law verified against {GameEnv.VerifiedGameVersion})\n" +
+                $"- Design: {DescribeDocument()}\n";
+
+            var recent = AuditLog.Recent(25);
+            var body = prompt;
+            var clipboardFallback = false;
+            if (recent.Count > 0)
+            {
+                var trail = "\n<details>\n<summary>Recent actions (from Ostraplan's activity log)</summary>\n\n```\n"
+                            + string.Join("\n", recent) + "\n```\n</details>\n";
+                if (IssueUrl(prompt + trail).Length <= MaxIssueUrl)
+                    body = prompt + trail;
+                else
+                {
+                    Clipboard.SetText(string.Join(Environment.NewLine, recent));
+                    body = prompt + "\n*My recent actions are on the clipboard — paste them below.*\n\n";
+                    clipboardFallback = true;
+                }
+            }
+
+            OpenUrl(IssueUrl(body));
+            AuditLog.Add("Opened a pre-filled GitHub bug report" +
+                         (clipboardFallback ? " (recent actions copied to the clipboard)." : "."));
+            if (clipboardFallback)
+                Dlg.Info(this, "Report a bug",
+                    "Your recent actions were too long to pre-fill automatically, so they're on your clipboard.\n\n" +
+                    "In the GitHub issue that just opened, click into the description and paste them (Ctrl+V) under the diagnostics.");
+        }
+        catch (Exception ex)
+        {
+            Dlg.Error(this, "Report a bug", ex.Message);
+        }
+    }
+
+    private static string IssueUrl(string body) =>
+        "https://github.com/Valtora/Ostraplan/issues/new?labels=bug"
+        + "&title=" + Uri.EscapeDataString("[Bug] ")
+        + "&body=" + Uri.EscapeDataString(body);
+
+    /// <summary>A one-line, path-free summary of the current design for the bug report's diagnostics.</summary>
+    private string DescribeDocument()
+    {
+        if (_doc is null) return "none";
+        var kind = _doc.SourceSave is not null ? "save-derived" : _doc.FilePath is not null ? ".oplan" : "unsaved";
+        var dirty = _stack.Dirty ? ", unsaved changes" : "";
+        var incomplete = _unresolvedParts.Count > 0 ? $", {_unresolvedParts.Count} missing-mod part(s)" : "";
+        return $"{_doc.Placements.Count} parts, {kind}{dirty}{incomplete}";
+    }
+
+    /// <summary>
+    /// A human-readable OS string that tells Windows 11 from 10 (both report 10.0.x via
+    /// <see cref="Environment.OSVersion"/> — 11 is build 22000+), with the edition and display
+    /// version pulled from the registry when available. Ported from Ostrasort.
+    /// </summary>
+    private static string DescribeOs()
+    {
+        var v = Environment.OSVersion.Version;
+        var name = v.Major == 10 && v.Build >= 22000 ? "Windows 11" : $"Windows {v.Major}";
+        string? edition = null, display = null;
+        try
+        {
+            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(
+                @"SOFTWARE\Microsoft\Windows NT\CurrentVersion");
+            display = key?.GetValue("DisplayVersion") as string;   // e.g. "24H2"
+            if (key?.GetValue("ProductName") as string is { } product)
+            {
+                // ProductName often still says "Windows 10 <edition>" on 11 — trust only the edition suffix.
+                var m = System.Text.RegularExpressions.Regex.Match(product, @"Windows\s+\d+\s+(.+)$");
+                if (m.Success) edition = m.Groups[1].Value.Trim();
+            }
+        }
+        catch { /* registry unavailable — fall back to the name/version */ }
+
+        var s = name;
+        if (edition is { Length: > 0 }) s += " " + edition;
+        s += $" ({v.Major}.{v.Minor}.{v.Build}";
+        s += display is { Length: > 0 } ? $", {display})" : ")";
+        return s;
+    }
+
+    // ---- activity log ----
+
+    /// <summary>Open the on-disk activity log in the default text editor.</summary>
+    private void ViewLogs()
+    {
+        if (!File.Exists(AuditLog.FilePath))
+        {
+            Dlg.Info(this, "Activity log", "Nothing has been logged yet.");
+            return;
+        }
+        try { OpenUrl(AuditLog.FilePath); }
+        catch (Exception ex) { Dlg.Error(this, "Activity log", ex.Message); }
+    }
+
+    /// <summary>Open the folder holding the activity log (and settings) in Explorer.</summary>
+    private void OpenLogFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(AuditLog.Dir);
+            OpenUrl(AuditLog.Dir);
+        }
+        catch (Exception ex) { Dlg.Error(this, "Activity log", ex.Message); }
+    }
+
+    /// <summary>Empty the on-disk activity log, behind a confirmation.</summary>
+    private void ClearLogs()
+    {
+        if (!Dlg.Confirm(this, DlgKind.Warning, "Clear the activity log?",
+                "This empties Ostraplan's on-disk activity log (audit.log) and can't be undone.\n\n" +
+                "The log records your actions so a problem can be diagnosed later — keep it if you might report a bug.",
+                "Clear log"))
+            return;
+        AuditLog.Clear();
+        Dlg.Info(this, "Activity log", "The activity log has been cleared.");
+    }
 
     /// <summary>Theme picker: apply and persist. DynamicResource + Fluent ThemeMode retint the chrome live.</summary>
     private void OnThemeModeChanged(object sender, SelectionChangedEventArgs e)
@@ -1653,6 +1827,7 @@ public partial class MainWindow : Window
         if (_themeInit) return;
         var mode = CmbTheme.SelectedIndex switch { 1 => "light", 2 => "dark", _ => "system" };
         _settings.Theme = mode;
+        AuditLog.Setting("Theme", mode);
         _settings.Save();
         ThemeManager.Apply(mode);
     }
@@ -1822,6 +1997,9 @@ public partial class MainWindow : Window
         var checkUpdates = new Button { Content = "Check for updates", Padding = new Thickness(12, 3, 12, 3) };
         checkUpdates.Click += (_, _) => _ = CheckForUpdateAsync(manual: true);
         about.Children.Add(checkUpdates);
+        var reportBug = new Button { Content = "Report a bug", Padding = new Thickness(12, 3, 12, 3), Margin = new Thickness(8, 0, 0, 0) };
+        reportBug.Click += (_, _) => ReportBug();
+        about.Children.Add(reportBug);
         Grid.SetRow(about, row);
         Grid.SetColumnSpan(about, 3);
         grid.Children.Add(about);

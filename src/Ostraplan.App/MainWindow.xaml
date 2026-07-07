@@ -97,8 +97,8 @@
                 </StackPanel>
 
                 <!-- Right side (added right-to-left) -->
-                <Button x:Name="BtnHelp" Content="Help" DockPanel.Dock="Right" Padding="10,3" Margin="6,0,0,0"
-                        Click="OnHelpClick" ToolTip="Controls &amp; keybinds (F1)"/>
+                <Button x:Name="BtnHelp" Content="Help ▾" DockPanel.Dock="Right" Padding="10,3" Margin="6,0,0,0"
+                        Click="OnHelpMenuClick" ToolTip="Controls &amp; keybinds (F1), report a bug, and the activity log"/>
                 <ComboBox x:Name="CmbTheme" DockPanel.Dock="Right" Width="150" Margin="6,0,0,0"
                           VerticalAlignment="Center" SelectionChanged="OnThemeModeChanged"
                           ToolTip="App appearance: follow Windows, or force light/dark (the ship canvas stays dark either way)">
