@@ -42,6 +42,12 @@ each release was verified against is recorded in
   Ostrasort.)
 
 ### Fixed
+- **"Make Loose Item" now works on walls, floors, and conduits — and keeps their
+  theme.** These are placed as themed skins (a Testudo wall, an Aero floor), and only
+  the plain base part carries an uninstall recipe, so the loosen action was silently
+  unavailable on any skinned wall/floor/conduit. It is now offered, and loosening a
+  themed part yields the matching themed loose item (a Testudo loose wall, not a
+  generic one), mirroring what the game drops when you uninstall it.
 - **Nav-console modules and themed loose walls/floors now show up in the container
   add-picker.** When you added items to a container, the picker drew only from plain
   condowners and skipped cooverlay skins entirely — so a nav console offered none of

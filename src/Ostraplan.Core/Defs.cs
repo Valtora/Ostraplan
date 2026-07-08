@@ -39,14 +39,18 @@ public sealed record ItemDef(
 /// a CO by name it falls back to dictCOOverlays and uses strCOBase with the
 /// overlay's cosmetic overrides (DataHandler.LoadCO).
 /// </summary>
-public sealed record CoOverlayDef(string Name, string? NameFriendly, string? Img, string? COBase, string[] GpmNames)
+public sealed record CoOverlayDef(
+    string Name, string? NameFriendly, string? Img, string? COBase, string[] GpmNames, string[] ModeSwitches)
 {
     public static CoOverlayDef Parse(JsonElement e) => new(
         Json.Str(e, "strName") ?? "",
         Json.Str(e, "strNameFriendly"),
         Json.Str(e, "strImg"),
         Json.Str(e, "strCOBase"),
-        Json.StrArray(e, "mapGUIPropMaps"));
+        Json.StrArray(e, "mapGUIPropMaps"),
+        // Flat [base, skin] pairs mapping each base-condowner state to this skin's counterpart
+        // (installed/patch/damaged/loose); the game uses it to re-skin a base drop. See LooseForms.
+        Json.StrArray(e, "mapModeSwitches"));
 }
 
 public sealed record CondOwnerDef(

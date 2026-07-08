@@ -325,6 +325,23 @@ public sealed class Catalog
                 installedForms[job.ActionCO] = PreferPoweredState(index, job.StartInstall);   // re-install RCS ON too
         }
 
+        // Themed walls/floors/conduits are PLACED as cooverlay skins (ItmFloorAERO01), but only the BASE structural
+        // condowner (ItmFloorGrate01) carries an uninstall job — so the skin had no loose form and "Make Loose Item"
+        // was silently unavailable on it. The game re-skins the base's loose drop to match via the cooverlay's
+        // mapModeSwitches (flat [base, skin] pairs across the installed/patch/damaged/loose states); mirror that so
+        // loosening a themed skin yields the THEMED loose form (ItmFloorAERO01Loose), not the generic base. Only the
+        // installed skin gets an entry: a skin whose base maps to a base-loose form (loose skins base off a loose
+        // condowner, which has no uninstall job, so they're skipped).
+        foreach (var (name, (el, _)) in index.Type("cooverlays"))
+        {
+            if (looseForms.ContainsKey(name)) continue;   // a direct uninstall job already covers it
+            var overlay = CoOverlayDef.Parse(el);
+            if (string.IsNullOrEmpty(overlay.COBase) || !looseForms.TryGetValue(overlay.COBase, out var baseLoose))
+                continue;
+            var skinLoose = ReskinModeSwitch(overlay.ModeSwitches, baseLoose) ?? baseLoose;
+            if (Resolvable(skinLoose)) looseForms[name] = skinLoose;
+        }
+
         // Resolve a buildable palette entry, warning when its sprite is missing on disk.
         PartDef? Resolve(string defName, string category, string fallbackOrigin, string[] inputs, string[] tools, bool warnMissingSprite)
         {
@@ -406,6 +423,20 @@ public sealed class Catalog
     /// sign is left untouched. The target must be an RCS cluster carrying <c>IsOff</c> whose suffix-dropped
     /// counterpart resolves and is a non-Off RCS cluster; otherwise the def is returned unchanged.
     /// </summary>
+    /// <summary>
+    /// Map a base-condowner state to a cooverlay skin's counterpart via <c>mapModeSwitches</c> — a flat list of
+    /// <c>[base, skin]</c> pairs (installed/patch/damaged/loose). Given the base's loose form, returns the skin's
+    /// loose form (e.g. <c>ItmFloorGrate01Loose</c> → <c>ItmFloorAERO01Loose</c>). Null if the base state isn't
+    /// listed, so the caller can fall back to the generic base drop.
+    /// </summary>
+    private static string? ReskinModeSwitch(string[] modeSwitches, string baseState)
+    {
+        for (var i = 0; i + 1 < modeSwitches.Length; i += 2)
+            if (modeSwitches[i] == baseState)
+                return modeSwitches[i + 1];
+        return null;
+    }
+
     private static string PreferPoweredState(DataIndex index, string def)
     {
         if (!def.EndsWith("Off", StringComparison.Ordinal)) return def;

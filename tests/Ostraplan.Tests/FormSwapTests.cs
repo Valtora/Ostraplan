@@ -121,6 +121,41 @@ public class FormSwapTests
     }
 
     [SkippableFact]
+    public void Themed_wall_floor_conduit_skins_make_loose_to_their_themed_loose_form()
+    {
+        // Walls/floors/conduits are placed as cooverlay SKINS whose only uninstall job lives on the base condowner,
+        // so "Make Loose Item" was silently unavailable on them. The skin now maps to its OWN themed loose form
+        // (via strCOBase + the skin's mapModeSwitches), not the generic base drop.
+        var g = TestData.RequireGame();
+        Assert.Equal("ItmFloorAERO01Loose", g.Catalog.LooseForm("ItmFloorAERO01"));   // themed floor
+        Assert.Equal("ItmWallAERO01Loose", g.Catalog.LooseForm("ItmWallAERO01"));     // themed wall
+        Assert.Equal("ItmConduit01Loose", g.Catalog.LooseForm("ItmConduit01"));       // conduit variant
+
+        // the base forms still map to their own base loose (unchanged), and a genuinely already-loose skin has none
+        Assert.Equal("ItmFloorGrate01Loose", g.Catalog.LooseForm("ItmFloorGrate01"));
+        Assert.Null(g.Catalog.LooseForm("ItmFloorAERO01Loose"));
+    }
+
+    [SkippableFact]
+    public void End_to_end_make_loose_on_a_themed_floor_skin_preserves_the_theme()
+    {
+        var g = TestData.RequireGame();
+        Skip.IfNot(g.Catalog.ByDefName.ContainsKey("ItmFloorAERO01"), "themed floor not buildable in this build");
+
+        var doc = new ShipDocument(g.Catalog);
+        var floor = new Placement { DefName = "ItmFloorAERO01", X = 0, Y = 0 };
+        new PlaceCommand(floor).Do(doc);
+
+        var swap = FormSwap.BuildSwap(doc, FormSwap.Loosenable(doc, [floor]));
+        Assert.NotNull(swap);
+        swap!.Value.Cmd.Do(doc);
+
+        var repl = Assert.Single(swap.Value.New);
+        Assert.Equal("ItmFloorAERO01Loose", repl.DefName);   // themed, not the generic ItmFloorGrate01Loose
+        Assert.NotNull(g.Catalog.Lookup(repl.DefName));       // resolves → renders and analyses
+    }
+
+    [SkippableFact]
     public void The_fixed_airlock_has_no_loose_form()
     {
         var g = TestData.RequireGame();
