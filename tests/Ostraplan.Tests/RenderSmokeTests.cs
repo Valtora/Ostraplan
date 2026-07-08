@@ -162,6 +162,42 @@ public class RenderSmokeTests
     }
 
     [SkippableFact]
+    public void Render_symmetry_previews_the_cursor_pose_and_its_mirror()
+    {
+        // Symmetry now ghosts every mirror, not just the cursor part, so a mirror that won't land is visible
+        // before the click. This drives that path end to end (arm a part, enable Vertical symmetry, hover) and
+        // proves the multi-ghost render doesn't throw and produces a real frame.
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey("ItmFloorGrate01") || !g.Catalog.ByDefName.ContainsKey("ItmWall1x1")) return;
+        RunSta(() =>
+        {
+            var doc = new ShipDocument(g.Catalog);
+            for (var x = 0; x < 10; x++)
+                for (var y = 0; y < 6; y++)
+                    new PlaceCommand(new Placement { DefName = "ItmFloorGrate01", X = x, Y = y }).Do(doc);
+
+            var canvas = new ShipCanvas { Sprites = new SpriteCache() };
+            canvas.SetDocument(doc);
+            canvas.Measure(new Size(900, 640));
+            canvas.Arrange(new Rect(0, 0, 900, 640));
+            canvas.FitContent();
+            canvas.SetHover((5, 3));       // axis centre on the pad...
+            canvas.CycleSymmetry();        // ...enable Vertical symmetry there
+            canvas.SetArmed(g.Catalog.ByDefName["ItmWall1x1"]);
+            canvas.SetHover((2, 3));       // arm a wall left of the axis; its mirror previews to the right
+            canvas.UpdateLayout();
+
+            var bitmap = new RenderTargetBitmap(900, 640, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(canvas);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            var path = Path.Combine(AppContext.BaseDirectory, "smoke-symmetry-ghost.png");
+            using (var stream = File.Create(path)) encoder.Save(stream);
+            Assert.True(new FileInfo(path).Length > 5000);
+        });
+    }
+
+    [SkippableFact]
     public void Snapshot_renders_the_ship_to_a_sized_png()
     {
         var g = TestData.RequireGame();

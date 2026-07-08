@@ -9,7 +9,17 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **0.15.1.6**).
 
-## [Unreleased]
+## [0.7.0] — 2026-07-08 — loose items & reliable symmetry
+
+### Changed
+- **Symmetry now previews every mirror.** With symmetry on, the placement ghost
+  shows the cursor part *and* each of its mirror copies, green where the mirror
+  will land and red (offending tiles tinted) where the placement law refuses it.
+  Previously only the cursor part was previewed and a mirror that didn't fit was a
+  silent no-op, which read as "symmetry only works most of the time" — especially on
+  large ships, where mirrors more often land on structure that isn't symmetric yet.
+  The mirror geometry (reflection + rotation) was also lifted out of the canvas into
+  a pure, unit-tested unit, so it can't silently drift.
 
 ### Added
 - **Make Loose Item / Install item.** Right-click a placed fixture to uninstall it

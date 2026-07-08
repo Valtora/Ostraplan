@@ -702,24 +702,13 @@ public sealed class ShipCanvas : FrameworkElement
         }
     }
 
-    /// <summary>
-    /// The pose plus its mirror copies. Mirrored rotations: a vertical axis flips
-    /// East/West (rot' = 360-rot), a horizontal axis flips North/South
-    /// (rot' = 180-rot); both = 180 turn. Effective footprints are unchanged.
-    /// </summary>
-    private IEnumerable<(int X, int Y, int Rot)> WithSymmetry(int x, int y, int rot, int w, int h)
-    {
-        yield return (x, y, rot);
-        if (SymMode == SymmetryMode.Off) yield break;
-        var mx = 2 * SymCenter.X - (x + w - 1);
-        var my = 2 * SymCenter.Y - (y + h - 1);
-        if (SymMode is SymmetryMode.Vertical or SymmetryMode.Both)
-            yield return (mx, y, GridMath.Norm(360 - rot));
-        if (SymMode is SymmetryMode.Horizontal or SymmetryMode.Both)
-            yield return (x, my, GridMath.Norm(180 - rot));
-        if (SymMode == SymmetryMode.Both)
-            yield return (mx, my, GridMath.Norm(rot + 180));
-    }
+    /// <summary>The pose plus its mirror copies for the current mode/axis — the pure <see cref="Symmetry.Poses"/>
+    /// (unit-tested in Core) with this canvas's axis centre and active axes. Cursor pose first; coincident copies
+    /// are the caller's to dedup.</summary>
+    private IEnumerable<(int X, int Y, int Rot)> WithSymmetry(int x, int y, int rot, int w, int h) =>
+        Symmetry.Poses(x, y, rot, w, h, SymCenter.X, SymCenter.Y,
+            vertical: SymMode is SymmetryMode.Vertical or SymmetryMode.Both,
+            horizontal: SymMode is SymmetryMode.Horizontal or SymmetryMode.Both);
 
     private bool SameDefCovers(int x, int y, int w, int h, string defName)
     {
@@ -1006,33 +995,21 @@ public sealed class ShipCanvas : FrameworkElement
         {
             var (w, h) = GridMath.Size(ArmedPart.Item.Width, ArmedPart.Item.Height, ArmedRot);
             var (gx, gy) = (hover.X - (w - 1) / 2, hover.Y - (h - 1) / 2);
-            var fit = CheckFit.Check(Doc!, ArmedPart, gx, gy, ArmedRot, includeEnvelope: true);
-            RaiseGhostReason(fit.Ok ? null : fit.Reason);
 
-            // sub-floor reservation: the ring a part projects under walkable floor (the tanks),
-            // shaded apart from the above-floor body so the two footprints read distinctly
-            var under = UnderFloorCells(ArmedPart, gx, gy, ArmedRot).ToList();
-            foreach (var (cx, cy) in under)
-                dc.DrawRectangle(SubfloorFill, null, CellRect(cx, cy, 1, 1));
-
-            dc.PushOpacity(0.55);
-            DrawSprite(dc, ArmedPart, gx, gy, ArmedRot, ghost: true);
-            dc.Pop();
-
-            foreach (var (cx, cy) in fit.FailedCells)   // failing cells override the sub-floor shade
-                dc.DrawRectangle(HazardFill, null, CellRect(cx, cy, 1, 1));
-
-            if (under.Count > 0)
+            // Preview the cursor pose AND every symmetry mirror, each judged independently: green where the
+            // placement law allows it, red (with the offending tiles tinted) where it doesn't. A mirror that
+            // won't land is now visible BEFORE the click instead of being a silent no-op — the root of the
+            // "symmetry only works most of the time" reports. Coincident poses (a part on an axis mirrors onto
+            // itself) draw once, exactly as TryPlacePose dedups them. The status-bar reason is the cursor pose's.
+            var seen = new HashSet<(int, int, int)>();
+            FitResult? cursor = null;
+            foreach (var pose in WithSymmetry(gx, gy, ArmedRot, w, h))
             {
-                // dashed outline round the whole reservation, the solid validity outline hugging the body
-                dc.DrawRectangle(null, SubfloorPen, CellRect(gx, gy, w, h));
-                var (bx, by, bw, bh) = AboveFloorBounds(ArmedPart, gx, gy, ArmedRot);
-                dc.DrawRectangle(null, fit.Ok ? GhostOkPen : GhostBadPen, CellRect(bx, by, bw, bh));
+                if (!seen.Add(pose)) continue;
+                var fit = DrawArmedGhost(dc, ArmedPart, pose.X, pose.Y, pose.Rot);
+                cursor ??= fit;   // WithSymmetry yields the cursor pose first
             }
-            else
-            {
-                dc.DrawRectangle(null, fit.Ok ? GhostOkPen : GhostBadPen, CellRect(gx, gy, w, h));
-            }
+            RaiseGhostReason(cursor is { Ok: false } ? cursor.Reason : null);
         }
         else
         {
@@ -1109,6 +1086,43 @@ public sealed class ShipCanvas : FrameworkElement
             if (zone.Width > 0 && zone.Height > 0) zones.Children.Add(new RectangleGeometry(zone));
         }
         if (zones.Children.Count > 0) dc.DrawGeometry(OobBrush, null, zones);
+    }
+
+    /// <summary>
+    /// Draw one armed-part ghost at (<paramref name="gx"/>,<paramref name="gy"/>,<paramref name="rot"/>): the
+    /// sub-floor reservation shade (the tanks), the translucent sprite, hazard-tinted failing cells, and a
+    /// green/red validity outline hugging the above-floor body. Returns the fit so the caller can surface the
+    /// cursor pose's reason. Shared by the plain ghost and every symmetry mirror so a mirror previews identically
+    /// to how it will place.
+    /// </summary>
+    private FitResult DrawArmedGhost(DrawingContext dc, PartDef part, int gx, int gy, int rot)
+    {
+        var (w, h) = GridMath.Size(part.Item.Width, part.Item.Height, rot);
+        var fit = CheckFit.Check(Doc!, part, gx, gy, rot, includeEnvelope: true);
+
+        var under = UnderFloorCells(part, gx, gy, rot).ToList();
+        foreach (var (cx, cy) in under)
+            dc.DrawRectangle(SubfloorFill, null, CellRect(cx, cy, 1, 1));
+
+        dc.PushOpacity(0.55);
+        DrawSprite(dc, part, gx, gy, rot, ghost: true);
+        dc.Pop();
+
+        foreach (var (cx, cy) in fit.FailedCells)   // failing cells override the sub-floor shade
+            dc.DrawRectangle(HazardFill, null, CellRect(cx, cy, 1, 1));
+
+        if (under.Count > 0)
+        {
+            // dashed outline round the whole reservation, the solid validity outline hugging the body
+            dc.DrawRectangle(null, SubfloorPen, CellRect(gx, gy, w, h));
+            var (bx, by, bw, bh) = AboveFloorBounds(part, gx, gy, rot);
+            dc.DrawRectangle(null, fit.Ok ? GhostOkPen : GhostBadPen, CellRect(bx, by, bw, bh));
+        }
+        else
+        {
+            dc.DrawRectangle(null, fit.Ok ? GhostOkPen : GhostBadPen, CellRect(gx, gy, w, h));
+        }
+        return fit;
     }
 
     private void DrawSymmetryAxes(DrawingContext dc, Rect view)
