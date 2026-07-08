@@ -13,7 +13,13 @@ Press **F1** in-app at any time for the full keybinding table.
 2. **Launch Ostraplan.** Download `Ostraplan.exe` from
    [Releases](https://github.com/Valtora/Ostraplan/releases) and run it, or build
    from source (`dotnet run --project src\Ostraplan.App`).
-3. A new design opens with a single **Primary Airlock** at the origin. Every ship
+3. **Optional: install it.** The first time you run the downloaded exe, Ostraplan
+   offers to copy itself to `%LOCALAPPDATA%\Programs\Ostraplan` and make Desktop /
+   Start Menu shortcuts, so you have one fixed place to keep and launch it. It's
+   entirely optional (pick **Not now** to skip), needs no admin rights, writes
+   nothing outside your user profile, and you can re-run it any time from
+   **Help ▾ ▸ Install Ostraplan / shortcuts**. Deleting that folder uninstalls it.
+4. A new design opens with a single **Primary Airlock** at the origin. Every ship
    has exactly one; it's locked (you can't move or delete it), just like in-game.
 
 If the version banner warns that the game is newer than the version Ostraplan was
@@ -196,7 +202,8 @@ drawn for dark space.
 ## Help & reporting a bug
 
 - **F1** — the full keybinding table.
-- **Help ▾** (top-right) — that reference, plus **Report a Bug** (opens a
-  pre-filled GitHub issue with diagnostics) and the **activity log**: an on-disk
-  record of your actions (**View** / **Open folder** / **Clear**) that helps pin
-  down a problem after it happens.
+- **Help ▾** (top-right) — that reference, plus **Install Ostraplan / shortcuts**
+  (see [Getting started](#getting-started)), **Report a Bug** (opens a pre-filled
+  GitHub issue with diagnostics) and the **activity log**: an on-disk record of your
+  actions (**View** / **Open folder** / **Clear**) that helps pin down a problem
+  after it happens.

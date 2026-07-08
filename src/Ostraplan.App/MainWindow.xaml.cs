@@ -89,6 +89,7 @@ public partial class MainWindow : Window
         PreviewKeyUp += OnPreviewKeyUp;
         Deactivated += (_, _) => Board.ClearPanKeys();   // a KeyUp we never receive must not leave the view drifting
         Loaded += async (_, _) => await LoadDataAsync();
+        ContentRendered += OnContentRendered;   // one-time first-run offer to install the exe + shortcuts
         Closing += (_, e) =>
         {
             if (!ConfirmDiscardChanges()) e.Cancel = true;
@@ -1882,6 +1883,12 @@ public partial class MainWindow : Window
             menu.Items.Add(item);
         }
         Add("Controls & keybinds (F1)", ShowHelp);
+        if (SelfInstall.CanOfferInstall() || SelfInstall.IsInstalled())
+        {
+            menu.Items.Add(new Separator());
+            Add(SelfInstall.IsInstalled() ? "Create shortcuts…" : "Install Ostraplan / shortcuts…",
+                () => RunInstall(SelfInstall.IsInstalled()));
+        }
         menu.Items.Add(new Separator());
         Add("Report a Bug…", ReportBug);
         menu.Items.Add(new Separator());
@@ -1889,6 +1896,48 @@ public partial class MainWindow : Window
         Add("Open Log Folder", OpenLogFolder);
         Add("Clear Activity Log…", ClearLogs);
         menu.IsOpen = true;
+    }
+
+    // ---- self-install ----
+
+    /// <summary>
+    /// One-time, dismissible first-run offer to install the exe to a fixed per-user location + shortcuts.
+    /// Fires once content has rendered, and only when running from somewhere other than the install
+    /// location (so a dev/dotnet-run build, or the already-installed copy, never prompts). The Help menu
+    /// keeps an "Install / shortcuts" entry for later.
+    /// </summary>
+    private void OnContentRendered(object? sender, EventArgs e)
+    {
+        if (_settings.InstallPromptDismissed || !SelfInstall.CanOfferInstall()) return;
+        _settings.InstallPromptDismissed = true;   // ask once, never nag — the Help-menu entry stays for later
+        _settings.Save();
+        RunInstall(alreadyInstalled: false);
+    }
+
+    /// <summary>Shows the install prompt and performs the chosen install + shortcut creation.</summary>
+    private void RunInstall(bool alreadyInstalled)
+    {
+        if (InstallDialog.Show(this, alreadyInstalled) is not { } c) return;
+        try
+        {
+            var result = SelfInstall.Install(c.Desktop, c.StartMenu);
+            AuditLog.Add(result.Copied
+                ? $"Installed Ostraplan to {result.ExePath}."
+                : $"Ostraplan already installed at {result.ExePath}.");
+            foreach (var s in result.Shortcuts) AuditLog.Add($"Created shortcut: {s}");
+
+            var shortcuts = result.Shortcuts.Count > 0
+                ? "Shortcuts created:\n" + string.Join("\n", result.Shortcuts.Select(s => "• " + s))
+                : "No shortcuts were created.";
+            Dlg.Success(this, "Ostraplan",
+                (result.Copied ? $"Ostraplan was installed to:\n{result.ExePath}\n\n" : $"Using the installed copy at:\n{result.ExePath}\n\n") +
+                shortcuts +
+                "\n\nLaunch Ostraplan from the shortcut or that folder from now on, so updates land in one place.");
+        }
+        catch (Exception ex)
+        {
+            Dlg.Error(this, "Install failed", ex.Message);
+        }
     }
 
     // ---- report a bug ----

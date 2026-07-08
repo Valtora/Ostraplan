@@ -12,6 +12,13 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Optional one-click install.** Ostraplan can copy itself to a fixed per-user home
+  (`%LOCALAPPDATA%\Programs\Ostraplan`) and create Desktop and Start Menu shortcuts, so
+  you have one place to keep and launch it instead of hunting for the downloaded exe.
+  It offers this once on first run and otherwise stays out of the way; you can trigger
+  it any time from **Help ▾ ▸ Install Ostraplan / shortcuts**. No admin rights, nothing
+  written outside your user profile, and deleting that folder uninstalls it. (This fixed
+  home is also where a future built-in updater would drop new builds.)
 - **Ship zones — drawn, editable, and preserved on round-trip.** Ostranauts'
   crew/trade zones (Haul, Barter, Forbid, and the content trigger/spawn zones) now
   survive import → export and import → save-edit instead of being dropped or
