@@ -54,14 +54,27 @@ public static class ShipValue
 
         double roomsValue = 0;
         foreach (var room in partition.Rooms)
-        {
-            if (room.Void) continue;
-            var vm = modifier.GetValueOrDefault(room.RoomSpec, 1.0);
-            foreach (var part in room.Parts)
-                roomsValue += part.Part.StartingCondValues.GetValueOrDefault("StatBasePrice") * PristineMarkup * vm;
-        }
+            roomsValue += RoomValueOf(room, modifier);
         var shipValue = roomsValue * (1 + (hasO2Pump ? O2Multiplier : 0));
 
         return new ShipValueEstimate(buildCost, shipValue, shipValue * BrokerSellFactor, shipValue * BrokerBuyFactor);
+    }
+
+    /// <summary>
+    /// The broker value of a single room — Σ (part <c>StatBasePrice</c> × <see cref="PristineMarkup"/> × the room's
+    /// value modifier), the game's <c>Room.CalculateRoomValue</c> (its <c>GetBasePrice()</c> applies the same ×1.25
+    /// to a pristine part). A void room is worth 0. This is a <b>dry</b> value: <c>GetBasePrice</c> additionally
+    /// adds the gas/fuel a pressurized tank holds, which a static design can't price, so a fuelled ship is worth
+    /// marginally more in-game. Shared by <see cref="Estimate"/> and the export bake so a spawned design's
+    /// shallow-load broker value is the real parts value, not a near-zero volume figure.
+    /// </summary>
+    public static double RoomValueOf(RoomModel room, IReadOnlyDictionary<string, double> valueModifiers)
+    {
+        if (room.Void) return 0;
+        var vm = valueModifiers.GetValueOrDefault(room.RoomSpec, 1.0);
+        double value = 0;
+        foreach (var part in room.Parts)
+            value += part.Part.StartingCondValues.GetValueOrDefault("StatBasePrice") * PristineMarkup * vm;
+        return value;
     }
 }

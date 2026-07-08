@@ -304,7 +304,7 @@ public sealed class Catalog
                 && job.LootCOs.FirstOrDefault(s => !string.IsNullOrEmpty(s)) is { } loose && Resolvable(loose))
                 looseForms[job.ActionCO] = loose;
             else if (job.JobType == "install" && !string.IsNullOrEmpty(job.StartInstall) && Resolvable(job.StartInstall))
-                installedForms[job.ActionCO] = job.StartInstall;
+                installedForms[job.ActionCO] = PreferPoweredState(index, job.StartInstall);   // re-install RCS ON too
         }
 
         // Resolve a buildable palette entry, warning when its sprite is missing on disk.
@@ -322,15 +322,16 @@ public sealed class Catalog
             var inst = InstallableDef.Parse(el);
             if (inst.JobType != "install" || inst.NoJobMenu) continue;
             if (inst.StartInstall.Length == 0 || !Categories.Contains(inst.BuildType)) continue;
-            if (parts.ContainsKey(inst.StartInstall)) continue;   // several jobs can place the same item
+            var placedDef = PreferPoweredState(index, inst.StartInstall);   // build RCS thrusters ON, not the as-installed Off
+            if (parts.ContainsKey(placedDef)) continue;   // several jobs can place the same item
 
-            var part = Resolve(inst.StartInstall, inst.BuildType, origin, inst.Inputs, inst.Tools, warnMissingSprite: true);
+            var part = Resolve(placedDef, inst.BuildType, origin, inst.Inputs, inst.Tools, warnMissingSprite: true);
             if (part is null)
             {
-                warnings.Add($"Installable '{name}' places '{inst.StartInstall}' but no items def exists - skipped.");
+                warnings.Add($"Installable '{name}' places '{placedDef}' but no items def exists - skipped.");
                 continue;
             }
-            parts[inst.StartInstall] = part;
+            parts[placedDef] = part;
         }
 
         // resolvable-but-not-buildable defs join ByDefName only (out of the palette).
@@ -375,6 +376,28 @@ public sealed class Catalog
             Warnings = warnings,
             Index = index,
         };
+    }
+
+    /// <summary>
+    /// The def Ostraplan should actually build for an install target. Ostranauts installs RCS thrusters in their
+    /// <b>Off</b> state (<c>strStartInstall = ItmRCSCluster01Off</c>), which the maneuver rating never counts (its
+    /// <c>TIsRCSClusterAudioEmitter</c> trigger forbids <c>IsOff</c>) and which a player must switch on after
+    /// loading. Ostraplan builds the identical <b>On</b> variant instead — same footprint, sockets and sprite, only
+    /// the power state differs (and core templates ship the On variant 776:6) — so a design's maneuver grade is
+    /// meaningful and an exported ship's thrusters work on spawn. Strictly scoped to RCS clusters: an "…Off" bed or
+    /// sign is left untouched. The target must be an RCS cluster carrying <c>IsOff</c> whose suffix-dropped
+    /// counterpart resolves and is a non-Off RCS cluster; otherwise the def is returned unchanged.
+    /// </summary>
+    private static string PreferPoweredState(DataIndex index, string def)
+    {
+        if (!def.EndsWith("Off", StringComparison.Ordinal)) return def;
+        if (ResolveDef(index, def, "—", "core", [], []) is not { StartingConds: var offConds }
+            || !offConds.Contains("IsRCSCluster") || !offConds.Contains("IsOff"))
+            return def;
+        var on = def[..^3];
+        return ResolveDef(index, on, "—", "core", [], []) is { StartingConds: var onConds }
+            && onConds.Contains("IsRCSCluster") && !onConds.Contains("IsOff")
+            ? on : def;
     }
 
     /// <summary>

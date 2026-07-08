@@ -20,6 +20,12 @@ each release was verified against is recorded in
   large ships, where mirrors more often land on structure that isn't symmetric yet.
   The mirror geometry (reflection + rotation) was also lifted out of the canvas into
   a pure, unit-tested unit, so it can't silently drift.
+- **RCS thrusters are built in their ON state.** The game installs an RCS cluster
+  Off (and its maneuver rating doesn't count an Off thruster), so a designed ship
+  used to read maneuver "O" and you'd have to power each thruster by hand after
+  loading in game. Ostraplan now builds the identical On variant, so a design shows
+  a real maneuver grade and an exported ship's thrusters work on spawn. (Imported
+  ships keep whatever state they were saved in.)
 
 ### Added
 - **Make Loose Item / Install item.** Right-click a placed fixture to uninstall it
@@ -30,6 +36,13 @@ each release was verified against is recorded in
   and conserves an item's baked contents (a gas canister stays charged); an install
   that no longer fits is flagged in Problems rather than blocked. Placing *arbitrary*
   loose inventory (tools, food, consumables) remains a separate, not-yet-built flow.
+
+### Fixed
+- **Exported ships now carry their real broker value.** Export baked each room's
+  physical *volume* into `roomValue` instead of the game's parts-based room value, so
+  a spawned design read as nearly worthless at a broker until the game recomputed it
+  on full load. It now bakes the same parts value the game does (and that Ostraplan
+  already shows in the inspector).
 
 ## [0.6.0] — 2026-07-07 — first public release
 

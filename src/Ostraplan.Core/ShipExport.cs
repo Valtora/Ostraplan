@@ -113,13 +113,17 @@ public static class ShipExport
             }
         }
 
+        // The game's roomValue is the room's PARTS value (Room.CalculateRoomValue = Σ GetBasePrice × modifier),
+        // which GetShipValue sums on a shallow load. Bake that, not the physical volume — a volume figure (~0.256
+        // per tile) made a spawned design read as near-worthless at a broker until the game recomputed on full load.
+        var valueModifiers = specs.ToDictionary(s => s.Name, s => s.ValueModifier, StringComparer.Ordinal);
         var rooms = partition.Rooms.Select(r => new ExportedRoom
         {
             StrID = Guid.NewGuid().ToString(),
             BVoid = r.Void,
             ATiles = r.Tiles.ToArray(),
             RoomSpec = r.RoomSpec,
-            RoomValue = r.Volume,
+            RoomValue = ShipValue.RoomValueOf(r, valueModifiers),
         }).ToArray();
 
         var roomCount = partition.Rooms.Count(r => r.RoomSpec is not ("" or "Blank"));
