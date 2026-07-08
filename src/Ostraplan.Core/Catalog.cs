@@ -125,7 +125,8 @@ public sealed class Catalog
     public IReadOnlyDictionary<string, SlotDef> Slots { get; init; } = new Dictionary<string, SlotDef>();
 
     /// <summary>Loose cargo items — condowners typed <c>"Item"</c> that aren't installed structure (a wall is
-    /// also <c>strType "Item"</c> but carries <c>IsInstalled</c> in its starting conds). This is the universe the
+    /// also <c>strType "Item"</c> but carries <c>IsInstalled</c>), plus the cooverlay skins of those items (themed
+    /// loose walls/floors, and nav-console modules that exist only as cooverlays). This is the universe the
     /// inventory editor's add-picker draws from; a given container narrows it with <see cref="ContainerFilter"/>.
     /// Sorted by friendly name. Empty in synthetic test catalogs.</summary>
     public IReadOnlyList<PartDef> LooseItems { get; init; } = [];
@@ -280,13 +281,30 @@ public sealed class Catalog
         var slots = index.Type("slots").ToDictionary(kv => kv.Key, kv => SlotDef.Parse(kv.Value.El), StringComparer.Ordinal);
 
         // Loose cargo items for the inventory editor's add-picker: condowners typed "Item" minus installed
-        // structure (a wall is strType "Item" too but carries IsInstalled). Narrowed per container by ContainerFilter.
+        // structure (a wall is strType "Item" too but carries IsInstalled), PLUS the cooverlay skins of those
+        // items. A themed loose wall/floor (ItmFloorAERO01Loose, ...) is a cooverlay whose strCOBase is a loose
+        // base condowner, and a nav-console module (ItmNavModControls, ...) exists ONLY as a cooverlay — the game
+        // offers every one of them, so enumerating condowners alone left the picker with a single generic
+        // "Floor (Loose)" and no real nav modules. A cooverlay is type-checked through its base condowner (the skin
+        // itself has no strType). Narrowed per container by ContainerFilter, so a broad universe is safe.
+        var owners = index.Type("condowners");
         var looseItems = new List<PartDef>();
-        foreach (var (name, (el, origin)) in index.Type("condowners"))
-            if (Json.Str(el, "strType") == "Item"
-                && ResolveDef(index, name, "—", origin, [], []) is { } it
-                && !it.StartingConds.Contains("IsInstalled"))
+        var looseSeen = new HashSet<string>(StringComparer.Ordinal);
+        void AddLoose(string defName, string origin, bool typeIsItem)
+        {
+            if (!typeIsItem || !looseSeen.Add(defName)) return;
+            if (ResolveDef(index, defName, "—", origin, [], []) is { } it && !it.StartingConds.Contains("IsInstalled"))
                 looseItems.Add(it);
+        }
+        foreach (var (name, (el, origin)) in owners)
+            AddLoose(name, origin, Json.Str(el, "strType") == "Item");
+        foreach (var (name, (el, origin)) in index.Type("cooverlays"))
+        {
+            var baseName = Json.Str(el, "strCOBase");
+            AddLoose(name, origin, !string.IsNullOrEmpty(baseName)
+                && owners.TryGetValue(baseName, out var baseCo)
+                && Json.Str(baseCo.El, "strType") == "Item");
+        }
         looseItems.Sort((a, b) => string.Compare(a.Friendly, b.Friendly, StringComparison.OrdinalIgnoreCase));
 
         // Installed⇄loose form maps for "Make Loose Item" / "Install item", straight from the game's own jobs: an

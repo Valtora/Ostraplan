@@ -42,6 +42,14 @@ each release was verified against is recorded in
   Ostrasort.)
 
 ### Fixed
+- **Nav-console modules and themed loose walls/floors now show up in the container
+  add-picker.** When you added items to a container, the picker drew only from plain
+  condowners and skipped cooverlay skins entirely — so a nav console offered none of
+  its actual modules ("nothing inside them"), and floors/walls showed a single generic
+  "Floor (Loose)" instead of every themed variant you can store in game. The add-picker
+  universe now also includes cooverlay skins (resolved through their base), so nav
+  modules (Controls, Flight Dynamics, Map, …) and the full set of themed loose
+  walls/floors are offered. Each container still narrows the list to what it accepts.
 - **Exported inventories are no longer empty in game.** A design's authored cargo —
   items packed into storage racks, bays, weapons, and every other container — now
   survives being spawned from an exported `data/ships` mod. A `data/ships` file loads
