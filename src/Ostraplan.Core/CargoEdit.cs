@@ -36,6 +36,29 @@ public static class CargoEdit
         return placed is null ? null : ReplaceChildren(rootCargo, containerId, [.. placed, .. slotted]);
     }
 
+    /// <summary>The largest quantity of <paramref name="itemDef"/> that would still fit the container identified by
+    /// <paramref name="containerId"/> (<c>null</c> = the root placement) given its current contents — the cap the
+    /// add-picker clamps its quantity to. Exact: it reuses the same packing/stacking <see cref="Add"/> performs
+    /// (topping up partial same-def stacks first, then laying new stacks into free cells), found by binary search.
+    /// Returns 0 if the container is full for this item or isn't in the tree.</summary>
+    public static int MaxAddable(IReadOnlyList<CargoItem> rootCargo, string? containerId, (int W, int H) grid, PartDef itemDef)
+    {
+        var kids = ChildrenOf(rootCargo, containerId);
+        if (kids is null) return 0;
+        var loose = kids.Where(k => !k.Slotted).ToList();
+        var limit = itemDef.StackLimit > 1 ? itemDef.StackLimit : 1;
+        var gw = grid.W > 0 ? grid.W : 6;
+        var gh = grid.H > 0 ? grid.H : 6;
+        var ceiling = gw * gh * limit;   // no layout can hold more than every cell filled to the stack limit
+        int lo = 0, hi = ceiling;
+        while (lo < hi)
+        {
+            var mid = (lo + hi + 1) / 2;
+            if (PlaceInto(loose, grid, itemDef, mid) is not null) lo = mid; else hi = mid - 1;
+        }
+        return lo;
+    }
+
     /// <summary>Remove <b>one</b> of the item with <paramref name="targetId"/>: a stack of N becomes N−1 (a stack
     /// of 2 collapses to a single), and a single item is removed outright (with any contents).</summary>
     public static IReadOnlyList<CargoItem> RemoveOne(IReadOnlyList<CargoItem> rootCargo, string targetId) =>

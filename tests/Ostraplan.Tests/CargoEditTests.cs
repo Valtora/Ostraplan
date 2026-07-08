@@ -73,6 +73,30 @@ public class CargoEditTests
     }
 
     [Fact]
+    public void MaxAddable_counts_free_cells_times_the_stack_limit()
+    {
+        // a 2×2 grid, stack limit 10 → 4 cells × 10 = 40 into an empty container
+        Assert.Equal(40, CargoEdit.MaxAddable([], null, (2, 2), Item("ItmAmmo", stackLimit: 10)));
+    }
+
+    [Fact]
+    public void MaxAddable_accounts_for_existing_contents_including_stack_top_up()
+    {
+        var def = Item("ItmAmmo", stackLimit: 10);
+        var used = CargoEdit.Add([], null, (2, 2), def, 6)!;   // one cell holds 6/10; three cells free
+        // 4 to top up the partial stack + 3 free cells × 10 = 34
+        Assert.Equal(34, CargoEdit.MaxAddable(used, null, (2, 2), def));
+    }
+
+    [Fact]
+    public void MaxAddable_is_zero_for_a_non_stacking_item_in_a_full_grid()
+    {
+        var def = Item("ItmTool");                              // 1×1, non-stackable
+        var full = CargoEdit.Add([], null, (2, 1), def, 2)!;    // both cells taken
+        Assert.Equal(0, CargoEdit.MaxAddable(full, null, (2, 1), def));
+    }
+
+    [Fact]
     public void Add_targets_a_nested_container_by_id_and_preserves_its_identity()
     {
         var box = new CargoItem("box", "ItmCrate", "Crate", Slotted: false, []) { GridW = 1, GridH = 1 };

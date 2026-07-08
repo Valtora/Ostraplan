@@ -529,10 +529,11 @@ public sealed class InventoryWindow : Window
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        var dlg = new AddCargoDialog(_catalog, _sprites, container, offered) { Owner = this };
+        var grid = container.ContainerGrid ?? (6, 6);
+        var dlg = new AddCargoDialog(_catalog, _sprites, container, offered,
+            def => CargoEdit.MaxAddable(_root!.Cargo, containerId, grid, def)) { Owner = this };
         if (dlg.ShowDialog() != true || dlg.Chosen is not { } pick) return;
 
-        var grid = container.ContainerGrid ?? (6, 6);
         var updated = CargoEdit.Add(_root!.Cargo, containerId, grid, pick.Def, pick.Quantity);
         if (updated is null)
         {

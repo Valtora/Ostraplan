@@ -41,6 +41,13 @@ each release was verified against is recorded in
   version is out, so a release is never missed. (Mirrors the same change in
   Ostrasort.)
 
+### Changed
+- **The add-to-container quantity control is clearer and capacity-aware.** The quantity
+  field no longer hides its own number behind a clear "×" button, and it now has −/+
+  steppers and shows how many of the selected item still fit ("of N"). The value is
+  clamped to what the container can actually hold, so you can't enter a quantity that
+  would just be rejected, and the picker says "container full" when there's no room.
+
 ### Fixed
 - **"Make Loose Item" now works on walls, floors, and conduits — and keeps their
   theme.** These are placed as themed skins (a Testudo wall, an Aero floor), and only
