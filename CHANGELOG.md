@@ -9,6 +9,17 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **0.15.1.6**).
 
+## [Unreleased]
+
+### Changed
+- **The update check now interrupts on launch.** When a newer GitHub release
+  exists, Ostraplan raises a modal on startup (**Download Latest Version**, which
+  opens the release page, or **Not Now**) instead of only revealing the toolbar
+  Update button quietly. The button still stays as a persistent reminder after
+  you dismiss the modal, and the modal shows on every launch while a newer
+  version is out, so a release is never missed. (Mirrors the same change in
+  Ostrasort.)
+
 ## [0.7.0] — 2026-07-08 — loose items & reliable symmetry
 
 ### Changed

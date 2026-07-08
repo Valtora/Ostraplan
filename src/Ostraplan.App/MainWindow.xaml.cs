@@ -1878,11 +1878,13 @@ public partial class MainWindow : Window
             ?.InformationalVersion.Split('+')[0] ?? "0.0";
 
     /// <summary>
-    /// Compare this build against the latest GitHub release. Runs quietly on every launch (queried
-    /// live, so a release published after this build is picked up next start) and on demand from the
-    /// Help window. A newer release reveals the toolbar Update button; the manual run always reports
-    /// the result. Ostraplan's repo is private until the public flip, so until then the check simply
-    /// finds nothing (the failure is swallowed).
+    /// Compare this build against the latest GitHub release. Runs on every launch (queried live, so a
+    /// release published after this build is picked up next start) and on demand from the Help window.
+    /// A newer release reveals the toolbar Update button and raises a modal (Dlg.Confirm) offering to
+    /// Download Latest Version or dismiss with Not Now - shown on every launch while behind, not only
+    /// on the manual check; the manual run additionally reports when you are already up to date.
+    /// Ostraplan's repo is private until the public flip, so until then the check finds nothing (the
+    /// failure is swallowed).
     /// </summary>
     private async Task CheckForUpdateAsync(bool manual = false)
     {
@@ -1897,10 +1899,12 @@ public partial class MainWindow : Window
                 _updateUrl = url ?? ReleasesUrl;
                 BtnUpdate.Content = $"⬆  Update: {tag}";
                 BtnUpdate.Visibility = Visibility.Visible;
-                if (manual &&
-                    Dlg.Confirm(this, DlgKind.Info, $"Update available ({tag})",
-                        $"You're on v{AppVersion}.\n{tag} is available to download.",
-                        "Open download page"))
+                // A newer release always raises the modal (every launch), not only on the manual
+                // check - the toolbar button stays as the persistent affordance after "Not Now".
+                // "Download Latest Version" opens the release page.
+                if (Dlg.Confirm(this, DlgKind.Info, "Update available",
+                        $"{tag} is available to download.\nYou're on v{AppVersion}.",
+                        "Download Latest Version", "Not Now"))
                     OpenUrl(_updateUrl);
             }
             else if (manual)
