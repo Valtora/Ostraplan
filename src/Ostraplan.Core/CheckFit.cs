@@ -112,12 +112,24 @@ public static class CheckFit
                 return false;
             }
         if (at is not null)
+        {
+            // A SEALED-FLOOR surface is a valid base to build on and stand on — even when that floor is a FLOOR
+            // FIXTURE, e.g. an under-floor storage bin / rack (ItmRackUnder01, ItmStorageBinFloor…). Those tag
+            // their walkable tiles IsFloorSealed + IsFixture but never IsObstruction, and the game lets you build
+            // on them (and reach adjacent fixtures across them). The common TILObstruction forbid mask lists
+            // IsFixture, so without this a fixture placed on — or reaching over — such a floor false-flags as
+            // "already occupied". So IsFixture doesn't block on a sealed floor; a genuine IsObstruction still does.
+            var floorFixtureOk = at.ContainsKey("IsFloorSealed");
             foreach (var fc in forbidConds)
+            {
+                if (floorFixtureOk && fc == "IsFixture") continue;
                 if (at.ContainsKey(fc))
                 {
                     why = ReasonForForbid(fc);
                     return false;
                 }
+            }
+        }
         return true;
     }
 
