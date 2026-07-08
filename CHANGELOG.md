@@ -42,6 +42,17 @@ each release was verified against is recorded in
   Ostrasort.)
 
 ### Fixed
+- **Exported inventories are no longer empty in game.** A design's authored cargo —
+  items packed into storage racks, bays, weapons, and every other container — now
+  survives being spawned from an exported `data/ships` mod. A `data/ships` file loads
+  as a *template*, and the game silently drops any contained item that isn't marked
+  as a per-instance override, refilling the container from its default loot instead.
+  So filled racks and bays came back empty and weapons came back with only their
+  default ammo, "not all" the rounds you loaded. Export now stamps each contained item
+  (and the modules it injects into a nav console) with a benign "pristine" marker that
+  makes the game keep it; the same marker also suppresses the container's default loot,
+  so a stocked weapon gets exactly the ammo you authored and nothing extra. (The
+  save-edit path already handled this and was unaffected.)
 - **Fixtures on floor-storage items no longer false-flag as "already occupied".** An
   under-floor storage bin or rack (e.g. ItmRackUnder01, the floor bins) provides a
   walkable sealed-floor surface that the game lets you build on and reach across. Its

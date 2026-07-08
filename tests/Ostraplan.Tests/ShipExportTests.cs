@@ -239,6 +239,9 @@ public class ShipExportTests
         Assert.Equal(container.FX, cargo.FX);   // contained items sit at the container's coordinates
         Assert.Equal(container.FY, cargo.FY);
         Assert.Equal(ship.AItems.Length, ship.AItems.Select(i => i.StrID).Distinct().Count());   // fresh, unique ids
+        Assert.NotNull(cargo.ACondOverrides);           // the marker that makes a template spawn KEEP the cargo
+        Assert.NotEmpty(cargo.ACondOverrides!);
+        Assert.Null(container.ACondOverrides);          // a top-level part is kept unconditionally — no marker needed
     }
 
     [SkippableFact]

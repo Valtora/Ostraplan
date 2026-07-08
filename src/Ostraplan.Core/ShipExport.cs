@@ -40,6 +40,13 @@ public static class ShipExport
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull,
     };
 
+    /// <summary>The per-instance override every contained item carries so the game keeps it on a template spawn
+    /// (see <c>EmitCargo</c>). A single StatDamage=0 (Amount 0 = undamaged) — a benign "pristine" instruction that is
+    /// also a non-null array, which is the exact condition <c>Ship.SpawnItems</c> tests to retain a parented item.
+    /// Immutable and shared: the exporter only ever reads it.</summary>
+    private static readonly ExportedCondOverride[] PristineMarker =
+        [new() { CondName = "StatDamage", Chance = 1.0, Amount = 0.0, NegativeValue = false }];
+
     /// <summary>
     /// Run the P2 engine and assemble the JsonShip-shaped export object for the design.
     /// Pure and testable — no file I/O. <paramref name="warnings"/> collects anything the
@@ -60,16 +67,27 @@ public static class ShipExport
 
         var items = new List<ExportedItem>(grid.Parts.Count);
 
-        // Emit a container's contents as pristine, parented items (template-style: no CO — a data/ships load
-        // defaults each item's CO/GPM from its def). Recurses so nested containers and stacks (a lead + its
-        // same-def members) come through; loose cargo parents by strParentID, equipped gear by strSlotParentID.
-        // Contained items sit at their container's own coordinates; rotation rides on fRotation.
+        // Emit a container's contents as pristine, parented items. Each contained item MUST carry a per-instance
+        // override marker (aCondOverrides) or the game DROPS it on a template spawn: Ship.SpawnItems keeps a parented
+        // item only when it has aCondOverrides (or bForceLoad), otherwise it discards the item and refills the
+        // container from its def's DEFAULT loot — so authored cargo vanished and pre-stocked containers (weapons,
+        // racks, bays) came back empty or with only the def's loadout. The marker doubles as loot suppression: the
+        // pre-pass also flags the item's root container, which sets bLoot=false for it, so a weapon gets exactly the
+        // authored ammo and no default rounds on top. We use a StatDamage=0 override — a real, benign "pristine"
+        // instruction (Amount 0 = undamaged) that also guarantees the array is non-null (the gate the game checks).
+        // Recurses so nested containers and stacks (a lead + its same-def members) come through; loose cargo parents
+        // by strParentID, equipped gear by strSlotParentID. Contained items sit at their container's coordinates;
+        // rotation rides on fRotation.
         void EmitCargo(IReadOnlyList<CargoItem> nodes, string parentStrID, double fx, double fy)
         {
             foreach (var c in nodes)
             {
                 var cid = Guid.NewGuid().ToString();
-                var item = new ExportedItem { StrName = c.DefName, FX = fx, FY = fy, FRotation = c.GridRot, StrID = cid };
+                var item = new ExportedItem
+                {
+                    StrName = c.DefName, FX = fx, FY = fy, FRotation = c.GridRot, StrID = cid,
+                    ACondOverrides = PristineMarker,
+                };
                 if (c.Slotted) item.StrSlotParentID = parentStrID; else item.StrParentID = parentStrID;
                 items.Add(item);
                 EmitCargo(c.Children, cid, fx, fy);
@@ -102,13 +120,15 @@ public static class ShipExport
             {
                 // An EMPTY nav console is a bare frame: its interface is assembled from hot-swappable module items
                 // contained inside it. Ostraplan places only the console, so install the standard module set here or
-                // it spawns blank. On a template load the game defaults each module's CO + GUI-prop-map from its def,
-                // so a bare parented item at the console's own coordinates is enough (see NavConsole / Babak.json).
-                // A console that already carries modules (a save-imported one) keeps them via EmitCargo above.
+                // it spawns blank. Each module carries the same aCondOverrides marker as EmitCargo's cargo: a nav
+                // console has no default module loot, so without the marker SpawnItems would drop these parented
+                // modules on a template spawn and the console would come back empty (see EmitCargo, NavConsole,
+                // Babak.json). A console that already carries modules (a save-imported one) keeps them via EmitCargo.
                 foreach (var modDef in NavConsole.StandardModules)
                     items.Add(new ExportedItem
                     {
-                        StrName = modDef, FX = fx, FY = fy, FRotation = 0, StrID = Guid.NewGuid().ToString(), StrParentID = strID,
+                        StrName = modDef, FX = fx, FY = fy, FRotation = 0, StrID = Guid.NewGuid().ToString(),
+                        StrParentID = strID, ACondOverrides = PristineMarker,
                     });
             }
         }
@@ -333,6 +353,21 @@ public sealed class ExportedItem
     /// <summary>Set only on equipped contained gear: the <c>strID</c> of the host it is slotted into. Null — and
     /// omitted from the JSON — otherwise.</summary>
     [JsonPropertyName("strSlotParentID")] public string? StrSlotParentID { get; set; }
+
+    /// <summary>Per-instance condition overrides. Set on contained/slotted items so a template spawn retains them
+    /// (<c>Ship.SpawnItems</c> keeps a parented item only when this is non-null); null — and omitted — on a top-level
+    /// part, which the loader keeps unconditionally.</summary>
+    [JsonPropertyName("aCondOverrides")] public ExportedCondOverride[]? ACondOverrides { get; set; }
+}
+
+/// <summary>One entry in an item's <c>aCondOverrides</c>: a condition set to a fixed value on the spawned instance.
+/// Matches the game's <c>JsonCondOverride</c> shape (see any core <c>data/ships</c> file).</summary>
+public sealed class ExportedCondOverride
+{
+    [JsonPropertyName("CondName")] public string CondName { get; set; } = "";
+    [JsonPropertyName("Chance")] public double Chance { get; set; } = 1.0;
+    [JsonPropertyName("Amount")] public double Amount { get; set; }
+    [JsonPropertyName("NegativeValue")] public bool NegativeValue { get; set; }
 }
 
 /// <summary>A baked room: tile indices (row-major into nCols×nRows), certified spec, void flag.</summary>
