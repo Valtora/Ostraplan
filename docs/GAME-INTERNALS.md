@@ -128,7 +128,9 @@ Ported to `Ostraplan.Core/CheckFit.cs`. For a candidate `(part, anchor, rotation
 4. **Rotation.** 90° steps rotate the req/forbid ring masks and the adds mask. `GridMath.Rotate(cells, W+2, H+2, rot)` reproduces `TileUtils.RotateTilesCW(cells, W+2)` **exactly** (verified). **Sheet items (walls/floors, `bHasSpriteSheet`) never rotate** — `Item.RotateCW` returns early for them.
 5. **Airlock envelope.** For each installed docking port, `DockA→DockB` defines a mating face; **no ring cell may fall beyond it**. The game bounds only `aDocksys.FirstOrDefault()`; Ostraplan bounds **all ports, ring-inclusive** — provably never allows what the game refuses (refusing a superset can't create a false positive), and identical to the game on the single-port ships that are the norm. Face math is `ProblemScan.TryGetFace` (see §7).
 6. **Self-exclusion (re-validation).** When re-checking an *already-placed* part, its own tile contribution must be subtracted first — walls/fixtures add `IsObstruction` **and** forbid `TILObstruction` on their own footprint, so they fail against themselves otherwise. `CheckFit.Check` takes an optional `self` placement for this; the flagging scan (`ProblemScan`) uses it, live placement checks don't (the candidate isn't applied yet).
-7. **Excluded by design** (in-game-only predicates that cannot exist in a planner): crew proximity/LOS (`GUIInventory.instance.Selected` + `Visibility.IsCondOwnerLOSVisible`), docked-ship `TileUtils.WouldConnectShips`, and station-zone (`JsonZone`) restrictions.
+7. **Excluded by design** (in-game-only predicates that cannot exist in a planner): crew proximity/LOS (`GUIInventory.instance.Selected` + `Visibility.IsCondOwnerLOSVisible`), docked-ship `TileUtils.WouldConnectShips`, and station-*build* zone permission (whether a tile is buildable on a station). Note this is the placement-law exclusion only — ship **zones as data** (`JsonZone`/`aZones`) are modelled and round-tripped (`ShipZone`/`ZoneGeometry`; see SPEC §6.10), just not treated as a build constraint.
+
+> **Floor fixtures are buildable surfaces.** The common `TILObstruction` forbid mask expands to `IsFixture` + `IsFixtureExt` + `IsObstruction` + `IsItemTile` + `IsFloorFlex`. But an under-floor storage bin / rack (`ItmRackUnder01`, `ItmStorageBinFloor…`) tags its walkable tiles `IsFloorSealed` + `IsFixture` (via `TILFloorFixture`) and **never** `IsObstruction`, and the game lets you build on — and reach an adjacent fixture across — that floor. So `CheckFit.CellPasses` does **not** let `IsFixture` trip the forbid on a tile that carries `IsFloorSealed`; a genuine `IsObstruction` still blocks. (Ground-truthed against in-game placement — the raw mask alone over-flags a rack whose access tile sits on a floor bin.)
 
 ### Enforcement & flagging (Ostraplan's P1 UX decisions)
 - **New placement is hard-blocked** at the single choke point `ShipCanvas.TryPlacePose` (covers click, drag-paint, box/hollow fill, symmetry mirrors — each mirror judged independently). Illegal cells are silently skipped.
@@ -246,7 +248,8 @@ The corpus is **192 core ship objects** (files are top-level arrays; the ship is
 | On-demand resolution of any placed (non-buildable) def | **ported (P3)** | `Catalog.Lookup` / `Catalog.ResolveDef` |
 | Save player-ship identification (`strShip`) + layout strip | **ported (P3)** | `SaveImport` |
 | Contained/slotted sub-objects, exterior-margin trim bound | **not modelled** (corpus-only; see §8; import **drops** contained sub-objects) | — |
-| Crew LOS/proximity, docked-ship, zone rules, damage state | **excluded** (in-game only) | never ported |
+| Crew LOS/proximity, docked-ship, station-*build* zone permission, damage state | **excluded** (in-game only) | never ported |
+| Ship **zones** (`aZones`) as authored data — preserve, draw, edit | **modelled** (import/export/save-edit/`.oplan`) | `ShipZone` / `ZoneGeometry` / `SetZoneData`↔`GetJSON` |
 
 ---
 

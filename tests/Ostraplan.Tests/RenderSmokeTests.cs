@@ -87,6 +87,46 @@ public class RenderSmokeTests
     }
 
     [SkippableFact]
+    public void Render_zone_overlay()
+    {
+        // Drives the whole zone overlay path end to end (create zones, show the overlay, make one active for
+        // painting) and proves DrawZones + the zone commands don't throw and produce a real frame.
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey("ItmFloorGrate01")) return;
+        RunSta(() =>
+        {
+            var doc = new ShipDocument(g.Catalog);
+            for (var x = 0; x < 8; x++)
+                for (var y = 0; y < 6; y++)
+                    new PlaceCommand(new Placement { DefName = "ItmFloorGrate01", X = x, Y = y }).Do(doc);
+
+            var haul = new ShipZone { Name = "Cargo", Color = new ZoneColor(0.24, 0.74, 0.66, 1), TileConds = { ShipZone.CondHaul, ShipZone.CondBarter } };
+            for (var x = 0; x < 4; x++) for (var y = 0; y < 3; y++) haul.Tiles.Add((x, y));
+            var forbid = new ShipZone { Name = "No-go", Color = new ZoneColor(0.85, 0.24, 0.24, 1), TileConds = { ShipZone.CondForbid } };
+            for (var x = 5; x < 8; x++) for (var y = 3; y < 6; y++) forbid.Tiles.Add((x, y));
+            new CreateZoneCommand(haul).Do(doc);
+            new CreateZoneCommand(forbid).Do(doc);
+
+            var canvas = new ShipCanvas { Sprites = new SpriteCache() };
+            canvas.SetDocument(doc);
+            canvas.SetShowZones(true);
+            canvas.SetActiveZone(haul.Id);   // the active zone is tinted more strongly
+            canvas.Measure(new Size(900, 640));
+            canvas.Arrange(new Rect(0, 0, 900, 640));
+            canvas.FitContent();
+            canvas.UpdateLayout();
+
+            var bitmap = new RenderTargetBitmap(900, 640, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(canvas);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            var path = Path.Combine(AppContext.BaseDirectory, "smoke-zones.png");
+            using (var stream = File.Create(path)) encoder.Save(stream);
+            Assert.True(new FileInfo(path).Length > 5000);
+        });
+    }
+
+    [SkippableFact]
     public void Large_tank_sprite_is_3x3_inside_its_7x7_footprint()
     {
         var g = TestData.RequireGame();

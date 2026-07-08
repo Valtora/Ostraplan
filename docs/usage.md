@@ -78,8 +78,9 @@ moving a part re-applies the law to it.
 - **Ship Rating** (Analyse): runs the full room / airtightness / certification /
   rating pass and opens the **law report** — uncertifiable rooms with reasons,
   air-leak tracing to the unsealed tile, and the six-slot rating broken down.
-- **Problems** (inspector): live blocking/warning counts and details for placement
-  and airlock-envelope issues.
+- **Problems** (inspector): live blocking/warning issues for placement and
+  airlock-envelope. Each entry expands for the detail, and a **View** button pans and
+  zooms the canvas straight to the offending tiles so it's easy to find on a big ship.
 - **Materials…** (Analyse): the **bill of materials** — each part's install-kit
   count, for the whole ship or the current selection, with **Copy list**.
 - **Ship Re-skin…** (Design): swap every wall and/or floor to a different cooverlay
@@ -144,6 +145,34 @@ ship — and choose **View contents…** to see its inventory laid out on the gr
 drill into nested containers. On an editable design you can also **add, remove and
 rearrange** loose cargo; contents travel with the ship through **Export** and save
 write-back.
+
+## Zones
+
+Zones are the painted crew/trade areas the game lets you draw on a ship — **Haul**
+(stockpile), **Barter**, **Forbid** (no-go), plus the content **trigger/spawn**
+zones authored ships use for scripted encounters. Ostraplan draws them, lets you
+manage them, and — importantly — **keeps them correct through import, export and
+save write-back** (they used to be dropped on export and shifted onto the wrong
+tiles on save-edit).
+
+- **Show/hide** the overlay: the **Zones** toolbar button, or **Z**. Each zone is a
+  translucent tint in its own colour with its name at the centre.
+- **Add** a zone: **+ Add** in the **Zones** panel (right inspector). It's created
+  and immediately *armed for painting*.
+- **Paint** a zone: click it in the panel to make it active, then, on the canvas —
+  **drag** to add tiles, **Ctrl**-drag to erase, **Shift**-drag a rectangle, or
+  **double-click** inside walls to fill that whole room. Each stroke is one undo
+  step. **Esc** stops painting.
+- **Edit** (panel row): name, type (Haul/Barter/Forbid are independent checkboxes —
+  a zone can be several, like the vanilla "cargo" zone), who it applies to, and
+  colour. **Advanced** exposes the content-zone fields (encounter trigger, owner and
+  target person-specs, category conditions) for station/quest authoring. **✕**
+  deletes a zone.
+
+Zones are saved in the `.oplan`, written into an **exported** ship's `aZones`, and
+carried through **Update Ship in Save…** — re-projected onto the right tiles even
+when the grid grows. Zones you don't author (a station's trigger zones on an
+imported ship) are preserved untouched.
 
 ## Loose items & fixtures
 

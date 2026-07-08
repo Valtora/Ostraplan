@@ -95,6 +95,28 @@ public static class TemplateImport
                     OriginStrID = retainOrigin ? item.StrID : null,
                 }).Do(doc);
             }
+
+            // Convert stored zones to document coordinates. On import the document origin coincides with the
+            // game grid origin, so a flat index maps straight to a doc tile; indices past the grid are dropped
+            // (a corrupt/stale ship). Zones are pure overlays — no placement law, no tile conds.
+            var tileCount = tmpl.NCols * tmpl.NRows;
+            foreach (var sz in tmpl.Zones)
+            {
+                var zone = new ShipZone
+                {
+                    Name = sz.Name,
+                    Color = sz.Color,
+                    TileConds = [.. sz.TileConds],
+                    CategoryConds = [.. sz.CategoryConds],
+                    PersonSpec = sz.PersonSpec,
+                    TargetPSpec = sz.TargetPSpec,
+                    TriggerOnOwner = sz.TriggerOnOwner,
+                };
+                foreach (var idx in sz.Tiles)
+                    if (idx >= 0 && idx < tileCount && tmpl.NCols > 0)
+                        zone.Tiles.Add(ZoneGeometry.IndexToDoc(idx, tmpl.NCols));
+                doc.AddZone(zone);
+            }
         }
 
         var skippedList = skipped

@@ -315,13 +315,17 @@ public static class SaveEdit
         var ship = new JsonObject();
         foreach (var kv in ctx.ShipRecord.AsObject())
         {
-            if (kv.Key is "aItems" or "aCOs" or "aRooms" or "aRating" or "nCols" or "nRows" or "vShipPos" or "dimensions")
+            if (kv.Key is "aItems" or "aCOs" or "aRooms" or "aZones" or "aRating" or "nCols" or "nRows" or "vShipPos" or "dimensions")
                 continue;
             ship[kv.Key] = kv.Value?.DeepClone();
         }
         ship["aItems"] = outItems;
         ship["aCOs"] = outCOs;
         ship["aRooms"] = roomsArr;
+        // Re-project zones into the (possibly re-framed) grid rather than keeping the original aZones verbatim:
+        // zone tiles are flat col+row*nCols indices, so a verbatim copy under a new nCols/origin silently
+        // relocates every zone (or pushes an index out of range, which drops that zone and all after it).
+        ship["aZones"] = BuildZonesJson(doc, minC, minR, nColsNew, nRowsNew, ctx.Source.RegId);
         ship["aRating"] = ratingArr;
         ship["nCols"] = nColsNew;
         ship["nRows"] = nRowsNew;
@@ -545,6 +549,61 @@ public static class SaveEdit
 
     private static (int W, int H) Footprint(Catalog catalog, Placement p) =>
         catalog.Lookup(p.DefName) is { } part ? GridMath.Size(part.Item.Width, part.Item.Height, p.Rot) : (1, 1);
+
+    /// <summary>Serialize the document's zones as <c>aZones</c>, projecting each zone's document tiles into the
+    /// injected grid frame (origin <paramref name="originCol"/>,<paramref name="originRow"/>, size
+    /// <paramref name="nCols"/>×<paramref name="nRows"/>). Only in-range indices are emitted (one out-of-range
+    /// index makes the game drop that zone and every zone after it); a zone left with no in-range tiles is
+    /// skipped; names are made unique. The transient <c>aOldTiles</c>/legacy <c>ranks</c> are never written.</summary>
+    private static JsonArray BuildZonesJson(ShipDocument doc, int originCol, int originRow, int nCols, int nRows, string regId)
+    {
+        var used = new HashSet<string>(StringComparer.Ordinal);
+        var arr = new JsonArray();
+        foreach (var z in doc.Zones)
+        {
+            var sorted = new List<int>(z.Tiles.Count);
+            foreach (var (dx, dy) in z.Tiles)
+            {
+                var idx = ZoneGeometry.DocToIndex(dx, dy, originCol, originRow, nCols, nRows);
+                if (idx >= 0) sorted.Add(idx);
+            }
+            if (sorted.Count == 0) continue;
+            sorted.Sort();
+
+            var tiles = new JsonArray();
+            foreach (var i in sorted) tiles.Add(i);
+            var conds = new JsonArray();
+            foreach (var c in z.TileConds) conds.Add(c);
+
+            var obj = new JsonObject
+            {
+                ["strName"] = UniqueZoneName(z.Name, used),
+                ["strRegID"] = regId,
+                ["bTriggerOnOwner"] = z.TriggerOnOwner,
+                ["aTiles"] = tiles,
+                ["aTileConds"] = conds,
+                ["zoneColor"] = new JsonObject { ["r"] = z.Color.R, ["g"] = z.Color.G, ["b"] = z.Color.B, ["a"] = z.Color.A },
+            };
+            if (z.CategoryConds.Count > 0)
+            {
+                var cc = new JsonArray();
+                foreach (var c in z.CategoryConds) cc.Add(c);
+                obj["categoryConds"] = cc;
+            }
+            if (!string.IsNullOrEmpty(z.PersonSpec)) obj["strPersonSpec"] = z.PersonSpec;
+            if (!string.IsNullOrEmpty(z.TargetPSpec)) obj["strTargetPSpec"] = z.TargetPSpec;
+            arr.Add(obj);
+        }
+        return arr;
+    }
+
+    private static string UniqueZoneName(string name, HashSet<string> used)
+    {
+        var baseName = string.IsNullOrWhiteSpace(name) ? "zone" : name.Trim();
+        var candidate = baseName;
+        for (var n = 2; !used.Add(candidate); n++) candidate = $"{baseName} {n}";
+        return candidate;
+    }
 
     /// <summary>
     /// A pristine condition owner for a newly-added part, keyed to its item's <paramref name="strID"/>. A save

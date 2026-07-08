@@ -128,15 +128,19 @@ public static class ShipExport
 
         var roomCount = partition.Rooms.Count(r => r.RoomSpec is not ("" or "Blank"));
 
+        var regId = GenerateRegID();
+        var zones = BuildZones(doc, grid, regId);
+
         var ship = new ExportedShip
         {
             StrName = shipName,
-            StrRegID = GenerateRegID(),
+            StrRegID = regId,
             NCols = grid.NCols,
             NRows = grid.NRows,
             VShipPos = new ExportedVec2(),   // (0,0): the anchor the coordinate inverse assumes
             AItems = items.ToArray(),
             ARooms = rooms,
+            AZones = zones,
             ARating = [rating.Epoch.Length == 0 ? "0" : rating.Epoch,
                 rating.Condition, rating.RoomCount, rating.Maneuver, rating.Size, rating.Slot5],
             Dimensions = $"{grid.NCols * MetresPerTile:0.00}m x {grid.NRows * MetresPerTile:0.00}m",
@@ -189,6 +193,51 @@ public static class ShipExport
         return new ExportResult(modDir, shipPath, modInfoPath, ship.AItems.Length, roomCount, rating, warnings);
     }
 
+    /// <summary>
+    /// Project the document's zones into the export grid frame (which the parts used: <c>vShipPos=(0,0)</c>,
+    /// origin = the grid's document-coord origin). Only in-range flat indices are emitted — one out-of-range
+    /// index would make the game drop that zone and every zone after it — so a zone whose tiles all fall outside
+    /// the exported hull is skipped (it would be inert). Names are made unique (<c>mapZones</c> is name-keyed).
+    /// </summary>
+    private static ExportedZone[] BuildZones(ShipDocument doc, ShipGrid grid, string regId)
+    {
+        var used = new HashSet<string>(StringComparer.Ordinal);
+        var result = new List<ExportedZone>(doc.Zones.Count);
+        foreach (var z in doc.Zones)
+        {
+            var tiles = new List<int>(z.Tiles.Count);
+            foreach (var (dx, dy) in z.Tiles)
+            {
+                var idx = ZoneGeometry.DocToIndex(dx, dy, (int)grid.VShipPosX, (int)grid.VShipPosY, grid.NCols, grid.NRows);
+                if (idx >= 0) tiles.Add(idx);
+            }
+            if (tiles.Count == 0) continue;
+            tiles.Sort();
+            result.Add(new ExportedZone
+            {
+                StrName = UniqueName(z.Name, used),
+                StrRegID = regId,
+                BTriggerOnOwner = z.TriggerOnOwner,
+                ATiles = tiles.ToArray(),
+                ATileConds = z.TileConds.ToArray(),
+                CategoryConds = z.CategoryConds.Count > 0 ? z.CategoryConds.ToArray() : null,
+                StrPersonSpec = z.PersonSpec,
+                StrTargetPSpec = z.TargetPSpec,
+                ZoneColor = new ExportedColor { R = z.Color.R, G = z.Color.G, B = z.Color.B, A = z.Color.A },
+            });
+        }
+        return result.ToArray();
+    }
+
+    /// <summary>A per-ship-unique zone name: the given name, else "zone", suffixed " 2", " 3"… on a clash.</summary>
+    private static string UniqueName(string name, HashSet<string> used)
+    {
+        var baseName = string.IsNullOrWhiteSpace(name) ? "zone" : name.Trim();
+        var candidate = baseName;
+        for (var n = 2; !used.Add(candidate); n++) candidate = $"{baseName} {n}";
+        return candidate;
+    }
+
     /// <summary>A plausible RegID (letter-prefixed, non-empty — the game indexes <c>strRegID[0]</c> and
     /// regenerates it on spawn anyway). Uppercase, GUID-derived so distinct per export.</summary>
     private static string GenerateRegID() => "H-" + Guid.NewGuid().ToString("N")[..3].ToUpperInvariant();
@@ -219,6 +268,7 @@ public sealed class ExportedShip
     [JsonPropertyName("vShipPos")] public ExportedVec2 VShipPos { get; set; } = new();
     [JsonPropertyName("objSS")] public ExportedSitu ObjSS { get; set; } = new();
     [JsonPropertyName("aRooms")] public ExportedRoom[] ARooms { get; set; } = [];
+    [JsonPropertyName("aZones")] public ExportedZone[] AZones { get; set; } = [];
     [JsonPropertyName("aRating")] public string[] ARating { get; set; } = [];
     [JsonPropertyName("DMGStatus")] public int DMGStatus { get; set; }
     [JsonPropertyName("fLastVisit")] public double FLastVisit { get; set; }
@@ -293,6 +343,31 @@ public sealed class ExportedRoom
     [JsonPropertyName("aTiles")] public int[] ATiles { get; set; } = [];
     [JsonPropertyName("roomSpec")] public string RoomSpec { get; set; } = "Blank";
     [JsonPropertyName("roomValue")] public double RoomValue { get; set; }
+}
+
+/// <summary>A painted zone as the game expects it in <c>aZones</c> (field names/casing match JsonZone).
+/// Tiles are flat row-major indices into nCols×nRows; the transient <c>aOldTiles</c> and legacy <c>ranks</c>
+/// are intentionally never emitted.</summary>
+public sealed class ExportedZone
+{
+    [JsonPropertyName("strName")] public string StrName { get; set; } = "";
+    [JsonPropertyName("strRegID")] public string StrRegID { get; set; } = "";
+    [JsonPropertyName("bTriggerOnOwner")] public bool BTriggerOnOwner { get; set; }
+    [JsonPropertyName("aTiles")] public int[] ATiles { get; set; } = [];
+    [JsonPropertyName("aTileConds")] public string[] ATileConds { get; set; } = [];
+    [JsonPropertyName("categoryConds")] public string[]? CategoryConds { get; set; }
+    [JsonPropertyName("strPersonSpec")] public string? StrPersonSpec { get; set; }
+    [JsonPropertyName("strTargetPSpec")] public string? StrTargetPSpec { get; set; }
+    [JsonPropertyName("zoneColor")] public ExportedColor ZoneColor { get; set; } = new();
+}
+
+/// <summary>A zoneColor {r,g,b,a} (components 0..1).</summary>
+public sealed class ExportedColor
+{
+    [JsonPropertyName("r")] public double R { get; set; }
+    [JsonPropertyName("g")] public double G { get; set; }
+    [JsonPropertyName("b")] public double B { get; set; }
+    [JsonPropertyName("a")] public double A { get; set; } = 1;
 }
 
 /// <summary>vShipPos / a Vector2 as the game serializes it.</summary>

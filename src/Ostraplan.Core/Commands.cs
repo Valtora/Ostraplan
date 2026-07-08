@@ -199,3 +199,38 @@ public sealed class RotateCommand : IDocCommand
     public void Do(ShipDocument doc) => doc.SetPose(_p, _after.X, _after.Y, _after.Rot);
     public void Undo(ShipDocument doc) => doc.SetPose(_p, _before.X, _before.Y, _before.Rot);
 }
+
+// ---- zone commands (crew/trade zones — see ShipZone) ----
+
+/// <summary>Add a new zone to the design.</summary>
+public sealed class CreateZoneCommand(ShipZone zone) : IDocCommand
+{
+    public ShipZone Zone => zone;
+    public void Do(ShipDocument doc) => doc.AddZone(zone);
+    public void Undo(ShipDocument doc) => doc.RemoveZone(zone);
+}
+
+/// <summary>Delete a zone, remembering its list position so undo restores order exactly.</summary>
+public sealed class DeleteZoneCommand : IDocCommand
+{
+    private readonly ShipZone _zone;
+    private readonly int _index;
+    public DeleteZoneCommand(ShipDocument doc, ShipZone zone) { _zone = zone; _index = doc.IndexOfZone(zone); }
+    public void Do(ShipDocument doc) => doc.RemoveZone(_zone);
+    public void Undo(ShipDocument doc) => doc.InsertZone(_index < 0 ? doc.Zones.Count : _index, _zone);
+}
+
+/// <summary>Replace a zone's covered tiles — one paint/erase/box/room-fill stroke, committed as a single step.
+/// The caller snapshots the before/after tile sets (copies), so Do/Undo are plain assignments.</summary>
+public sealed class SetZoneTilesCommand(ShipZone zone, IReadOnlyCollection<(int X, int Y)> before, IReadOnlyCollection<(int X, int Y)> after) : IDocCommand
+{
+    public void Do(ShipDocument doc) => doc.SetZoneTiles(zone, after);
+    public void Undo(ShipDocument doc) => doc.SetZoneTiles(zone, before);
+}
+
+/// <summary>Replace a zone's editable non-tile fields (rename / recolour / type / role / advanced) as one step.</summary>
+public sealed class SetZoneMetaCommand(ShipZone zone, ZoneMeta before, ZoneMeta after) : IDocCommand
+{
+    public void Do(ShipDocument doc) => doc.SetZoneMeta(zone, after);
+    public void Undo(ShipDocument doc) => doc.SetZoneMeta(zone, before);
+}

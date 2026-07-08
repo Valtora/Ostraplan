@@ -100,13 +100,19 @@ public sealed class ShipCanvas : FrameworkElement
     public (int X, int Y) SymCenter { get; private set; }
     public int ViewRot { get; private set; }   // plan-view rotation, 90-degree steps (Q/E)
 
-    private enum Drag { None, Pan, Move, Band, Paint, BoxFill }
+    public bool ShowZones { get; private set; }        // zone overlay visibility (toolbar/key toggle)
+    public Guid? ActiveZoneId { get; private set; }    // the zone being painted, or null when not in zone-paint mode
+
+    private enum Drag { None, Pan, Move, Band, Paint, BoxFill, ZonePaint, ZoneBox }
     private Drag _drag;
     private Point _dragStartScreen;
     private (int X, int Y) _dragStartCell;
     private (int X, int Y) _moveDelta;
     private (int X, int Y)? _hoverCell;
     private readonly List<IDocCommand> _stroke = [];   // live placements of the current paint/fill stroke
+    private HashSet<(int X, int Y)>? _zoneWorking;      // the active zone's tiles being edited this stroke (preview), null when idle
+    private HashSet<(int X, int Y)> _zoneBefore = [];   // the active zone's tiles at stroke start (for the undo snapshot)
+    private bool _zoneErase;                            // this stroke removes tiles (Ctrl) rather than adds
     private IReadOnlyList<(int X, int Y)> _illegalCells = [];   // tiles of existing illegal placements (from ProblemScan)
     private IReadOnlyList<(int X, int Y)> _leakCells = [];      // unsealed tiles of a leaking compartment (from the Ship Rating report)
     private string? _lastGhostReason;                          // dedupe GhostReasonChanged
@@ -126,6 +132,11 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action? ViewChanged;
     public event Action<(int X, int Y)>? ContextMenuRequested;   // right-clicked tile; window builds the layer picker
     public event Action<string?>? GhostReasonChanged;   // the armed ghost's illegality reason, null when legal/disarmed
+    public event Action? ShowZonesChanged;              // the zone overlay was toggled (update the toolbar caption)
+    public event Action? ActiveZoneChanged;             // the painted zone changed (sync the zones panel selection)
+    /// <summary>A zone paint/erase/box/room-fill stroke finished: (zone id, tiles before, tiles after). The window
+    /// turns this into one <c>SetZoneTilesCommand</c> undo step. Not raised when the stroke changed nothing.</summary>
+    public event Action<Guid, IReadOnlyCollection<(int X, int Y)>, IReadOnlyCollection<(int X, int Y)>>? ZoneStrokeCommitted;
 
     public ShipCanvas()
     {
@@ -145,6 +156,8 @@ public sealed class ShipCanvas : FrameworkElement
         doc.Changed += OnContentChanged;
         SelectedIds.Clear();
         SelectionChanged?.Invoke();
+        ActiveZoneId = null;   // a zone id from the previous document is stale
+        _zoneWorking = null;
         _staticShip = null;
         InvalidateVisual();
     }
@@ -170,7 +183,42 @@ public sealed class ShipCanvas : FrameworkElement
         {
             SelectedIds.Clear();
             SelectionChanged?.Invoke();
+            SetActiveZone(null);   // arming a part leaves zone-paint mode (the two modes are mutually exclusive)
         }
+        InvalidateVisual();
+    }
+
+    /// <summary>Toggle the zone overlay on/off. Zones auto-show while one is active for painting.</summary>
+    public void ToggleZones()
+    {
+        ShowZones = !ShowZones;
+        ShowZonesChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    public void SetShowZones(bool on)
+    {
+        if (ShowZones == on) return;
+        ShowZones = on;
+        ShowZonesChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    /// <summary>Enter (or leave, with null) zone-paint mode by making a zone active. Disarms any part brush and
+    /// forces the overlay on so the painted zone is visible. Mirrors <see cref="SetArmed"/>.</summary>
+    public void SetActiveZone(Guid? zoneId)
+    {
+        if (ActiveZoneId == zoneId) return;
+        ActiveZoneId = zoneId;
+        if (zoneId is not null)
+        {
+            ArmedPart = null;
+            SelectedIds.Clear();
+            SelectionChanged?.Invoke();
+            ShowZones = true;
+            ShowZonesChanged?.Invoke();
+        }
+        ActiveZoneChanged?.Invoke();
         InvalidateVisual();
     }
 
@@ -480,6 +528,32 @@ public sealed class ShipCanvas : FrameworkElement
         if (e.ChangedButton != MouseButton.Left || Doc is null) return;
         var cell = CellAt(screen);
 
+        // Zone-paint mode (a zone is active): left = add tiles, Ctrl+left = erase, Shift+left = box, double-click =
+        // fill the enclosed room. This intercepts before the part select/flood logic below (a double-click here is a
+        // room-fill, not a part flood-select). The stroke edits a working set previewed live; commit is one command.
+        if (ActiveZoneId is { } azid && Doc.Zones.FirstOrDefault(z => z.Id == azid) is { } activeZone)
+        {
+            _zoneErase = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
+            _zoneBefore = [.. activeZone.Tiles];
+            _zoneWorking = [.. activeZone.Tiles];
+            if (e.ClickCount == 2)
+            {
+                var room = RoomTilesAt(cell).ToList();
+                if (room.Count > 0) foreach (var t in room) ApplyZoneCell(t);
+                else if (!_zoneErase) _zoneWorking.Add(cell);
+                CommitZoneStroke(activeZone);
+            }
+            else
+            {
+                if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift)) { _drag = Drag.ZoneBox; _dragStartCell = cell; RebuildZoneBox(cell); }
+                else { _drag = Drag.ZonePaint; ApplyZoneCell(cell); }
+                CaptureMouse();
+                InvalidateVisual();
+            }
+            e.Handled = true;
+            return;
+        }
+
         // double-click a placed part to flood-select every 1×1 tile of the same def
         // 4-connected to it — a magic wand for bulk-deleting/replacing a run of identical
         // tiles. Only when nothing is armed. Seed def comes from a lone selected part when
@@ -592,6 +666,8 @@ public sealed class ShipCanvas : FrameworkElement
             _hoverCell = cell;
             HoverChanged?.Invoke(cell);
             if (_drag == Drag.Paint) PaintAt(cell);
+            else if (_drag == Drag.ZonePaint) ApplyZoneCell(cell);
+            else if (_drag == Drag.ZoneBox) RebuildZoneBox(cell);
             if (ArmedPart is not null || _drag != Drag.None) InvalidateVisual();
             else if (Doc is not null) InvalidateVisual();   // hover outline
         }
@@ -626,6 +702,13 @@ public sealed class ShipCanvas : FrameworkElement
 
         if (drag == Drag.Paint)
             CommitStroke();
+
+        if ((drag == Drag.ZonePaint || drag == Drag.ZoneBox) && Doc is not null && ActiveZoneId is { } zid
+            && Doc.Zones.FirstOrDefault(z => z.Id == zid) is { } zone)
+        {
+            if (drag == Drag.ZoneBox) RebuildZoneBox(CellAt(e.GetPosition(this)));
+            CommitZoneStroke(zone);
+        }
 
         if (drag == Drag.BoxFill && Doc is not null && ArmedPart is not null)
         {
@@ -948,6 +1031,97 @@ public sealed class ShipCanvas : FrameworkElement
         ctx.DrawText(ft, new Point(label.X, label.Y - ft.Height / 2));
     }
 
+    // ---- zone overlay ----
+
+    /// <summary>Paint the zone overlay: a translucent per-tile fill in each zone's own colour (the grid lines show
+    /// through so individual tiles read), plus a name label at the zone's centroid. The active (being-painted)
+    /// zone is tinted more strongly. Drawn live in <see cref="OnRender"/> — never baked into the sprite cache — so
+    /// paint/erase and undo appear immediately.</summary>
+    private void DrawZones(DrawingContext dc)
+    {
+        if (Doc is null) return;
+        foreach (var z in Doc.Zones)
+        {
+            var active = z.Id == ActiveZoneId;
+            var tiles = active && _zoneWorking is not null ? (ICollection<(int X, int Y)>)_zoneWorking : z.Tiles;
+            var fill = ZoneFillBrush(z.Color, active);
+            foreach (var (x, y) in tiles)
+                dc.DrawRectangle(fill, null, CellRect(x, y, 1, 1));
+        }
+        foreach (var z in Doc.Zones)
+        {
+            var tiles = z.Id == ActiveZoneId && _zoneWorking is not null ? (ICollection<(int X, int Y)>)_zoneWorking : z.Tiles;
+            if (tiles.Count > 0) DrawZoneLabel(dc, z, tiles);
+        }
+    }
+
+    private static Brush ZoneFillBrush(ZoneColor c, bool active)
+    {
+        static byte B(double v) => (byte)Math.Clamp((int)Math.Round(v * 255), 0, 255);
+        return Frozen(new SolidColorBrush(Color.FromArgb(active ? (byte)0x82 : (byte)0x4A, B(c.R), B(c.G), B(c.B))));
+    }
+
+    private void DrawZoneLabel(DrawingContext dc, ShipZone z, ICollection<(int X, int Y)> tiles)
+    {
+        double sx = 0, sy = 0;
+        foreach (var (x, y) in tiles) { sx += x + 0.5; sy += y + 0.5; }
+        var c = new Point(_pan.X + sx / tiles.Count * Zoom, _pan.Y + sy / tiles.Count * Zoom);
+        var ft = MakeLabel(string.IsNullOrWhiteSpace(z.Name) ? "zone" : z.Name);
+        var box = new Rect(c.X - ft.Width / 2 - 5, c.Y - ft.Height / 2 - 2, ft.Width + 10, ft.Height + 4);
+        dc.DrawRoundedRectangle(LabelBg, null, box, 3, 3);
+        dc.DrawText(ft, new Point(c.X, c.Y - ft.Height / 2));
+    }
+
+    // ---- zone painting (a working tile set, previewed live, committed as one SetZoneTilesCommand) ----
+
+    private void ApplyZoneCell((int X, int Y) cell)
+    {
+        if (_zoneWorking is null) return;
+        if (_zoneErase) _zoneWorking.Remove(cell); else _zoneWorking.Add(cell);
+    }
+
+    /// <summary>Rebuild the working set as the stroke-start tiles combined with the rectangle from the drag start
+    /// to <paramref name="end"/> (added, or removed when erasing) — a box add/erase previewed as it drags.</summary>
+    private void RebuildZoneBox((int X, int Y) end)
+    {
+        _zoneWorking = [.. _zoneBefore];
+        var (x0, x1) = (Math.Min(_dragStartCell.X, end.X), Math.Max(_dragStartCell.X, end.X));
+        var (y0, y1) = (Math.Min(_dragStartCell.Y, end.Y), Math.Max(_dragStartCell.Y, end.Y));
+        for (var y = y0; y <= y1; y++)
+            for (var x = x0; x <= x1; x++)
+                if (_zoneErase) _zoneWorking.Remove((x, y)); else _zoneWorking.Add((x, y));
+    }
+
+    /// <summary>Finish a stroke: hand the before/after tile sets to the window (which pushes one command) unless
+    /// nothing changed, then drop the working set so the overlay reflects the committed zone.</summary>
+    private void CommitZoneStroke(ShipZone zone)
+    {
+        var after = _zoneWorking ?? new HashSet<(int X, int Y)>(zone.Tiles);
+        if (!after.SetEquals(_zoneBefore)) ZoneStrokeCommitted?.Invoke(zone.Id, _zoneBefore, after);
+        _zoneWorking = null;
+        InvalidateVisual();
+    }
+
+    /// <summary>The document tiles of the enclosed (non-open-to-space) room under <paramref name="cell"/>, via the
+    /// same room flood-fill the rating uses — so a double-click fills a whole compartment into the zone. Empty when
+    /// the cell is open space or off the ship.</summary>
+    private IEnumerable<(int X, int Y)> RoomTilesAt((int X, int Y) cell)
+    {
+        if (Doc is null || Doc.Bounds() is not { } b) return [];
+        const int pad = 1;
+        int minC = b.MinX - pad, minR = b.MinY - pad;
+        int cols = b.MaxX - b.MinX + 1 + 2 * pad, rows = b.MaxY - b.MinY + 1 + 2 * pad;
+        int cc = cell.X - minC, cr = cell.Y - minR;
+        if (cc < 0 || cc >= cols || cr < 0 || cr >= rows) return [];
+        var grid = ShipGrid.FromDocumentFramed(Doc, Doc.Catalog, minC, minR, cols, rows);
+        var partition = RoomBuilder.Build(grid);
+        var target = cc + cr * cols;
+        foreach (var room in partition.Rooms)
+            if (!room.Outside && room.Tiles.Contains(target))
+                return room.Tiles.Select(idx => (minC + idx % cols, minR + idx / cols));
+        return [];
+    }
+
     // ---- rendering ----
 
     protected override void OnRender(DrawingContext dc)
@@ -980,6 +1154,7 @@ public sealed class ShipCanvas : FrameworkElement
 
         DrawIllegalCells(dc);
         DrawLeakCells(dc);
+        if (ShowZones || ActiveZoneId is not null) DrawZones(dc);
         DrawOutOfBounds(dc, view);
         DrawOriginMarker(dc);
         if (SymMode != SymmetryMode.Off) DrawSymmetryAxes(dc, view);

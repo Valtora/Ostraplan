@@ -117,7 +117,7 @@ For a candidate placement (part, anchor, rotation). Full trace + worked examples
 4. Rotation: 90° steps; rotate the req/forbid ring masks and adds mask and swap W/H — `GridMath.Rotate(_, W+2, H+2)` reproduces `TileUtils.RotateTilesCW` exactly (verified). Sprite-sheet items (walls/floors) do not rotate.
 5. **Airlock envelope** is a hard bound: no ring cell may fall beyond any docking port's mating face (§7 / `ProblemScan.TryGetFace`). The game bounds `aDocksys[0]`; Ostraplan bounds **all ports, ring-inclusive** — provably no false positive.
 6. **Self-exclusion:** re-validating an already-placed part first subtracts its own tile contribution (walls/fixtures add `IsObstruction` and forbid it on their own footprint) — `CheckFit.Check(…, self)`.
-7. In-game-only predicates **excluded by design**: crew proximity/LOS, docked-ship `WouldConnectShips`, zone restrictions (station building).
+7. In-game-only predicates **excluded by design**: crew proximity/LOS, docked-ship `WouldConnectShips`, and station-*build* zone restrictions (whether you're allowed to build on a station-owned tile). Ship **zones as data** (`aZones`) are a separate concern and *are* modelled — see §6.10.
 
 **Enforcement:** new placement is hard-blocked at the single `ShipCanvas.TryPlacePose` choke point (click/paint/box/hollow/symmetry); moves, rotations and duplicates into an illegal spot are *allowed but flagged* (grouped by reason, offending tiles hazard-tinted); the ghost shows green/red with per-cell failures + a status-bar reason.
 
@@ -156,6 +156,32 @@ Six slots, displayed as slots 1–5 joined with `-`:
 ### 6.9 Law report
 
 A dockable panel listing, live: uncertifiable rooms **with reasons** (too small / missing required items / forbidden item present, naming them); void/airtightness breaches with **leak tracing** (highlight the unsealed tiles or the escape path to open space — a genuine QoL win over hunting leaks in-game); constructibility warnings; the full rating breakdown with per-slot explanations.
+
+### 6.10 Ship zones (`aZones`) — authored data, not validated
+
+Zones are the game's painted crew/trade areas (a `JsonZone[]` on the ship): a bag of
+tiles tagged with `aTileConds` (`IsZoneStockpile`=Haul, `IsZoneBarter`, `IsZoneForbid`,
+and content `IsZoneTrigger`/`IsZoneSpawn`/…), plus a name, colour, `categoryConds`
+(a `Trigger*` for a trigger zone / an item filter for a stockpile) and owner/target
+person-specs. Unlike rooms — which the game **re-derives** by airtight flood-fill on
+every load and therefore self-heal — zones are **trusted verbatim** (`Ship.SetZoneData`
+only bounds-checks; the first out-of-range tile drops that zone *and every zone after
+it*). So zones **do not self-heal**: this is the whole bug when a tool round-trips a ship.
+
+- **Tile model.** `aTiles` are flat row-major indices `col + row·nCols` — the same space
+  as `aRooms.aTiles`. Ostraplan holds a zone's tiles as **document coordinates** (like a
+  `Placement`) and projects to flat indices **only at write time**, in whatever grid frame
+  the parts use, dropping out-of-frame tiles so a stale index can't cascade-drop a zone.
+  This makes reframing (a grown grid on save-edit) automatic and correct.
+- **Round-trip.** Import parses `aZones` → document zones; **export** writes them into
+  `data/ships` `aZones`; **save-edit** re-emits them re-projected into the injected grid
+  (replacing the old verbatim copy that silently relocated them); the **`.oplan`**
+  persists them (`zones`, tiles as `[x,y]` pairs). The transient `aOldTiles`/legacy `ranks`
+  are never emitted; names are made unique per ship.
+- **Authoring** (see §7): create/paint/edit/delete via the Zones panel + canvas overlay;
+  the three player types plus Advanced content fields. Zones the user didn't author (a
+  station's trigger zones) round-trip untouched. Model lives in `ShipZone`/`ZoneGeometry`
+  (Core); it contributes **no** tile conditions, rooms or rating.
 
 ## 7. UX
 

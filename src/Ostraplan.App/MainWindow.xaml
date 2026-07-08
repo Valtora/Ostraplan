@@ -17,6 +17,13 @@
             <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
             <Setter Property="TextWrapping" Value="Wrap"/>
         </Style>
+        <!-- Uniform small buttons for the Zones panel (Add / Properties / delete) -->
+        <Style x:Key="ZoneBtn" TargetType="Button">
+            <Setter Property="Padding" Value="10,2"/>
+            <Setter Property="Margin" Value="4,0,0,0"/>
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
         <!-- Toolbar group separator -->
         <Style x:Key="ToolSep" TargetType="Border">
             <Setter Property="Width" Value="1"/>
@@ -94,6 +101,8 @@
                             ToolTip="Fit the view to the ship (F)"/>
                     <Button x:Name="BtnSym" Content="Symmetry: Off" Padding="10,3" Margin="0,0,3,0" Click="OnSymClick"
                             ToolTip="Cycle symmetry: Off → Vertical → Horizontal → Both (M). Axes centre on the tile under the cursor when switching on."/>
+                    <Button x:Name="BtnZones" Content="Zones: Off" Padding="10,3" Margin="0,0,3,0" Click="OnZonesClick"
+                            ToolTip="Show/hide the crew &amp; trade zone overlay (Z). Manage zones in the panel on the right."/>
                 </StackPanel>
 
                 <!-- Right side (added right-to-left) -->
@@ -147,6 +156,13 @@
             <StackPanel>
                 <TextBlock Text="PROBLEMS" Style="{StaticResource SideHeader}" Margin="0,0,0,4"/>
                 <StackPanel x:Name="ProblemsPanel"/>
+                <Separator Margin="0,10,0,0" Background="{DynamicResource PanelBorder}"/>
+                <DockPanel Margin="0,10,0,0">
+                    <TextBlock Text="ZONES" Style="{StaticResource SideHeader}" Margin="0" VerticalAlignment="Center"/>
+                    <Button x:Name="BtnAddZone" Content="+ Add" DockPanel.Dock="Right" Style="{StaticResource ZoneBtn}"
+                            Margin="0" Click="OnAddZoneClick" ToolTip="Create a zone and start painting its tiles"/>
+                </DockPanel>
+                <StackPanel x:Name="ZonesPanel"/>
                 <Separator Margin="0,10,0,0" Background="{DynamicResource PanelBorder}"/>
                 <TextBlock Text="PART" Style="{StaticResource SideHeader}"/>
                 <TextBlock x:Name="InsFriendly" Style="{StaticResource SideValue}" FontSize="15" FontWeight="SemiBold" Text="—"/>

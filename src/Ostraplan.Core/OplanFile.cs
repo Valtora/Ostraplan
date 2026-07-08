@@ -22,6 +22,9 @@ public sealed class OplanFile
     /// into. Null for from-scratch/template/layout-only designs. See <see cref="ShipDocument.SourceSave"/>.</summary>
     [JsonPropertyName("source")] public OplanSource? Source { get; set; }
     [JsonPropertyName("parts")] public List<OplanPart> Parts { get; set; } = [];
+    /// <summary>The design's painted zones (see <see cref="ShipZone"/>). Additive since format v1 — older
+    /// builds ignore it and preserve it via <see cref="Extra"/>.</summary>
+    [JsonPropertyName("zones")] public List<OplanZone> Zones { get; set; } = [];
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 
     private static readonly JsonSerializerOptions Options = new()
@@ -53,6 +56,7 @@ public sealed class OplanFile
                            Cargo = doc.IsCargoEdited(p) && p.Cargo.Count > 0 ? p.Cargo.Select(ToOplanCargo).ToList() : null,
                        })
                        .ToList(),
+            Zones = doc.Zones.Select(ToOplanZone).ToList(),
         };
         file.Meta.Modified = DateTime.UtcNow;
         return file;
@@ -95,7 +99,41 @@ public sealed class OplanFile
                 doc.MarkCargoEdited(placement);
             }
         }
+        foreach (var z in Zones) doc.AddZone(FromOplanZone(z));
         return (doc, missing);
+    }
+
+    /// <summary>Persist a zone: its editable fields plus its tiles as document <c>[x,y]</c> pairs (the doc plane
+    /// is unbounded and can be negative, so tiles are stored as coordinates, not flat indices).</summary>
+    private static OplanZone ToOplanZone(ShipZone z) => new()
+    {
+        Name = z.Name,
+        Color = [z.Color.R, z.Color.G, z.Color.B, z.Color.A],
+        TileConds = [.. z.TileConds],
+        CategoryConds = z.CategoryConds.Count > 0 ? [.. z.CategoryConds] : null,
+        PersonSpec = z.PersonSpec,
+        TargetPSpec = z.TargetPSpec,
+        TriggerOnOwner = z.TriggerOnOwner,
+        Tiles = z.Tiles.Select(t => new[] { t.X, t.Y }).ToList(),
+    };
+
+    /// <summary>Rebuild a <see cref="ShipZone"/> from its snapshot.</summary>
+    private static ShipZone FromOplanZone(OplanZone o)
+    {
+        var c = o.Color;
+        var zone = new ShipZone
+        {
+            Name = o.Name,
+            Color = c is { Length: >= 4 } ? new ZoneColor(c[0], c[1], c[2], c[3]) : ZoneColor.Default,
+            TileConds = o.TileConds is { } tc ? [.. tc] : [],
+            CategoryConds = o.CategoryConds is { } cc ? [.. cc] : [],
+            PersonSpec = o.PersonSpec,
+            TargetPSpec = o.TargetPSpec,
+            TriggerOnOwner = o.TriggerOnOwner,
+        };
+        foreach (var t in o.Tiles ?? [])
+            if (t is { Length: >= 2 }) zone.Tiles.Add((t[0], t[1]));
+        return zone;
     }
 
     /// <summary>Persist a cargo node's identity, authored-ness, grid position and stack — the display/footprint
@@ -192,6 +230,21 @@ public sealed class OplanCargo
     [JsonPropertyName("stack")] public int Stack { get; set; } = 1;
     [JsonPropertyName("isStack")] public bool IsStack { get; set; }
     [JsonPropertyName("children")] public List<OplanCargo>? Children { get; set; }
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
+}
+
+/// <summary>One persisted zone (see <see cref="OplanFile.Zones"/>): the editable fields plus the covered
+/// tiles as document <c>[x,y]</c> pairs. Colour is <c>[r,g,b,a]</c> (0..1).</summary>
+public sealed class OplanZone
+{
+    [JsonPropertyName("name")] public string Name { get; set; } = "";
+    [JsonPropertyName("color")] public double[]? Color { get; set; }
+    [JsonPropertyName("tileConds")] public List<string>? TileConds { get; set; }
+    [JsonPropertyName("categoryConds")] public List<string>? CategoryConds { get; set; }
+    [JsonPropertyName("personSpec")] public string? PersonSpec { get; set; }
+    [JsonPropertyName("targetPSpec")] public string? TargetPSpec { get; set; }
+    [JsonPropertyName("triggerOnOwner")] public bool TriggerOnOwner { get; set; }
+    [JsonPropertyName("tiles")] public List<int[]>? Tiles { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }
 

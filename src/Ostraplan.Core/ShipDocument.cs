@@ -56,6 +56,7 @@ public sealed class ShipDocument
     private readonly Dictionary<Guid, long> _order = [];   // insertion order for stable draw/hit priority
     private readonly Dictionary<(int, int), List<Placement>> _byTile = [];   // spatial index: tile -> parts covering it
     private readonly HashSet<Guid> _cargoEdited = [];   // placements whose container contents were authored/removed
+    private readonly List<ShipZone> _zones = [];   // painted crew/trade zones (overlays, not tile-grid parts)
 
     public Catalog Catalog { get; }
     public TileConds Conds { get; }
@@ -109,6 +110,11 @@ public sealed class ShipDocument
     }
 
     public IReadOnlyList<Placement> Placements => _placements;
+
+    /// <summary>The painted crew/trade zones (see <see cref="ShipZone"/>). Zones are overlays: they are
+    /// NOT in the spatial index and do NOT contribute tile conditions, rooms, or rating. All mutation goes
+    /// through the command stack (the <c>internal</c> mutators below).</summary>
+    public IReadOnlyList<ShipZone> Zones => _zones;
 
     /// <summary>
     /// An independent copy for off-thread analysis: the same placements (poses + given-ness) with
@@ -324,6 +330,26 @@ public sealed class ShipDocument
     /// snapshot already carries this container's authored contents, so a re-save persists them again.</summary>
     public void MarkCargoEdited(Placement p) => _cargoEdited.Add(p.Id);
 
+    // ---- zone mutations (command implementations only) ----
+
+    internal void AddZone(ShipZone z) { _zones.Add(z); RaiseChanged(); }
+
+    /// <summary>Re-insert a zone at a specific position — the undo of a delete, so list order (hence the
+    /// serialized <c>aZones</c> order and last-wins overlap) is restored exactly.</summary>
+    internal void InsertZone(int index, ShipZone z) { _zones.Insert(Math.Clamp(index, 0, _zones.Count), z); RaiseChanged(); }
+
+    internal void RemoveZone(ShipZone z) { if (_zones.Remove(z)) RaiseChanged(); }
+
+    /// <summary>The index of a zone in the list (for a delete command to capture, so undo restores order).</summary>
+    public int IndexOfZone(ShipZone z) => _zones.IndexOf(z);
+
+    /// <summary>Replace a zone's covered tiles (a paint/erase stroke commits one of these). Zones carry no
+    /// tile conditions of their own, so this touches no spatial index — it just swaps the set.</summary>
+    internal void SetZoneTiles(ShipZone z, IEnumerable<(int X, int Y)> tiles) { z.Tiles = [.. tiles]; RaiseChanged(); }
+
+    /// <summary>Replace a zone's editable non-tile fields (name/colour/type/role/advanced) from a snapshot.</summary>
+    internal void SetZoneMeta(ShipZone z, ZoneMeta meta) { z.ApplyMeta(meta); RaiseChanged(); }
+
     internal void Clear()
     {
         _placements.Clear();
@@ -331,6 +357,7 @@ public sealed class ShipDocument
         _byTile.Clear();
         Conds.Clear();
         _cargoEdited.Clear();
+        _zones.Clear();
         _seq = 0;
         RaiseChanged();
     }

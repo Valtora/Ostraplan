@@ -5,7 +5,7 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <AssemblyName>Ostraplan</AssemblyName>
     <RootNamespace>Ostraplan.App</RootNamespace>
-    <Version>0.7.1</Version>
+    <Version>0.8.0</Version>
     <UseWPF>true</UseWPF>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <Nullable>enable</Nullable>

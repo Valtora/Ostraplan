@@ -76,6 +76,9 @@ public partial class MainWindow : Window
         Board.Disarmed += ClearPaletteSelection;
         Board.ContextMenuRequested += OnContextMenuRequested;
         Board.GhostReasonChanged += reason => TxtGhost.Text = reason is null ? "" : "⛔ can't place here — " + reason;
+        Board.ZoneStrokeCommitted += OnZoneStrokeCommitted;
+        Board.ShowZonesChanged += UpdateZonesButton;
+        Board.ActiveZoneChanged += UpdateZones;   // reflect which zone (if any) is being painted
         _stack.StateChanged += RefreshChrome;
         _stack.Applied += (cmd, action) => AuditLog.Command(action, cmd);   // audit every edit/undo/redo
 
@@ -308,6 +311,7 @@ public partial class MainWindow : Window
         TxtParts.Text = $"{_doc?.Placements.Count ?? 0} parts{dims}";
         Board.SetLeakCells([]);   // any Ship Rating leak highlight is stale once the design changes
         ScheduleScan();
+        UpdateZones();
         RefreshChrome();
     }
 
@@ -671,6 +675,148 @@ public partial class MainWindow : Window
         _stack.Push(_doc, new RemoveCommand(selected));
         Board.SelectedIds.Clear();
         UpdateInspector();
+    }
+
+    // ---- zones ----
+
+    private void OnZonesClick(object sender, RoutedEventArgs e) => Board.ToggleZones();
+
+    private void UpdateZonesButton() => BtnZones.Content = "Zones: " + (Board.ShowZones ? "On" : "Off");
+
+    private void OnAddZoneClick(object sender, RoutedEventArgs e)
+    {
+        if (_doc is null) return;
+        var zone = new ShipZone
+        {
+            Name = NextZoneName(),
+            Color = ZoneEditorDialog.Presets[_doc.Zones.Count % ZoneEditorDialog.Presets.Length],
+            TileConds = { ShipZone.CondHaul },   // a sensible default; change it via Edit
+            PersonSpec = "ZonePlayer",
+            TargetPSpec = "ZoneCaptainAndCrew",
+        };
+        _stack.Push(_doc, new CreateZoneCommand(zone));
+        Board.SetActiveZone(zone.Id);   // arm it so the user can paint straight away
+        AuditLog.Add($"Added zone “{zone.Name}”.");
+    }
+
+    private string NextZoneName()
+    {
+        for (var n = (_doc?.Zones.Count ?? 0) + 1; ; n++)
+            if (_doc!.Zones.All(z => z.Name != $"Zone {n}")) return $"Zone {n}";
+    }
+
+    /// <summary>A paint/erase/box/room-fill stroke finished on the canvas — record it as one undo step.</summary>
+    private void OnZoneStrokeCommitted(Guid zoneId, IReadOnlyCollection<(int X, int Y)> before, IReadOnlyCollection<(int X, int Y)> after)
+    {
+        if (_doc?.Zones.FirstOrDefault(z => z.Id == zoneId) is not { } zone) return;
+        _stack.Push(_doc, new SetZoneTilesCommand(zone, before, after));
+    }
+
+    private void EditZone(ShipZone zone)
+    {
+        if (_doc is null) return;
+        var before = zone.Meta;
+        var dlg = new ZoneEditorDialog(this, "Edit zone", before) { Owner = this };
+        if (dlg.ShowDialog() == true && dlg.Result is { } meta)
+            _stack.Push(_doc, new SetZoneMetaCommand(zone, before, meta));
+    }
+
+    private void DeleteZone(ShipZone zone)
+    {
+        if (_doc is null) return;
+        if (!Dlg.Confirm(this, DlgKind.Warning, "Delete zone?",
+            $"Delete the zone “{zone.Name}” and its painted tiles?", "Delete zone")) return;
+        if (Board.ActiveZoneId == zone.Id) Board.SetActiveZone(null);
+        _stack.Push(_doc, new DeleteZoneCommand(_doc, zone));
+    }
+
+    private static string ZoneTypeLabel(ShipZone z)
+    {
+        var parts = new List<string>();
+        if (z.IsHaul) parts.Add("Haul");
+        if (z.IsBarter) parts.Add("Barter");
+        if (z.IsForbid) parts.Add("Forbid");
+        if (z.IsTrigger) parts.Add("Trigger");
+        return parts.Count == 0 ? "—" : string.Join("+", parts);
+    }
+
+    private void UpdateZones()
+    {
+        UpdateZonesButton();
+        if (ZonesPanel is null) return;
+        ZonesPanel.Children.Clear();
+        if (_doc is null || _doc.Zones.Count == 0)
+        {
+            ZonesPanel.Children.Add(ZoneHint("No zones yet. Click “+ Add” to paint a Haul, Barter or Forbid area."));
+            return;
+        }
+        // Teach the interaction up top: while painting show the paint controls, otherwise how to start.
+        ZonesPanel.Children.Add(Board.ActiveZoneId is not null
+            ? ZoneHint("Painting · drag add · Ctrl erase · Shift box · double-click fills a room · Esc stops")
+            : ZoneHint("Click a zone to paint its tiles. Use Properties to rename or recolour."));
+        foreach (var zone in _doc.Zones) ZonesPanel.Children.Add(ZoneRow(zone));
+    }
+
+    private static TextBlock ZoneHint(string text) => new()
+    {
+        Text = text, Foreground = ThemeManager.Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 6),
+    };
+
+    private FrameworkElement ZoneRow(ShipZone zone)
+    {
+        var active = Board.ActiveZoneId == zone.Id;
+
+        // left: a larger colour swatch + the zone name (larger) and its type
+        var swatch = new Border
+        {
+            Width = 22, Height = 22, CornerRadius = new CornerRadius(3), Background = ZoneEditorDialog.SolidOf(zone.Color),
+            BorderBrush = ThemeManager.PanelBorder, BorderThickness = new Thickness(1),
+            Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center,
+        };
+        var text = new StackPanel { VerticalAlignment = VerticalAlignment.Center };
+        text.Children.Add(new TextBlock
+        {
+            Text = zone.Name, Foreground = active ? ThemeManager.AccentText : ThemeManager.Ink,
+            FontSize = 15, FontWeight = FontWeights.SemiBold, TextTrimming = TextTrimming.CharacterEllipsis, MaxWidth = 130,
+        });
+        text.Children.Add(new TextBlock
+        {
+            Text = ZoneTypeLabel(zone), Foreground = active ? ThemeManager.AccentText : ThemeManager.Dim, FontSize = 11,
+        });
+        var left = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        left.Children.Add(swatch);
+        left.Children.Add(text);
+
+        // right: Properties (rename/recolour/type/role) + delete, sharing the uniform ZoneBtn style. Both mark the
+        // click handled so they don't ALSO toggle painting on the enclosing row button.
+        var btnStyle = (Style)FindResource("ZoneBtn");
+        var props = new Button { Content = "Properties", Style = btnStyle, ToolTip = "Rename, recolour, and set the zone's type and role" };
+        props.Click += (_, e) => { e.Handled = true; EditZone(zone); };
+        var del = new Button { Content = "✕", Style = btnStyle, ToolTip = "Delete zone" };
+        del.Click += (_, e) => { e.Handled = true; DeleteZone(zone); };
+        var right = new StackPanel { Orientation = Orientation.Horizontal, VerticalAlignment = VerticalAlignment.Center };
+        right.Children.Add(props);
+        right.Children.Add(del);
+
+        var dock = new DockPanel();
+        DockPanel.SetDock(right, Dock.Right);
+        dock.Children.Add(right);
+        dock.Children.Add(left);   // fills the remaining width
+
+        // The WHOLE row is the click-to-paint target (a filled chip with a hand cursor) — clicking anywhere on it
+        // starts/stops painting, so resizing a zone is discoverable without hunting for a button.
+        var row = new Button
+        {
+            Content = dock,
+            Background = active ? ThemeManager.AccentBg : ThemeManager.FieldBg,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Padding = new Thickness(6, 5, 6, 5),
+            Margin = new Thickness(0, 3, 0, 0),
+            Cursor = System.Windows.Input.Cursors.Hand,
+            ToolTip = active ? "Click to stop painting this zone" : "Click to paint this zone's tiles",
+        };
+        row.Click += (_, _) => Board.SetActiveZone(active ? (Guid?)null : zone.Id);
+        return row;
     }
 
     private void RotateSelection(int delta)
@@ -1075,7 +1221,11 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.Escape:
-                if (Board.ArmedPart is not null)
+                if (Board.ActiveZoneId is not null)
+                {
+                    Board.SetActiveZone(null);   // stop painting the zone
+                }
+                else if (Board.ArmedPart is not null)
                 {
                     Board.SetArmed(null);
                     ClearPaletteSelection();
@@ -1115,6 +1265,10 @@ public partial class MainWindow : Window
                 break;
             case Key.M when !ctrl && !e.IsRepeat:
                 Board.CycleSymmetry();
+                e.Handled = true;
+                break;
+            case Key.Z when !ctrl && !e.IsRepeat:
+                Board.ToggleZones();
                 e.Handled = true;
                 break;
             case Key.W or Key.A or Key.S or Key.D when !ctrl:

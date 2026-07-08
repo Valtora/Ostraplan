@@ -11,7 +11,28 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **Ship zones — drawn, editable, and preserved on round-trip.** Ostranauts'
+  crew/trade zones (Haul, Barter, Forbid, and the content trigger/spawn zones) now
+  survive import → export and import → save-edit instead of being dropped or
+  silently relocated, and you can create and manage them in the planner. A new
+  **Zones** panel (right inspector) lists them; **+ Add** makes one and arms it for
+  painting; **click a zone to paint** its tiles with the same tools as parts
+  (drag to add, **Ctrl**-drag to erase, **Shift**-drag a box, **double-click**
+  fills an enclosed room), each stroke one undo step. **Edit** sets the name, type
+  (Haul/Barter/Forbid as independent toggles, matching the in-game editor), target
+  role, colour, and — under Advanced — content-zone fields (encounter triggers,
+  owner/target person-specs). A **Zones** toolbar button (or **Z**) toggles the
+  overlay. Zones persist in the `.oplan`, export into `data/ships` `aZones`, and are
+  re-projected into the correct tiles whenever the grid grows on save write-back.
+  *Why it matters:* dropping zones broke player storage/no-go setups and, on
+  authored station/quest ships, the scripted encounters wired to trigger zones.
+
 ### Changed
+- **The Problems list is now an expandable list with a "View" button.** Each problem
+  collapses to its title (click to expand the detail), and issues with a location get
+  a **View** button that pans and zooms the canvas straight to the offending tiles, so
+  a flagged part is easy to find on a big ship.
 - **The update check now interrupts on launch.** When a newer GitHub release
   exists, Ostraplan raises a modal on startup (**Download Latest Version**, which
   opens the release page, or **Not Now**) instead of only revealing the toolbar
@@ -19,6 +40,15 @@ each release was verified against is recorded in
   you dismiss the modal, and the modal shows on every launch while a newer
   version is out, so a release is never missed. (Mirrors the same change in
   Ostrasort.)
+
+### Fixed
+- **Fixtures on floor-storage items no longer false-flag as "already occupied".** An
+  under-floor storage bin or rack (e.g. ItmRackUnder01, the floor bins) provides a
+  walkable sealed-floor surface that the game lets you build on and reach across. Its
+  tiles carry IsFixture, which the placement law's obstruction mask lists, so a rack
+  placed on — or whose access tile fell on — such a floor was wrongly flagged. A sealed
+  floor is now treated as a valid build/stand surface (a genuine obstruction still
+  blocks), matching the game.
 
 ## [0.7.0] — 2026-07-08 — loose items & reliable symmetry
 

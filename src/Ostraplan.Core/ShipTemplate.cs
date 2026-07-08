@@ -16,6 +16,13 @@ public sealed record TemplateItem(string DefName, double FX, double FY, double F
 /// This is the parity ground truth.</summary>
 public sealed record StoredRoom(IReadOnlyList<int> TileIndices, string RoomSpec, bool Void);
 
+/// <summary>A zone exactly as stored on the ship (<c>aZones</c>): its flat row-major tile indices
+/// (same index space as <see cref="StoredRoom"/>) plus the verbatim fields. Converted to a
+/// document-coordinate <see cref="ShipZone"/> at import time.</summary>
+public sealed record StoredZone(
+    string Name, IReadOnlyList<int> Tiles, IReadOnlyList<string> TileConds, IReadOnlyList<string> CategoryConds,
+    string? PersonSpec, string? TargetPSpec, bool TriggerOnOwner, ZoneColor Color);
+
 /// <summary>
 /// A parsed <c>data/ships</c> template (JsonShip). Ship files are top-level JSON
 /// arrays; the ship object is an element with <c>nCols</c>+<c>aItems</c>. Carries
@@ -36,6 +43,8 @@ public sealed class ShipTemplate
     public required IReadOnlyList<TemplateItem> Items { get; init; }
     public required IReadOnlyList<StoredRoom> Rooms { get; init; }
     public required IReadOnlyList<string> Rating { get; init; }
+    /// <summary>The ship's painted zones (<c>aZones</c>), verbatim. Empty on the many ships that carry none.</summary>
+    public IReadOnlyList<StoredZone> Zones { get; init; } = [];
 
     public bool HasBakedRating => Rating.Count >= 5 && Rating.Skip(1).Any(s => !string.IsNullOrEmpty(s));
 
@@ -84,6 +93,19 @@ public sealed class ShipTemplate
                 rooms.Add(new StoredRoom(Json.IntArray(r, "aTiles"),
                     Json.Str(r, "roomSpec") ?? "Blank", Json.Bool(r, "bVoid")));
 
+        var zones = new List<StoredZone>();
+        if (e.TryGetProperty("aZones", out var zonesEl) && zonesEl.ValueKind == JsonValueKind.Array)
+            foreach (var z in zonesEl.EnumerateArray())
+                zones.Add(new StoredZone(
+                    Json.Str(z, "strName") ?? "",
+                    Json.IntArray(z, "aTiles"),
+                    Json.StrArray(z, "aTileConds"),
+                    Json.StrArray(z, "categoryConds"),
+                    Json.Str(z, "strPersonSpec"),
+                    Json.Str(z, "strTargetPSpec"),
+                    Json.Bool(z, "bTriggerOnOwner"),
+                    ParseZoneColor(z)));
+
         return new ShipTemplate
         {
             Name = Json.Str(e, "strName") ?? "",
@@ -96,6 +118,17 @@ public sealed class ShipTemplate
             Items = items,
             Rooms = rooms,
             Rating = Json.StrArray(e, "aRating"),
+            Zones = zones,
         };
+    }
+
+    /// <summary>Read a zone's <c>zoneColor</c> {r,g,b,a} object; alpha defaults to 1 when absent, and a
+    /// missing/blank colour falls back to <see cref="ZoneColor.Default"/>.</summary>
+    private static ZoneColor ParseZoneColor(JsonElement z)
+    {
+        if (!z.TryGetProperty("zoneColor", out var c) || c.ValueKind != JsonValueKind.Object)
+            return ZoneColor.Default;
+        var a = c.TryGetProperty("a", out _) ? Json.Dbl(c, "a") : 1.0;
+        return new ZoneColor(Json.Dbl(c, "r"), Json.Dbl(c, "g"), Json.Dbl(c, "b"), a);
     }
 }

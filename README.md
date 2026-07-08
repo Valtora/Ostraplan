@@ -50,6 +50,10 @@ Please report your bugs here on the repo's Issues tracker.
   flood-select, "Replace with…", ship-wide re-skin, group rotate, copy/paste, and
   unbounded undo/redo.
 - **Bill of materials** — install-kit counts for the whole ship or a selection.
+- **Zones** — draw and manage the game's crew/trade zones (Haul, Barter, Forbid,
+  and content trigger zones): paint them with the same tools as parts, and they
+  round-trip faithfully through export and save write-back instead of being dropped
+  or shifted onto the wrong tiles.
 
 ### Validate
 
