@@ -66,32 +66,52 @@ public static class ShipExport
         var byPlacementId = doc.Placements.ToDictionary(p => p.Id.ToString());
 
         var items = new List<ExportedItem>(grid.Parts.Count);
+        var cos = new List<ExportedCondOwnerSave>();
 
-        // Emit a container's contents as pristine, parented items. Each contained item MUST carry a per-instance
-        // override marker (aCondOverrides) or the game DROPS it on a template spawn: Ship.SpawnItems keeps a parented
-        // item only when it has aCondOverrides (or bForceLoad), otherwise it discards the item and refills the
-        // container from its def's DEFAULT loot — so authored cargo vanished and pre-stocked containers (weapons,
-        // racks, bays) came back empty or with only the def's loadout. The marker doubles as loot suppression: the
-        // pre-pass also flags the item's root container, which sets bLoot=false for it, so a weapon gets exactly the
-        // authored ammo and no default rounds on top. We use a StatDamage=0 override — a real, benign "pristine"
-        // instruction (Amount 0 = undamaged) that also guarantees the array is non-null (the gate the game checks).
-        // Recurses so nested containers and stacks (a lead + its same-def members) come through; loose cargo parents
-        // by strParentID, equipped gear by strSlotParentID. Contained items sit at their container's coordinates;
-        // rotation rides on fRotation.
+        // Emit a container's contents the way a SAVE stores them, because a data/ships file spawns as a TEMPLATE
+        // (bTemplateOnly) and a template can't otherwise keep authored cargo. Ship.SpawnItems (decompiled):
+        //   * drops any parented item unless it has aCondOverrides (→ the item's root container is flagged, which
+        //     also clears bLoot so the container isn't refilled from its DEFAULT loot) OR bForceLoad (→ the item
+        //     keeps its strID instead of getting a fresh one);
+        //   * reconstructs a STACK only from the stack-head CO's aStack (a list of member strIDs) in
+        //     CondOwner.PostGameLoad — which needs the head's baked CO and the members to keep their strIDs.
+        // So each contained item carries BOTH bForceLoad (keep strID) AND the aCondOverrides "pristine" marker
+        // (survive + suppress the container's default loot), plus a baked aCOs entry; a stack head's CO lists its
+        // members in aStack so the game rebuilds the ×N stack at the right count (a bare lead+members chain alone
+        // orphaned the members and collapsed the stack). The marker is a StatDamage=0 override (Amount 0 =
+        // undamaged): real, benign, and a non-null array (the exact gate SpawnItems tests). Recurses so nested
+        // containers and stacks come through; loose cargo parents by strParentID, equipped gear by strSlotParentID.
+        // Returns the emitted item's fresh strID so a parent stack head can collect its members.
+        string EmitContained(CargoItem c, string parentStrID, double fx, double fy)
+        {
+            var cid = Guid.NewGuid().ToString();
+            var item = new ExportedItem
+            {
+                StrName = c.DefName, FX = fx, FY = fy, FRotation = c.GridRot, StrID = cid,
+                ACondOverrides = PristineMarker, BForceLoad = true,
+            };
+            if (c.Slotted) item.StrSlotParentID = parentStrID; else item.StrParentID = parentStrID;
+            items.Add(item);
+
+            var childIds = c.Children.Select(child => EmitContained(child, cid, fx, fy)).ToList();
+
+            cos.Add(new ExportedCondOwnerSave
+            {
+                StrID = cid,
+                StrCODef = c.DefName,
+                StrCondID = c.DefName + cid,
+                InventoryX = c.GridX,
+                InventoryY = c.GridY,
+                // A stack head lists its members; a real (drillable) container does not — its children are separate
+                // items positioned by their own inventory cells, not stack members of the container.
+                AStack = c.IsStack && childIds.Count > 0 ? childIds.ToArray() : null,
+            });
+            return cid;
+        }
+
         void EmitCargo(IReadOnlyList<CargoItem> nodes, string parentStrID, double fx, double fy)
         {
-            foreach (var c in nodes)
-            {
-                var cid = Guid.NewGuid().ToString();
-                var item = new ExportedItem
-                {
-                    StrName = c.DefName, FX = fx, FY = fy, FRotation = c.GridRot, StrID = cid,
-                    ACondOverrides = PristineMarker,
-                };
-                if (c.Slotted) item.StrSlotParentID = parentStrID; else item.StrParentID = parentStrID;
-                items.Add(item);
-                EmitCargo(c.Children, cid, fx, fy);
-            }
+            foreach (var c in nodes) EmitContained(c, parentStrID, fx, fy);
         }
 
         foreach (var part in grid.Parts)
@@ -120,16 +140,20 @@ public static class ShipExport
             {
                 // An EMPTY nav console is a bare frame: its interface is assembled from hot-swappable module items
                 // contained inside it. Ostraplan places only the console, so install the standard module set here or
-                // it spawns blank. Each module carries the same aCondOverrides marker as EmitCargo's cargo: a nav
-                // console has no default module loot, so without the marker SpawnItems would drop these parented
-                // modules on a template spawn and the console would come back empty (see EmitCargo, NavConsole,
-                // Babak.json). A console that already carries modules (a save-imported one) keeps them via EmitCargo.
+                // it spawns blank. Each module is baked the same way as EmitContained's cargo (bForceLoad + marker +
+                // a CO): a nav console has no default module loot, so without that the modules would be dropped on a
+                // template spawn and the console would come back empty (see EmitContained, NavConsole, Babak.json).
+                // A console that already carries modules (a save-imported one) keeps them via EmitCargo above.
                 foreach (var modDef in NavConsole.StandardModules)
+                {
+                    var modId = Guid.NewGuid().ToString();
                     items.Add(new ExportedItem
                     {
-                        StrName = modDef, FX = fx, FY = fy, FRotation = 0, StrID = Guid.NewGuid().ToString(),
-                        StrParentID = strID, ACondOverrides = PristineMarker,
+                        StrName = modDef, FX = fx, FY = fy, FRotation = 0, StrID = modId,
+                        StrParentID = strID, ACondOverrides = PristineMarker, BForceLoad = true,
                     });
+                    cos.Add(new ExportedCondOwnerSave { StrID = modId, StrCODef = modDef, StrCondID = modDef + modId });
+                }
             }
         }
 
@@ -159,6 +183,7 @@ public static class ShipExport
             NRows = grid.NRows,
             VShipPos = new ExportedVec2(),   // (0,0): the anchor the coordinate inverse assumes
             AItems = items.ToArray(),
+            ACOs = cos.Count > 0 ? cos.ToArray() : null,   // save-style CO data for authored cargo; omitted when none
             ARooms = rooms,
             AZones = zones,
             ARating = [rating.Epoch.Length == 0 ? "0" : rating.Epoch,
@@ -285,6 +310,11 @@ public sealed class ExportedShip
     [JsonPropertyName("fWearAccrued")] public double FWearAccrued { get; set; }
     [JsonPropertyName("shipCO")] public ExportedShipCO ShipCO { get; set; } = new();
     [JsonPropertyName("aItems")] public ExportedItem[] AItems { get; set; } = [];
+
+    /// <summary>Save-style CO records for authored contained cargo (see <c>EmitContained</c>); a template needs
+    /// these so the game keeps the cargo and rebuilds stacks (<c>aStack</c>). Null — and omitted — when the design
+    /// has no cargo, matching a core template.</summary>
+    [JsonPropertyName("aCOs")] public ExportedCondOwnerSave[]? ACOs { get; set; }
     [JsonPropertyName("vShipPos")] public ExportedVec2 VShipPos { get; set; } = new();
     [JsonPropertyName("objSS")] public ExportedSitu ObjSS { get; set; } = new();
     [JsonPropertyName("aRooms")] public ExportedRoom[] ARooms { get; set; } = [];
@@ -355,9 +385,14 @@ public sealed class ExportedItem
     [JsonPropertyName("strSlotParentID")] public string? StrSlotParentID { get; set; }
 
     /// <summary>Per-instance condition overrides. Set on contained/slotted items so a template spawn retains them
-    /// (<c>Ship.SpawnItems</c> keeps a parented item only when this is non-null); null — and omitted — on a top-level
-    /// part, which the loader keeps unconditionally.</summary>
+    /// (<c>Ship.SpawnItems</c> keeps a parented item only when this is non-null) and suppresses the container's
+    /// default loot; null — and omitted — on a top-level part, which the loader keeps unconditionally.</summary>
     [JsonPropertyName("aCondOverrides")] public ExportedCondOverride[]? ACondOverrides { get; set; }
+
+    /// <summary>Set on contained/slotted items so the template spawn keeps their <c>strID</c> (instead of assigning
+    /// a fresh one), which is what links each item to its baked CO and lets a stack head find its members. Null —
+    /// and omitted — on a top-level part.</summary>
+    [JsonPropertyName("bForceLoad")] public bool? BForceLoad { get; set; }
 }
 
 /// <summary>One entry in an item's <c>aCondOverrides</c>: a condition set to a fixed value on the spawned instance.
@@ -368,6 +403,27 @@ public sealed class ExportedCondOverride
     [JsonPropertyName("Chance")] public double Chance { get; set; } = 1.0;
     [JsonPropertyName("Amount")] public double Amount { get; set; }
     [JsonPropertyName("NegativeValue")] public bool NegativeValue { get; set; }
+}
+
+/// <summary>A minimal per-instance CO save record for a piece of authored cargo (the game's <c>JsonCondOwnerSave</c>
+/// shape). A <c>data/ships</c> file spawns as a template, which keeps contained items only if they carry save-style
+/// CO data; <c>aConds = ["DEFAULT"]</c> tells <c>CondOwner.SetData</c> to repopulate the def's starting conds (a
+/// pristine item), and a stack head's <c>aStack</c> (member <c>strID</c>s) is what the game reads to rebuild the
+/// ×N stack at the authored count. Mirrors <see cref="SaveEdit"/>'s synthesized COs.</summary>
+public sealed class ExportedCondOwnerSave
+{
+    [JsonPropertyName("strID")] public string StrID { get; set; } = "";
+    [JsonPropertyName("strCODef")] public string StrCODef { get; set; } = "";
+    [JsonPropertyName("bAlive")] public bool BAlive { get; set; } = true;
+    [JsonPropertyName("aConds")] public string[] AConds { get; set; } = ["DEFAULT"];
+    [JsonPropertyName("strCondID")] public string StrCondID { get; set; } = "";
+    [JsonPropertyName("strIdleAnim")] public string StrIdleAnim { get; set; } = "Idle";
+    [JsonPropertyName("inventoryX")] public int InventoryX { get; set; }
+    [JsonPropertyName("inventoryY")] public int InventoryY { get; set; }
+
+    /// <summary>On a stack head only: the member <c>strID</c>s the game re-collects into the stack. Null — and
+    /// omitted — for a single item or a real container.</summary>
+    [JsonPropertyName("aStack")] public string[]? AStack { get; set; }
 }
 
 /// <summary>A baked room: tile indices (row-major into nCols×nRows), certified spec, void flag.</summary>

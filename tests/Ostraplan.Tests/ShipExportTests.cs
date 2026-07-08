@@ -241,7 +241,14 @@ public class ShipExportTests
         Assert.Equal(ship.AItems.Length, ship.AItems.Select(i => i.StrID).Distinct().Count());   // fresh, unique ids
         Assert.NotNull(cargo.ACondOverrides);           // the marker that makes a template spawn KEEP the cargo
         Assert.NotEmpty(cargo.ACondOverrides!);
+        Assert.True(cargo.BForceLoad);                  // keeps its strID so it links to its baked CO
         Assert.Null(container.ACondOverrides);          // a top-level part is kept unconditionally — no marker needed
+        Assert.Null(container.BForceLoad);
+        // authored cargo carries save-style CO data (a template keeps contained items only if it does)
+        Assert.NotNull(ship.ACOs);
+        var cargoCo = Assert.Single(ship.ACOs!, c => c.StrID == cargo.StrID);
+        Assert.Equal(cargo.StrName, cargoCo.StrCODef);
+        Assert.DoesNotContain(ship.ACOs!, c => c.StrID == container.StrID);   // the top-level container needs none
     }
 
     [SkippableFact]
@@ -268,6 +275,17 @@ public class ShipExportTests
         var stackItems = ship.AItems.Where(i => i.StrName == stackable.DefName).ToList();
         Assert.Equal(2, stackItems.Count);                                     // lead + one member
         var lead = Assert.Single(stackItems, i => i.StrParentID == container.StrID);
-        Assert.Single(stackItems, i => i.StrParentID == lead.StrID);           // the member hangs off the lead
+        var member = Assert.Single(stackItems, i => i.StrParentID == lead.StrID);   // the member hangs off the lead
+
+        // both keep their strID (bForceLoad) so the head's CO can list the member, and the head's CO carries the
+        // aStack the game reads to rebuild the ×2 stack at the right count.
+        Assert.True(lead.BForceLoad);
+        Assert.True(member.BForceLoad);
+        Assert.NotNull(ship.ACOs);
+        var leadCo = Assert.Single(ship.ACOs!, c => c.StrID == lead.StrID);
+        Assert.NotNull(leadCo.AStack);
+        Assert.Equal(new[] { member.StrID }, leadCo.AStack);                   // exactly the member, by id
+        var memberCo = Assert.Single(ship.ACOs!, c => c.StrID == member.StrID);
+        Assert.Null(memberCo.AStack);                                          // a member is not itself a stack head
     }
 }
