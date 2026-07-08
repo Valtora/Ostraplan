@@ -9,6 +9,18 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **0.15.1.6**).
 
+## [Unreleased]
+
+### Added
+- **Make Loose Item / Install item.** Right-click a placed fixture to uninstall it
+  into its loose (packaged) form on the tile, or re-install a loose one — the two
+  directions of the game's own install/uninstall jobs. Eligibility is data-driven,
+  so only genuinely uninstallable fixtures qualify (raw hull, walls and the fixed
+  airlock never do). The swap keeps tile, rotation and any cargo, is one undo step,
+  and conserves an item's baked contents (a gas canister stays charged); an install
+  that no longer fits is flagged in Problems rather than blocked. Placing *arbitrary*
+  loose inventory (tools, food, consumables) remains a separate, not-yet-built flow.
+
 ## [0.6.0] — 2026-07-07 — first public release
 
 The first public build of Ostraplan. Consolidates the full editing suite, the

@@ -130,6 +130,26 @@ public sealed class Catalog
     /// Sorted by friendly name. Empty in synthetic test catalogs.</summary>
     public IReadOnlyList<PartDef> LooseItems { get; init; } = [];
 
+    /// <summary>Installed def → its loose/packaged form, from the game's own <c>uninstall</c> jobs (the job's
+    /// <c>strActionCO</c> → <c>aLootCOs</c>). This is what "Make Loose Item" swaps to; only entries whose loose
+    /// form resolves to real geometry are kept, so a swap never lands on an unrenderable def. A def with no
+    /// uninstall job (raw hull, the fixed airlock, scrap-only structure) is simply absent — the action isn't
+    /// offered. Empty in synthetic test catalogs.</summary>
+    public IReadOnlyDictionary<string, string> LooseForms { get; init; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>Loose def → its installed form, from the game's own <c>install</c> jobs (the job's
+    /// <c>strActionCO</c> → <c>strStartInstall</c>) — the inverse of <see cref="LooseForms"/>, what "Install item"
+    /// swaps to. Only resolvable targets are kept. Empty in synthetic test catalogs.</summary>
+    public IReadOnlyDictionary<string, string> InstalledForms { get; init; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>The loose/packaged counterpart of an installed part's def (its uninstall job's loot), or null if it
+    /// has none. Mirror of <see cref="InstalledForm"/>; both key on the placed def, like <see cref="DoorToggle"/>.</summary>
+    public string? LooseForm(string defName) => LooseForms.GetValueOrDefault(defName);
+
+    /// <summary>The installed counterpart of a loose part's def (its install job's <c>strStartInstall</c>), or null
+    /// if it has none.</summary>
+    public string? InstalledForm(string defName) => InstalledForms.GetValueOrDefault(defName);
+
     /// <summary>The ticker templates a freshly-installed instance of <paramref name="part"/> would carry: each of
     /// the def's declared <c>aTickers</c> names resolved to its template. Empty for a non-device part, or when a
     /// referenced ticker isn't loaded.</summary>
@@ -269,6 +289,24 @@ public sealed class Catalog
                 looseItems.Add(it);
         looseItems.Sort((a, b) => string.Compare(a.Friendly, b.Friendly, StringComparison.OrdinalIgnoreCase));
 
+        // Installed⇄loose form maps for "Make Loose Item" / "Install item", straight from the game's own jobs: an
+        // uninstall job maps the fixture it removes (strActionCO) → the loose form it drops (aLootCOs); an install
+        // job maps the loose form (strActionCO) → the installed form it builds (strStartInstall). Keep only entries
+        // whose target resolves to real geometry, so a swap can't land on an unrenderable def.
+        var looseForms = new Dictionary<string, string>(StringComparer.Ordinal);
+        var installedForms = new Dictionary<string, string>(StringComparer.Ordinal);
+        bool Resolvable(string n) => ResolveDef(index, n, "—", "core", [], []) is not null;
+        foreach (var (_, (el, _)) in index.Type("installables"))
+        {
+            var job = InstallableDef.Parse(el);
+            if (string.IsNullOrEmpty(job.ActionCO) || !Resolvable(job.ActionCO)) continue;
+            if (job.JobType == "uninstall"
+                && job.LootCOs.FirstOrDefault(s => !string.IsNullOrEmpty(s)) is { } loose && Resolvable(loose))
+                looseForms[job.ActionCO] = loose;
+            else if (job.JobType == "install" && !string.IsNullOrEmpty(job.StartInstall) && Resolvable(job.StartInstall))
+                installedForms[job.ActionCO] = job.StartInstall;
+        }
+
         // Resolve a buildable palette entry, warning when its sprite is missing on disk.
         PartDef? Resolve(string defName, string category, string fallbackOrigin, string[] inputs, string[] tools, bool warnMissingSprite)
         {
@@ -332,6 +370,8 @@ public sealed class Catalog
             TickerTemplates = tickerTemplates,
             Slots = slots,
             LooseItems = looseItems,
+            LooseForms = looseForms,
+            InstalledForms = installedForms,
             Warnings = warnings,
             Index = index,
         };

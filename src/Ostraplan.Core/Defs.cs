@@ -195,6 +195,14 @@ public sealed record InstallableDef(
     string Name, string BuildType, string JobType, string StartInstall,
     string[] Inputs, string[] Tools, bool NoJobMenu)
 {
+    /// <summary>The condowner this job acts on (<c>strActionCO</c>): for an <c>install</c> job the loose form it
+    /// consumes, for an <c>uninstall</c> job the installed fixture it removes. Empty when the job names none.</summary>
+    public string ActionCO { get; init; } = "";
+
+    /// <summary>The condowner(s) this job yields (<c>aLootCOs</c>): an <c>install</c> job's installed form, an
+    /// <c>uninstall</c> job's loose/packaged form. Drives the installed⇄loose form map (see <see cref="Catalog"/>).</summary>
+    public string[] LootCOs { get; init; } = [];
+
     public static InstallableDef Parse(JsonElement e) => new(
         Json.Str(e, "strName") ?? "",
         Json.Str(e, "strBuildType") ?? "",
@@ -202,7 +210,11 @@ public sealed record InstallableDef(
         Json.Str(e, "strStartInstall") ?? "",
         Json.StrArray(e, "aInputs"),
         Json.StrArray(e, "aToolCTsUse"),
-        Json.Bool(e, "bNoJobMenu"));
+        Json.Bool(e, "bNoJobMenu"))
+    {
+        ActionCO = Json.Str(e, "strActionCO") ?? "",
+        LootCOs = Json.StrArray(e, "aLootCOs"),
+    };
 }
 
 /// <summary>

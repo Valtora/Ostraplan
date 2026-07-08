@@ -748,6 +748,22 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Swap each part between its installed and loose form — "Make Loose Item" (uninstall a fixture to its packaged
+    /// form on the tile) or "Install item" (the reverse) — as one undo step, keeping tile/rotation and carrying any
+    /// cargo; the swapped-in parts become the selection. An installed form that no longer fits isn't blocked, just
+    /// flagged by the live problem scan, consistent with moves and replaces landing in an illegal spot.
+    /// </summary>
+    private void SwapForms(IReadOnlyList<(Placement Part, string Target)> swaps)
+    {
+        if (_doc is null || FormSwap.BuildSwap(_doc, swaps) is not { } swap) return;
+        _stack.Push(_doc, swap.Cmd);
+        Board.SelectedIds.Clear();
+        foreach (var p in swap.New) Board.SelectedIds.Add(p.Id);
+        Board.InvalidateVisual();
+        UpdateInspector();
+    }
+
+    /// <summary>
     /// Replace the (unlocked) selection with a compatible buildable part — same render layer and
     /// footprint — chosen from a picker, keeping each part's tile and rotation. One undo step; the
     /// swapped-in parts become the selection. Illegal results aren't blocked, just flagged by the
@@ -959,6 +975,20 @@ public partial class MainWindow : Window
                 menu.Items.Add(Item("Close door" + (toClose.Count > 1 ? $" ({toClose.Count})" : ""), "", (_, _) => ToggleDoors(toClose)));
             if (toOpen.Count > 0)
                 menu.Items.Add(Item("Open door" + (toOpen.Count > 1 ? $" ({toOpen.Count})" : ""), "", (_, _) => ToggleDoors(toOpen)));
+        }
+
+        // installed ⇄ loose form: uninstall a placed fixture to its packaged (loose) form on the tile, or
+        // re-install a loose one. Eligibility is the game's own uninstall/install jobs, so only real fixtures
+        // qualify (raw hull, walls and the fixed airlock have no such job and never appear).
+        var toLoosen = FormSwap.Loosenable(_doc, unlocked);
+        var toInstall = FormSwap.Installable(_doc, unlocked);
+        if (toLoosen.Count > 0 || toInstall.Count > 0)
+        {
+            menu.Items.Add(new Separator());
+            if (toLoosen.Count > 0)
+                menu.Items.Add(Item("Make Loose Item" + (toLoosen.Count > 1 ? $" ({toLoosen.Count})" : ""), "", (_, _) => SwapForms(toLoosen)));
+            if (toInstall.Count > 0)
+                menu.Items.Add(Item("Install item" + (toInstall.Count > 1 ? $" ({toInstall.Count})" : ""), "", (_, _) => SwapForms(toInstall)));
         }
 
         // "View contents…": a single container/console/crate — shown even when empty (so an imported empty
@@ -1906,7 +1936,7 @@ public partial class MainWindow : Window
             ("Select", "LMB", "Select a part. Ctrl+click adds/removes; drag empty space to box-select."),
             ("Flood-select", "Double-click", "Select every touching tile of the same type (bulk delete or re-skin). Ctrl+double-click adds the region."),
             ("Move", "Drag selection", "Move the selected parts."),
-            ("Context menu", "RMB", "Use as brush · Replace with… · pick a buried layer on stacked tiles · Select only (after a box-select) · Close/Open door. Also cancels placement while armed."),
+            ("Context menu", "RMB", "Use as brush · Replace with… · Make Loose Item / Install item · pick a buried layer on stacked tiles · Select only (after a box-select) · Close/Open door. Also cancels placement while armed."),
             ("Rotate part", "R / Shift+R", "CW / CCW — the armed part, a selected part in place, or a whole selection about its centre (walls & floors auto-tile rather than turn)."),
             ("Symmetry", "M", "Cycle Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on."),
             ("Delete", "Del", "Delete the selection."),

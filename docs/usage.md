@@ -145,6 +145,19 @@ drill into nested containers. On an editable design you can also **add, remove a
 rearrange** loose cargo; contents travel with the ship through **Export** and save
 write-back.
 
+## Loose items & fixtures
+
+Right-click a placed fixture — a sink, an appliance, a gas canister — and choose
+**Make Loose Item** to uninstall it into its packaged (loose) form on the tile, or
+**Install item** to do the reverse. Only parts the game can actually uninstall are
+offered (raw hull, walls and the fixed airlock never are). The swap keeps the
+tile, rotation and any contents, and is one undo step. A loose fixture no longer
+certifies its room, and an item that ships full — a gas canister comes charged
+with its gas — keeps that charge across the swap. Re-installing into a spot that
+no longer fits isn't blocked, just flagged in **Problems** (like a move into an
+illegal tile). Placing *arbitrary* loose inventory — tools, food, consumables — is
+a separate flow that isn't in this build yet.
+
 ## Theming
 
 The **Theme** picker (top-right) switches the app chrome between System / Light /

@@ -16,6 +16,8 @@ public sealed class Fixtures
     private readonly Dictionary<string, PartDef> _byName = new(StringComparer.Ordinal);
     private readonly Dictionary<string, LootDef> _loots = new(StringComparer.Ordinal);
     private readonly Dictionary<string, CondTriggerDef> _trigs = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _looseForms = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _installedForms = new(StringComparer.Ordinal);
 
     /// <summary>Register a named loot (the bundle of conditions a tile socket adds).</summary>
     public Fixtures Loot(string name, params string[] conds)
@@ -91,6 +93,15 @@ public sealed class Fixtures
         Part(name, tileConds: ["IsFixture", "IsObstruction", "IsContainer"], startingConds: ["IsContainer"],
             container: (gridW, gridH), containerCT: filterCt, category: "FURN");
 
+    /// <summary>Record an installed⇄loose form pair (as the game's install/uninstall jobs would), so
+    /// <see cref="FormSwap"/> can map between them. Both defs should already be registered as parts.</summary>
+    public Fixtures FormPair(string installed, string loose)
+    {
+        _looseForms[installed] = loose;
+        _installedForms[loose] = installed;
+        return this;
+    }
+
     /// <summary>The part registered under <paramref name="name"/>.</summary>
     public PartDef Get(string name) => _byName[name];
 
@@ -101,6 +112,8 @@ public sealed class Fixtures
         ByDefName = _byName,
         Loots = _loots,
         Triggers = _trigs,
+        LooseForms = _looseForms,
+        InstalledForms = _installedForms,
         Warnings = [],
     };
 
