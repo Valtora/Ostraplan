@@ -452,16 +452,43 @@ public partial class MainWindow : Window
         }
 
         foreach (var problem in problems.OrderByDescending(p => p.Severity))
+            ProblemsPanel.Children.Add(ProblemRow(problem));
+    }
+
+    /// <summary>One problem as an expandable row: a coloured title, a "View" button that pans/zooms the canvas to
+    /// the offending tiles, and the detail revealed on expand.</summary>
+    private FrameworkElement ProblemRow(Problem problem)
+    {
+        var color = problem.Severity == ProblemSeverity.Blocking ? ThemeManager.Bad : ThemeManager.Warn;
+
+        var header = new DockPanel { LastChildFill = true };
+        if (problem.Cells is { Count: > 0 } cells)
         {
-            ProblemsPanel.Children.Add(new TextBlock
+            var view = new Button
             {
-                Text = "●  " + problem.Title,
-                Foreground = problem.Severity == ProblemSeverity.Blocking ? ThemeManager.Bad : ThemeManager.Warn,
-                ToolTip = new ToolTip { Content = new TextBlock { Text = problem.Detail, MaxWidth = 380, TextWrapping = TextWrapping.Wrap } },
-                TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(0, 1, 0, 1),
-            });
+                Content = "View", Padding = new Thickness(8, 1, 8, 1), Margin = new Thickness(6, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center, ToolTip = "Pan and zoom the view to this problem",
+            };
+            view.Click += (_, e) => { e.Handled = true; Board.FocusTiles(cells); };   // don't also toggle the expander
+            DockPanel.SetDock(view, Dock.Right);
+            header.Children.Add(view);
         }
+        header.Children.Add(new TextBlock
+        {
+            Text = "● " + problem.Title, Foreground = color, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center,
+        });
+
+        return new Expander
+        {
+            Header = header,
+            Foreground = color,
+            Margin = new Thickness(0, 1, 0, 1),
+            Content = new TextBlock
+            {
+                Text = problem.Detail, Foreground = ThemeManager.Dim, FontSize = 12, TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(4, 4, 2, 2),
+            },
+        };
     }
 
     private void RefreshChrome()

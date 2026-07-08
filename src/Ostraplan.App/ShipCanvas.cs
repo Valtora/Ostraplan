@@ -441,6 +441,30 @@ public sealed class ShipCanvas : FrameworkElement
         InvalidateVisual();
     }
 
+    /// <summary>Pan and zoom so <paramref name="tiles"/> are centred and comfortably framed (a few tiles of
+    /// context, capped at a legible zoom so a single-tile issue isn't slammed to max) — the Problems list's
+    /// "View" jump-to-issue.</summary>
+    public void FocusTiles(IReadOnlyList<(int X, int Y)> tiles)
+    {
+        if (tiles.Count == 0 || RenderSize.Width < 1) return;
+        int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+        foreach (var (x, y) in tiles)
+        {
+            minX = Math.Min(minX, x); minY = Math.Min(minY, y);
+            maxX = Math.Max(maxX, x); maxY = Math.Max(maxY, y);
+        }
+        var tilesW = maxX - minX + 6.0;   // keep a few tiles of context around the region
+        var tilesH = maxY - minY + 6.0;
+        var fit = Math.Min(RenderSize.Width / tilesW, RenderSize.Height / tilesH);
+        Zoom = ZoomSteps.LastOrDefault(z => z <= Math.Min(fit, 64.0), ZoomSteps[0]);
+        var centerX = (minX + maxX + 1) / 2.0;
+        var centerY = (minY + maxY + 1) / 2.0;
+        _pan = new Vector(RenderSize.Width / 2 - centerX * Zoom, RenderSize.Height / 2 - centerY * Zoom);
+        _panInitialized = true;
+        RaiseViewChanged();
+        InvalidateVisual();
+    }
+
     protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
     {
         base.OnRenderSizeChanged(sizeInfo);
