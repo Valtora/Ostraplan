@@ -118,6 +118,9 @@ public static class ShipExport
         var items = new List<ExportedItem>(grid.Parts.Count);
         var cos = new List<ExportedCondOwnerSave>();
 
+        // Installed docking ports, collected as we emit items so they can be baked into aDockingPorts below.
+        var docksysPorts = new List<(string Id, bool TypeB, bool PrimaryDef)>();
+
         // Emit a container's contents the way a SAVE stores them, because a data/ships file spawns as a TEMPLATE
         // (bTemplateOnly) and a template can't otherwise keep authored cargo. Ship.SpawnItems (decompiled):
         //   * drops any parented item unless it has aCondOverrides (→ the item's root container is flagged, which
@@ -180,6 +183,9 @@ public static class ShipExport
                 FRotation = GridMath.Norm(-part.Rot),
                 StrID = strID,
             });
+
+            if (IsDocksysPart(part.Part, catalog))
+                docksysPorts.Add((strID, part.Part.Has("IsTypeB"), part.Part.DefName == Catalog.PrimaryDocksysDef));
 
             var placement = part.StrID is { } pid ? byPlacementId.GetValueOrDefault(pid) : null;
             if (placement is { Cargo.Count: > 0 })
@@ -269,6 +275,23 @@ public static class ShipExport
         // mechanical writer — it only falls back to the ship name if handed nothing at all.
         var publicName = meta?.PublicName is { Length: > 0 } pn ? pn : shipName;
 
+        // Bake the installed docking ports + primary. The game rebuilds these from items only on a Full/Edit load
+        // (Ship load clears aDockingPorts then re-registers via AddCO); a SHALLOW-loaded spawn reads them straight
+        // from the file and never rebuilds. Vendor stock (Trader.AddNewShips), the Special Offer
+        // (GUIShipBroker.AddSpecialOfferShip), and the shallow-station dock branch of OnPurchaseConfirm all spawn/
+        // dock the ship Shallow — so omitting these left a purchased ship exposing zero open ports, and the game
+        // could not mate it to the station and stranded it at its objSS instead of docking.
+        string[]? aDockingPorts = null;
+        string? primaryPortId = null;
+        if (docksysPorts.Count > 0)
+        {
+            // Mirror the game's registration order: non-TypeB (primary) ports first, TypeB ports last; the primary
+            // is the Primary Airlock (ItmDockSys02Closed) when present, else the first non-TypeB port.
+            var ordered = docksysPorts.Where(p => !p.TypeB).Concat(docksysPorts.Where(p => p.TypeB)).ToList();
+            primaryPortId = docksysPorts.FirstOrDefault(p => p.PrimaryDef).Id ?? ordered[0].Id;
+            aDockingPorts = ordered.Select(p => p.Id).OrderBy(id => id == primaryPortId ? 0 : 1).ToArray();
+        }
+
         var ship = new ExportedShip
         {
             StrName = shipName,
@@ -283,6 +306,8 @@ public static class ShipExport
             NRows = grid.NRows,
             VShipPos = new ExportedVec2(),   // (0,0): the anchor the coordinate inverse assumes
             AItems = items.ToArray(),
+            ADockingPorts = aDockingPorts,
+            StrPrimaryDockingPortID = primaryPortId,
             ACOs = cos.Count > 0 ? cos.ToArray() : null,   // save-style CO data for authored cargo; omitted when none
             ARooms = rooms,
             AZones = zones,
@@ -488,6 +513,14 @@ public static class ShipExport
         return candidate;
     }
 
+    /// <summary>True when a placed part is an installed docking port the game registers into
+    /// <c>Ship.aDockingPorts</c> — it triggers <c>TIsDockSysInstalled</c>, the same predicate
+    /// <see cref="ProblemScan.IsDocksys"/> uses for the "no docking port" design check.</summary>
+    private static bool IsDocksysPart(ResolvedPart part, Catalog catalog) =>
+        catalog.Triggers.TryGetValue(ProblemScan.DocksysTrigger, out var ct)
+        && ct.Reqs.Length > 0
+        && ct.Reqs.All(part.Has);
+
     /// <summary>A plausible RegID (letter-prefixed, non-empty — the game indexes <c>strRegID[0]</c> and
     /// regenerates it on spawn anyway). Uppercase, GUID-derived so distinct per export.</summary>
     private static string GenerateRegID() => "H-" + Guid.NewGuid().ToString("N")[..3].ToUpperInvariant();
@@ -524,6 +557,19 @@ public sealed class ExportedShip
     [JsonPropertyName("objSS")] public ExportedSitu ObjSS { get; set; } = new();
     [JsonPropertyName("aRooms")] public ExportedRoom[] ARooms { get; set; } = [];
     [JsonPropertyName("aZones")] public ExportedZone[] AZones { get; set; } = [];
+
+    /// <summary>Installed docking-port item strIDs (primary/non-TypeB first, TypeB last). The game rebuilds this
+    /// from items on a Full/Edit load, but a <b>Shallow</b>-loaded spawn (vendor stock, Special Offer, and the
+    /// shallow-station dock branch in <c>GUIShipBroker.OnPurchaseConfirm</c>) reads it verbatim from the file —
+    /// without it a purchased ship exposes no open ports (<c>Ship.GetOpenDockingPorts</c>) and the game strands it
+    /// at its <c>objSS</c> instead of docking. Null — and omitted — when the design has no docking port (every
+    /// valid export carries the Primary Airlock).</summary>
+    [JsonPropertyName("aDockingPorts")] public string[]? ADockingPorts { get; set; }
+
+    /// <summary>The primary docking port's item strID (the Primary Airlock). The game derives this from
+    /// <see cref="ADockingPorts"/> when empty, but baking it keeps a Shallow spawn unambiguous. Null — and
+    /// omitted — when the design has no docking port.</summary>
+    [JsonPropertyName("strPrimaryDockingPortID")] public string? StrPrimaryDockingPortID { get; set; }
     [JsonPropertyName("aRating")] public string[] ARating { get; set; } = [];
     [JsonPropertyName("DMGStatus")] public int DMGStatus { get; set; }
     [JsonPropertyName("fLastVisit")] public double FLastVisit { get; set; }

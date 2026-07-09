@@ -407,4 +407,61 @@ public class ShipExportTests
         var memberCo = Assert.Single(ship.ACOs!, c => c.StrID == member.StrID);
         Assert.Null(memberCo.AStack);                                          // a member is not itself a stack head
     }
+
+    [SkippableFact]
+    public void Export_bakes_installed_docking_ports_primary_first()
+    {
+        // A SHALLOW-loaded spawn (vendor stock, Special Offer, the shallow-station dock branch of
+        // GUIShipBroker.OnPurchaseConfirm) reads aDockingPorts/strPrimaryDockingPortID straight from the file —
+        // the game only rebuilds them from items on a Full/Edit load. Without the bake a purchased ship exposed
+        // no open ports (Ship.GetOpenDockingPorts) and never docked (it stranded at its objSS). So the export must
+        // list every installed docksys, the Primary Airlock (non-TypeB) leading.
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
+        if (g.Catalog.Lookup(Catalog.PrimaryDocksysDef) is null) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+
+        var doc = new ShipDocument(g.Catalog);
+        Place(doc, Catalog.PrimaryDocksysDef, 0, 0);                   // ItmDockSys02Closed — the Primary Airlock (non-TypeB)
+        var hasSecondary = g.Catalog.ByDefName.ContainsKey("ItmDockSys03Closed");
+        if (hasSecondary) Place(doc, "ItmDockSys03Closed", 0, 10);     // Secondary Exterior Airlock (TypeB)
+
+        var (ship, _, _) = ShipExport.Build(doc, g.Catalog, specs, "Dock Test");
+
+        // the primary is the ItmDockSys02Closed item's strID, and it leads aDockingPorts
+        var primaryItem = Assert.Single(ship.AItems, i => i.StrName == Catalog.PrimaryDocksysDef);
+        Assert.NotNull(ship.ADockingPorts);
+        Assert.Equal(primaryItem.StrID, ship.StrPrimaryDockingPortID);
+        Assert.Equal(primaryItem.StrID, ship.ADockingPorts![0]);
+
+        // every baked port id is a real exported top-level item; the count matches the placed ports
+        var itemIds = ship.AItems.Select(i => i.StrID).ToHashSet();
+        Assert.All(ship.ADockingPorts!, id => Assert.Contains(id, itemIds));
+        Assert.Equal(hasSecondary ? 2 : 1, ship.ADockingPorts!.Length);
+
+        if (hasSecondary)   // a TypeB port is registered after the primary
+        {
+            var secondaryItem = Assert.Single(ship.AItems, i => i.StrName == "ItmDockSys03Closed");
+            Assert.Equal(secondaryItem.StrID, ship.ADockingPorts![1]);
+        }
+    }
+
+    [SkippableFact]
+    public void Export_without_a_docking_port_omits_the_docking_fields()
+    {
+        // No docksys → null, and the serialized JSON omits the fields entirely (WhenWritingNull), matching a core
+        // template that carries no ports (the game defaults them and, if any exist, rebuilds them on a full load).
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        var doc = BuildDooredHull(g.Catalog);   // walls/floor/door — no docking port
+
+        var (ship, _, _) = ShipExport.Build(doc, g.Catalog, specs, "No Dock");
+        Assert.Null(ship.ADockingPorts);
+        Assert.Null(ship.StrPrimaryDockingPortID);
+
+        var json = ShipExport.Serialize(ship);
+        Assert.DoesNotContain("aDockingPorts", json);
+        Assert.DoesNotContain("strPrimaryDockingPortID", json);
+    }
 }

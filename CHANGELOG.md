@@ -11,6 +11,19 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.14.2] — 2026-07-09 — purchased ships dock at the station
+
+### Fixed
+- **A bought ship now docks at the station instead of stranding out in the system.** Exports now bake
+  `aDockingPorts` (the installed docking-port item ids) and `strPrimaryDockingPortID`, which core ship
+  templates carry but Ostraplan omitted. The game only rebuilds those from the ship's items on a *full*
+  load; a broker ship is spawned and (on some paths) docked while still *shallow*-loaded, and a shallow
+  ship reads its ports straight from the file. With the fields missing, a purchased Ostraplan ship exposed
+  zero open docking ports (`Ship.GetOpenDockingPorts`), so the game could not mate it to the station and
+  left it drifting at its `objSS` (hundreds of millions of km away), where it was also absent from the
+  P.A.S.S. ferry list. Verified against decompiled `GUIShipBroker.OnPurchaseConfirm` / `CrewSim.DockShip`
+  and the game's `Ship` load path. Re-export an existing design to pick up the fix.
+
 ## [0.14.1] — 2026-07-09 — internal test hardening
 
 ### Changed
