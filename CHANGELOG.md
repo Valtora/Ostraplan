@@ -11,6 +11,8 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.9.0] — 2026-07-09 — ship zones, faithful cargo & one-click install
+
 ### Added
 - **Optional one-click install.** Ostraplan can copy itself to a fixed per-user home
   (`%LOCALAPPDATA%\Programs\Ostraplan`) and create Desktop and Start Menu shortcuts, so
@@ -47,8 +49,6 @@ each release was verified against is recorded in
   you dismiss the modal, and the modal shows on every launch while a newer
   version is out, so a release is never missed. (Mirrors the same change in
   Ostrasort.)
-
-### Changed
 - **The add-to-container quantity control is clearer and capacity-aware.** The quantity
   field no longer hides its own number behind a clear "×" button, and it now has −/+
   steppers and shows how many of the selected item still fit ("of N"). The value is
