@@ -124,6 +124,14 @@ Everything below is under **File ▸ Import** / the **Export** button.
   doesn't depend on any save. The dialog also lets you:
   - **Name it and give it flavour** — the in-game ship name (kept exactly as typed)
     plus make / model / year / designation / description.
+  - **Replace an existing ship** — pick any vanilla or modded ship and your design
+    takes over its identity, so the game spawns yours in its place everywhere. Great
+    for retrofitting: import a vanilla hull, rebuild it with your installed parts mods,
+    and export it back over the original. Structure only (the original's cargo/crew
+    loadout isn't carried over), and it affects new spawns, not ships already in a save.
+    The **mod** is named separately from the ship (defaulting to
+    "{replaced ship} - Replaced via Ostraplan" so you can tell it apart in the MODS
+    screen) — rename it in the **Mod name** field to whatever you like.
   - **Make it obtainable in game** without hand-editing `loot.json`: add it to any
     **ship broker kiosk** (K-Leg / BCER / BCRS / Venus / VORB), pin it as a station's
     **Special Offer**, and/or offer it as a **Shipbreaker starting ship** (a weighted

@@ -11,7 +11,38 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.14.0] — 2026-07-09 — friendlier replacement-mod names
+
+### Changed
+- **Export dialog notes the Special Offer "$0" quirk.** In-game the ship-broker's Special Offer slot always
+  lists at "$0" (the real price shows on the Confirm dialog) — it's hardcoded in the game, not a pricing
+  error, and confirmed by decompile: the ship's baked value is correct (the Confirm price proves it). The
+  dialog now says so and points you at a regular broker kiosk for a visible list price.
+
 ### Added
+- **Replacement mods get a clearer name.** Exporting a design that replaces an existing ship now names the
+  **mod** distinctly from the ship it overrides — defaulting to `"{replaced ship} - Replaced via Ostraplan"`
+  instead of reusing the replaced ship's own name (which read confusingly, as if the mod *were* that ship).
+  A new **Mod name** field in the export dialog shows this default and lets you rename the mod to whatever
+  you like; it auto-follows the ship name for a normal (non-replacement) export, and stops auto-updating
+  once you type your own. The mod's name is now fully separate from the ship's in-game identity.
+
+## [0.13.0] — 2026-07-09 — in-game availability, ship identity & vanilla-ship replacement
+
+### Added
+- **Find and Replace All…** context menu action. Select one or more copies of the same part and swap
+  every copy of it anywhere in the ship — not just the current selection — for a chosen compatible part,
+  in one undo step. Uses the same compatibility rule as "Replace with…" (same render layer + footprint,
+  containers excluded), so a bulk swap can't turn a floor into a fixture or a wall into a door. Locked
+  matches are counted in the picker but skipped by the swap.
+- **Replace a vanilla (or modded) ship.** The export dialog can now tick "Replace an existing ship" and
+  pick any core or mod ship: the export takes over that ship's identity (`strName`), so — loaded after
+  core — the game spawns your design in its place everywhere (brokers, derelicts, missions). Pairs with
+  the import flow for the "retrofit an existing hull with installed parts mods" workflow: import a
+  vanilla ship, edit it with modded parts, and export it back over the original. The picker pre-selects
+  the ship you imported. Caveats shown in the dialog: structure only (the original's cargo/crew loadout
+  isn't carried over), and it affects new spawns, not ships already in a save. A replacement keeps the
+  vanilla varied-naming behaviour unless you set an explicit in-game name.
 - **Get your ship in-game, from the export dialog.** Exporting a design can now make it directly
   obtainable in a playthrough — no more hand-editing `loot.json` (which players broke into CTDs and
   infinite-ship loops). Tick any of:
@@ -45,12 +76,6 @@ each release was verified against is recorded in
   which makes the game re-roll a random name every spawn; a real name typed in the dialog is now written
   through and kept. (The registry `strRegID` / "callsign" is *not* settable from a data mod — the game
   always mints a fresh one on spawn — so the dialog doesn't pretend to control it.)
-
-- **Find and Replace All…** context menu action. Select one or more copies of the same part and swap
-  every copy of it anywhere in the ship — not just the current selection — for a chosen compatible part,
-  in one undo step. Uses the same compatibility rule as "Replace with…" (same render layer + footprint,
-  containers excluded), so a bulk swap can't turn a floor into a fixture or a wall into a door. Locked
-  matches are counted in the picker but skipped by the swap.
 
 ## [0.12.0] — 2026-07-09 — optional save backup
 

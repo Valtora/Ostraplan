@@ -1531,9 +1531,14 @@ public partial class MainWindow : Window
                 "Overwrite"))
             return;
 
+        // when replacing an existing ship, resolve its real strName (the override key) from the chosen file — the
+        // filename usually matches but a mod/multi-ship file may not; fall back to the filename if parsing fails
+        var replaceTarget = dlg.ReplaceShip is { } rs
+            ? TemplateImport.ResolveShipStrName(rs.Path) ?? rs.Name
+            : null;
         var opts = new ExportOptions(dlg.ShipName, dlg.Author, dlg.Notes, dlg.ModVersion,
             _env.InstalledVersion ?? GameEnv.VerifiedGameVersion, dlg.DestinationParent, dlg.PublicName,
-            dlg.Make, dlg.Model, dlg.Year, dlg.Designation, dlg.Description, dlg.Delivery);
+            dlg.Make, dlg.Model, dlg.Year, dlg.Designation, dlg.Description, dlg.Delivery, replaceTarget, dlg.ModName);
 
         ExportResult result;
         Mouse.OverrideCursor = Cursors.Wait;
@@ -1556,7 +1561,9 @@ public partial class MainWindow : Window
         _settings.Save();
         AuditLog.Add($"Exported mod \"{dlg.ShipName}\" to {result.ModDir}.");
 
-        var deliverySummary = DescribeDelivery(dlg.Delivery);
+        var deliverySummary =
+            (replaceTarget is not null ? $"Replaces the existing ship \"{replaceTarget}\".\n" : "")
+            + DescribeDelivery(dlg.Delivery);
         if (dlg.RegisterWithOstrasort)
         {
             await RegisterWithOstrasort(dlg.ShipName, result, deliverySummary);

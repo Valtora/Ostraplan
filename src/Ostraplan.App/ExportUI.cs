@@ -19,8 +19,11 @@ public sealed class ExportDialog : Window
     private static Brush Dim => ThemeManager.Dim;
     private static Brush FieldBg => ThemeManager.FieldBg;
 
-    private readonly TextBox _name, _author, _version, _notes;
+    private readonly TextBox _name, _modName, _author, _version, _notes;
     private readonly TextBox _publicName, _make, _model, _year, _designation, _description;
+    private readonly CheckBox _replaceShip;
+    private readonly ComboBox _replacePicker;
+    private string _autoModName = "";   // the last value we auto-filled into _modName, to detect a user edit
     private readonly List<(string Pool, CheckBox Box)> _brokerChecks = [];
     private readonly List<(string Pool, CheckBox Box)> _specialChecks = [];
     private readonly TextBox _brokerWeight;
@@ -34,6 +37,12 @@ public sealed class ExportDialog : Window
     private string? _pickedFolder;
 
     public string ShipName => _name.Text.Trim();
+
+    /// <summary>The mod's name (its <c>mod_info</c> name + folder), separate from the ship. Auto-filled with a
+    /// sensible default — the ship name, or "{replaced ship} - Replaced via Ostraplan" when replacing — but freely
+    /// editable; the exporter re-derives the default if it's left blank (<c>ShipExport.ResolveModName</c>).</summary>
+    public string ModName => _modName.Text.Trim();
+
     public string Author => _author.Text.Trim();
     public string Notes => _notes.Text.Trim();
     public string ModVersion => _version.Text.Trim();
@@ -44,17 +53,16 @@ public sealed class ExportDialog : Window
     /// export. Only meaningful when staging into the game's Mods folder; ignored for a plain folder export.</summary>
     public bool RegisterWithOstrasort => _registerOstrasort.IsChecked == true && StagedIntoMods;
 
-    /// <summary>The ship's in-game display name. Falls back to <see cref="ShipName"/> when left
-    /// blank, and never literally "$TEMPLATE" — either would make the game re-roll a random name
-    /// on every spawn instead of keeping this one (see <c>ExportOptions.PublicName</c>).</summary>
-    public string PublicName
-    {
-        get
-        {
-            var v = _publicName.Text.Trim();
-            return v.Length == 0 || v == "$TEMPLATE" ? ShipName : v;
-        }
-    }
+    /// <summary>The raw in-game display name the user typed (may be empty). The exporter resolves the
+    /// fallback — the design name for a new ship, or vanilla varied-naming ("$TEMPLATE") for a replacement —
+    /// via <c>ShipExport.ResolvePublicName</c>, so this stays exactly what was typed.</summary>
+    public string PublicName => _publicName.Text.Trim();
+
+    /// <summary>The existing ship this design should replace (its <c>strName</c>), or null when the "replace"
+    /// option is off or nothing is picked. When set, the export overrides that ship instead of adding a new one.</summary>
+    public ShipFileEntry? ReplaceShip =>
+        _replaceShip.IsChecked == true && _replacePicker.SelectedItem is ShipFileEntry e ? e : null;
+
     public string Make => _make.Text.Trim();
     public string Model => _model.Text.Trim();
     public string Year => _year.Text.Trim();
@@ -72,7 +80,7 @@ public sealed class ExportDialog : Window
         _startWeight,
         _startStation.Text.Trim() is { Length: > 0 } s ? s : "OKLG",
         ParseDouble(_startMortgage.Text, 0),
-        PublicName,
+        PublicName is { Length: > 0 } pn ? pn : ShipName,
         Description);
 
     public ExportDialog(string defaultName, string defaultAuthor, string? modsDir, string? lastFolder,
@@ -92,12 +100,15 @@ public sealed class ExportDialog : Window
         var body = new StackPanel { Margin = new Thickness(18) };
 
         _name = Field(body, "Ship name", defaultName);
+        _modName = Field(body, "Mod name", defaultName);
+        _autoModName = defaultName;
+        _name.TextChanged += (_, _) => SyncModNameDefault();   // follow the ship name until the user edits the mod name
         _author = Field(body, "Author", defaultAuthor);
         _version = Field(body, "Mod version", "1.0.0");
         _notes = Field(body, "Notes (optional)", "", multiline: true);
 
         Header(body, "SHIP IDENTITY (IN-GAME)");
-        _publicName = Field(body, "In-game name", defaultName);
+        _publicName = Field(body, "In-game name (optional)", "");
         _make = Field(body, "Make", "");
         _model = Field(body, "Model", "");
         _year = Field(body, "Year", "");
@@ -105,9 +116,42 @@ public sealed class ExportDialog : Window
         _description = Field(body, "Description (optional)", "", multiline: true);
         body.Children.Add(new TextBlock
         {
-            Text = "\"In-game name\" is what shows up at the transponder, comms, and broker listings — it's kept " +
-                   "exactly as typed. The others are flavor text (make/model/year/designation/description).",
+            Text = "Leave the in-game name blank to use the ship name (or, when replacing a ship, the game's usual " +
+                   "varied names). Type a name to pin it — it shows at the transponder, comms, and broker listings. " +
+                   "The rest is flavor text (make/model/year/designation/description).",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0),
+        });
+
+        // --- replace an existing ship (override its data/ships entry by strName) ---
+        Header(body, "REPLACE AN EXISTING SHIP");
+        _replaceShip = new CheckBox
+        {
+            Content = "Replace an existing ship instead of adding a new one",
+            Foreground = Ink, Margin = new Thickness(0, 2, 0, 4),
+        };
+        body.Children.Add(_replaceShip);
+        _replacePicker = new ComboBox
+        {
+            Margin = new Thickness(20, 0, 0, 2), IsEnabled = false,
+            DisplayMemberPath = nameof(ShipFileEntry.Name), MaxDropDownHeight = 260,
+        };
+        if (index is not null)
+        {
+            var ships = TemplateImport.ListShipFiles(index);
+            _replacePicker.ItemsSource = ships;
+            // pre-select the ship whose name matches this design (the import-a-vanilla-ship → retrofit → replace flow)
+            _replacePicker.SelectedItem = ships.FirstOrDefault(s => string.Equals(s.Name, defaultName, StringComparison.OrdinalIgnoreCase));
+        }
+        _replaceShip.Checked += (_, _) => { _replacePicker.IsEnabled = true; SyncModNameDefault(); };
+        _replaceShip.Unchecked += (_, _) => { _replacePicker.IsEnabled = false; SyncModNameDefault(); };
+        _replacePicker.SelectionChanged += (_, _) => SyncModNameDefault();
+        body.Children.Add(_replacePicker);
+        body.Children.Add(new TextBlock
+        {
+            Text = "Your design takes over the chosen ship's identity, so the game spawns yours in its place " +
+                   "everywhere (brokers, derelicts, missions). Structure only — the original's cargo and crew " +
+                   "loadout aren't carried over. It only affects new spawns, not ships already in a save.",
+            Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(20, 2, 0, 0),
         });
 
         // --- delivery: how the ship becomes obtainable in game ---
@@ -144,6 +188,13 @@ public sealed class ExportDialog : Window
             specialWrap.Children.Add(cb);
         }
         body.Children.Add(specialWrap);
+        body.Children.Add(new TextBlock
+        {
+            Text = "Heads up: the game always lists a Special Offer ship at \"$0\" — the real price only shows when you " +
+                   "click Buy (it's a game quirk, not a pricing error). Add it to a broker kiosk above for a visible " +
+                   "list price.",
+            Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(6, 2, 0, 0),
+        });
 
         _startingShip = new CheckBox
         {
@@ -251,11 +302,34 @@ public sealed class ExportDialog : Window
             Dlg.Info(this, "Export", "Choose a folder to write to.");
             return;
         }
+        if (_replaceShip.IsChecked == true && _replacePicker.SelectedItem is not ShipFileEntry)
+        {
+            Dlg.Info(this, "Export", "Pick the ship to replace, or untick \"Replace an existing ship\".");
+            return;
+        }
         DialogResult = true;
     }
 
     private static double ParseDouble(string text, double fallback) =>
         double.TryParse(text.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var v) && v >= 0 ? v : fallback;
+
+    /// <summary>Keep the mod-name field showing a sensible default (the ship name, or "{replaced ship} - Replaced
+    /// via Ostraplan" when replacing) — but only while the user hasn't customised it (the text still equals the
+    /// value we last auto-filled, or is blank). A user edit sticks.</summary>
+    private void SyncModNameDefault()
+    {
+        var proposed = ProposedModName();
+        if (_modName.Text.Trim().Length == 0 || _modName.Text == _autoModName)
+        {
+            _modName.Text = proposed;
+            _autoModName = proposed;
+        }
+    }
+
+    private string ProposedModName() =>
+        _replaceShip.IsChecked == true && _replacePicker.SelectedItem is ShipFileEntry e
+            ? $"{e.Name} - Replaced via Ostraplan"
+            : ShipName;
 
     private static void Header(Panel parent, string text) =>
         parent.Children.Add(new TextBlock { Text = text, Foreground = Dim, FontWeight = FontWeights.Bold, FontSize = 11, Margin = new Thickness(0, 16, 0, 5) });

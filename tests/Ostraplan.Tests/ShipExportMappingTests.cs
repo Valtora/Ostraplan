@@ -124,22 +124,47 @@ public class ShipExportMappingTests
         Assert.Equal("A hodgepodge of parts.", ship.Description);
     }
 
-    [Theory]
-    [InlineData("")]
-    [InlineData("$TEMPLATE")]
-    public void PublicName_falls_back_to_ship_name_when_blank_or_TEMPLATE(string publicName)
+    [Fact]
+    public void Build_falls_back_to_the_ship_name_when_no_public_name_is_given()
     {
-        // The game only keeps a custom publicName when the on-disk value isn't null/""/"$TEMPLATE" (verified
-        // against decompiled Ship.InitShip) — otherwise it re-rolls a random name on every spawn. Guard the same
-        // way at export time so a blank/mistaken "$TEMPLATE" dialog value can't silently reintroduce that bug.
+        // Build is the mechanical writer: an empty meta.PublicName falls back to the ship name (the caller,
+        // ShipExport.Write, resolves the richer "$TEMPLATE"/replacement policy via ResolvePublicName).
         var fx = new Fixtures().Floor("Floor");
         var cat = fx.Build();
         var doc = Fixtures.Doc(cat, Fixtures.P("Floor", 0, 0));
-        var meta = new ExportMetadata(publicName);
 
-        var (ship, _, _) = ShipExport.Build(doc, cat, NoSpecs, "T", meta: meta);
+        var (blank, _, _) = ShipExport.Build(doc, cat, NoSpecs, "T", meta: new ExportMetadata(""));
+        Assert.Equal("T", blank.PublicName);
 
-        Assert.Equal("T", ship.PublicName);
+        var (given, _, _) = ShipExport.Build(doc, cat, NoSpecs, "T", meta: new ExportMetadata("Charon"));
+        Assert.Equal("Charon", given.PublicName);   // a real name is written verbatim
+    }
+
+    [Theory]
+    // custom, fallback, isReplace -> expected
+    [InlineData("Charon", "MyShip", false, "Charon")]       // a real typed name always wins
+    [InlineData("Charon", "MyShip", true, "Charon")]        // …even when replacing
+    [InlineData("", "MyShip", false, "MyShip")]             // new ship, blank -> the design name (stable identity)
+    [InlineData("  ", "MyShip", false, "MyShip")]           // whitespace counts as blank
+    [InlineData("", "MyShip", true, "$TEMPLATE")]           // replacement, blank -> vanilla varied naming
+    [InlineData("$TEMPLATE", "MyShip", false, "MyShip")]    // the literal sentinel is never a real name (new)
+    [InlineData("$TEMPLATE", "MyShip", true, "$TEMPLATE")]  // …and maps to vanilla naming when replacing
+    public void ResolvePublicName_covers_new_and_replacement_naming(string custom, string fallback, bool isReplace, string expected)
+    {
+        Assert.Equal(expected, ShipExport.ResolvePublicName(custom, fallback, isReplace));
+    }
+
+    [Theory]
+    // typed mod name, ship name, replace target -> expected mod name
+    [InlineData("My Mod", "MyShip", null, "My Mod")]                              // a typed name always wins
+    [InlineData("My Mod", "MyShip", "Sundancer", "My Mod")]                       // …even when replacing
+    [InlineData("", "MyShip", null, "MyShip")]                                    // new ship, blank -> the ship name
+    [InlineData("  ", "MyShip", null, "MyShip")]                                  // whitespace counts as blank
+    [InlineData("", "MyShip", "Sundancer", "Sundancer - Replaced via Ostraplan")] // replacement, blank -> distinct default
+    [InlineData("", "Sundancer", "Sundancer", "Sundancer - Replaced via Ostraplan")] // even when the ship shares the name
+    public void ResolveModName_defaults_a_replacement_to_a_distinct_name(string modName, string shipName, string? replaceTarget, string expected)
+    {
+        Assert.Equal(expected, ShipExport.ResolveModName(modName, shipName, replaceTarget));
     }
 
     [Fact]

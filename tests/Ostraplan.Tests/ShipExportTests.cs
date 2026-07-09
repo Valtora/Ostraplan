@@ -174,12 +174,19 @@ public class ShipExportTests
             var delivery = new ShipDelivery(
                 ["RandomShipBrokerOKLG"], 0.05, ["RandomShipBrokerSpecialOffer"],
                 true, 0.16, "OKLG", 500000, "My Test Ship.", "A listing you found.");
+            // a DISTINCT in-game name from the ship name: the loot pools must reference the strName ("My Test
+            // Ship"), never the display publicName ("The Wanderer") — else the broker can't find the template.
             var opts = new ExportOptions("My Test Ship", "Tester", "", "1.0.0",
-                g.Env.InstalledVersion ?? GameEnv.VerifiedGameVersion, dest, "My Test Ship",
+                g.Env.InstalledVersion ?? GameEnv.VerifiedGameVersion, dest, "The Wanderer",
                 Delivery: delivery);
             var result = ShipExport.Write(doc, g.Catalog, specs, opts, g.Index);
 
             Assert.True(result.TouchedLootPools);
+
+            // the ship file keeps its strName (the override/reference key) and the custom display name
+            var shipTmpl = Assert.Single(ShipTemplate.ParseFile(File.ReadAllText(result.ShipJsonPath)).ToList());
+            Assert.Equal("My Test Ship", shipTmpl.Name);
+            Assert.Equal("The Wanderer", shipTmpl.PublicName);
 
             var lootPath = Path.Combine(result.ModDir, "data", "loot", "loot.json");
             var lifePath = Path.Combine(result.ModDir, "data", "lifeevents", "lifeevents.json");
@@ -223,6 +230,47 @@ public class ShipExportTests
 
             // still no loading_order.json — registration stays single-owner
             Assert.Empty(Directory.EnumerateFiles(dest, "loading_order.json", SearchOption.AllDirectories));
+        }
+        finally
+        {
+            Directory.Delete(dest, recursive: true);
+        }
+    }
+
+    [SkippableFact]
+    public void Write_replacing_a_ship_keys_the_export_to_the_target_and_keeps_vanilla_naming()
+    {
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        var doc = BuildDooredHull(g.Catalog);
+
+        var dest = Path.Combine(Path.GetTempPath(), "OstraplanReplaceTest_" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(dest);
+        try
+        {
+            // ship named "Sundancer", replacing the vanilla "Sundancer", no custom mod name or in-game name
+            var opts = new ExportOptions("Sundancer", "Tester", "", "1.0.0",
+                g.Env.InstalledVersion ?? GameEnv.VerifiedGameVersion, dest, "",
+                ReplaceTarget: "Sundancer");
+            var result = ShipExport.Write(doc, g.Catalog, specs, opts, g.Index);
+
+            // the mod folder/file default to a distinct "{target} - Replaced via Ostraplan" name, not the ship's…
+            Assert.EndsWith(Path.Combine("data", "ships", "Sundancer - Replaced via Ostraplan.json"), result.ShipJsonPath);
+            Assert.EndsWith("Sundancer - Replaced via Ostraplan", result.ModDir);
+            using (var modInfo = JsonDocument.Parse(File.ReadAllText(result.ModInfoPath)))
+                Assert.Equal("Sundancer - Replaced via Ostraplan", modInfo.RootElement[0].GetProperty("strName").GetString());
+            // …but the ship's strName is the REPLACE TARGET (so the game overrides the vanilla Sundancer), and with
+            // no custom name it keeps the vanilla varied-naming sentinel rather than a fixed publicName
+            var tmpl = Assert.Single(ShipTemplate.ParseFile(File.ReadAllText(result.ShipJsonPath)).ToList());
+            Assert.Equal("Sundancer", tmpl.Name);
+            Assert.Equal("$TEMPLATE", tmpl.PublicName);
+
+            // a custom mod name is honoured over the default
+            var custom = ShipExport.Write(doc, g.Catalog, specs,
+                opts with { ModName = "Sundancer MkII" }, g.Index);
+            Assert.EndsWith("Sundancer MkII", custom.ModDir);
+            Assert.Equal("Sundancer", Assert.Single(ShipTemplate.ParseFile(File.ReadAllText(custom.ShipJsonPath)).ToList()).Name);
         }
         finally
         {

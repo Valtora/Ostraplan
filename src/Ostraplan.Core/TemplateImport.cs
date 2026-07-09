@@ -42,6 +42,22 @@ public static class TemplateImport
         return byName.Values.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ToList();
     }
 
+    /// <summary>The actual <c>strName</c> of a ship file's primary ship (the largest, matching <see cref="LoadFile"/>'s
+    /// choice) — the authoritative override key for "replace this ship" export, which the filename only usually
+    /// matches. Null if the file can't be parsed or holds no ship.</summary>
+    public static string? ResolveShipStrName(string path)
+    {
+        try
+        {
+            return ShipTemplate.ParseFile(File.ReadAllText(path)).ToList()
+                .OrderByDescending(s => s.Items.Count).FirstOrDefault()?.Name;
+        }
+        catch
+        {
+            return null;
+        }
+    }
+
     /// <summary>Parse a ship file and import its ship (the largest, for multi-ship batch files).</summary>
     public static ImportResult LoadFile(string path, Catalog catalog)
     {

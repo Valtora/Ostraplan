@@ -18,12 +18,21 @@ namespace Ostraplan.Core;
 /// <para><see cref="Make"/>/<see cref="Model"/>/<see cref="Year"/>/<see cref="Designation"/>/
 /// <see cref="Description"/> map straight onto the game's own <c>JsonShip</c> fields (present on
 /// core ships and used by mods like Ithalan's Additional Ships) — flavor text only, no game logic
-/// reads them beyond display.</para></summary>
+/// reads them beyond display.</para>
+/// <para><see cref="ReplaceTarget"/>, when set, is the <c>strName</c> of an existing (core or mod)
+/// ship this design should <b>replace</b>: the exported ship is keyed to that name so — loaded after
+/// core — the game's whole-object override swaps the design in for the original everywhere it spawns.
+/// A replacement with no explicit <see cref="PublicName"/> keeps the vanilla varied-naming behaviour
+/// (<c>publicName = "$TEMPLATE"</c>), not the design name.</para>
+/// <para><see cref="ModName"/> names the mod itself (its <c>mod_info.json strName</c> + folder), separate
+/// from the ship. Blank resolves (<see cref="ShipExport.ResolveModName"/>) to <c>"{ReplaceTarget} - Replaced
+/// via Ostraplan"</c> for a replacement (so the mod is distinct from the ship it overrides), else to
+/// <see cref="ShipName"/>.</para></summary>
 public sealed record ExportOptions(
     string ShipName, string Author, string Notes, string ModVersion, string GameVersion,
     string DestinationParent, string PublicName, string Make = "", string Model = "",
     string Year = "", string Designation = "", string Description = "",
-    ShipDelivery? Delivery = null);
+    ShipDelivery? Delivery = null, string? ReplaceTarget = null, string ModName = "");
 
 /// <summary>How the exported ship becomes obtainable in game — the loot/chargen data an export
 /// injects on top of the ship file. All of it is full-object overrides / additive entries the game
@@ -255,11 +264,10 @@ public static class ShipExport
         var regId = GenerateRegID();
         var zones = BuildZones(doc, grid, regId);
 
-        // publicName is the one field the game actually keeps sticky across a spawn (verified against decompiled
-        // Ship.InitShip): it re-rolls a random name only when the on-disk value is null/""/"$TEMPLATE", so anything
-        // else survives into the live ship and is what's shown at the transponder, comms, broker listings, and the
-        // rating screen. Guard against a blank/"$TEMPLATE" meta value the same way — fall back to the ship name.
-        var publicName = meta?.PublicName is { Length: > 0 } pn && pn != "$TEMPLATE" ? pn : shipName;
+        // publicName is written verbatim: the caller (Write) has already resolved the display-name policy
+        // (custom name / vanilla "$TEMPLATE" for a replacement / the ship name), via ResolvePublicName. Build is a
+        // mechanical writer — it only falls back to the ship name if handed nothing at all.
+        var publicName = meta?.PublicName is { Length: > 0 } pn ? pn : shipName;
 
         var ship = new ExportedShip
         {
@@ -313,10 +321,21 @@ public static class ShipExport
         ShipDocument doc, Catalog catalog, IReadOnlyList<RoomSpecDef> specs, ExportOptions opts, DataIndex? index = null)
     {
         var warnings = new List<string>();
-        var meta = new ExportMetadata(opts.PublicName, opts.Make, opts.Model, opts.Year, opts.Designation, opts.Description);
-        var (ship, rating, roomCount) = Build(doc, catalog, specs, opts.ShipName, warnings, meta);
 
-        var folderName = SanitizeName(opts.ShipName);
+        // The ship's strName is the override key. For a replacement it's the target ship's name (so the game swaps
+        // this design in for it); otherwise it's the design name. Everything that references the ship by strName —
+        // the ship object itself and the delivery loot pools — must use this, NOT the display publicName.
+        var isReplace = !string.IsNullOrWhiteSpace(opts.ReplaceTarget);
+        var strName = isReplace ? opts.ReplaceTarget!.Trim() : opts.ShipName;
+        var publicName = ResolvePublicName(opts.PublicName, opts.ShipName, isReplace);
+
+        var meta = new ExportMetadata(publicName, opts.Make, opts.Model, opts.Year, opts.Designation, opts.Description);
+        var (ship, rating, roomCount) = Build(doc, catalog, specs, strName, warnings, meta);
+
+        // The mod name (mod_info strName + folder) is separate from the ship: a replacement defaults to
+        // "{target} - Replaced via Ostraplan" so the mod reads distinctly from the ship it overrides.
+        var modName = ResolveModName(opts.ModName, opts.ShipName, opts.ReplaceTarget);
+        var folderName = SanitizeName(modName);
         var modDir = Path.Combine(opts.DestinationParent, folderName);
         var shipsDir = Path.Combine(modDir, "data", "ships");
         Directory.CreateDirectory(shipsDir);
@@ -327,12 +346,14 @@ public static class ShipExport
         var modInfoPath = Path.Combine(modDir, "mod_info.json");
         var modInfo = new ModInfo
         {
-            StrName = opts.ShipName,
+            StrName = modName,
             StrAuthor = opts.Author,
             StrGameVersion = opts.GameVersion,
             StrModVersion = string.IsNullOrWhiteSpace(opts.ModVersion) ? "1.0.0" : opts.ModVersion,
             StrNotes = string.IsNullOrWhiteSpace(opts.Notes)
-                ? $"\"{opts.ShipName}\", a ship design exported from Ostraplan."
+                ? isReplace
+                    ? $"Replaces \"{strName}\" in-game with a design exported from Ostraplan."
+                    : $"\"{opts.ShipName}\", a ship design exported from Ostraplan."
                 : opts.Notes,
         };
         File.WriteAllText(modInfoPath, SerializeModInfo(modInfo));
@@ -343,11 +364,33 @@ public static class ShipExport
             if (index is null)
                 warnings.Add("Delivery options were set but no game data was available to resolve loot pools; skipped.");
             else
-                touchedLoot = WriteDeliveryFiles(modDir, opts.PublicName is { Length: > 0 } pn && pn != "$TEMPLATE" ? pn : opts.ShipName, delivery, index, warnings);
+                touchedLoot = WriteDeliveryFiles(modDir, strName, delivery, index, warnings);
         }
 
         return new ExportResult(modDir, shipPath, modInfoPath, ship.AItems.Length, roomCount, rating, warnings, touchedLoot);
     }
+
+    /// <summary>
+    /// Resolve the ship's in-game <c>publicName</c> from the user's input. A real typed name (not blank, not the
+    /// literal <c>"$TEMPLATE"</c> sentinel) is always honoured. Otherwise: a <b>replacement</b> keeps the vanilla
+    /// varied-naming behaviour (<c>"$TEMPLATE"</c>, so each spawned copy still gets its own generated name, matching
+    /// the original template), while a <b>new</b> ship takes the design name (a stable identity for your own ship).
+    /// </summary>
+    public static string ResolvePublicName(string? custom, string fallbackName, bool isReplace) =>
+        custom is { Length: > 0 } c && c.Trim() is { Length: > 0 } t && t != "$TEMPLATE" ? t
+        : isReplace ? "$TEMPLATE"
+        : fallbackName;
+
+    /// <summary>
+    /// Resolve the mod's name (its <c>mod_info.json strName</c> + folder), which is separate from the ship. A name
+    /// the user typed is honoured; otherwise a <b>replacement</b> defaults to <c>"{replaceTarget} - Replaced via
+    /// Ostraplan"</c> — so the mod reads distinctly from the ship it overrides, rather than colliding with the
+    /// replaced ship's own name — while a <b>new</b> ship's mod takes the ship name.
+    /// </summary>
+    public static string ResolveModName(string? modName, string shipName, string? replaceTarget) =>
+        modName is { Length: > 0 } m && m.Trim() is { Length: > 0 } t ? t
+        : replaceTarget is { Length: > 0 } r && r.Trim() is { Length: > 0 } target ? $"{target} - Replaced via Ostraplan"
+        : shipName;
 
     /// <summary>
     /// Write the loot/lifeevent/interaction files that make the ship obtainable. <paramref name="shipRef"/> is the
@@ -357,11 +400,10 @@ public static class ShipExport
     /// Returns whether any loot was written.
     /// </summary>
     private static bool WriteDeliveryFiles(
-        string modDir, string shipRef, ShipDelivery delivery, DataIndex index, List<string> warnings)
+        string modDir, string shipStrName, ShipDelivery delivery, DataIndex index, List<string> warnings)
     {
-        // The loot aCOs reference a ship by its data/ships strName, which export sets to the ship name (the mod's
-        // internal name), not the display publicName — so pools must point at the internal name.
-        var shipStrName = shipRef;
+        // The loot aCOs reference a ship by its data/ships strName (the ship object's strName — the design name, or
+        // the replace target when replacing), NOT the display publicName. The caller passes exactly that.
 
         var loot = new List<JsonObject>();
         foreach (var pool in delivery.BrokerPools)
