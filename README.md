@@ -53,8 +53,8 @@ Please report your bugs here on the repo's Issues tracker.
 - **Build on the real grid** — drag-and-drop with game-accurate autotiling, `R`
   to rotate, crisp pixel-art zoom/pan, and plan-view rotation.
 - **A full editing suite** — drag-paint, box/hollow fill, symmetry mirror,
-  flood-select, "Replace with…", ship-wide re-skin, group rotate, copy/paste, and
-  unbounded undo/redo.
+  flood-select, "Replace with…", ship-wide re-skin, group rotate, group flip
+  (`H` / `Shift+H`), copy/paste, and unbounded undo/redo.
 - **Bill of materials** — install-kit counts for the whole ship or a selection.
 - **Zones** — draw and manage the game's crew/trade zones (Haul, Barter, Forbid,
   and content trigger zones): paint them with the same tools as parts, and they

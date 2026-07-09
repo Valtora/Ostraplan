@@ -11,7 +11,35 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
-## [0.14.2] — 2026-07-09 — purchased ships dock at the station
+## [0.15.0] — 2026-07-10 — flip a selection · reactor core fix · modded overrides
+
+### Added
+- **Modded parts can now break the placement rules (with a warning), instead of being silently blocked.** A new
+  **"Mod overrides"** toolbar toggle (off by default, remembered): when on, a modded part may be placed where
+  Ostraplan's rules say it doesn't fit — it lands and is flagged as a **warning** in Problems ("modded part may
+  not fit — verify in-game"), rather than being hard-blocked. The reason: Ostraplan's Law is a port of the *base
+  game's* logic, so it's authoritative for vanilla parts but only best-effort for modded ones (a mod can add its
+  own conditions or code). **Core parts stay fully enforced.** The armed ghost shows amber (not red) when a
+  modded part will place via the override, and any modded part flagged illegal — however it got there — is now a
+  yellow warning rather than a red blocker, and is trusted into the build check so parts placed on it don't
+  cascade-flag.
+- **Flip a selection horizontally or vertically** (`H` / `Shift+H`, also on the right-click menu). Mirrors the
+  selected parts about the selection's centre — `H` left↔right, `Shift+H` up↔down — with each part reflecting
+  its position and snapping its rotation to a real 0/90/180/270 (so the result is always buildable; the game's
+  ship format has no mirror field, only a rotation). Walls and floors auto-tile rather than turn, so they move
+  but keep their orientation. One undo step, and (like a group rotate) an illegal landing is allowed but
+  flagged, not blocked.
+
+### Fixed
+- **The fusion reactor core now builds as the real part instead of a hollow copy.** The palette was building
+  `ItmFusionReactorCore01On` — a glow-state *item* the game ships with no condowner, so it carried an internal
+  name, **0 mass, 0 value, and none of its `IsFusionReactorCore` conditions**. Placement still worked (its
+  sockets are identical, which is why this hid), but the reactor counted as weightless in the maneuver rating,
+  contributed nothing to room value or the bill of materials, and exported broken. `PreferPoweredState` now
+  only swaps a device to an operational counterpart that is a real condowner, so the reactor core builds as the
+  installable `…Off` form (417 kg, priced, correctly named). The other reactor parts (field coils, laser array,
+  core/cryo pumps, pellet feeder, MHD generator) already swapped to real operational condowners and are
+  unaffected. Rebuild any reactor design to pick up the correct mass/value.
 
 ### Fixed
 - **A bought ship now docks at the station instead of stranding out in the system.** Exports now bake

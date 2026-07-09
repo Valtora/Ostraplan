@@ -66,6 +66,15 @@ public sealed record PartDef(
 
     /// <summary>True if this part holds an inventory grid (has a container grid).</summary>
     public bool IsContainer => ContainerGrid is not null;
+
+    /// <summary>
+    /// True if this part came from a mod rather than the base game (its <see cref="Origin"/> is not core). Ostraplan's
+    /// placement law is a port of the <b>core</b> game's logic, so it is authoritative for core parts but only
+    /// best-effort for modded ones (a mod can add its own conditions or even code that changes what fits). This flag
+    /// gates the "allow modded overrides" behaviour: a modded part flagged illegal is a <i>warning</i>, not a hard
+    /// block, and may be placed anyway when the user opts in (see <see cref="AppSettings.AllowModdedOverrides"/>).
+    /// </summary>
+    public bool IsModded => Origin is not "core";
 }
 
 /// <summary>
@@ -437,11 +446,22 @@ public sealed class Catalog
     /// <para>
     /// The game's On-state naming isn't uniform, so the counterpart is found by trying, most-specific first,
     /// <c>"…On"</c> (cooler, switch), <c>"…OnG"</c> (the green/normal state air pumps and most alarms use), then the
-    /// bare stem with <c>Off</c> dropped (RCS, heater, bed). A candidate is accepted only when it resolves to real
-    /// geometry, is itself not <c>IsOff</c>, and shares the Off state's footprint. Anything without such a
-    /// counterpart — a device whose only On states are ambiguous colour/alert modes (temp alarm, transponder), a
-    /// startup sequence (fusion reactor core), an Open/Closed vent, or a plain "…Off" that isn't a power state — is
-    /// left exactly as installed.
+    /// bare stem with <c>Off</c> dropped (RCS, heater, bed). A candidate is accepted only when it resolves to a real
+    /// placeable <b>condowner</b> (carries starting conditions — see below), is itself not <c>IsOff</c>, and shares
+    /// the Off state's footprint. Anything without such a counterpart — a device whose only On states are ambiguous
+    /// colour/alert modes (temp alarm, transponder), a startup sequence (fusion reactor core), an Open/Closed vent,
+    /// or a plain "…Off" that isn't a power state — is left exactly as installed.
+    /// </para>
+    /// <para>
+    /// The <b>condowner requirement</b> (non-empty <c>StartingConds</c>) is load-bearing: some devices ship a bare
+    /// <b>item</b> for their glow/animation state with no condowner (e.g. <c>ItmFusionReactorCore01On</c> — same 5×5
+    /// geometry and sockets as the Off form, but no CO). The game never <i>installs</i> such an orphan; it only ever
+    /// installs condowners. Resolving one as the build target used to hand the palette a reactor core with an
+    /// internal-name label, <c>StatMass</c>/<c>StatBasePrice</c> of 0, and no <c>IsFusionReactorCore</c> conds —
+    /// silently wrong mass (maneuver rating), room value, bill of materials, and export. Placement still "worked"
+    /// because the sockets are identical, which is exactly why this hid. Requiring a real condowner leaves the
+    /// reactor core (and any similar orphan) as the installable <c>…Off</c> CO, while the genuine operational
+    /// counterparts (RCS, coolers, field coils, laser array, pumps) — all real condowners — still swap.
     /// </para>
     /// </summary>
     private static string PreferPoweredState(DataIndex index, string def)
@@ -454,6 +474,7 @@ public sealed class Catalog
         {
             if (candidate == def) continue;
             if (ResolveDef(index, candidate, "—", "core", [], []) is not { } on
+                || on.StartingConds.Length == 0   // a bare-item orphan (no condowner) is never a real install target
                 || on.StartingConds.Contains("IsOff")
                 || on.Item.Width != off.Item.Width || on.Item.Height != off.Item.Height)
                 continue;

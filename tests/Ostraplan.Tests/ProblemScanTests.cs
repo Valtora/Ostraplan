@@ -243,4 +243,80 @@ public class ProblemScanTests
 
         Assert.Contains(ProblemScan.Scan(doc, cat), p => p.Severity == ProblemSeverity.Blocking && p.Title.Contains("occupied"));
     }
+
+    // ---- modded parts break the law as WARNINGS, not blocks (the "allow modded overrides" flip side) ----
+
+    // A 1x1 fixture needing a sealed floor beneath (idx 4), authored by a given source (core or a mod).
+    private static PartDef NeedsFloor(string name, string origin) => new(
+        name, name, "FURN", origin,
+        new ItemDef(name, "", false, null, 0, 1, ["FixAdds"], [B, B, B, B, "Floor", B, B, B, B], [B, B, B, B, B, B, B, B, B]),
+        null, [], [], [], new Dictionary<string, double>(), new Dictionary<string, (double, double)>());
+
+    private static Catalog ModCat(params PartDef[] extra) => new()
+    {
+        Parts = [],
+        ByDefName = new[] { Docksys() }.Concat(extra).ToDictionary(p => p.DefName),
+        Loots = new Dictionary<string, LootDef>
+        {
+            ["Floor"] = new("Floor", ["IsFloor", "IsFloorSealed"], []),
+            ["FixAdds"] = new("FixAdds", ["IsFixture", "IsObstruction"], []),
+            ["WallAdds"] = new("WallAdds", ["IsWall", "IsObstruction"], []),
+            ["Wall"] = new("Wall", ["IsWall"], []),
+        },
+        Triggers = new Dictionary<string, CondTriggerDef>
+        {
+            [ProblemScan.DocksysTrigger] = new(ProblemScan.DocksysTrigger, ["IsDockSys", "IsInstalled"], [], false),
+        },
+        Warnings = [],
+    };
+
+    [Fact]
+    public void IsModded_tracks_the_part_origin()
+    {
+        Assert.False(NeedsFloor("Core", "core").IsModded);
+        Assert.True(NeedsFloor("Mod", "coolmod").IsModded);
+    }
+
+    [Fact]
+    public void A_modded_illegal_placement_warns_while_the_core_one_blocks()
+    {
+        var cat = ModCat(NeedsFloor("Core", "core"), NeedsFloor("Mod", "coolmod"));
+        // both dropped on bare space (no floor beneath), below the mating face so only the socket rule bites
+        var doc = Doc(cat,
+            new Placement { DefName = "Dock", X = 0, Y = 5 },
+            new Placement { DefName = "Core", X = 3, Y = 10 },
+            new Placement { DefName = "Mod", X = 6, Y = 10 });
+        var problems = ProblemScan.Scan(doc, cat);
+
+        // core: a hard Blocking problem (the Law is proven for core)
+        Assert.Contains(problems, p => p.Severity == ProblemSeverity.Blocking && p.Title.Contains("floor") && !p.Title.Contains("modded"));
+        // modded: a Warning that names it "modded" and points at the offending tile — never Blocking
+        var warn = Assert.Single(problems, p => p.Title.Contains("modded"));
+        Assert.Equal(ProblemSeverity.Warning, warn.Severity);
+        Assert.Contains((6, 10), warn.Cells!);
+        Assert.DoesNotContain(problems, p => p.Severity == ProblemSeverity.Blocking && p.Cells is not null && p.Cells.Contains((6, 10)));
+    }
+
+    [Fact]
+    public void An_overridden_modded_part_is_trusted_so_parts_built_on_it_do_not_cascade_flag()
+    {
+        // a modded WALL placed illegally (needs a floor it doesn't have) still provides its IsWall to the tile, so a
+        // core fixture mounted through it is supported. The modded wall warns; the core fixture is NOT flagged.
+        var modWall = new PartDef("ModWall", "ModWall", "HULL", "coolmod",
+            new ItemDef("ModWall", "", false, null, 0, 1, ["WallAdds"], [B, B, B, B, "Floor", B, B, B, B], [B, B, B, B, B, B, B, B, B]),
+            null, [], [], [], new Dictionary<string, double>(), new Dictionary<string, (double, double)>());
+        var fixture = new PartDef("Fixture", "Fixture", "FURN", "core",
+            new ItemDef("Fixture", "", false, null, 0, 1, ["FixAdds"], [B, B, B, B, "Wall", B, B, B, B], [B, B, B, B, B, B, B, B, B]),
+            null, [], [], [], new Dictionary<string, double>(), new Dictionary<string, (double, double)>());
+        var cat = ModCat(modWall, fixture);
+        var doc = Doc(cat,
+            new Placement { DefName = "Dock", X = 0, Y = 5 },
+            new Placement { DefName = "ModWall", X = 3, Y = 10 },    // modded, illegal (no floor) -> warns
+            new Placement { DefName = "Fixture", X = 3, Y = 10 });   // core, mounts through the wall on the same tile
+
+        var problems = ProblemScan.Scan(doc, cat);
+        Assert.Contains(problems, p => p.Severity == ProblemSeverity.Warning && p.Title.Contains("modded"));
+        // the core fixture sits on the trusted modded wall, so it must NOT be flagged "needs a wall"
+        Assert.DoesNotContain(problems, p => p.Severity == ProblemSeverity.Blocking && p.Title.Contains("wall"));
+    }
 }

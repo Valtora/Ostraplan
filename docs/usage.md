@@ -59,6 +59,15 @@ it's flagged: the tiles hazard-tint and the part is listed in **Problems**,
 grouped by reason. Imported (pre-existing) structure is exempt until you move it —
 moving a part re-applies the law to it.
 
+**Modded parts and the Law.** Ostraplan's rules are a port of the *base game's*
+logic, so they're exact for vanilla parts but only best-effort for modded ones (a
+mod can add its own conditions or even code). So a modded part flagged illegal is a
+**yellow warning**, not a red error — "modded part may not fit; verify in-game." To
+place a modded part where the rules say it doesn't fit, turn on **Mod overrides**
+in the toolbar: the ghost turns **amber** (placing against the rules, flagged) and
+the part lands, flagged in Problems. **Core parts are always enforced** — the toggle
+only affects modded content.
+
 ## Selecting & editing
 
 - **Select:** left-click a part. **Box-select:** drag over empty space.
@@ -66,9 +75,14 @@ moving a part re-applies the law to it.
   the same kind (a whole wall run, a floor). **Ctrl+double-click** adds to the
   selection.
 - **Move:** drag a selection. **Rotate a selection/group:** **R** / **Shift+R**.
+- **Flip a selection:** **H** mirrors it left↔right (horizontal), **Shift+H** up↔down
+  (vertical), about the selection's centre. Each part reflects its position and snaps
+  its rotation to the nearest buildable orientation; walls and floors move but autotile
+  rather than turn. (There's no "flipped" state in Ostranauts, so a single asymmetric
+  part can't be truly mirrored — flip a *group* to mirror a whole room or subassembly.)
 - **Right-click** for the context menu: Duplicate (**Ctrl+D**), Copy
-  (**Ctrl+C**) / Paste (**Ctrl+V**), Rotate, Delete (**Del**), and **Use as
-  brush** (the eyedropper — arm the part you clicked and keep drawing).
+  (**Ctrl+C**) / Paste (**Ctrl+V**), Rotate, Flip Horizontal / Vertical, Delete
+  (**Del**), and **Use as brush** (the eyedropper — arm the part you clicked and keep drawing).
 - **Undo / redo:** **Ctrl+Z** / **Ctrl+Y**, unbounded. Paint strokes and fills
   are single steps.
 

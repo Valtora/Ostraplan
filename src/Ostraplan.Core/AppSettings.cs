@@ -14,6 +14,9 @@ public sealed class AppSettings
     [JsonPropertyName("lastExportDir")] public string? LastExportDir { get; set; }
     [JsonPropertyName("installPromptDismissed")] public bool InstallPromptDismissed { get; set; }
     [JsonPropertyName("ostrasortPath")] public string? OstrasortPath { get; set; }
+    /// <summary>Let modded parts be placed where Ostraplan's core-game placement law says they don't fit (they are
+    /// still flagged as warnings). Core parts stay hard-blocked. Off by default — the Law is authoritative for core.</summary>
+    [JsonPropertyName("allowModdedOverrides")] public bool AllowModdedOverrides { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 
     public static string Dir => Path.Combine(

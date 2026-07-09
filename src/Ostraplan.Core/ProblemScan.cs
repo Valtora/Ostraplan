@@ -86,7 +86,13 @@ public static class ProblemScan
         foreach (var p in doc.Placements.Where(p => doc.IsLocked(p) || p.IsGiven))   // existing ship: not user-built
             scratch.Add(new Placement { DefName = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot });
 
-        var groups = new Dictionary<string, (List<(int, int)> Cells, List<string> Parts)>(StringComparer.Ordinal);
+        // Core failures are hard (Blocking): the Law is a proven port of core logic. MODDED failures are only a
+        // Warning: the port models the core game, and a mod can add its own conditions/behaviour that make the part
+        // legal in-game — so we flag it, name it, and (unlike a core failure) TRUST it into the simulation so parts
+        // built on it don't cascade-flag. This is the same distinction the "allow modded overrides" placement toggle
+        // makes; a modded part flagged here got there by an override or by a move, and either way we can't be sure.
+        var coreGroups = new Dictionary<string, (List<(int, int)> Cells, List<string> Parts)>(StringComparer.Ordinal);
+        var moddedGroups = new Dictionary<string, (List<(int, int)> Cells, List<string> Parts)>(StringComparer.Ordinal);
         foreach (var p in doc.Placements
                      .Where(p => !doc.IsLocked(p) && !p.IsGiven && doc.Part(p) is not null)
                      .OrderBy(p => BuildRank(doc.Catalog, doc.Part(p)!)))
@@ -99,12 +105,17 @@ public static class ProblemScan
                 continue;
             }
             var reason = res.Reason ?? "illegal placement";
+            var groups = part.IsModded ? moddedGroups : coreGroups;
             if (!groups.TryGetValue(reason, out var g)) groups[reason] = g = ([], []);
             g.Cells.AddRange(res.FailedCells);
             g.Parts.Add(part.Friendly);
+            // a failing modded part is trusted to be present (the user placed it) so its conditions support anything
+            // built on top; a failing core part is not (its dependents genuinely can't be built, so they flag too).
+            if (part.IsModded)
+                scratch.Add(new Placement { DefName = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot });
         }
 
-        foreach (var (reason, g) in groups)
+        foreach (var (reason, g) in coreGroups)
         {
             var distinct = g.Parts.Distinct().ToList();
             var names = string.Join(", ", distinct.Take(6)) + (distinct.Count > 6 ? ", …" : "");
@@ -113,6 +124,18 @@ public static class ProblemScan
                 $"The game builds incrementally (floors → walls → fixtures) and can't place these onto the ship at " +
                 $"that step: {names}. Adjust the layout so each part has a valid build sequence (highlighted tiles " +
                 "show where the rule breaks).",
+                g.Cells));
+        }
+
+        foreach (var (reason, g) in moddedGroups)
+        {
+            var distinct = g.Parts.Distinct().ToList();
+            var names = string.Join(", ", distinct.Take(6)) + (distinct.Count > 6 ? ", …" : "");
+            problems.Add(new Problem(ProblemSeverity.Warning,
+                $"modded part may not fit ({reason}) — {g.Parts.Count} part{(g.Parts.Count == 1 ? "" : "s")}",
+                $"Ostraplan's placement rules model the core game only, so these modded parts — which can add their " +
+                $"own conditions or code — may still be valid in Ostranauts: {names}. They are placed but flagged; " +
+                "verify them in-game (highlighted tiles show where the core rules disagree).",
                 g.Cells));
         }
     }

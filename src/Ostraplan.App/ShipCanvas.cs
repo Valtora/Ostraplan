@@ -8,6 +8,10 @@ namespace Ostraplan.App;
 
 public enum SymmetryMode { Off, Vertical, Horizontal, Both }
 
+/// <summary>The armed ghost's illegality status. <see cref="WillPlace"/> is true when the pose fails the core-only
+/// placement law but a modded-override lets it place anyway (amber ghost) — false when it is hard-blocked (red).</summary>
+public readonly record struct GhostStatus(string Reason, bool WillPlace);
+
 /// <summary>
 /// The tile grid: renders the document's sprites (16 px art scaled with
 /// nearest-neighbor), and turns mouse input into place/select/move/pan/zoom.
@@ -33,8 +37,10 @@ public sealed class ShipCanvas : FrameworkElement
     private static readonly Typeface OriginTypeface = new("Segoe UI");
     private static readonly Pen GhostOkPen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0x5A, 0xD0, 0x6A)), 2));
     private static readonly Pen GhostBadPen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0xE0, 0x5B, 0x5B)), 2));
+    private static readonly Pen GhostOverridePen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0xE0, 0xB0, 0x40)), 2));   // amber: modded, illegal by core rules, but placing anyway
     // per-cell hazard fill for both a ghost's failing cells and existing illegal placements (same red vocabulary)
     private static readonly Brush HazardFill = Frozen(new SolidColorBrush(Color.FromArgb(0x66, 0xD6, 0x45, 0x45)));
+    private static readonly Brush OverrideFill = Frozen(new SolidColorBrush(Color.FromArgb(0x55, 0xE0, 0xB0, 0x40)));   // amber tint for an overridden modded part's failing cells
     // the sub-floor reservation a part projects under walkable floor (the tanks' 7x7 ring vs their 3x3 body)
     private static readonly Brush SubfloorFill = Frozen(new SolidColorBrush(Color.FromArgb(0x33, 0x6A, 0x8E, 0xB8)));
     private static readonly Brush LeakFill = Frozen(new SolidColorBrush(Color.FromArgb(0x77, 0x3F, 0xC8, 0xE0)));
@@ -103,6 +109,11 @@ public sealed class ShipCanvas : FrameworkElement
     public bool ShowZones { get; private set; }        // zone overlay visibility (toolbar/key toggle)
     public Guid? ActiveZoneId { get; private set; }    // the zone being painted, or null when not in zone-paint mode
 
+    /// <summary>When true, a MODDED part may be placed where the (core-only) placement law says it doesn't fit — it's
+    /// placed and flagged as a warning rather than hard-blocked. Core parts are always enforced. Set from
+    /// <see cref="AppSettings.AllowModdedOverrides"/>.</summary>
+    public bool AllowModdedOverrides { get; set; }
+
     private enum Drag { None, Pan, Move, Band, Paint, BoxFill, ZonePaint, ZoneBox }
     private Drag _drag;
     private Point _dragStartScreen;
@@ -115,7 +126,7 @@ public sealed class ShipCanvas : FrameworkElement
     private bool _zoneErase;                            // this stroke removes tiles (Ctrl) rather than adds
     private IReadOnlyList<(int X, int Y)> _illegalCells = [];   // tiles of existing illegal placements (from ProblemScan)
     private IReadOnlyList<(int X, int Y)> _leakCells = [];      // unsealed tiles of a leaking compartment (from the Ship Rating report)
-    private string? _lastGhostReason;                          // dedupe GhostReasonChanged
+    private GhostStatus? _lastGhostReason;                     // dedupe GhostReasonChanged
     private bool _armedLoose;                                  // the armed brush is an Items-tab loose item, not structure (single-click drop, no CheckFit)
 
     /// <summary>The selected loose floor item (see <see cref="LooseObject"/>), or null. Distinct from the
@@ -142,7 +153,7 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action? ViewChanged;
     public event Action<(int X, int Y)>? ContextMenuRequested;   // right-clicked tile; window builds the layer picker
     public event Action<(int X, int Y)>? LooseContextMenuRequested;   // right-clicked a loose floor item; window builds its menu
-    public event Action<string?>? GhostReasonChanged;   // the armed ghost's illegality reason, null when legal/disarmed
+    public event Action<GhostStatus?>? GhostReasonChanged;   // the armed ghost's illegality status, null when legal/disarmed
     public event Action? ShowZonesChanged;              // the zone overlay was toggled (update the toolbar caption)
     public event Action? ActiveZoneChanged;             // the painted zone changed (sync the zones panel selection)
     /// <summary>A zone paint/erase/box/room-fill stroke finished: (zone id, tiles before, tiles after). The window
@@ -297,11 +308,12 @@ public sealed class ShipCanvas : FrameworkElement
         return maxX < minX ? (gx, gy, w, h) : (minX, minY, maxX - minX + 1, maxY - minY + 1);
     }
 
-    private void RaiseGhostReason(string? reason)
+    private void RaiseGhostReason(string? reason, bool willPlace = false)
     {
-        if (reason == _lastGhostReason) return;
-        _lastGhostReason = reason;
-        GhostReasonChanged?.Invoke(reason);
+        GhostStatus? status = reason is null ? null : new GhostStatus(reason, willPlace);
+        if (status.Equals(_lastGhostReason)) return;
+        _lastGhostReason = status;
+        GhostReasonChanged?.Invoke(status);
     }
 
     public void RotateArmed(int delta)
@@ -888,9 +900,11 @@ public sealed class ShipCanvas : FrameworkElement
         {
             if (!seen.Add(pose)) continue;
             if (SameDefCovers(pose.X, pose.Y, w, h, ArmedPart.DefName)) continue;   // no stacking while painting
-            // the placement law: silently skip any pose the game's Item.CheckFit would refuse
-            // (each symmetry mirror is judged independently — legal ones land, illegal ones don't)
-            if (!CheckFit.Check(Doc, ArmedPart, pose.X, pose.Y, pose.Rot, includeEnvelope: true).Ok) continue;
+            // the placement law: skip any pose the game's Item.CheckFit would refuse (each symmetry mirror judged
+            // independently — legal ones land, illegal ones don't). EXCEPTION: a MODDED part may be placed against
+            // the core-only law when the override toggle is on — it lands and is flagged as a warning (ProblemScan).
+            if (!CheckFit.Check(Doc, ArmedPart, pose.X, pose.Y, pose.Rot, includeEnvelope: true).Ok
+                && !(AllowModdedOverrides && ArmedPart.IsModded)) continue;
             var cmd = new PlaceCommand(new Placement
             {
                 DefName = ArmedPart.DefName,
@@ -1310,7 +1324,15 @@ public sealed class ShipCanvas : FrameworkElement
                 var fit = DrawArmedGhost(dc, ArmedPart, pose.X, pose.Y, pose.Rot);
                 cursor ??= fit;   // WithSymmetry yields the cursor pose first
             }
-            RaiseGhostReason(cursor is { Ok: false } ? cursor.Reason : null);
+            if (cursor is { Ok: false } bad)
+            {
+                var why = bad.Reason ?? "doesn't fit here";
+                var modded = ArmedPart.IsModded;
+                if (modded && AllowModdedOverrides) RaiseGhostReason(why, willPlace: true);
+                else if (modded) RaiseGhostReason(why + " — modded; turn on \"Mod overrides\" to place it anyway");
+                else RaiseGhostReason(why);
+            }
+            else RaiseGhostReason(null);
         }
         else
         {
@@ -1401,6 +1423,12 @@ public sealed class ShipCanvas : FrameworkElement
         var (w, h) = GridMath.Size(part.Item.Width, part.Item.Height, rot);
         var fit = CheckFit.Check(Doc!, part, gx, gy, rot, includeEnvelope: true);
 
+        // a modded part that fails the core-only law but WILL place via the override draws amber ("flagged, not
+        // blocked") rather than red — so the ghost distinguishes "can't" from "against the rules but allowed".
+        var overriding = !fit.Ok && AllowModdedOverrides && part.IsModded;
+        var outlinePen = fit.Ok ? GhostOkPen : overriding ? GhostOverridePen : GhostBadPen;
+        var cellFill = overriding ? OverrideFill : HazardFill;
+
         var under = UnderFloorCells(part, gx, gy, rot).ToList();
         foreach (var (cx, cy) in under)
             dc.DrawRectangle(SubfloorFill, null, CellRect(cx, cy, 1, 1));
@@ -1410,18 +1438,18 @@ public sealed class ShipCanvas : FrameworkElement
         dc.Pop();
 
         foreach (var (cx, cy) in fit.FailedCells)   // failing cells override the sub-floor shade
-            dc.DrawRectangle(HazardFill, null, CellRect(cx, cy, 1, 1));
+            dc.DrawRectangle(cellFill, null, CellRect(cx, cy, 1, 1));
 
         if (under.Count > 0)
         {
             // dashed outline round the whole reservation, the solid validity outline hugging the body
             dc.DrawRectangle(null, SubfloorPen, CellRect(gx, gy, w, h));
             var (bx, by, bw, bh) = AboveFloorBounds(part, gx, gy, rot);
-            dc.DrawRectangle(null, fit.Ok ? GhostOkPen : GhostBadPen, CellRect(bx, by, bw, bh));
+            dc.DrawRectangle(null, outlinePen, CellRect(bx, by, bw, bh));
         }
         else
         {
-            dc.DrawRectangle(null, fit.Ok ? GhostOkPen : GhostBadPen, CellRect(gx, gy, w, h));
+            dc.DrawRectangle(null, outlinePen, CellRect(gx, gy, w, h));
         }
         return fit;
     }

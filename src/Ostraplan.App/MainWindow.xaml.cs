@@ -77,7 +77,11 @@ public partial class MainWindow : Window
         Board.Disarmed += ClearPaletteSelection;
         Board.ContextMenuRequested += OnContextMenuRequested;
         Board.LooseContextMenuRequested += OnLooseContextMenuRequested;
-        Board.GhostReasonChanged += reason => TxtGhost.Text = reason is null ? "" : "⛔ can't place here — " + reason;
+        Board.GhostReasonChanged += status => TxtGhost.Text = status is not { } s ? ""
+            : (s.WillPlace ? "⚠ placing against the rules — " : "⛔ can't place here — ") + s.Reason;
+        // restore the "allow modded parts to break the law" toggle (default off)
+        Board.AllowModdedOverrides = _settings.AllowModdedOverrides;
+        UpdateModOverrideButton();
         Board.ZoneStrokeCommitted += OnZoneStrokeCommitted;
         Board.ShowZonesChanged += UpdateZonesButton;
         Board.ActiveZoneChanged += UpdateZones;   // reflect which zone (if any) is being painted
@@ -900,6 +904,33 @@ public partial class MainWindow : Window
         _stack.Push(_doc, new SetPosesCommand(batch));
     }
 
+    /// <summary>
+    /// Mirror the current selection about its bounding-box centre — <paramref name="horizontal"/> flips
+    /// left↔right, otherwise up↔down. Every unlocked part reflects its position and remaps its rotation to a
+    /// real 0/90/180/270 (<see cref="GroupFlip"/>), so the result is always buildable. A lone part reflects in
+    /// place; sheet walls/floors keep rot 0 but still move. Committed as one undo step (place-and-flag, like a
+    /// group rotate — an illegal landing is allowed but flagged by the problem scan).
+    /// </summary>
+    private void FlipSelection(bool horizontal)
+    {
+        if (_doc is null) return;
+        var parts = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
+        if (parts.Count == 0) return;
+
+        var items = parts
+            .Select(p =>
+            {
+                var (w, h) = _doc.FootprintOf(p);
+                return new GroupRotate.Item(p.X, p.Y, w, h, p.Rot, _doc.Part(p)?.Item.HasSpriteSheet == true);
+            })
+            .ToList();
+        var poses = GroupFlip.Flip(items, horizontal);
+        var batch = new List<(Placement, int, int, int)>(parts.Count);
+        for (var i = 0; i < parts.Count; i++)
+            batch.Add((parts[i], poses[i].X, poses[i].Y, poses[i].Rot));
+        _stack.Push(_doc, new SetPosesCommand(batch));
+    }
+
     private void DuplicateSelection()
     {
         if (_doc is null) return;
@@ -1256,6 +1287,8 @@ public partial class MainWindow : Window
         menu.Items.Add(Item("Paste", "Ctrl+V", (_, _) => PasteClipboard(), _clip.Count > 0));
         menu.Items.Add(Item("Rotate CW" + suffix, "R", (_, _) => RotateSelection(90), canRotate));
         menu.Items.Add(Item("Rotate CCW" + suffix, "Shift+R", (_, _) => RotateSelection(-90), canRotate));
+        menu.Items.Add(Item("Flip Horizontal" + suffix, "H", (_, _) => FlipSelection(horizontal: true), canRotate));
+        menu.Items.Add(Item("Flip Vertical" + suffix, "Shift+H", (_, _) => FlipSelection(horizontal: false), canRotate));
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("Delete" + suffix, "Del", (_, _) => DeleteSelection(), canAct));
         menu.IsOpen = true;
@@ -1343,6 +1376,10 @@ public partial class MainWindow : Window
             case Key.R when !ctrl:   // same key as the game's build mode
                 if (Board.ArmedPart is not null) Board.RotateArmed(shift ? -90 : 90);
                 else RotateSelection(shift ? -90 : 90);
+                e.Handled = true;
+                break;
+            case Key.H when !ctrl && !e.IsRepeat:   // flip the selection: H = horizontal (left↔right), Shift+H = vertical
+                FlipSelection(horizontal: !shift);
                 e.Handled = true;
                 break;
             case Key.Delete:
@@ -2104,6 +2141,23 @@ public partial class MainWindow : Window
 
     private void OnFitClick(object sender, RoutedEventArgs e) => Board.FitContent();
     private void OnSymClick(object sender, RoutedEventArgs e) => Board.CycleSymmetry();
+
+    /// <summary>Toggle whether modded parts may be placed where the core-only placement law says they don't fit
+    /// (persisted). Core parts stay hard-blocked; overridden modded parts are placed and flagged as warnings.</summary>
+    private void OnModOverrideClick(object sender, RoutedEventArgs e)
+    {
+        Board.AllowModdedOverrides = !Board.AllowModdedOverrides;
+        _settings.AllowModdedOverrides = Board.AllowModdedOverrides;
+        _settings.Save();
+        UpdateModOverrideButton();
+        Board.InvalidateVisual();   // refresh the armed ghost (green/amber/red) under the new rule
+        AuditLog.Add(Board.AllowModdedOverrides
+            ? "Modded overrides enabled — modded parts may break the placement law (flagged)."
+            : "Modded overrides disabled — modded parts are enforced like core.");
+    }
+
+    private void UpdateModOverrideButton() =>
+        BtnModOverride.Content = "Mod overrides: " + (Board.AllowModdedOverrides ? "On" : "Off");
     /// <summary>The Help ▾ dropdown: controls/keybinds, report a bug, and the on-disk activity log.</summary>
     private void OnHelpMenuClick(object sender, RoutedEventArgs e)
     {
@@ -2404,7 +2458,9 @@ public partial class MainWindow : Window
             ("Move", "Drag selection", "Move the selected parts."),
             ("Context menu", "RMB", "Use as brush · Replace with… · Find and Replace All… · Make Loose Item / Install item · pick a buried layer on stacked tiles · Select only (after a box-select) · Close/Open door. Also cancels placement while armed."),
             ("Rotate part", "R / Shift+R", "CW / CCW — the armed part, a selected part in place, or a whole selection about its centre (walls & floors auto-tile rather than turn)."),
+            ("Flip selection", "H / Shift+H", "Mirror the selection about its centre — H horizontal (left↔right), Shift+H vertical (up↔down); each part reflects and snaps to a real rotation."),
             ("Symmetry", "M", "Cycle Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on."),
+            ("Mod overrides", "Toolbar toggle", "Let modded parts place where the core-game rules say they don't fit (ghost turns amber, flagged as a warning — verify in-game). Core parts stay enforced."),
             ("Delete", "Del", "Delete the selection."),
             ("Copy / paste / duplicate", "Ctrl+C / V / D", "Copy · paste at the cursor · duplicate the selection."),
             ("Cancel", "Esc", "Cancel placement, then clear the selection."),

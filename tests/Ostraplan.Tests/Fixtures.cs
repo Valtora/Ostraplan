@@ -44,7 +44,7 @@ public sealed class Fixtures
         string[]? reqs = null, string[]? forbids = null, string category = "MISC",
         string[]? startingConds = null, (int W, int H)? container = null, string? containerCT = null,
         int stackLimit = 0, IReadOnlyDictionary<string, (double X, double Y)>? mapPoints = null,
-        double basePrice = 0, bool sheet = false)
+        double basePrice = 0, bool sheet = false, string origin = "core")
     {
         string[] adds;
         if (tileConds is { Length: > 0 })
@@ -59,7 +59,7 @@ public sealed class Fixtures
         var condValues = basePrice > 0
             ? new Dictionary<string, double> { ["StatBasePrice"] = basePrice }
             : new Dictionary<string, double>();
-        var part = new PartDef(name, name, category, "core", item, null, [], [],
+        var part = new PartDef(name, name, category, origin, item, null, [], [],
             startingConds ?? [], condValues, mapPoints ?? new Dictionary<string, (double, double)>())
         {
             ContainerGrid = container,
