@@ -11,6 +11,13 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.14.1] — 2026-07-09 — internal test hardening
+
+### Changed
+- **Internal:** made the save-edit placement-law immunity test deterministic. It previously imported
+  whatever ship was in your newest save game and asserted a placement outcome against it, so ordinary
+  play could make it fail spuriously; it now runs on a synthetic ship. No app-facing change.
+
 ## [0.14.0] — 2026-07-09 — friendlier replacement-mod names
 
 ### Changed

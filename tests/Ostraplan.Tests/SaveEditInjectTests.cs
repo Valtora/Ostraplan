@@ -129,29 +129,43 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.Contains(((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()), c => (string?)c["strCODef"] == other.DefName);
     }
 
-    [SkippableFact]
+    [Fact]
     public void Moving_an_imported_part_clears_immunity_and_the_law_reapplies()
     {
-        // an unmoved imported part is immune (the game never re-validates existing structure), but MOVING it is
-        // an authoring act — given-ness clears and the placement law re-applies. Dragged into open space, a part
-        // that needs support (has socket reqs) must now flag; the imported ship flagged nothing before.
-        var g = TestData.RequireGame();
-        if (FirstImport(g.Env, g.Catalog) is not { } r) return;
+        // An imported (given) part is immune — the game never re-validates existing structure — but MOVING it is an
+        // authoring act: given-ness clears and the placement law re-applies, while its save identity (OriginStrID)
+        // is kept (a move, not a delete+new). Deterministic on a synthetic ship, so the invariant isn't gated on
+        // whatever ship happens to be in the newest save (which made this flaky); the live-save import that produces
+        // the given+OriginStrID tags is covered by the other tests here. The fixture needs a sealed floor beneath
+        // it, so once dragged into open space it must flag; a docking port keeps ProblemScan past its no-port
+        // early-return so the legality pass actually runs.
+        const string B = "Blank";
+        var cat = new Fixtures()
+            .Trig(ProblemScan.DocksysTrigger, ["IsDockSys", "IsInstalled"])
+            .Part("Dock", startingConds: ["IsDockSys", "IsInstalled"], category: "HULL")
+            .Floor("Floor")
+            .Loot("ReqFloor", "IsFloor", "IsFloorSealed")
+            .Part("MyFixture", tileConds: ["IsFixture", "IsObstruction"],
+                reqs: [B, B, B, B, "ReqFloor", B, B, B, B], category: "FURN")   // needs a sealed floor on its own (centre) cell
+            .Build();
 
-        // a non-locked imported part that requires structure around it — deep empty space fails its socket reqs
-        var target = r.Doc.Placements.FirstOrDefault(p => !r.Doc.IsLocked(p)
-            && r.Doc.Part(p) is { } d && d.Item.SocketReqs.Any(s => s.Length > 0 && s != "Blank"));
-        if (target is null) return;
+        var doc = new ShipDocument(cat);
+        new PlaceCommand(new Placement { DefName = "Dock", X = 0, Y = 8 }).Do(doc);    // a port -> ProblemScan runs the legality pass
+        new PlaceCommand(new Placement { DefName = "Floor", X = 0, Y = 0 }).Do(doc);
+        var fixture = new Placement { DefName = "MyFixture", X = 0, Y = 0, OriginStrID = "sid-fixture", IsGiven = true };
+        new PlaceCommand(fixture).Do(doc);   // a valid, imported (given) fixture resting on its floor
 
-        int Blocking() => ProblemScan.Scan(r.Doc, g.Catalog).Count(p => p.Severity == ProblemSeverity.Blocking);
-        Assert.True(target.IsGiven);        // imported -> immune while unmoved
-        var before = Blocking();
+        bool FixtureFlagged() => ProblemScan.Scan(doc, cat)
+            .Any(p => p.Severity == ProblemSeverity.Blocking && p.Detail.Contains("MyFixture"));
 
-        new MoveCommand([target], 500, 500).Do(r.Doc);   // drag it far into open space
+        Assert.True(fixture.IsGiven);     // imported -> immune while unmoved
+        Assert.False(FixtureFlagged());   // ...so the law does not flag it
 
-        Assert.False(target.IsGiven);       // the move re-authored it...
-        Assert.NotNull(target.OriginStrID); // ...but its save identity is kept (a move, not a delete+new)
-        Assert.True(Blocking() > before);   // ...and the law now flags the unsupported part
+        new MoveCommand([fixture], 40, 40).Do(doc);   // drag it off its floor into open space
+
+        Assert.False(fixture.IsGiven);                      // the move re-authored it...
+        Assert.Equal("sid-fixture", fixture.OriginStrID);   // ...but kept its save identity (a move, not delete+new)...
+        Assert.True(FixtureFlagged());                      // ...and the law now flags the unsupported fixture
     }
 
     [SkippableFact]
