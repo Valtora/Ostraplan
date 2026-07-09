@@ -133,4 +133,69 @@ public class ReplaceOpsTests
         Assert.NotNull(fromAuthored);
         Assert.All(fromAuthored!.Value.New, p => Assert.False(p.IsGiven));
     }
+
+    [Fact]
+    public void Sole_def_requires_every_part_to_match_exactly()
+    {
+        var a = new Placement { DefName = Wall, X = 0, Y = 0 };
+        var b = new Placement { DefName = Wall, X = 1, Y = 0 };
+        var other = new Placement { DefName = "ItmFloor1x1", X = 2, Y = 0 };
+
+        Assert.Equal(Wall, ReplaceOps.SoleDef([a]));
+        Assert.Equal(Wall, ReplaceOps.SoleDef([a, b]));   // same class AND same def
+        Assert.Null(ReplaceOps.SoleDef([a, other]));      // differing defs, even if same class
+        Assert.Null(ReplaceOps.SoleDef([]));
+    }
+
+    [SkippableFact]
+    public void Find_and_replace_locates_every_matching_placement_and_swaps_them_all()
+    {
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall)) return;
+        var doc = new ShipDocument(g.Catalog);
+        var a = Place(doc, Wall, 0, 0);
+        var b = Place(doc, Wall, 1, 0);
+        var elsewhereFloor = OneByOne(g.Catalog, Catalog.LayerFloor);
+        if (elsewhereFloor is not null) Place(doc, elsewhereFloor.DefName, 5, 5);   // a different def, must not match
+
+        var found = ReplaceOps.FindAll(doc, Wall);
+        Assert.Equal(2, found.Count);
+        Assert.Contains(a, found);
+        Assert.Contains(b, found);
+
+        var cls = ReplaceOps.CommonClass(doc, [a]);
+        if (cls is null) return;
+        var other = ReplaceOps.CompatibleTargets(g.Catalog, cls.Value).FirstOrDefault(t => t.DefName != Wall);
+        if (other is null) return;
+
+        var swap = ReplaceOps.BuildSwap(doc, found, other.DefName);
+        Assert.NotNull(swap);
+        swap!.Value.Cmd.Do(doc);
+        Assert.DoesNotContain(a, doc.Placements);
+        Assert.DoesNotContain(b, doc.Placements);
+        Assert.All(swap.Value.New, p => Assert.Equal(other.DefName, p.DefName));
+    }
+
+    [SkippableFact]
+    public void Find_and_replace_finds_locked_matches_but_swap_skips_them()
+    {
+        var g = TestData.RequireGame();
+        var docksys = Catalog.PrimaryDocksysDef;
+        if (!g.Catalog.ByDefName.ContainsKey(docksys)) return;
+
+        var doc = new ShipDocument(g.Catalog);
+        var locked = Place(doc, docksys, 0, 0);
+        Assert.True(doc.IsLocked(locked));
+
+        var found = ReplaceOps.FindAll(doc, docksys);
+        Assert.Contains(locked, found);   // located...
+
+        var cls = ReplaceOps.CommonClass(doc, [locked]);
+        if (cls is null) return;
+        var other = ReplaceOps.CompatibleTargets(g.Catalog, cls.Value).FirstOrDefault(t => t.DefName != docksys);
+        if (other is null) return;
+
+        var swap = ReplaceOps.BuildSwap(doc, found, other.DefName);
+        Assert.Null(swap);   // ...but never swapped: the only match is locked
+    }
 }

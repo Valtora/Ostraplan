@@ -11,6 +11,13 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **Find and Replace All…** context menu action. Select one or more copies of the same part and swap
+  every copy of it anywhere in the ship — not just the current selection — for a chosen compatible part,
+  in one undo step. Uses the same compatibility rule as "Replace with…" (same render layer + footprint,
+  containers excluded), so a bulk swap can't turn a floor into a fixture or a wall into a door. Locked
+  matches are counted in the picker but skipped by the swap.
+
 ## [0.12.0] — 2026-07-09 — optional save backup
 
 ### Added

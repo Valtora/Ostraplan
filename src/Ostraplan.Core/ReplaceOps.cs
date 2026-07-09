@@ -1,10 +1,13 @@
 namespace Ostraplan.Core;
 
 /// <summary>
-/// "Replace with…": swap a selection of parts for a compatible buildable part, keeping each
-/// part's tile and rotation. Compatible = the <b>same render layer AND the same base footprint</b>
-/// (item W×H) — so a floor swaps for any other floor, a wall for any wall, but a floor can't
-/// become a canister (Floor vs Fixture) nor a 1×1 wall a 5×1 door (footprint differs).
+/// "Replace with…" and "Find and Replace All…": swap a set of parts for a compatible buildable part,
+/// keeping each part's tile and rotation. Compatible = the <b>same render layer AND the same base
+/// footprint</b> (item W×H) — so a floor swaps for any other floor, a wall for any wall, but a floor can't
+/// become a canister (Floor vs Fixture) nor a 1×1 wall a 5×1 door (footprint differs). Find and Replace
+/// layers a stricter source check on top (<see cref="SoleDef"/>): the selection must be one exact part
+/// (the "block"), and <see cref="FindAll"/> then locates every other copy of it in the ship so all of them
+/// swap together, instead of only the ones currently selected.
 /// <b>Containers are excluded</b> from both source and target: their inventory grid and cargo don't
 /// carry across a def-change (footprint match says nothing about grid size), so a container is changed
 /// by a manual delete + place, and its cargo is edited in the inventory viewer. The swap
@@ -66,4 +69,17 @@ public static class ReplaceOps
         }
         return cmds.Count == 0 ? null : (new CompositeCommand(cmds), created);
     }
+
+    /// <summary>The single def shared by every part in the set (a literal "same block" check, stricter than
+    /// <see cref="CommonClass"/>'s same-layer-and-footprint), or null if the set is empty or the parts differ.
+    /// This is the "select a block" side of Find and Replace: it identifies exactly which part to search the
+    /// ship for.</summary>
+    public static string? SoleDef(IReadOnlyList<Placement> parts) =>
+        parts.Count > 0 && parts.All(p => p.DefName == parts[0].DefName) ? parts[0].DefName : null;
+
+    /// <summary>Every placement anywhere in the ship matching <paramref name="defName"/> exactly — the "Find"
+    /// side of Find and Replace. Includes locked instances so the count reflects the whole ship;
+    /// <see cref="BuildSwap"/> already skips locked parts when it builds the swap.</summary>
+    public static IReadOnlyList<Placement> FindAll(ShipDocument doc, string defName) =>
+        doc.Placements.Where(p => p.DefName == defName).ToList();
 }

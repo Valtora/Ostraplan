@@ -988,6 +988,42 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// "Find and Replace All…": like <see cref="ReplaceSelection"/> but scoped to every copy of the selected
+    /// part anywhere in the ship, not just the current selection — the selection must be one or more copies
+    /// of the exact same part (<see cref="ReplaceOps.SoleDef"/>). Locked matches are found (for the count)
+    /// but skipped by the swap itself, same as "Replace with…". One undo step; the swapped-in parts become
+    /// the selection.
+    /// </summary>
+    private void FindAndReplace()
+    {
+        if (_doc is null || _catalog is null) return;
+        var selected = Board.SelectedPlacements();
+        if (ReplaceOps.SoleDef(selected) is not { } defName) return;
+        if (ReplaceOps.CommonClass(_doc, [selected[0]]) is not { } cls) return;
+
+        var found = ReplaceOps.FindAll(_doc, defName);
+        var lockedCount = found.Count(p => _doc.IsLocked(p));
+        if (found.Count == lockedCount) return;
+
+        var targetDefs = ReplaceOps.CompatibleTargets(_catalog, cls).Select(t => t.DefName).ToHashSet(StringComparer.Ordinal);
+        var vms = _allParts.Where(v => targetDefs.Contains(v.Part.DefName)).ToList();
+        if (vms.Count == 0) return;
+
+        var friendly = _doc.Part(selected[0])?.Friendly ?? defName;
+        var what = $"{found.Count} instance{(found.Count > 1 ? "s" : "")} of \"{friendly}\""
+                   + (lockedCount > 0 ? $" ({lockedCount} fixed to the ship, skipped)" : "");
+        var dlg = new ReplacePickerDialog(vms, what) { Owner = this };
+        if (dlg.ShowDialog() != true || dlg.Selected is not { } target) return;
+        if (ReplaceOps.BuildSwap(_doc, found, target.DefName) is not { } swap) return;
+
+        _stack.Push(_doc, swap.Cmd);
+        Board.SelectedIds.Clear();
+        foreach (var p in swap.New) Board.SelectedIds.Add(p.Id);
+        Board.InvalidateVisual();
+        UpdateInspector();
+    }
+
+    /// <summary>
     /// "Theme…": re-skin every wall and every floor on the ship to a chosen cooverlay style, one undo
     /// step (<see cref="ThemeOps"/>). Only sprites/names change; rooms/airtightness/rating are untouched.
     /// </summary>
@@ -1161,6 +1197,17 @@ public partial class MainWindow : Window
             && ReplaceOps.CommonClass(_doc, unlocked) is { } rcls
             && ReplaceOps.CompatibleTargets(_catalog!, rcls).Count > 0;
 
+        // "Find and Replace All…": the selection must be one or more copies of the exact same part (the
+        // "block"), with at least one unlocked copy of it anywhere in the ship and a buildable part of the
+        // same kind to swap in. Stricter source check than "Replace with…" (exact def, not just class), but
+        // scoped to the whole ship rather than just the selection.
+        var findDef = ReplaceOps.SoleDef(selected);
+        var findMatches = findDef is not null ? ReplaceOps.FindAll(_doc, findDef) : [];
+        var canFindReplace = findDef is not null
+            && findMatches.Any(p => !_doc.IsLocked(p))
+            && ReplaceOps.CommonClass(_doc, [selected[0]]) is { } fcls
+            && ReplaceOps.CompatibleTargets(_catalog!, fcls).Count > 0;
+
         // door state — flip the selected doors between open and closed
         var toClose = unlocked.Where(p => _catalog!.DoorToggle(p.DefName) is not null && p.DefName.Contains("Open")).ToList();
         var toOpen = unlocked.Where(p => _catalog!.DoorToggle(p.DefName) is not null && p.DefName.Contains("Closed")).ToList();
@@ -1202,6 +1249,8 @@ public partial class MainWindow : Window
             menu.Items.Add(Item("Use as brush", "", (_, _) => OnArmFromTile(brushDef)));
         if (canReplace)
             menu.Items.Add(Item("Replace with…" + suffix, "", (_, _) => ReplaceSelection()));
+        if (canFindReplace)
+            menu.Items.Add(Item("Find and Replace All…" + (findMatches.Count > 1 ? $" ({findMatches.Count})" : ""), "", (_, _) => FindAndReplace()));
         menu.Items.Add(Item("Duplicate" + suffix, "Ctrl+D", (_, _) => DuplicateSelection(), canAct));
         menu.Items.Add(Item("Copy" + suffix, "Ctrl+C", (_, _) => CopySelection(), canAct));
         menu.Items.Add(Item("Paste", "Ctrl+V", (_, _) => PasteClipboard(), _clip.Count > 0));
@@ -2244,7 +2293,7 @@ public partial class MainWindow : Window
             ("Select", "LMB", "Select a part. Ctrl+click adds/removes; drag empty space to box-select."),
             ("Flood-select", "Double-click", "Select every touching tile of the same type (bulk delete or re-skin). Ctrl+double-click adds the region."),
             ("Move", "Drag selection", "Move the selected parts."),
-            ("Context menu", "RMB", "Use as brush · Replace with… · Make Loose Item / Install item · pick a buried layer on stacked tiles · Select only (after a box-select) · Close/Open door. Also cancels placement while armed."),
+            ("Context menu", "RMB", "Use as brush · Replace with… · Find and Replace All… · Make Loose Item / Install item · pick a buried layer on stacked tiles · Select only (after a box-select) · Close/Open door. Also cancels placement while armed."),
             ("Rotate part", "R / Shift+R", "CW / CCW — the armed part, a selected part in place, or a whole selection about its centre (walls & floors auto-tile rather than turn)."),
             ("Symmetry", "M", "Cycle Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on."),
             ("Delete", "Del", "Delete the selection."),
