@@ -1764,8 +1764,9 @@ public partial class MainWindow : Window
         {
             if (opts.InPlace)
             {
-                if (!ConfirmInPlace(src.SaveName)) return;
-                backupName = Path.GetFileName(SaveEdit.WriteInPlace(context, shipObj, report.ResultingBalance));
+                if (!ConfirmInPlace(src.SaveName, opts.Backup)) return;
+                var backupPath = SaveEdit.WriteInPlace(context, shipObj, report.ResultingBalance, opts.Backup);
+                backupName = backupPath is null ? null : Path.GetFileName(backupPath);
                 writtenName = src.SaveName;
             }
             else
@@ -1789,9 +1790,11 @@ public partial class MainWindow : Window
         AuditLog.Add($"Updated ship in save — wrote \"{writtenName}\".");
 
         var backup = opts.InPlace
-            ? $"\n\nYour original save was backed up first, as a separate save named {backupName}.\n" +
-              "It sits beside this save in your Saves folder, not inside it, so deleting the edited save won't remove it.\n" +
-              "Load that backup in game if you ever need to recover."
+            ? (backupName is not null
+                ? $"\n\nYour original save was backed up first, as a separate save named {backupName}.\n" +
+                  "It sits beside this save in your Saves folder, not inside it, so deleting the edited save won't remove it.\n" +
+                  "Load that backup in game if you ever need to recover."
+                : "\n\nNo backup was made (you unticked it), so this overwrote the original save in place.")
             : "\n\nYour original save is unchanged.";
         Dlg.Success(this, "Ship updated",
             $"Written to the save {writtenName}.\n\n" +
@@ -1814,7 +1817,7 @@ public partial class MainWindow : Window
 
     /// <summary>The loud in-place confirmation. Detects a running Ostranauts and gates on the user confirming
     /// they're at the Main Menu (editing a loaded save would be clobbered by the next autosave).</summary>
-    private bool ConfirmInPlace(string saveName)
+    private bool ConfirmInPlace(string saveName, bool backup)
     {
         var running = System.Diagnostics.Process.GetProcessesByName("Ostranauts").Length > 0;
         var gameWarn = running
@@ -1823,11 +1826,14 @@ public partial class MainWindow : Window
               "If this save is loaded, the game will overwrite your edit on its next autosave.\n\n" +
               "Confirm you are at the Main Menu, not in your loaded game, before continuing.\n\n"
             : "";
+        var backupLine = backup
+            ? "Ostraplan first copies this save to a separate backup save in your Saves folder, beside this one, not inside it.\n" +
+              "Then it writes your edit into the original save, replacing it.\n" +
+              "If the edit goes wrong, load the backup to recover."
+            : "You unticked the backup, so this writes straight into the original save, replacing it.\n" +
+              "There will be no backup to roll back to if the edit goes wrong.";
         return Dlg.Confirm(this, DlgKind.Danger, $"Overwrite {saveName} in place?",
-            $"{gameWarn}" +
-            "Ostraplan first copies this save to a separate backup save in your Saves folder, beside this one, not inside it.\n" +
-            "Then it writes your edit into the original save, replacing it.\n" +
-            "If the edit goes wrong, load the backup to recover.",
+            $"{gameWarn}{backupLine}",
             "Overwrite in place");
     }
 

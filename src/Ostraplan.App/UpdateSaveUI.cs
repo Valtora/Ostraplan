@@ -19,6 +19,7 @@ public sealed class UpdateSaveDialog : Window
     private static Brush Dim => ThemeManager.Dim;
 
     private readonly RadioButton _copy, _inPlace;
+    private readonly CheckBox _backup;
     private readonly CheckBox _deduct;
     private readonly Slider _mult;
     private readonly TextBlock _multLabel, _costLine, _balanceLine, _cannotAfford;
@@ -29,6 +30,10 @@ public sealed class UpdateSaveDialog : Window
 
     /// <summary>True = edit the original save in place; false = write a copy.</summary>
     public bool InPlace => _inPlace.IsChecked == true;
+
+    /// <summary>Whether to back the original save up before an in-place write (only meaningful when
+    /// <see cref="InPlace"/>). Ticked by default; the user can opt out to avoid a pile of backup saves.</summary>
+    public bool Backup => _backup.IsChecked == true;
 
     /// <summary>The chosen cost multiplier (only meaningful when <see cref="Deduct"/>).</summary>
     public double Multiplier => _mult.Value;
@@ -75,11 +80,35 @@ public sealed class UpdateSaveDialog : Window
         body.Children.Add(_inPlace);
         body.Children.Add(new TextBlock
         {
-            Text = "Editing in place modifies the original save. Ostraplan first copies it to a separate backup save " +
-                   "in your Saves folder, beside this one. Return to the Main Menu in game before writing, or the game " +
-                   "may overwrite your edit on its next autosave.",
-            Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(20, 0, 0, 0),
+            Text = "Editing in place modifies the original save. Return to the Main Menu in game before writing, or the " +
+                   "game may overwrite your edit on its next autosave.",
+            Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(20, 0, 0, 4),
         });
+        // opt-in backup for the in-place write: ticked by default (safe), untickable to avoid accumulating a backup
+        // save on every edit. Only relevant to the in-place path — a copy leaves the original untouched already.
+        _backup = new CheckBox
+        {
+            Content = "Back up the original save first", Foreground = Ink, IsChecked = true,
+            Margin = new Thickness(20, 0, 0, 2),
+        };
+        body.Children.Add(_backup);
+        var backupHint = new TextBlock
+        {
+            Text = "A separate, loadable copy in your Saves folder (beside this save). Untick to skip it and avoid " +
+                   "piling up backups as you iterate — but then a bad edit can't be rolled back.",
+            Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(38, 0, 0, 0),
+        };
+        body.Children.Add(backupHint);
+        // the backup choice only applies to an in-place write; grey it out (and force it on conceptually) for a copy
+        void SyncBackupEnabled()
+        {
+            var on = _inPlace.IsChecked == true;
+            _backup.IsEnabled = on;
+            _backup.Opacity = backupHint.Opacity = on ? 1.0 : 0.4;
+        }
+        _copy.Checked += (_, _) => SyncBackupEnabled();
+        _inPlace.Checked += (_, _) => SyncBackupEnabled();
+        SyncBackupEnabled();
 
         // ---- cost ----
         Header(body, "EDIT COST");

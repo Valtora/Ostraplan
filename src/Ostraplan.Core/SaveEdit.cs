@@ -473,16 +473,22 @@ public static class SaveEdit
     }
 
     /// <summary>
-    /// Write the edit <b>into the original save</b>, in place. First it copies the whole save to a separate,
-    /// loadable backup save <b>in the Saves folder</b> (beside the save, never inside it, so deleting a broken
-    /// edited save can't take its backup with it), then splices <c>ships/&lt;RegID&gt;.json</c> into the original zip
-    /// and mirrors the deducted balance into <c>saveInfo.money</c>. Returns the backup folder's path. This is the
-    /// opt-in alternative to <see cref="WriteCopy"/>; the caller confirms and ensures the game isn't in that save.
+    /// Write the edit <b>into the original save</b>, in place. When <paramref name="backup"/> is true (the default)
+    /// it first copies the whole save to a separate, loadable backup save <b>in the Saves folder</b> (beside the
+    /// save, never inside it, so deleting a broken edited save can't take its backup with it); it then splices
+    /// <c>ships/&lt;RegID&gt;.json</c> into the original zip and mirrors the deducted balance into
+    /// <c>saveInfo.money</c>. Returns the backup folder's path, or <b>null</b> when the caller opted out of the
+    /// backup. This is the opt-in alternative to <see cref="WriteCopy"/>; the caller confirms and ensures the game
+    /// isn't in that save.
     /// </summary>
-    public static string WriteInPlace(SaveShipContext ctx, JsonObject ship, double? newMoney = null)
+    public static string? WriteInPlace(SaveShipContext ctx, JsonObject ship, double? newMoney = null, bool backup = true)
     {
-        var backupDir = SuggestBackupDir(ctx);
-        MaterializeCopy(SourceDir(ctx), Path.GetFileName(ctx.ZipPath), backupDir, null);   // pre-edit backup, beside the save
+        string? backupDir = null;
+        if (backup)
+        {
+            backupDir = SuggestBackupDir(ctx);
+            MaterializeCopy(SourceDir(ctx), Path.GetFileName(ctx.ZipPath), backupDir, null);   // pre-edit backup, beside the save
+        }
 
         SpliceShipInZip(ctx.ZipPath, ctx.Source.RegId, ship);
         var saveInfoPath = Path.Combine(SourceDir(ctx), "saveInfo.json");

@@ -11,6 +11,16 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.12.0] — 2026-07-09 — optional save backup
+
+### Added
+- **Optional backup when updating a ship in a save.** The "Update ship in save" dialog's
+  in-place write now has a **Back up the original save first** checkbox (ticked by
+  default). Untick it to write straight into the save without spawning a backup copy —
+  handy when iterating on a ship so you don't accumulate a pile of backup saves. Ticked
+  stays the safe default (with the confirmation and result messages adapting to the
+  choice); a copy write still never touches the original.
+
 ## [0.11.0] — 2026-07-09 — ITEMS palette: loose cargo on ships
 
 ### Added
