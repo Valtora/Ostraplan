@@ -25,6 +25,9 @@ public sealed class OplanFile
     /// <summary>The design's painted zones (see <see cref="ShipZone"/>). Additive since format v1 — older
     /// builds ignore it and preserve it via <see cref="Extra"/>.</summary>
     [JsonPropertyName("zones")] public List<OplanZone> Zones { get; set; } = [];
+    /// <summary>The design's loose floor items (see <see cref="LooseObject"/>). Additive at format v1, exactly like
+    /// <see cref="Zones"/>: an older build ignores it and round-trips it via <see cref="Extra"/>, so no version bump.</summary>
+    [JsonPropertyName("looseObjects")] public List<OplanLoose> LooseObjects { get; set; } = [];
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 
     private static readonly JsonSerializerOptions Options = new()
@@ -57,6 +60,7 @@ public sealed class OplanFile
                        })
                        .ToList(),
             Zones = doc.Zones.Select(ToOplanZone).ToList(),
+            LooseObjects = doc.LooseObjects.Select(lo => new OplanLoose { Def = lo.DefName, X = lo.X, Y = lo.Y, Rot = lo.Rot, Qty = lo.Quantity }).ToList(),
         };
         file.Meta.Modified = DateTime.UtcNow;
         return file;
@@ -100,6 +104,11 @@ public sealed class OplanFile
             }
         }
         foreach (var z in Zones) doc.AddZone(FromOplanZone(z));
+        // Restore loose floor items whose def still resolves (a missing def is dropped, like a missing part). One
+        // per tile: a later duplicate at the same tile simply overwrites, matching the in-editor invariant.
+        foreach (var lo in LooseObjects)
+            if (lo.Def.Length > 0 && catalog.Lookup(lo.Def) is not null)
+                doc.AddLoose(new LooseObject { DefName = lo.Def, X = lo.X, Y = lo.Y, Rot = GridMath.Norm(lo.Rot), Quantity = lo.Qty < 1 ? 1 : lo.Qty });
         return (doc, missing);
     }
 
@@ -245,6 +254,18 @@ public sealed class OplanZone
     [JsonPropertyName("targetPSpec")] public string? TargetPSpec { get; set; }
     [JsonPropertyName("triggerOnOwner")] public bool TriggerOnOwner { get; set; }
     [JsonPropertyName("tiles")] public List<int[]>? Tiles { get; set; }
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
+}
+
+/// <summary>One persisted loose floor item (see <see cref="OplanFile.LooseObjects"/>): its def and tile pose. The
+/// sprite/footprint/friendly name are re-resolved from the def on load, so only the identity and position are stored.</summary>
+public sealed class OplanLoose
+{
+    [JsonPropertyName("def")] public string Def { get; set; } = "";
+    [JsonPropertyName("x")] public int X { get; set; }
+    [JsonPropertyName("y")] public int Y { get; set; }
+    [JsonPropertyName("rot")] public int Rot { get; set; }
+    [JsonPropertyName("qty")] public int Qty { get; set; } = 1;   // stacked count (>=1); absent/0 in an older file → single
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }
 

@@ -116,6 +116,15 @@ public sealed class ShipCanvas : FrameworkElement
     private IReadOnlyList<(int X, int Y)> _illegalCells = [];   // tiles of existing illegal placements (from ProblemScan)
     private IReadOnlyList<(int X, int Y)> _leakCells = [];      // unsealed tiles of a leaking compartment (from the Ship Rating report)
     private string? _lastGhostReason;                          // dedupe GhostReasonChanged
+    private bool _armedLoose;                                  // the armed brush is an Items-tab loose item, not structure (single-click drop, no CheckFit)
+
+    /// <summary>The selected loose floor item (see <see cref="LooseObject"/>), or null. Distinct from the
+    /// placement selection (<see cref="SelectedIds"/>): a loose item is a non-structural overlay, so it carries its
+    /// own single-select highlight and Delete handling.</summary>
+    public LooseObject? SelectedLoose { get; private set; }
+
+    /// <summary>True while the armed palette brush is a loose item (Items tab) rather than buildable structure.</summary>
+    public bool ArmedLoose => _armedLoose;
 
     // Cached vector drawing of every placement's sprite — the expensive part of a frame (DrawOrder
     // sort + per-tile autotile + DrawImage over the whole ship). Rebuilt only when the ship content
@@ -127,10 +136,12 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action? SymmetryChanged;
     public event Action<IReadOnlyList<Placement>, int, int>? MoveRequested;
     public event Action? SelectionChanged;
+    public event Action? LooseSelectionChanged;   // the selected loose floor item changed (update the inspector)
     public event Action<(int X, int Y)?>? HoverChanged;
     public event Action? Disarmed;
     public event Action? ViewChanged;
     public event Action<(int X, int Y)>? ContextMenuRequested;   // right-clicked tile; window builds the layer picker
+    public event Action<(int X, int Y)>? LooseContextMenuRequested;   // right-clicked a loose floor item; window builds its menu
     public event Action<string?>? GhostReasonChanged;   // the armed ghost's illegality reason, null when legal/disarmed
     public event Action? ShowZonesChanged;              // the zone overlay was toggled (update the toolbar caption)
     public event Action? ActiveZoneChanged;             // the painted zone changed (sync the zones panel selection)
@@ -176,15 +187,25 @@ public sealed class ShipCanvas : FrameworkElement
         ViewChanged?.Invoke();
     }
 
-    public void SetArmed(PartDef? part)
+    public void SetArmed(PartDef? part, bool loose = false)
     {
         ArmedPart = part;
+        _armedLoose = loose && part is not null;
         if (part is not null)
         {
             SelectedIds.Clear();
             SelectionChanged?.Invoke();
+            ClearLooseSelection();
             SetActiveZone(null);   // arming a part leaves zone-paint mode (the two modes are mutually exclusive)
         }
+        InvalidateVisual();
+    }
+
+    /// <summary>Clear the loose-item selection (if any) and repaint.</summary>
+    public void ClearLooseSelection()
+    {
+        if (SelectedLoose is null) return;
+        SelectedLoose = null;
         InvalidateVisual();
     }
 
@@ -520,6 +541,21 @@ public sealed class ShipCanvas : FrameworkElement
 
         if (e.ChangedButton == MouseButton.Right)
         {
+            // A loose floor item under the cursor wins the right-click, even while a brush is armed: disarm, select
+            // it, and open its menu (Change Quantity / Delete) — otherwise a placed item is unreachable because the
+            // brush stays armed after dropping.
+            if (Doc is not null && Doc.LooseAt(CellAt(screen).X, CellAt(screen).Y) is { } looseRmb)
+            {
+                if (ArmedPart is not null) { SetArmed(null); Disarmed?.Invoke(); }
+                SelectedIds.Clear();
+                SelectionChanged?.Invoke();
+                SelectedLoose = looseRmb;
+                LooseSelectionChanged?.Invoke();
+                InvalidateVisual();
+                LooseContextMenuRequested?.Invoke(CellAt(screen));
+                e.Handled = true;
+                return;
+            }
             if (ArmedPart is not null)
             {
                 SetArmed(null);
@@ -605,6 +641,16 @@ public sealed class ShipCanvas : FrameworkElement
 
         if (ArmedPart is not null)
         {
+            if (_armedLoose)
+            {
+                // A loose item is dropped with a single click (no drag-paint, no box-fill, no CheckFit): onto a
+                // floor tile or into a container under the cursor. One command, committed immediately.
+                _stroke.Clear();
+                TryPlaceLoose(cell);
+                CommitStroke();
+                e.Handled = true;
+                return;
+            }
             _stroke.Clear();
             if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
             {
@@ -620,6 +666,20 @@ public sealed class ShipCanvas : FrameworkElement
             e.Handled = true;
             return;
         }
+
+        // Unarmed left-click on a tile that holds a loose item selects it (it sits on top of the deck), so it can
+        // be inspected and deleted. Ctrl-click falls through to the placement logic (reach the structure beneath).
+        if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && Doc.LooseAt(cell.X, cell.Y) is { } looseHit)
+        {
+            SelectedIds.Clear();
+            SelectionChanged?.Invoke();
+            SelectedLoose = looseHit;
+            LooseSelectionChanged?.Invoke();
+            InvalidateVisual();
+            e.Handled = true;
+            return;
+        }
+        ClearLooseSelection();
 
         // A plain left-click on a tile the CURRENT selection covers drags that selection —
         // it does NOT re-hit-test to the topmost part. Without this, a part reached via the
@@ -785,6 +845,40 @@ public sealed class ShipCanvas : FrameworkElement
         TryPlacePose(cell.X - (w - 1) / 2, cell.Y - (h - 1) / 2, ArmedRot);
     }
 
+    /// <summary>
+    /// Drop the armed loose item at a tile (see <see cref="LoosePlacement"/>): into a container under the cursor
+    /// that accepts it, else resting on a floor tile. Builds the command and executes it into <c>_stroke</c> (the
+    /// caller commits); a rejected drop (no floor, tile taken, container full) surfaces as a ghost-reason status.
+    /// </summary>
+    private void TryPlaceLoose((int X, int Y) cell)
+    {
+        if (Doc is null || ArmedPart is null) return;
+        var item = ArmedPart;
+
+        if (LoosePlacement.AcceptingContainerAt(Doc, Doc.Catalog, cell.X, cell.Y, item) is { } container)
+        {
+            var grid = Doc.Part(container)?.ContainerGrid ?? (6, 6);
+            var after = CargoEdit.Add(container.Cargo, null, grid, item, 1);
+            if (after is null) { RaiseGhostReason("Container is full"); return; }
+            var cmd = new SetCargoCommand(container, container.Cargo, after);
+            cmd.Do(Doc);
+            _stroke.Add(cmd);
+            return;
+        }
+
+        if (LoosePlacement.CanRestOnFloor(Doc, cell.X, cell.Y))
+        {
+            var cmd = new PlaceLooseCommand(new LooseObject { DefName = item.DefName, X = cell.X, Y = cell.Y, Rot = ArmedRot });
+            cmd.Do(Doc);
+            _stroke.Add(cmd);
+            return;
+        }
+
+        RaiseGhostReason(Doc.LooseAt(cell.X, cell.Y) is not null
+            ? "This tile already holds a loose item"
+            : "Drop an item onto a floor tile or an open container");
+    }
+
     private void TryPlacePose(int x, int y, int rot)
     {
         if (Doc is null || ArmedPart is null) return;
@@ -872,6 +966,8 @@ public sealed class ShipCanvas : FrameworkElement
                 ctx.DrawRectangle(Background, null, new Rect(0, 0, pxW, pxH));
                 foreach (var p in Doc.DrawOrder())
                     DrawPlacement(ctx, p, (0, 0));
+                foreach (var lo in Doc.LooseObjects)
+                    if (Doc.Catalog.Lookup(lo.DefName) is { } part) DrawSprite(ctx, part, lo.X, lo.Y, lo.Rot, ghost: false);
             }
             var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(pxW, pxH, 96, 96, PixelFormats.Pbgra32);
             rtb.Render(dv);
@@ -1176,6 +1272,8 @@ public sealed class ShipCanvas : FrameworkElement
             dc.DrawDrawing(StaticShip());
         }
 
+        DrawLooseObjects(dc);   // loose floor items sit on top of the deck/fixtures they rest on
+
         DrawIllegalCells(dc);
         DrawLeakCells(dc);
         if (ShowZones || ActiveZoneId is not null) DrawZones(dc);
@@ -1190,7 +1288,11 @@ public sealed class ShipCanvas : FrameworkElement
             dc.DrawRectangle(null, SelectPen, CellRect(bx + offset.X, by + offset.Y, bw, bh));
         }
 
-        if (ArmedPart is not null && _hoverCell is { } hover)
+        if (ArmedPart is not null && _armedLoose && _hoverCell is { } looseHover)
+        {
+            DrawLooseGhost(dc, looseHover);
+        }
+        else if (ArmedPart is not null && _hoverCell is { } hover)
         {
             var (w, h) = GridMath.Size(ArmedPart.Item.Width, ArmedPart.Item.Height, ArmedRot);
             var (gx, gy) = (hover.X - (w - 1) / 2, hover.Y - (h - 1) / 2);
@@ -1390,6 +1492,39 @@ public sealed class ShipCanvas : FrameworkElement
                 DrawPlacement(ctx, p, (0, 0));
         dg.Freeze();
         return _staticShip = dg;
+    }
+
+    /// <summary>Draw every loose floor item at its tile (resolved to its sprite), plus a select outline on the
+    /// chosen one. Drawn each frame over the cached ship, like the zone overlay, since these are few.</summary>
+    private void DrawLooseObjects(DrawingContext dc)
+    {
+        foreach (var lo in Doc!.LooseObjects)
+        {
+            if (Doc.Catalog.Lookup(lo.DefName) is not { } part) continue;
+            DrawSprite(dc, part, lo.X, lo.Y, lo.Rot, ghost: false);
+            if (SelectedLoose is { } sel && sel.Id == lo.Id)
+            {
+                var (w, h) = GridMath.Size(part.Item.Width, part.Item.Height, lo.Rot);
+                dc.DrawRectangle(null, SelectPen, CellRect(lo.X, lo.Y, w, h));
+            }
+        }
+    }
+
+    /// <summary>Preview the armed loose item at the hover tile: the semi-transparent sprite plus a green/red
+    /// outline for whether it may land there (a floor tile or an accepting container). Mirrors
+    /// <see cref="TryPlaceLoose"/>'s decision so the click matches the preview.</summary>
+    private void DrawLooseGhost(DrawingContext dc, (int X, int Y) cell)
+    {
+        if (ArmedPart is not { } part || Doc is null) return;
+        var (w, h) = GridMath.Size(part.Item.Width, part.Item.Height, ArmedRot);
+        var ok = LoosePlacement.AcceptingContainerAt(Doc, Doc.Catalog, cell.X, cell.Y, part) is not null
+                 || LoosePlacement.CanRestOnFloor(Doc, cell.X, cell.Y);
+
+        dc.PushOpacity(0.55);
+        DrawSprite(dc, part, cell.X, cell.Y, ArmedRot, ghost: true);
+        dc.Pop();
+        dc.DrawRectangle(null, ok ? GhostOkPen : GhostBadPen, CellRect(cell.X, cell.Y, w, h));
+        RaiseGhostReason(ok ? null : "Drop an item onto a floor tile or an open container");
     }
 
     private void DrawPlacement(DrawingContext dc, Placement p, (int X, int Y) offset)

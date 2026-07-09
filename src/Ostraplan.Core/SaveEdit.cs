@@ -271,6 +271,41 @@ public static class SaveEdit
             EmitCargo(p.Cargo, containerId, fx, fy);
         }
 
+        // Loose floor items (the Items palette): each is a free-standing top-level item at its tile. Unlike a
+        // template, a save load skips any item without a CO (DataHandler.SpawnItems), so every one needs a
+        // SynthesizeCo — the head, and each extra copy of a stack. A quantity > 1 is a stack: extra copies are
+        // members parented to the head, and the head's CO lists them in aStack (CondOwner.PostGameLoad rebuilds
+        // the ×N stack). This mirrors how EmitCargo synthesizes authored container cargo, minus a parent container.
+        foreach (var lo in doc.LooseObjects)
+        {
+            if (catalog.Lookup(lo.DefName) is not { } lpart) continue;
+            var tmp = new Placement { DefName = lo.DefName, X = lo.X, Y = lo.Y, Rot = lo.Rot };
+            var (lw, lh) = Footprint(catalog, tmp);
+            var (lfx, lfy, lfrot) = DocPoseToWorld(tmp, lw, lh, vx0, vy0);
+            var headId = Guid.NewGuid().ToString();
+            var qtyL = Math.Clamp(lo.Quantity, 1, Math.Max(1, lpart.StackLimit));
+
+            outItems.Add(new JsonObject { ["strName"] = lo.DefName, ["fX"] = lfx, ["fY"] = lfy, ["fRotation"] = lfrot, ["strID"] = headId });
+            var headCo = SynthesizeCo(lo.DefName, headId, catalog, ctx.Source.RegId, ctx.Epoch);
+
+            if (qtyL > 1)
+            {
+                var memberIds = new JsonArray();
+                for (var i = 1; i < qtyL; i++)
+                {
+                    var mid = Guid.NewGuid().ToString();
+                    outItems.Add(new JsonObject
+                    {
+                        ["strName"] = lo.DefName, ["fX"] = lfx, ["fY"] = lfy, ["fRotation"] = lfrot, ["strID"] = mid, ["strParentID"] = headId,
+                    });
+                    outCOs.Add(SynthesizeCo(lo.DefName, mid, catalog, ctx.Source.RegId, ctx.Epoch));
+                    memberIds.Add(mid);
+                }
+                headCo["aStack"] = memberIds;
+            }
+            outCOs.Add(headCo);
+        }
+
         // grid frame: never shrink below the original (keeps nDestTile valid); grow to fit new parts
         int minC = 0, minR = 0, maxC = nCols0 - 1, maxR = nRows0 - 1;
         if (doc.Bounds() is { } b)

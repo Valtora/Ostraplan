@@ -71,10 +71,12 @@ public partial class MainWindow : Window
             _ => "Off",
         };
         Board.SelectionChanged += UpdateInspector;
+        Board.LooseSelectionChanged += UpdateInspector;
         Board.HoverChanged += cell => { _hoverCell = cell; TxtCell.Text = cell is { } c ? $"tile {c.X}, {c.Y}" : "—"; };
         Board.ViewChanged += UpdateZoomText;
         Board.Disarmed += ClearPaletteSelection;
         Board.ContextMenuRequested += OnContextMenuRequested;
+        Board.LooseContextMenuRequested += OnLooseContextMenuRequested;
         Board.GhostReasonChanged += reason => TxtGhost.Text = reason is null ? "" : "⛔ can't place here — " + reason;
         Board.ZoneStrokeCommitted += OnZoneStrokeCommitted;
         Board.ShowZonesChanged += UpdateZonesButton;
@@ -145,6 +147,12 @@ public partial class MainWindow : Window
                 var spr = new SpriteCache();
                 // thumbnails built here so first palette paint is instant (all frozen)
                 var vms = cat.Parts.Select(p => new PartVM(p, spr.Thumb(p))).ToList();
+                // The Items tab: every renderable loose item (the whole loose universe), re-tagged into the synthetic
+                // ItemsCategory so it lands in its own tab. Only DefName is used when one is dropped, so the cloned
+                // category never leaks into placement/export. Skip defs with no sprite on disk (can't be drawn/ghosted).
+                vms.AddRange(cat.LooseItems
+                    .Where(p => p.SpriteAbs is not null)
+                    .Select(p => new PartVM(p with { Category = ItemsCategory }, spr.Thumb(p))));
                 return (idx, cat, spr, vms);
             });
         }
@@ -194,11 +202,16 @@ public partial class MainWindow : Window
 
     // ---- palette ----
 
+    /// <summary>The synthetic palette category for loose cargo (the ITEMS tab). Not a game build category — it
+    /// exists only to group the loose universe into its own tab and to flag an armed brush as a loose drop. Value is
+    /// the uppercase tab header, matching the game's HULL/HVAC/… tabs.</summary>
+    private const string ItemsCategory = "ITEMS";
+
     private void BuildPalette()
     {
         Tabs.Items.Clear();
         _paletteLists.Clear();
-        foreach (var category in new[] { "All" }.Concat(Catalog.Categories))
+        foreach (var category in new[] { "All" }.Concat(Catalog.Categories).Append(ItemsCategory))
         {
             var list = new ListBox
             {
@@ -226,8 +239,10 @@ public partial class MainWindow : Window
         foreach (var list in _paletteLists)
         {
             var category = (string?)list.Tag;
+            // The "All" tab (null Tag) is the buildable palette only — the huge loose universe stays in its own
+            // Items tab, so it doesn't drown the structure parts.
             list.ItemsSource = _allParts
-                .Where(vm => (category is null || vm.Part.Category == category) && vm.Matches(search))
+                .Where(vm => (category is null ? vm.Part.Category != ItemsCategory : vm.Part.Category == category) && vm.Matches(search))
                 .ToList();
         }
         _syncingPalette = false;
@@ -247,7 +262,7 @@ public partial class MainWindow : Window
             list.SelectedItem = null;
         _syncingPalette = false;
 
-        Board.SetArmed(vm.Part);
+        Board.SetArmed(vm.Part, loose: vm.Part.Category == ItemsCategory);
         AuditLog.Tool(vm.Part.Friendly);
         Board.Focus();   // keys (R, Del, Esc) belong to the canvas once a part is armed
         UpdateInspector();
@@ -698,6 +713,13 @@ public partial class MainWindow : Window
     private void DeleteSelection()
     {
         if (_doc is null) return;
+        if (Board.SelectedLoose is { } loose)   // a selected loose floor item — remove just it
+        {
+            _stack.Push(_doc, new RemoveLooseCommand(loose));
+            Board.ClearLooseSelection();
+            UpdateInspector();
+            return;
+        }
         var selected = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
         if (selected.Count == 0) return;
         _stack.Push(_doc, new RemoveCommand(selected));
@@ -1190,6 +1212,48 @@ public partial class MainWindow : Window
         menu.IsOpen = true;
     }
 
+    /// <summary>Context menu for a loose floor item (the Items palette): change its stacked quantity (when the item
+    /// stacks) and delete it. Fired by a right-click on the item, which has already selected it.</summary>
+    private void OnLooseContextMenuRequested((int X, int Y) cell)
+    {
+        if (_doc is null || _catalog is null || Board.SelectedLoose is not { } lo) return;
+        var part = _catalog.Lookup(lo.DefName);
+        if (part is null) return;
+
+        static MenuItem Item(string header, string gesture, RoutedEventHandler onClick, bool enabled = true)
+        {
+            var item = new MenuItem { Header = header, InputGestureText = gesture, IsEnabled = enabled };
+            item.Click += onClick;
+            return item;
+        }
+
+        var menu = new ContextMenu { PlacementTarget = Board };
+        menu.Items.Add(new MenuItem
+        {
+            Header = part.Friendly + (lo.Quantity > 1 ? $"  · ×{lo.Quantity}" : ""),
+            IsEnabled = false, FontWeight = FontWeights.SemiBold,
+        });
+        menu.Items.Add(new Separator());
+
+        var stackable = part.StackLimit > 1;
+        menu.Items.Add(Item(stackable ? "Change Quantity…" : "Change Quantity (not stackable)", "",
+            (_, _) => ChangeLooseQuantity(lo, part), stackable));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item("Delete", "Del", (_, _) => DeleteSelection()));
+        menu.IsOpen = true;
+    }
+
+    /// <summary>Prompt for a new stacked quantity (1..stack limit) and apply it as one undo step.</summary>
+    private void ChangeLooseQuantity(LooseObject lo, PartDef part)
+    {
+        if (_doc is null) return;
+        var max = Math.Max(1, part.StackLimit);
+        var dlg = new LooseQuantityDialog(part.Friendly, lo.Quantity, max) { Owner = this };
+        if (dlg.ShowDialog() != true || dlg.Quantity == lo.Quantity) return;
+        _stack.Push(_doc, new SetLooseQuantityCommand(lo, lo.Quantity, dlg.Quantity));
+        UpdateInspector();
+    }
+
     /// <summary>A part can show an inventory view when it holds cargo, or is a container / equipment-slot host —
     /// even when empty, so an imported empty container isn't unreachable from the viewer.</summary>
     private bool CanViewContents(Placement p)
@@ -1261,6 +1325,7 @@ public partial class MainWindow : Window
                 else
                 {
                     Board.SelectedIds.Clear();
+                    Board.ClearLooseSelection();
                     Board.InvalidateVisual();
                     UpdateInspector();
                 }
@@ -1329,7 +1394,8 @@ public partial class MainWindow : Window
     {
         var selected = Board.SelectedPlacements();
         var part = Board.ArmedPart
-                   ?? (selected.Count == 1 ? _doc?.Part(selected[0]) : null);
+                   ?? (selected.Count == 1 ? _doc?.Part(selected[0]) : null)
+                   ?? (Board.SelectedLoose is { } lo ? _catalog?.Lookup(lo.DefName) : null);   // a selected loose floor item
 
         if (part is null)
         {
@@ -1347,7 +1413,9 @@ public partial class MainWindow : Window
         var lockedNote = Board.ArmedPart is null && selected.Count == 1 && _doc?.IsLocked(selected[0]) == true
             ? "  · fixed to the ship"
             : "";
-        InsFriendly.Text = part.Friendly + lockedNote;
+        // a selected loose floor item shows its stacked count
+        var looseNote = Board.ArmedPart is null && Board.SelectedLoose is { Quantity: > 1 } sl ? $"  · ×{sl.Quantity}" : "";
+        InsFriendly.Text = part.Friendly + lockedNote + looseNote;
         InsInternal.Text = part.DefName;
         if (part.Desc is { Length: > 0 } desc)
         {

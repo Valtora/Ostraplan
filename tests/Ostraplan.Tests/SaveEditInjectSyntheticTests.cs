@@ -215,4 +215,46 @@ public class SaveEditInjectSyntheticTests
 
         Assert.Throws<System.IO.InvalidDataException>(() => SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs));
     }
+
+    [Fact]
+    public void A_loose_floor_item_is_injected_as_a_free_standing_item_with_a_CO()
+    {
+        // the ITEMS palette: a loose item dropped on a floor must reach the save (its own top-level item + a CO,
+        // or the game skips it on load). A single item is one entry.
+        var cat = new Fixtures().Floor("Floor").Part("Widget").Build();
+        var ctx = Context(
+            new JsonArray(Item("a", "Floor", 100, 200)),
+            new JsonArray(Co("a", "Floor")),
+            new() { ["a"] = new OriginPart(0, 0, 0, []) });
+        var doc = Fixtures.Doc(cat, new Placement { DefName = "Floor", X = 0, Y = 0, OriginStrID = "a" });
+        new PlaceLooseCommand(new LooseObject { DefName = "Widget", X = 0, Y = 0 }).Do(doc);
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
+
+        var widget = Assert.Single(Items(ship), i => (string)i["strName"]! == "Widget");
+        Assert.Null(widget["strParentID"]);                         // free-standing, not inside a container
+        Assert.Contains((string)widget["strID"]!, CoIds(ship));      // has a CO (or a save load skips it)
+    }
+
+    [Fact]
+    public void A_loose_stack_is_injected_as_a_head_plus_members_with_astack()
+    {
+        var cat = new Fixtures().Floor("Floor").Part("Ammo", stackLimit: 10).Build();
+        var ctx = Context(
+            new JsonArray(Item("a", "Floor", 100, 200)),
+            new JsonArray(Co("a", "Floor")),
+            new() { ["a"] = new OriginPart(0, 0, 0, []) });
+        var doc = Fixtures.Doc(cat, new Placement { DefName = "Floor", X = 0, Y = 0, OriginStrID = "a" });
+        new PlaceLooseCommand(new LooseObject { DefName = "Ammo", X = 0, Y = 0, Quantity = 3 }).Do(doc);
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
+
+        var ammo = Items(ship).Where(i => (string)i["strName"]! == "Ammo").ToList();
+        Assert.Equal(3, ammo.Count);                                            // head + 2 members
+        var head = Assert.Single(ammo, i => i["strParentID"] is null);
+        Assert.Equal(2, ammo.Count(i => (string?)i["strParentID"] == (string)head["strID"]!));
+        Assert.All(ammo, i => Assert.Contains((string)i["strID"]!, CoIds(ship)));   // every copy carries a CO
+        var headCo = ((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()).Single(o => (string)o["strID"]! == (string)head["strID"]!);
+        Assert.Equal(2, ((JsonArray)headCo["aStack"]!).Count);                  // head lists its members
+    }
 }

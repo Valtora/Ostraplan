@@ -157,6 +157,45 @@ public static class ShipExport
             }
         }
 
+        // Loose items dropped on the floor (the Items palette): the stack head is a free-standing, parentless
+        // top-level item at its tile — exactly how a core template lists floor cargo (a salvage pod's scrap, a
+        // bunk's effects). The loader keeps a top-level item unconditionally (unlike a parented one, which needs the
+        // bForceLoad/marker gate), so the single-item case needs no CO record. A quantity > 1 is a STACK: the extra
+        // copies are members parented to the head (with the pristine marker + bForceLoad so they survive and keep
+        // their strIDs), and the head gets a CO whose aStack lists them, the same shape EmitContained bakes for a
+        // container's stacked cargo (see CondOwner.PostGameLoad).
+        foreach (var lo in doc.LooseObjects)
+        {
+            if (catalog.Lookup(lo.DefName) is not { } part) { warnings?.Add($"Loose item '{lo.DefName}' has no def; skipped."); continue; }
+            var (w, h) = GridMath.Size(part.Item.Width, part.Item.Height, lo.Rot);
+            var fx = lo.X + (w / 2.0 - 0.5);
+            var fy = -(lo.Y + (h / 2.0 - 0.5));
+            var rot = GridMath.Norm(-lo.Rot);
+            var headId = Guid.NewGuid().ToString();
+            var qty = Math.Clamp(lo.Quantity, 1, Math.Max(1, part.StackLimit));
+
+            items.Add(new ExportedItem { StrName = lo.DefName, FX = fx, FY = fy, FRotation = rot, StrID = headId });
+
+            if (qty > 1)
+            {
+                var memberIds = new List<string>(qty - 1);
+                for (var i = 1; i < qty; i++)
+                {
+                    var mid = Guid.NewGuid().ToString();
+                    items.Add(new ExportedItem
+                    {
+                        StrName = lo.DefName, FX = fx, FY = fy, FRotation = rot, StrID = mid,
+                        StrParentID = headId, ACondOverrides = PristineMarker, BForceLoad = true,
+                    });
+                    memberIds.Add(mid);
+                }
+                cos.Add(new ExportedCondOwnerSave
+                {
+                    StrID = headId, StrCODef = lo.DefName, StrCondID = lo.DefName + headId, AStack = memberIds.ToArray(),
+                });
+            }
+        }
+
         // The game's roomValue is the room's PARTS value (Room.CalculateRoomValue = Σ GetBasePrice × modifier),
         // which GetShipValue sums on a shallow load. Bake that, not the physical volume — a volume figure (~0.256
         // per tile) made a spawned design read as near-worthless at a broker until the game recomputed on full load.

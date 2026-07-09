@@ -11,6 +11,29 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.11.0] — 2026-07-09 — ITEMS palette: loose cargo on ships
+
+### Added
+- **ITEMS palette tab — drop loose cargo onto ships.** A new **ITEMS** tab lists
+  every loose item in the game (food, ammo, clothing, tools, books, brushes, scrap,
+  personal effects — the whole loose universe). Arm one and click to drop it: onto a
+  **floor tile** (it rests on the deck, one item per tile) or into a **container**
+  under the cursor that accepts it (same fit rules as the inventory editor). A live
+  green/red ghost shows whether the drop will land. **Right-click** a dropped item for
+  its menu — **Change Quantity…** (stack a stackable item up to its per-item limit) and
+  **Delete**; left-click selects it (details in the inspector), **Del** removes it.
+  Loose items and their stack counts persist in the `.oplan`, spawn in the ship both when
+  you **export a mod** and when you **update a ship in a save** (a stack becomes a proper
+  stack head + members with a CO each), and appear in the PNG snapshot. *Why it matters:*
+  designs can now be provisioned — a stocked galley, a loaded ammo locker, scattered
+  salvage — not just built empty.
+
+### Fixed
+- **All textbook and toothbrush variants now appear** in the loose-item picker (10
+  textbooks, 6 toothbrushes), not just one of each. These are metadata skins over a
+  shared base item; the container add-picker already surfaces them since 0.9.0, and the
+  new ITEMS tab lists the full set.
+
 ## [0.10.0] — 2026-07-09 — operational-state build defaults
 
 ### Changed

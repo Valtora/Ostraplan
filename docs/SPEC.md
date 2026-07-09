@@ -183,6 +183,32 @@ it*). So zones **do not self-heal**: this is the whole bug when a tool round-tri
   station's trigger zones) round-trip untouched. Model lives in `ShipZone`/`ZoneGeometry`
   (Core); it contributes **no** tile conditions, rooms or rating.
 
+### 6.11 Loose items (`LooseObject`) — floor cargo, not structure
+
+Loose items are cargo dropped straight onto a ship tile (food, ammo, clothing, tools,
+books, a personal effect) — the game's own top-level `aItems` entries that aren't
+installed structure. Like zones they are a **non-structural overlay**: they carry no tile
+conditions and take no part in `CheckFit`, rooms, airtightness or rating; they only render
+and export. Model lives in `LooseObject`/`LoosePlacement` (Core).
+
+- **The law** (`LoosePlacement`). An item may rest on a **floor tile** (any of
+  `IsFloor`/`IsFloorSealed`/`IsFloorFlex`), **one per tile**, or go into a **container**
+  covering that tile that accepts it (`ContainerFilter` + `CargoEdit.MaxAddable`>0). This
+  mirrors how the game stores loose cargo and blocks items floating in vacuum or clipped
+  inside walls. The **ITEMS** palette tab is the whole loose universe (`Catalog.LooseItems`,
+  renderable ones); arming one and clicking drops it (a container under the cursor wins,
+  else the floor). Right-click a placed item for **Change Quantity** (a stackable item,
+  clamped to its `StackLimit`) and **Delete**.
+- **Quantity/stacking.** A floor item carries a `Quantity` (1..`StackLimit`). It exports as
+  a single top-level item when 1, and as a **stack** when >1 — a top-level head plus
+  `Quantity−1` members parented to it (pristine marker + `bForceLoad`) and a head CO whose
+  `aStack` lists the members, the same shape `EmitContained` bakes for container cargo.
+- **Round-trip.** Export bakes each as a **free-standing, parentless** top-level `aItems`
+  entry at its tile (the loader keeps a top-level item unconditionally — no `bForceLoad`/
+  marker gate, unlike parented cargo); the **`.oplan`** persists them (`looseObjects`,
+  additive at format v1, so older builds preserve them via `Extra`). Container drops route
+  through the existing cargo tree (`CargoEdit` + `SetCargoCommand`).
+
 ## 7. UX
 
 ```
@@ -196,7 +222,7 @@ it*). So zones **do not self-heal**: this is the whole bug when a tool round-tri
 └────────────┴──────────────────────────────┴─────────────┘
 ```
 
-- **Palette**: the 8 game tabs + "All"; incremental search over friendly name (condowners) and internal `strName`; sprite thumbnails; drag onto canvas or click-to-arm placement cursor. Modded parts appear inline with a small origin badge (mod name on hover).
+- **Palette**: the 8 game tabs + "All", plus an **Items** tab for loose floor cargo (§6.11); incremental search over friendly name (condowners) and internal `strName`; sprite thumbnails; drag onto canvas or click-to-arm placement cursor. Modded parts appear inline with a small origin badge (mod name on hover).
 - **Canvas**: place LMB (repeat-place while armed); rotate **`R`** (`Shift+R` reverse) — deliberately the same key as the game's build mode, and the general rule: **where the game has an equivalent binding, Ostraplan uses it**; cancel `Esc`; delete `Del`/eraser mode; move by dragging a selection; box-select; copy/paste of selections. Ghost preview is green/red with failing cells highlighted and a tooltip naming the unmet requirement. Pan: Space-drag/MMB; zoom: wheel, integer pixel multiples (1×–8×, NearestNeighbor — crisp pixel art). Overlays: room fill tinted per room with spec label; seal overlay; advanced socket-debug overlay.
 - **Inspector**: selected part (friendly + internal name, category, footprint, materials, install work, notable conditions); ship stats (dimensions, tile count, mass, room list, live rating string).
 - **Out-of-bounds overlay** (shipped v0.1): the areas beyond every docking port's mating face — the `GetAirlockBounds` envelope — render as red hazard stripes, screen-fixed scale.

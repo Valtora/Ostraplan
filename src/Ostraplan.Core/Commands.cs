@@ -234,3 +234,28 @@ public sealed class SetZoneMetaCommand(ShipZone zone, ZoneMeta before, ZoneMeta 
     public void Do(ShipDocument doc) => doc.SetZoneMeta(zone, after);
     public void Undo(ShipDocument doc) => doc.SetZoneMeta(zone, before);
 }
+
+// ---- loose-object commands (items dropped on the floor — see LooseObject) ----
+
+/// <summary>Drop a loose item onto a tile.</summary>
+public sealed class PlaceLooseCommand(LooseObject obj) : IDocCommand
+{
+    public LooseObject Obj => obj;
+    public void Do(ShipDocument doc) => doc.AddLoose(obj);
+    public void Undo(ShipDocument doc) => doc.RemoveLoose(obj);
+}
+
+/// <summary>Remove a loose item from its tile.</summary>
+public sealed class RemoveLooseCommand(LooseObject obj) : IDocCommand
+{
+    public void Do(ShipDocument doc) => doc.RemoveLoose(obj);
+    public void Undo(ShipDocument doc) => doc.AddLoose(obj);
+}
+
+/// <summary>Change a loose item's stacked quantity (Change Quantity). Set in place, so the object's identity — and
+/// thus the selection pointing at it — survives.</summary>
+public sealed class SetLooseQuantityCommand(LooseObject obj, int before, int after) : IDocCommand
+{
+    public void Do(ShipDocument doc) => doc.SetLooseQuantity(obj, after);
+    public void Undo(ShipDocument doc) => doc.SetLooseQuantity(obj, before);
+}

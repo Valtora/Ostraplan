@@ -57,6 +57,7 @@ public sealed class ShipDocument
     private readonly Dictionary<(int, int), List<Placement>> _byTile = [];   // spatial index: tile -> parts covering it
     private readonly HashSet<Guid> _cargoEdited = [];   // placements whose container contents were authored/removed
     private readonly List<ShipZone> _zones = [];   // painted crew/trade zones (overlays, not tile-grid parts)
+    private readonly Dictionary<(int, int), LooseObject> _looseByTile = [];   // loose items lying on tiles (overlay, one per tile)
 
     public Catalog Catalog { get; }
     public TileConds Conds { get; }
@@ -115,6 +116,15 @@ public sealed class ShipDocument
     /// NOT in the spatial index and do NOT contribute tile conditions, rooms, or rating. All mutation goes
     /// through the command stack (the <c>internal</c> mutators below).</summary>
     public IReadOnlyList<ShipZone> Zones => _zones;
+
+    /// <summary>The loose items dropped onto tiles (see <see cref="LooseObject"/>). Like zones these are a
+    /// non-structural overlay — NOT in the spatial index and contributing no tile conditions, rooms, or rating —
+    /// so analysis (the snapshot, CheckFit, room/airtightness/rating) never sees them. One per tile. All mutation
+    /// goes through the command stack (the <c>internal</c> mutators below).</summary>
+    public IReadOnlyCollection<LooseObject> LooseObjects => _looseByTile.Values;
+
+    /// <summary>The loose item on a tile, or null.</summary>
+    public LooseObject? LooseAt(int x, int y) => _looseByTile.GetValueOrDefault((x, y));
 
     /// <summary>
     /// An independent copy for off-thread analysis: the same placements (poses + given-ness) with
@@ -350,6 +360,22 @@ public sealed class ShipDocument
     /// <summary>Replace a zone's editable non-tile fields (name/colour/type/role/advanced) from a snapshot.</summary>
     internal void SetZoneMeta(ShipZone z, ZoneMeta meta) { z.ApplyMeta(meta); RaiseChanged(); }
 
+    // ---- loose-object mutations (command implementations only) ----
+
+    /// <summary>Drop a loose item onto its tile. One per tile: an existing loose object there is replaced (the
+    /// placement law forbids that, so in practice the tile is always empty first).</summary>
+    internal void AddLoose(LooseObject o) { _looseByTile[(o.X, o.Y)] = o; RaiseChanged(); }
+
+    /// <summary>Remove a loose item — only if it is still the one on its tile (guards a stale undo).</summary>
+    internal void RemoveLoose(LooseObject o)
+    {
+        if (_looseByTile.TryGetValue((o.X, o.Y), out var cur) && ReferenceEquals(cur, o) && _looseByTile.Remove((o.X, o.Y)))
+            RaiseChanged();
+    }
+
+    /// <summary>Set the stacked quantity of a loose item in place (keeps its identity for selection).</summary>
+    internal void SetLooseQuantity(LooseObject o, int quantity) { o.Quantity = quantity; RaiseChanged(); }
+
     internal void Clear()
     {
         _placements.Clear();
@@ -358,6 +384,7 @@ public sealed class ShipDocument
         Conds.Clear();
         _cargoEdited.Clear();
         _zones.Clear();
+        _looseByTile.Clear();
         _seq = 0;
         RaiseChanged();
     }
