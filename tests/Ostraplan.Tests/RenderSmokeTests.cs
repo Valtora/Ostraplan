@@ -60,8 +60,10 @@ public class RenderSmokeTests
         {
             var doc = new ShipDocument(g.Catalog);
             new PlaceCommand(new Placement { DefName = Catalog.PrimaryDocksysDef, X = 0, Y = 0 }).Do(doc);
-            // a bed dropped straight onto bare space (Do bypasses the placement law) is illegal - it needs floor + a headboard wall
-            var stray = g.Catalog.ByDefName.ContainsKey("ItmBed01Off") ? "ItmBed01Off" : "ItmWall1x1";
+            // a bed dropped straight onto bare space (Do bypasses the placement law) is illegal - it needs floor + a headboard wall.
+            // The palette builds the bed in its On/base state (ItmBed01); an older build's key or a plain wall are fallbacks.
+            var stray = g.Catalog.ByDefName.ContainsKey("ItmBed01") ? "ItmBed01"
+                : g.Catalog.ByDefName.ContainsKey("ItmBed01Off") ? "ItmBed01Off" : "ItmWall1x1";
             new PlaceCommand(new Placement { DefName = stray, X = 3, Y = 4 }).Do(doc);
 
             var cells = ProblemScan.Scan(doc, g.Catalog)

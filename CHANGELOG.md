@@ -11,6 +11,19 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.10.0] — 2026-07-09 — operational-state build defaults
+
+### Changed
+- **Powered fixtures build in their operational (On) state, not Off.** Ostranauts
+  installs most devices switched **off** (the state a ship's rating never counts and
+  that a player must turn on after loading). Ostraplan already did this for RCS
+  thrusters; it now does it for **every** device with a clean operational counterpart
+  — coolers, heaters, scrubbers, chargers, alarms, sensors, reactors, weapons, plus
+  furniture — so a design's rating reflects reality and an exported ship spawns with
+  its systems working. Devices whose "on" state is genuinely ambiguous (a colour/alert
+  alarm, a transponder, the fusion reactor's startup sequence, an open/closed vent) are
+  left exactly as the game installs them.
+
 ## [0.9.0] — 2026-07-09 — ship zones, faithful cargo & one-click install
 
 ### Added

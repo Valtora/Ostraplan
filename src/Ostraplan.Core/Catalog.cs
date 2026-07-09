@@ -414,16 +414,6 @@ public sealed class Catalog
     }
 
     /// <summary>
-    /// The def Ostraplan should actually build for an install target. Ostranauts installs RCS thrusters in their
-    /// <b>Off</b> state (<c>strStartInstall = ItmRCSCluster01Off</c>), which the maneuver rating never counts (its
-    /// <c>TIsRCSClusterAudioEmitter</c> trigger forbids <c>IsOff</c>) and which a player must switch on after
-    /// loading. Ostraplan builds the identical <b>On</b> variant instead — same footprint, sockets and sprite, only
-    /// the power state differs (and core templates ship the On variant 776:6) — so a design's maneuver grade is
-    /// meaningful and an exported ship's thrusters work on spawn. Strictly scoped to RCS clusters: an "…Off" bed or
-    /// sign is left untouched. The target must be an RCS cluster carrying <c>IsOff</c> whose suffix-dropped
-    /// counterpart resolves and is a non-Off RCS cluster; otherwise the def is returned unchanged.
-    /// </summary>
-    /// <summary>
     /// Map a base-condowner state to a cooverlay skin's counterpart via <c>mapModeSwitches</c> — a flat list of
     /// <c>[base, skin]</c> pairs (installed/patch/damaged/loose). Given the base's loose form, returns the skin's
     /// loose form (e.g. <c>ItmFloorGrate01Loose</c> → <c>ItmFloorAERO01Loose</c>). Null if the base state isn't
@@ -437,16 +427,39 @@ public sealed class Catalog
         return null;
     }
 
+    /// <summary>
+    /// The def Ostraplan should actually build for an install target. Ostranauts installs powered fixtures in their
+    /// <b>Off</b> state (e.g. <c>strStartInstall = ItmRCSCluster01Off</c>) — the state a ship's rating never counts
+    /// (rating triggers forbid <c>IsOff</c>: the RCS maneuver grade's <c>TIsRCSClusterAudioEmitter</c> is one of
+    /// many) and which a player must switch on after loading. Ostraplan builds the identical <b>On</b> variant
+    /// instead — same footprint, only the power state differs, and core ship templates are authored with the On
+    /// variant — so a design's rating is meaningful and an exported ship's devices work on spawn.
+    /// <para>
+    /// The game's On-state naming isn't uniform, so the counterpart is found by trying, most-specific first,
+    /// <c>"…On"</c> (cooler, switch), <c>"…OnG"</c> (the green/normal state air pumps and most alarms use), then the
+    /// bare stem with <c>Off</c> dropped (RCS, heater, bed). A candidate is accepted only when it resolves to real
+    /// geometry, is itself not <c>IsOff</c>, and shares the Off state's footprint. Anything without such a
+    /// counterpart — a device whose only On states are ambiguous colour/alert modes (temp alarm, transponder), a
+    /// startup sequence (fusion reactor core), an Open/Closed vent, or a plain "…Off" that isn't a power state — is
+    /// left exactly as installed.
+    /// </para>
+    /// </summary>
     private static string PreferPoweredState(DataIndex index, string def)
     {
         if (!def.EndsWith("Off", StringComparison.Ordinal)) return def;
-        if (ResolveDef(index, def, "—", "core", [], []) is not { StartingConds: var offConds }
-            || !offConds.Contains("IsRCSCluster") || !offConds.Contains("IsOff"))
+        if (ResolveDef(index, def, "—", "core", [], []) is not { } off || !off.StartingConds.Contains("IsOff"))
             return def;
-        var on = def[..^3];
-        return ResolveDef(index, on, "—", "core", [], []) is { StartingConds: var onConds }
-            && onConds.Contains("IsRCSCluster") && !onConds.Contains("IsOff")
-            ? on : def;
+        var stem = def[..^3];
+        foreach (var candidate in new[] { stem + "On", stem + "OnG", stem })
+        {
+            if (candidate == def) continue;
+            if (ResolveDef(index, candidate, "—", "core", [], []) is not { } on
+                || on.StartingConds.Contains("IsOff")
+                || on.Item.Width != off.Item.Width || on.Item.Height != off.Item.Height)
+                continue;
+            return candidate;
+        }
+        return def;
     }
 
     /// <summary>

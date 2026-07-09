@@ -85,6 +85,38 @@ public class RatingValueFixTests
         Assert.False(CondEval.Triggered(trig!, off!.StartingConds, g.Catalog));  // Off → not counted
     }
 
+    [SkippableTheory]
+    // Non-RCS powered fixtures also build in their operational state, resolved via the game's non-uniform On naming:
+    [InlineData("ItmCooler01Off", "ItmCooler01On")]        // "…On"
+    [InlineData("ItmAtmoScrubber01Off", "ItmAtmoScrubber01")] // drop the suffix
+    [InlineData("ItmHeater01Off", "ItmHeater01")]          // drop the suffix (base is the powered state)
+    [InlineData("ItmBed01Off", "ItmBed01")]                // furniture too — the base bed, not the "off" one
+    public void Powered_fixtures_are_built_in_their_on_state(string offDef, string onDef)
+    {
+        var g = TestData.RequireGame();
+        Skip.IfNot(g.Catalog.Index is not null, "needs the real installables");
+        Skip.If(g.Catalog.Lookup(offDef) is null || g.Catalog.Lookup(onDef) is null, "defs not present in this build");
+
+        Assert.Contains(g.Catalog.Parts, p => p.DefName == onDef);          // the On/base variant is the palette entry
+        Assert.DoesNotContain(g.Catalog.Parts, p => p.DefName == offDef);   // never the as-installed Off variant
+        Assert.DoesNotContain("IsOff", g.Catalog.Lookup(onDef)!.StartingConds);
+        Assert.Contains("IsOff", g.Catalog.Lookup(offDef)!.StartingConds);
+    }
+
+    [SkippableTheory]
+    // Devices whose only On states are ambiguous (colour/alert modes, a startup sequence, an Open/Closed vent) are
+    // left exactly as the game installs them, never guessed into a wrong default.
+    [InlineData("ItmVent02Off")]           // Open/Closed, not On
+    [InlineData("ItmTransponder01Off")]    // only "…OnR" exists (a colour state)
+    public void Ambiguous_devices_are_left_as_installed(string offDef)
+    {
+        var g = TestData.RequireGame();
+        Skip.IfNot(g.Catalog.Index is not null, "needs the real installables");
+        Skip.If(g.Catalog.Lookup(offDef) is null, "def not present in this build");
+
+        Assert.Contains(g.Catalog.Parts, p => p.DefName == offDef);   // still built as installed
+    }
+
     [SkippableFact]
     public void A_design_with_rcs_gets_a_real_maneuver_grade_not_O()
     {
