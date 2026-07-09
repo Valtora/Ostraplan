@@ -120,9 +120,19 @@ Everything below is under **File ▸ Import** / the **Export** button.
   game. Layout only, behind a confirmation.
 - **Export as a mod:** writes a spawnable local mod (`data/ships/<Name>.json` in
   the game's own shape, rooms and rating precomputed) to a folder, or staged into
-  your `Mods/` folder. **Registration in `loading_order.json` is left to ModTools
-  / Ostrasort** — the export dialog says so. This is the way to get a **standalone,
-  shareable ship** that doesn't depend on any save.
+  your `Mods/` folder. This is the way to get a **standalone, shareable ship** that
+  doesn't depend on any save. The dialog also lets you:
+  - **Name it and give it flavour** — the in-game ship name (kept exactly as typed)
+    plus make / model / year / designation / description.
+  - **Make it obtainable in game** without hand-editing `loot.json`: add it to any
+    **ship broker kiosk** (K-Leg / BCER / BCRS / Venus / VORB), pin it as a station's
+    **Special Offer**, and/or offer it as a **Shipbreaker starting ship** (a weighted
+    chance in a fresh start — vanilla has no true ship picker). Other ship mods'
+    entries in the same kiosk are preserved.
+  - **Register with Ostrasort** in one click (when staging into `Mods/`): Ostraplan
+    hands the mod to Ostrasort to register it (and patch any kiosk conflicts with
+    other ship mods). **Ostraplan itself never writes `loading_order.json`** — that
+    stays Ostrasort/ModTools' job. Untick it to register the mod yourself later.
 - **PNG snapshot:** export the current design as an image for sharing.
 
 ## Editing your live in-game ship

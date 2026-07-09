@@ -1512,7 +1512,14 @@ public partial class MainWindow : Window
             return;
         }
 
-        var dlg = new ExportDialog(_meta.Name, _settings.ExportAuthor ?? _meta.Author, _env.ModsDir, _settings.LastExportDir) { Owner = this };
+        // specs + a value estimate are needed before the dialog: the estimate pre-fills the starting-ship mortgage
+        _roomSpecs ??= RoomCertifier.LoadSpecs(_index);
+        var (doc, catalog, specs, index) = (_doc, _catalog, _roomSpecs, _index);
+        var buyEstimate = ShipValue.Estimate(doc, catalog, specs).BuyEstimate;
+        var ostrasortKnown = OstrasortLauncher.Detect(_settings) is not null;
+
+        var dlg = new ExportDialog(_meta.Name, _settings.ExportAuthor ?? _meta.Author, _env.ModsDir,
+            _settings.LastExportDir, index, buyEstimate, ostrasortKnown) { Owner = this };
         if (dlg.ShowDialog() != true) return;
 
         // don't silently clobber an existing mod folder we may not have created
@@ -1520,20 +1527,19 @@ public partial class MainWindow : Window
         if (Directory.Exists(targetDir) && Directory.EnumerateFileSystemEntries(targetDir).Any()
             && !Dlg.Confirm(this, DlgKind.Warning, "Folder already exists",
                 $"A folder named \"{Path.GetFileName(targetDir)}\" already exists at:\n{Path.GetDirectoryName(targetDir)}\n\n" +
-                "Overwriting replaces its mod_info.json and ship file. Other files in the folder are left untouched.",
+                "Overwriting replaces its data files (ship, and any loot/lifeevents/interactions). Other files in the folder are left untouched.",
                 "Overwrite"))
             return;
 
-        _roomSpecs ??= RoomCertifier.LoadSpecs(_index);
-        var (doc, catalog, specs) = (_doc, _catalog, _roomSpecs);
         var opts = new ExportOptions(dlg.ShipName, dlg.Author, dlg.Notes, dlg.ModVersion,
-            _env.InstalledVersion ?? GameEnv.VerifiedGameVersion, dlg.DestinationParent);
+            _env.InstalledVersion ?? GameEnv.VerifiedGameVersion, dlg.DestinationParent, dlg.PublicName,
+            dlg.Make, dlg.Model, dlg.Year, dlg.Designation, dlg.Description, dlg.Delivery);
 
         ExportResult result;
         Mouse.OverrideCursor = Cursors.Wait;
         try
         {
-            result = await Task.Run(() => ShipExport.Write(doc, catalog, specs, opts));
+            result = await Task.Run(() => ShipExport.Write(doc, catalog, specs, opts, index));
         }
         catch (Exception ex)
         {
@@ -1550,6 +1556,13 @@ public partial class MainWindow : Window
         _settings.Save();
         AuditLog.Add($"Exported mod \"{dlg.ShipName}\" to {result.ModDir}.");
 
+        var deliverySummary = DescribeDelivery(dlg.Delivery);
+        if (dlg.RegisterWithOstrasort)
+        {
+            await RegisterWithOstrasort(dlg.ShipName, result, deliverySummary);
+            return;
+        }
+
         var registerNote = dlg.StagedIntoMods
             ? "It's staged into the game's Mods folder.\n" +
               "Register it with Ostrasort (or ModTools) before it appears in game.\n" +
@@ -1558,10 +1571,99 @@ public partial class MainWindow : Window
               "Then register it with Ostrasort (or ModTools) to spawn it in game.";
         Dlg.Success(this, "Export complete",
             $"Exported {dlg.ShipName}.\n\n" +
-            $"{result.PartCount} parts, {result.RoomCount} certified room(s), rating {(string.IsNullOrEmpty(result.Rating.Display) ? "None" : result.Rating.Display)}.\n\n" +
+            $"{result.PartCount} parts, {result.RoomCount} certified room(s), rating {(string.IsNullOrEmpty(result.Rating.Display) ? "None" : result.Rating.Display)}.\n" +
+            deliverySummary + "\n" +
             $"Written to {result.ModDir}\n\n" +
             registerNote);
     }
+
+    /// <summary>A one-line human summary of the chosen delivery options, or "" when the ship file was exported
+    /// on its own.</summary>
+    private static string DescribeDelivery(ShipDelivery d)
+    {
+        var parts = new List<string>();
+        if (d.BrokerPools.Count > 0) parts.Add($"{d.BrokerPools.Count} broker kiosk(s)");
+        if (d.SpecialOfferPools.Count > 0) parts.Add($"{d.SpecialOfferPools.Count} Special Offer slot(s)");
+        if (d.StartingShip) parts.Add("Shipbreaker starting ship");
+        return parts.Count == 0 ? "" : "Obtainable via: " + string.Join(", ", parts) + ".\n";
+    }
+
+    /// <summary>Hand a staged export to Ostrasort: locate it (prompting once if needed and remembering the path),
+    /// register the mod (<c>--apply</c>), then merge kiosk-loot conflicts (<c>--patch</c>) if the export wrote any
+    /// loot pools. Ostraplan never writes loading_order.json itself — this only drives the tool that owns it.</summary>
+    private async Task RegisterWithOstrasort(string shipName, ExportResult result, string deliverySummary)
+    {
+        if (_env is null) return;
+
+        var exe = OstrasortLauncher.Detect(_settings);
+        if (exe is null)
+        {
+            if (!Dlg.Confirm(this, DlgKind.Info, "Locate Ostrasort",
+                    "Ostraplan couldn't find Ostrasort.exe. Point it at your Ostrasort.exe to register the mod " +
+                    "(or cancel and register it yourself later).", "Locate…"))
+            {
+                ExportedButNotRegistered(shipName, result, deliverySummary);
+                return;
+            }
+            exe = OstrasortLauncher.Prompt(this);
+            if (exe is null) { ExportedButNotRegistered(shipName, result, deliverySummary); return; }
+            _settings.OstrasortPath = exe;
+            _settings.Save();
+        }
+
+        Mouse.OverrideCursor = Cursors.Wait;
+        OstrasortRun apply, patch = new(false, 0, "", null);
+        try
+        {
+            apply = await OstrasortLauncher.RunAsync(exe, _env.GameRoot, _env.ModsDir, patch: false);
+            if (apply.Ok && result.TouchedLootPools)
+                patch = await OstrasortLauncher.RunAsync(exe, _env.GameRoot, _env.ModsDir, patch: true);
+        }
+        finally
+        {
+            Mouse.OverrideCursor = null;
+        }
+
+        // a valid remembered path that failed to launch is likely stale — clear it so next time re-detects/prompts
+        if (!apply.Launched && _settings.OstrasortPath == exe) { _settings.OstrasortPath = null; _settings.Save(); }
+
+        AuditLog.Add($"Ostrasort register \"{shipName}\": apply exit {apply.ExitCode}" +
+                     (result.TouchedLootPools ? $", patch exit {patch.ExitCode}" : ""));
+
+        if (!apply.Launched)
+        {
+            Dlg.Show(this, $"Exported {shipName}, but Ostrasort could not be launched:\n\n{apply.Error}\n\n" +
+                           "Register the mod yourself with Ostrasort or ModTools.", "Export complete",
+                MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var patchNote = result.TouchedLootPools
+            ? patch.Ok
+                ? "Kiosk-loot conflicts patched (if any).\n"
+                : $"Loot patch step reported an issue (exit {patch.ExitCode}); check Ostrasort if another ship mod shares those kiosks.\n"
+            : "";
+        var body =
+            $"Exported {shipName} and registered it with Ostrasort.\n\n" +
+            $"{result.PartCount} parts, {result.RoomCount} certified room(s), rating {(string.IsNullOrEmpty(result.Rating.Display) ? "None" : result.Rating.Display)}.\n" +
+            deliverySummary + patchNote + "\n" +
+            "Launch Ostranauts and check the MODS screen to confirm it loaded.";
+        if (apply.Ok) Dlg.Success(this, "Export complete", body);
+        else Dlg.Show(this, body + $"\n\n(Ostrasort exit {apply.ExitCode}.)", "Export complete",
+            MessageBoxButton.OK, MessageBoxImage.Warning);
+    }
+
+    /// <summary>The mod folder was written, but the user backed out of the Ostrasort hand-off — so it is
+    /// <b>not registered</b> and won't appear in game yet. Framed as a warning (not a green success) so the
+    /// skipped step is unmistakable.</summary>
+    private void ExportedButNotRegistered(string shipName, ExportResult result, string deliverySummary) =>
+        Dlg.Warn(this, "Exported — not registered yet",
+            $"Exported {shipName}, but it was not registered (you cancelled the Ostrasort step).\n\n" +
+            $"{result.PartCount} parts, {result.RoomCount} certified room(s), rating {(string.IsNullOrEmpty(result.Rating.Display) ? "None" : result.Rating.Display)}.\n" +
+            deliverySummary + "\n" +
+            $"Written to {result.ModDir}\n\n" +
+            "It won't appear in game until you register it — run Ostrasort (or ModTools), or export again with " +
+            "\"Register with Ostrasort\" ticked once it's installed.");
 
     /// <summary>Save a PNG image of the ship (sprites only — no grid, overlays or UI) for sharing or reference.</summary>
     private void OnSnapshotClick(object sender, RoutedEventArgs e)

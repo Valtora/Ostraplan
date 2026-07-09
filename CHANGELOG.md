@@ -12,6 +12,40 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Get your ship in-game, from the export dialog.** Exporting a design can now make it directly
+  obtainable in a playthrough — no more hand-editing `loot.json` (which players broke into CTDs and
+  infinite-ship loops). Tick any of:
+  - **Ship broker kiosks** (OKLG / BCER / BCRS / Venus / VORB) — the ship joins that station's normal
+    broker stock at an editable weight (defaulting to the pool's average, so it shows up about as often
+    as a stock ship). The whole effective pool is preserved, so ships from other mods survive.
+  - **Special Offer** (the free-ship-when-you-own-nothing slot, per station variant) — pins the slot to
+    your ship.
+  - **Starting ship** — offers the ship as a weighted option in a fresh **Shipbreaker** career start
+    (alongside the vanilla salvage pods), with an editable start station and mortgage (pre-filled from
+    the broker buy estimate). Built on the game's own `CGEncShipSalvagePod*` chain, so it needs no other
+    mod. Note: vanilla chargen has no true ship *picker*, so this is a weighted chance, not a guaranteed
+    choice.
+  The export writes the extra `data/loot`, `data/lifeevents` and `data/interactions` files itself; where
+  another ship mod touches the same kiosk pool, Ostrasort's `--patch` merges them (the dialog says so).
+- **Ship identity fields in the export dialog.** Set the ship's in-game **name** (its `publicName`) plus
+  **make / model / year / designation / description** — the same flavor fields core ships and mods like
+  Ithalan's Additional Ships carry. The in-game name is now kept sticky (see the fix below).
+- **One-click register with Ostrasort.** When staging into the game's Mods folder, tick "Register with
+  Ostrasort" and the export hands off to Ostrasort headlessly — it registers the mod in
+  `loading_order.json` (`--apply`) and, if the export touched any kiosk loot, merges conflicts with other
+  ship mods (`--patch`). Ostraplan finds Ostrasort automatically (or asks once and remembers the path),
+  and still never writes `loading_order.json` itself. Resolves SPEC §14 open question #5.
+
+### Fixed
+- **Exported ships no longer spawn inside the sun.** The exported orbital position defaulted to Sol's
+  exact `(0,0)` origin; the kiosk/Special-Offer/starting-ship spawn path (unlike template import) does not
+  reposition a template, so the ship materialised in the centre of the star. It now carries a small
+  nonzero position like every core template does.
+- **A custom in-game ship name now sticks across spawns.** Export hardcoded `publicName` to `"$TEMPLATE"`,
+  which makes the game re-roll a random name every spawn; a real name typed in the dialog is now written
+  through and kept. (The registry `strRegID` / "callsign" is *not* settable from a data mod — the game
+  always mints a fresh one on spawn — so the dialog doesn't pretend to control it.)
+
 - **Find and Replace All…** context menu action. Select one or more copies of the same part and swap
   every copy of it anywhere in the ship — not just the current selection — for a chosen compatible part,
   in one undo step. Uses the same compatibility rule as "Replace with…" (same render layer + footprint,

@@ -1,20 +1,60 @@
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Nodes;
 using System.Text.Json.Serialization;
 
 namespace Ostraplan.Core;
 
 /// <summary>What the user chose in the export dialog. <see cref="DestinationParent"/> is
 /// the folder the mod folder is created <b>inside</b> (a user-picked directory or the game's
-/// <c>Ostranauts_Data/Mods</c>); the mod folder itself is named after the ship.</summary>
+/// <c>Ostranauts_Data/Mods</c>); the mod folder itself is named after the ship.
+/// <para><see cref="PublicName"/> is the ship's in-game display name (shown at the XPDR
+/// transponder, comms, broker listings, MFD dock info, and the rating screen) — distinct from
+/// <see cref="ShipName"/>, which only names the mod/file. Defaults to <see cref="ShipName"/>
+/// when left blank by the dialog, but must never be blank/"$TEMPLATE" itself: the game only
+/// keeps a custom <c>publicName</c> when the on-disk value isn't one of those two things
+/// (verified against decompiled <c>Ship.InitShip</c>) — otherwise it re-rolls a random name on
+/// every spawn, which is exactly the "brittle" behavior this fixes.</para>
+/// <para><see cref="Make"/>/<see cref="Model"/>/<see cref="Year"/>/<see cref="Designation"/>/
+/// <see cref="Description"/> map straight onto the game's own <c>JsonShip</c> fields (present on
+/// core ships and used by mods like Ithalan's Additional Ships) — flavor text only, no game logic
+/// reads them beyond display.</para></summary>
 public sealed record ExportOptions(
     string ShipName, string Author, string Notes, string ModVersion, string GameVersion,
-    string DestinationParent);
+    string DestinationParent, string PublicName, string Make = "", string Model = "",
+    string Year = "", string Designation = "", string Description = "",
+    ShipDelivery? Delivery = null);
 
-/// <summary>The outcome of a successful export: where it landed and what it contains.</summary>
+/// <summary>How the exported ship becomes obtainable in game — the loot/chargen data an export
+/// injects on top of the ship file. All of it is full-object overrides / additive entries the game
+/// merges by <c>strName</c>; a same-pool clash with another ship mod is Ostrasort's <c>--patch</c> case.
+/// <see cref="TouchesLoot"/> is true when anything here writes <c>data/loot</c> (drives the Ostrasort
+/// patch follow-up). Default <see cref="None"/> exports the ship file only, as before.</summary>
+public sealed record ShipDelivery(
+    IReadOnlyList<string> BrokerPools, double BrokerWeight,
+    IReadOnlyList<string> SpecialOfferPools,
+    bool StartingShip, double StartingShipWeight, string StartingShipStation,
+    double StartingShipMortgage, string StartingShipTitle, string StartingShipDesc)
+{
+    public bool TouchesLoot => BrokerPools.Count > 0 || SpecialOfferPools.Count > 0 || StartingShip;
+    public static ShipDelivery None => new([], 0, [], false, 0, "OKLG", 0, "", "");
+}
+
+/// <summary>The outcome of a successful export: where it landed and what it contains.
+/// <see cref="TouchedLootPools"/> is true when the export wrote broker/Special-Offer/starting-ship loot
+/// (so the caller knows an Ostrasort <c>--patch</c> pass may be warranted).</summary>
 public sealed record ExportResult(
     string ModDir, string ShipJsonPath, string ModInfoPath,
-    int PartCount, int RoomCount, ShipRating Rating, IReadOnlyList<string> Warnings);
+    int PartCount, int RoomCount, ShipRating Rating, IReadOnlyList<string> Warnings,
+    bool TouchedLootPools = false);
+
+/// <summary>Flavor/identity fields for <see cref="ShipExport.Build"/>, split out from
+/// <see cref="ExportOptions"/> so callers that don't care about ship metadata (most tests) can omit
+/// it entirely. See <see cref="ExportOptions.PublicName"/> for why <see cref="PublicName"/> matters
+/// more than it looks — it's the one field the game actually keeps sticky across spawns.</summary>
+public sealed record ExportMetadata(
+    string PublicName = "", string Make = "", string Model = "", string Year = "",
+    string Designation = "", string Description = "");
 
 /// <summary>
 /// Exports the current design as a spawnable local data mod: a <c>data/ships/&lt;Name&gt;.json</c>
@@ -54,7 +94,8 @@ public static class ShipExport
     /// unresolved defs so the caller can always surface a report).
     /// </summary>
     public static (ExportedShip Ship, ShipRating Rating, int RoomCount) Build(
-        ShipDocument doc, Catalog catalog, IReadOnlyList<RoomSpecDef> specs, string shipName, List<string>? warnings = null)
+        ShipDocument doc, Catalog catalog, IReadOnlyList<RoomSpecDef> specs, string shipName,
+        List<string>? warnings = null, ExportMetadata? meta = null)
     {
         var grid = ShipGrid.FromDocument(doc, catalog);
         var partition = RoomBuilder.Build(grid);
@@ -214,10 +255,22 @@ public static class ShipExport
         var regId = GenerateRegID();
         var zones = BuildZones(doc, grid, regId);
 
+        // publicName is the one field the game actually keeps sticky across a spawn (verified against decompiled
+        // Ship.InitShip): it re-rolls a random name only when the on-disk value is null/""/"$TEMPLATE", so anything
+        // else survives into the live ship and is what's shown at the transponder, comms, broker listings, and the
+        // rating screen. Guard against a blank/"$TEMPLATE" meta value the same way — fall back to the ship name.
+        var publicName = meta?.PublicName is { Length: > 0 } pn && pn != "$TEMPLATE" ? pn : shipName;
+
         var ship = new ExportedShip
         {
             StrName = shipName,
             StrRegID = regId,
+            PublicName = publicName,
+            Make = meta?.Make ?? "",
+            Model = meta?.Model ?? "",
+            Year = meta?.Year ?? "",
+            Designation = meta?.Designation ?? "",
+            Description = meta?.Description ?? "",
             NCols = grid.NCols,
             NRows = grid.NRows,
             VShipPos = new ExportedVec2(),   // (0,0): the anchor the coordinate inverse assumes
@@ -225,6 +278,11 @@ public static class ShipExport
             ACOs = cos.Count > 0 ? cos.ToArray() : null,   // save-style CO data for authored cargo; omitted when none
             ARooms = rooms,
             AZones = zones,
+            // objSS at exact (0,0) around "Sol" is Sol's own coordinate origin, not a neutral placeholder: the
+            // loot-spawn path (kiosk/Special-Offer/starting-ship) does NOT reposition it like template import does,
+            // so a literal (0,0) spawns the ship inside the star. Every core template instead carries small nonzero
+            // leftover save-state coordinates (e.g. SalvageCustom2.json: -0.2178, -0.3177) and never exhibits this.
+            ObjSS = new ExportedSitu { VPosx = -0.25, VPosy = -0.35 },
             ARating = [rating.Epoch.Length == 0 ? "0" : rating.Epoch,
                 rating.Condition, rating.RoomCount, rating.Maneuver, rating.Size, rating.Slot5],
             Dimensions = $"{grid.NCols * MetresPerTile:0.00}m x {grid.NRows * MetresPerTile:0.00}m",
@@ -245,13 +303,18 @@ public static class ShipExport
 
     /// <summary>
     /// Build the design and write a complete mod folder (<c>mod_info.json</c> + <c>data/ships/&lt;Name&gt;.json</c>)
-    /// under <see cref="ExportOptions.DestinationParent"/>. Overwrites an existing same-named mod folder's two
-    /// files (never deletes anything else). Returns where it landed; throws on I/O failure for the caller to report.
+    /// under <see cref="ExportOptions.DestinationParent"/>. Overwrites an existing same-named mod folder's data
+    /// files (never deletes anything else). When <see cref="ExportOptions.Delivery"/> asks for kiosk/Special-Offer/
+    /// starting-ship availability, also writes the loot/lifeevent/interaction files — which needs
+    /// <paramref name="index"/> to clone the current effective loot pools. Returns where it landed; throws on I/O
+    /// failure for the caller to report.
     /// </summary>
-    public static ExportResult Write(ShipDocument doc, Catalog catalog, IReadOnlyList<RoomSpecDef> specs, ExportOptions opts)
+    public static ExportResult Write(
+        ShipDocument doc, Catalog catalog, IReadOnlyList<RoomSpecDef> specs, ExportOptions opts, DataIndex? index = null)
     {
         var warnings = new List<string>();
-        var (ship, rating, roomCount) = Build(doc, catalog, specs, opts.ShipName, warnings);
+        var meta = new ExportMetadata(opts.PublicName, opts.Make, opts.Model, opts.Year, opts.Designation, opts.Description);
+        var (ship, rating, roomCount) = Build(doc, catalog, specs, opts.ShipName, warnings, meta);
 
         var folderName = SanitizeName(opts.ShipName);
         var modDir = Path.Combine(opts.DestinationParent, folderName);
@@ -274,7 +337,68 @@ public static class ShipExport
         };
         File.WriteAllText(modInfoPath, SerializeModInfo(modInfo));
 
-        return new ExportResult(modDir, shipPath, modInfoPath, ship.AItems.Length, roomCount, rating, warnings);
+        var touchedLoot = false;
+        if (opts.Delivery is { TouchesLoot: true } delivery)
+        {
+            if (index is null)
+                warnings.Add("Delivery options were set but no game data was available to resolve loot pools; skipped.");
+            else
+                touchedLoot = WriteDeliveryFiles(modDir, opts.PublicName is { Length: > 0 } pn && pn != "$TEMPLATE" ? pn : opts.ShipName, delivery, index, warnings);
+        }
+
+        return new ExportResult(modDir, shipPath, modInfoPath, ship.AItems.Length, roomCount, rating, warnings, touchedLoot);
+    }
+
+    /// <summary>
+    /// Write the loot/lifeevent/interaction files that make the ship obtainable. <paramref name="shipRef"/> is the
+    /// ship's spawn name — the design's <c>strName</c> (the loot <c>aCOs</c> reference the ship template by that
+    /// name). Broker + Special-Offer overrides and the starting-ship reward pool all share one
+    /// <c>data/loot/loot.json</c>; the starting-ship chain adds <c>data/lifeevents</c> + <c>data/interactions</c>.
+    /// Returns whether any loot was written.
+    /// </summary>
+    private static bool WriteDeliveryFiles(
+        string modDir, string shipRef, ShipDelivery delivery, DataIndex index, List<string> warnings)
+    {
+        // The loot aCOs reference a ship by its data/ships strName, which export sets to the ship name (the mod's
+        // internal name), not the display publicName — so pools must point at the internal name.
+        var shipStrName = shipRef;
+
+        var loot = new List<JsonObject>();
+        foreach (var pool in delivery.BrokerPools)
+            loot.Add(KioskExport.BrokerPoolOverride(index, pool, shipStrName, delivery.BrokerWeight));
+        foreach (var pool in delivery.SpecialOfferPools)
+            loot.Add(KioskExport.SpecialOfferOverride(index, pool, shipStrName));
+
+        List<JsonObject>? lifeevents = null, interactions = null;
+        if (delivery.StartingShip)
+        {
+            var eventsPool = KioskExport.ClonePoolOrDefault(index, StartingShipExport.ShipEventsPool);
+            var frags = StartingShipExport.Build(
+                eventsPool, shipStrName, delivery.StartingShipWeight, delivery.StartingShipStation,
+                delivery.StartingShipMortgage,
+                string.IsNullOrWhiteSpace(delivery.StartingShipTitle) ? shipStrName + "." : delivery.StartingShipTitle,
+                string.IsNullOrWhiteSpace(delivery.StartingShipDesc)
+                    ? $"You come across a listing for the {shipStrName}. It could be your ticket out of the day-labour berth."
+                    : delivery.StartingShipDesc);
+            loot.AddRange(frags.LootObjects);
+            lifeevents = frags.Lifeevents.ToList();
+            interactions = frags.Interactions.ToList();
+        }
+
+        if (loot.Count > 0) WriteJsonArray(Path.Combine(modDir, "data", "loot", "loot.json"), loot);
+        if (lifeevents is { Count: > 0 }) WriteJsonArray(Path.Combine(modDir, "data", "lifeevents", "lifeevents.json"), lifeevents);
+        if (interactions is { Count: > 0 }) WriteJsonArray(Path.Combine(modDir, "data", "interactions", "interactions.json"), interactions);
+
+        return loot.Count > 0;
+    }
+
+    /// <summary>Write a list of objects as the game expects a data file: a top-level JSON array, indented.</summary>
+    private static void WriteJsonArray(string path, IReadOnlyList<JsonObject> objects)
+    {
+        Directory.CreateDirectory(Path.GetDirectoryName(path)!);
+        var arr = new JsonArray();
+        foreach (var o in objects) arr.Add(o.DeepClone());   // DeepClone: a node can't be re-parented into two arrays
+        File.WriteAllText(path, arr.ToJsonString(Json));
     }
 
     /// <summary>
@@ -536,7 +660,9 @@ public sealed class ExportedShipCO
     }
 }
 
-/// <summary>The star-system situation (position/velocity). Neutral — the game repositions a spawned template.</summary>
+/// <summary>The star-system situation (position/velocity). Template <b>import</b> repositions this on load, but the
+/// loot-spawn path (kiosk/Special-Offer/starting-ship) does not — a literal (0,0) spawns the ship inside "Sol" (see
+/// <see cref="ShipExport.Build"/>), so this must never default to exact zero.</summary>
 public sealed class ExportedSitu
 {
     [JsonPropertyName("boPORShip")] public string BoPORShip { get; set; } = "Sol";

@@ -131,7 +131,7 @@ public class ShipExportTests
         try
         {
             var opts = new ExportOptions("My Test Ship", "Tester", "", "1.0.0",
-                g.Env.InstalledVersion ?? GameEnv.VerifiedGameVersion, dest);
+                g.Env.InstalledVersion ?? GameEnv.VerifiedGameVersion, dest, "My Test Ship");
             var result = ShipExport.Write(doc, g.Catalog, specs, opts);
 
             Assert.True(File.Exists(result.ModInfoPath));
@@ -151,6 +151,77 @@ public class ShipExportTests
             }
 
             // the Law: registration is single-owner, so NO loading_order.json is written
+            Assert.Empty(Directory.EnumerateFiles(dest, "loading_order.json", SearchOption.AllDirectories));
+        }
+        finally
+        {
+            Directory.Delete(dest, recursive: true);
+        }
+    }
+
+    [SkippableFact]
+    public void Write_with_delivery_emits_loot_lifeevents_and_interactions_preserving_core_pools()
+    {
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        var doc = BuildDooredHull(g.Catalog);
+
+        var dest = Path.Combine(Path.GetTempPath(), "OstraplanDeliveryTest_" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(dest);
+        try
+        {
+            var delivery = new ShipDelivery(
+                ["RandomShipBrokerOKLG"], 0.05, ["RandomShipBrokerSpecialOffer"],
+                true, 0.16, "OKLG", 500000, "My Test Ship.", "A listing you found.");
+            var opts = new ExportOptions("My Test Ship", "Tester", "", "1.0.0",
+                g.Env.InstalledVersion ?? GameEnv.VerifiedGameVersion, dest, "My Test Ship",
+                Delivery: delivery);
+            var result = ShipExport.Write(doc, g.Catalog, specs, opts, g.Index);
+
+            Assert.True(result.TouchedLootPools);
+
+            var lootPath = Path.Combine(result.ModDir, "data", "loot", "loot.json");
+            var lifePath = Path.Combine(result.ModDir, "data", "lifeevents", "lifeevents.json");
+            var interPath = Path.Combine(result.ModDir, "data", "interactions", "interactions.json");
+            Assert.True(File.Exists(lootPath));
+            Assert.True(File.Exists(lifePath));
+            Assert.True(File.Exists(interPath));
+
+            using var loot = JsonDocument.Parse(File.ReadAllText(lootPath));
+            var pools = loot.RootElement.EnumerateArray().ToList();
+
+            // the OKLG broker override keeps every ship already in the EFFECTIVE (mod-resolved) pool AND adds ours,
+            // still a single-element aCOs. Comparing against the effective pool is environment-independent — the
+            // user may have other ship mods loaded (e.g. Ithalan's), which is exactly what this must preserve.
+            var effective = LootList.Parse(g.Index.Type("loot")["RandomShipBrokerOKLG"].El.GetProperty("aCOs")[0].GetString()!)
+                .Select(e => e.Name).ToList();
+            var oklg = pools.Single(p => p.GetProperty("strName").GetString() == "RandomShipBrokerOKLG");
+            Assert.Equal(1, oklg.GetProperty("aCOs").GetArrayLength());
+            var oklgNames = LootList.Parse(oklg.GetProperty("aCOs")[0].GetString()!).Select(e => e.Name).ToList();
+            foreach (var name in effective) Assert.Contains(name, oklgNames);   // every existing ship preserved
+            Assert.Contains("My Test Ship", oklgNames);                          // ours added
+
+            // the Special Offer is a straight overwrite to our ship
+            var special = pools.Single(p => p.GetProperty("strName").GetString() == "RandomShipBrokerSpecialOffer");
+            Assert.Equal("My Test Ship=1x1", special.GetProperty("aCOs")[0].GetString());
+
+            // the starting-ship reward loot names our ship template
+            var reward = pools.Single(p => p.GetProperty("strName").GetString() == "CGEncMyTestShipReward");
+            Assert.Equal("My Test Ship=1x1", reward.GetProperty("aCOs")[0].GetString());
+
+            // lifeevents + interactions each carry the Intro/Take pair
+            using var life = JsonDocument.Parse(File.ReadAllText(lifePath));
+            var lifeNames = life.RootElement.EnumerateArray().Select(o => o.GetProperty("strName").GetString()).ToList();
+            Assert.Contains("CGEncMyTestShipIntro", lifeNames);
+            Assert.Contains("CGEncMyTestShipTake", lifeNames);
+
+            using var inter = JsonDocument.Parse(File.ReadAllText(interPath));
+            var interNames = inter.RootElement.EnumerateArray().Select(o => o.GetProperty("strName").GetString()).ToList();
+            Assert.Contains("CGEncMyTestShipIntro", interNames);
+            Assert.Contains("CGEncMyTestShipTake", interNames);
+
+            // still no loading_order.json — registration stays single-owner
             Assert.Empty(Directory.EnumerateFiles(dest, "loading_order.json", SearchOption.AllDirectories));
         }
         finally

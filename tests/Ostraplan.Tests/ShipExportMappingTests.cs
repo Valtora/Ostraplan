@@ -90,4 +90,69 @@ public class ShipExportMappingTests
         Assert.All(modules, m => Assert.Contains(m.StrName, NavConsole.StandardModules));
         Assert.All(modules, m => Assert.False(string.IsNullOrEmpty(m.StrID)));   // each module has its own id
     }
+
+    [Fact]
+    public void Spawn_position_is_never_exactly_zero()
+    {
+        // objSS at exact (0,0) around "Sol" is Sol's own coordinate origin: the kiosk/Special-Offer/starting-ship
+        // spawn path does not reposition it like template import does, so a literal (0,0) spawns inside the star.
+        var fx = new Fixtures().Floor("Floor");
+        var cat = fx.Build();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Floor", 0, 0));
+
+        var (ship, _, _) = ShipExport.Build(doc, cat, NoSpecs, "T");
+
+        Assert.Equal("Sol", ship.ObjSS.BoPORShip);
+        Assert.False(ship.ObjSS.VPosx == 0 && ship.ObjSS.VPosy == 0);
+    }
+
+    [Fact]
+    public void Metadata_flows_through_when_provided()
+    {
+        var fx = new Fixtures().Floor("Floor");
+        var cat = fx.Build();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Floor", 0, 0));
+        var meta = new ExportMetadata("Vagabond+", "Ryokka", "TS-20b", "2079", "Salvage Tug", "A hodgepodge of parts.");
+
+        var (ship, _, _) = ShipExport.Build(doc, cat, NoSpecs, "T", meta: meta);
+
+        Assert.Equal("Vagabond+", ship.PublicName);
+        Assert.Equal("Ryokka", ship.Make);
+        Assert.Equal("TS-20b", ship.Model);
+        Assert.Equal("2079", ship.Year);
+        Assert.Equal("Salvage Tug", ship.Designation);
+        Assert.Equal("A hodgepodge of parts.", ship.Description);
+    }
+
+    [Theory]
+    [InlineData("")]
+    [InlineData("$TEMPLATE")]
+    public void PublicName_falls_back_to_ship_name_when_blank_or_TEMPLATE(string publicName)
+    {
+        // The game only keeps a custom publicName when the on-disk value isn't null/""/"$TEMPLATE" (verified
+        // against decompiled Ship.InitShip) — otherwise it re-rolls a random name on every spawn. Guard the same
+        // way at export time so a blank/mistaken "$TEMPLATE" dialog value can't silently reintroduce that bug.
+        var fx = new Fixtures().Floor("Floor");
+        var cat = fx.Build();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Floor", 0, 0));
+        var meta = new ExportMetadata(publicName);
+
+        var (ship, _, _) = ShipExport.Build(doc, cat, NoSpecs, "T", meta: meta);
+
+        Assert.Equal("T", ship.PublicName);
+    }
+
+    [Fact]
+    public void Metadata_defaults_to_blank_when_omitted()
+    {
+        var fx = new Fixtures().Floor("Floor");
+        var cat = fx.Build();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Floor", 0, 0));
+
+        var (ship, _, _) = ShipExport.Build(doc, cat, NoSpecs, "T");
+
+        Assert.Equal("T", ship.PublicName);   // falls back to the ship name, not "$TEMPLATE"
+        Assert.Equal("", ship.Make);
+        Assert.Equal("", ship.Model);
+    }
 }

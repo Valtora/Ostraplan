@@ -13,6 +13,7 @@ public sealed class AppSettings
     [JsonPropertyName("exportAuthor")] public string? ExportAuthor { get; set; }
     [JsonPropertyName("lastExportDir")] public string? LastExportDir { get; set; }
     [JsonPropertyName("installPromptDismissed")] public bool InstallPromptDismissed { get; set; }
+    [JsonPropertyName("ostrasortPath")] public string? OstrasortPath { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 
     public static string Dir => Path.Combine(
