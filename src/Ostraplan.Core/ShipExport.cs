@@ -119,7 +119,8 @@ public static class ShipExport
         var cos = new List<ExportedCondOwnerSave>();
 
         // Installed docking ports, collected as we emit items so they can be baked into aDockingPorts below.
-        var docksysPorts = new List<(string Id, bool TypeB, bool PrimaryDef)>();
+        // Anchor = the port's centre grid tile, so the boarding spawner can be placed just inside the airlock.
+        var docksysPorts = new List<(string Id, bool TypeB, bool PrimaryDef, int Anchor)>();
 
         // Emit a container's contents the way a SAVE stores them, because a data/ships file spawns as a TEMPLATE
         // (bTemplateOnly) and a template can't otherwise keep authored cargo. Ship.SpawnItems (decompiled):
@@ -185,7 +186,7 @@ public static class ShipExport
             });
 
             if (IsDocksysPart(part.Part, catalog))
-                docksysPorts.Add((strID, part.Part.Has("IsTypeB"), part.Part.DefName == Catalog.PrimaryDocksysDef));
+                docksysPorts.Add((strID, part.Part.Has("IsTypeB"), part.Part.DefName == Catalog.PrimaryDocksysDef, part.AnchorIndex));
 
             var placement = part.StrID is { } pid ? byPlacementId.GetValueOrDefault(pid) : null;
             if (placement is { Cargo.Count: > 0 })
@@ -292,6 +293,18 @@ public static class ShipExport
             aDockingPorts = ordered.Select(p => p.Id).OrderBy(id => id == primaryPortId ? 0 : 1).ToArray();
         }
 
+        // Boarding / crew-spawn points (aShallowPSpecs): the game materialises a person ARRIVING at the ship
+        // (the P.A.S.S. ferry, a skywalk) at the "Boarding" spawner and an NPC already assigned to the ship at
+        // the "NotBoarding" one. Every core crewable ship carries these as SysLootSpawner objects, but Ostraplan
+        // drops all IsSystem objects on import and never modeled aShallowPSpecs — so exported/purchased ships had
+        // none and dumped PASS arrivals at a fallback tile (the map origin, frequently outside the hull). Anchor
+        // the Boarding point at the interior tile nearest the primary airlock (the dock entry, where an arrival
+        // should appear); with no docking port fall back to the interior centroid.
+        var primaryPort = docksysPorts.FirstOrDefault(p => p.PrimaryDef);
+        var airlockAnchor = docksysPorts.Count == 0 ? -1
+            : primaryPort.Id is not null ? primaryPort.Anchor : docksysPorts[0].Anchor;
+        var shallowPSpecs = BuildBoardingSpawners(grid, partition, airlockAnchor);
+
         var ship = new ExportedShip
         {
             StrName = shipName,
@@ -311,6 +324,7 @@ public static class ShipExport
             ACOs = cos.Count > 0 ? cos.ToArray() : null,   // save-style CO data for authored cargo; omitted when none
             ARooms = rooms,
             AZones = zones,
+            AShallowPSpecs = shallowPSpecs.Length > 0 ? shallowPSpecs : null,
             // objSS at exact (0,0) around "Sol" is Sol's own coordinate origin, not a neutral placeholder: the
             // loot-spawn path (kiosk/Special-Offer/starting-ship) does NOT reposition it like template import does,
             // so a literal (0,0) spawns the ship inside the star. Every core template instead carries small nonzero
@@ -504,6 +518,84 @@ public static class ShipExport
         return result.ToArray();
     }
 
+    /// <summary>
+    /// Build the ship's boarding / crew-spawn points as <c>aShallowPSpecs</c> entries — the SysLootSpawner
+    /// objects every core crewable ship carries. The game places a person ARRIVING at the ship (the P.A.S.S.
+    /// ferry, a skywalk) at the "Boarding" spawner and an NPC already assigned to the ship at the "NotBoarding"
+    /// one; without them the arrival lands at a fallback tile (the map origin, often outside the hull). Boarding
+    /// sits on the interior tile nearest the primary airlock (<paramref name="airlockAnchor"/>, a grid tile
+    /// index, or -1 when the design has no docking port); NotBoarding sits deep inside (nearest the interior
+    /// centroid). Returns an empty array when the design has no pressurized interior (nothing to anchor to) —
+    /// they collapse onto the same tile when the interior is a single cell, which the game handles fine.
+    /// </summary>
+    private static ExportedShallowPSpec[] BuildBoardingSpawners(ShipGrid grid, RoomPartition partition, int airlockAnchor)
+    {
+        var interior = partition.Rooms.Where(r => !r.Void).SelectMany(r => r.Tiles).ToList();
+        if (interior.Count == 0) return [];
+
+        var boarding = airlockAnchor >= 0
+            ? interior.OrderBy(t => Dist2(grid, t, airlockAnchor)).First()
+            : NearestToCentroid(grid, interior);
+        var notBoarding = NearestToCentroid(grid, interior);
+
+        return
+        [
+            PspecSpawner("Boarding", grid.Col(boarding), grid.Row(boarding)),
+            PspecSpawner("NotBoarding", grid.Col(notBoarding), grid.Row(notBoarding)),
+        ];
+    }
+
+    /// <summary>Squared tile distance between two grid tile indices.</summary>
+    private static int Dist2(ShipGrid grid, int a, int b)
+    {
+        int dx = grid.Col(a) - grid.Col(b), dy = grid.Row(a) - grid.Row(b);
+        return dx * dx + dy * dy;
+    }
+
+    /// <summary>The tile nearest the centroid of the given tiles (the "deepest inside" pick).</summary>
+    private static int NearestToCentroid(ShipGrid grid, IReadOnlyList<int> tiles)
+    {
+        double cx = tiles.Average(t => grid.Col(t)), cy = tiles.Average(t => grid.Row(t));
+        return tiles.OrderBy(t =>
+        {
+            double dx = grid.Col(t) - cx, dy = grid.Row(t) - cy;
+            return dx * dx + dy * dy;
+        }).First();
+    }
+
+    /// <summary>A person-spawn <c>SysLootSpawner</c> (an <c>aShallowPSpecs</c> entry) for the "Boarding" /
+    /// "NotBoarding" role at a 1×1 tile — the exact <c>aGPMSettings</c> shape a core ship carries (verified
+    /// against Squall.json). A 1×1 object's stored centre equals its tile, so <c>fX = col</c> and <c>fY = -row</c>
+    /// (the parts' y-down grid → y-up world flip), the same inverse the placed parts use with <c>vShipPos=(0,0)</c>.</summary>
+    private static ExportedShallowPSpec PspecSpawner(string role, int col, int row) => new()
+    {
+        FX = col,
+        FY = -row,
+        StrID = Guid.NewGuid().ToString(),
+        AGPMSettings =
+        [
+            new ExportedGpmSetting
+            {
+                DictGUIPropMap =
+                [
+                    "strGUIPrefab", "GUILootSpawn",
+                    "strFriendlyName", "Loot Spawner",
+                    "strGUIPrefabRight", null,
+                    "strGUIPrefabLeft", null,
+                    "strGUIPrefabUp", null,
+                    "strGUIPrefabDown", null,
+                    "strType", "Pspec",
+                    "strLoot", role,
+                    "strRange", "1",
+                    "strCount", "0",
+                    "strNew", "True",
+                    "strDamaged", "True",
+                    "strDerelict", "True",
+                ],
+            },
+        ],
+    };
+
     /// <summary>A per-ship-unique zone name: the given name, else "zone", suffixed " 2", " 3"… on a clash.</summary>
     private static string UniqueName(string name, HashSet<string> used)
     {
@@ -557,6 +649,12 @@ public sealed class ExportedShip
     [JsonPropertyName("objSS")] public ExportedSitu ObjSS { get; set; } = new();
     [JsonPropertyName("aRooms")] public ExportedRoom[] ARooms { get; set; } = [];
     [JsonPropertyName("aZones")] public ExportedZone[] AZones { get; set; } = [];
+
+    /// <summary>The ship's boarding / crew-spawn points (<c>SysLootSpawner</c> objects tagged Boarding /
+    /// NotBoarding). The game places a person arriving via the P.A.S.S. ferry or a skywalk at the Boarding
+    /// spawner and an already-aboard NPC at the NotBoarding one; core crewable ships all carry these. Null —
+    /// and omitted — when the design has no pressurized interior to anchor them to.</summary>
+    [JsonPropertyName("aShallowPSpecs")] public ExportedShallowPSpec[]? AShallowPSpecs { get; set; }
 
     /// <summary>Installed docking-port item strIDs (primary/non-TypeB first, TypeB last). The game rebuilds this
     /// from items on a Full/Edit load, but a <b>Shallow</b>-loaded spawn (vendor stock, Special Offer, and the
@@ -701,6 +799,30 @@ public sealed class ExportedZone
     [JsonPropertyName("strPersonSpec")] public string? StrPersonSpec { get; set; }
     [JsonPropertyName("strTargetPSpec")] public string? StrTargetPSpec { get; set; }
     [JsonPropertyName("zoneColor")] public ExportedColor ZoneColor { get; set; } = new();
+}
+
+/// <summary>A person-spawn point in <c>aShallowPSpecs</c>: a <c>SysLootSpawner</c> whose <c>aGPMSettings</c>
+/// prop map tags it Boarding (where a P.A.S.S. ferry / skywalk arrival appears) or NotBoarding (where an NPC
+/// already assigned to the ship spawns). Field names/casing match the game's JsonShip shape. A 1×1 object, so
+/// its stored <c>fX/fY</c> is both its centre and its tile.</summary>
+public sealed class ExportedShallowPSpec
+{
+    [JsonPropertyName("strName")] public string StrName { get; set; } = "SysLootSpawner";
+    [JsonPropertyName("fX")] public double FX { get; set; }
+    [JsonPropertyName("fY")] public double FY { get; set; }
+    [JsonPropertyName("fRotation")] public double FRotation { get; set; }
+    [JsonPropertyName("strID")] public string StrID { get; set; } = "";
+    [JsonPropertyName("aGPMSettings")] public ExportedGpmSetting[] AGPMSettings { get; set; } = [];
+}
+
+/// <summary>One GUI-prop-map panel on a spawner. <c>dictGUIPropMap</c> is the game's flat, order-sensitive
+/// key/value array with <c>string</c> and <c>null</c> values interleaved, so it is modeled as a mixed
+/// <c>object?[]</c> carried through verbatim (System.Text.Json writes each element by its runtime type, and
+/// null array elements are always emitted — <c>WhenWritingNull</c> only suppresses null object properties).</summary>
+public sealed class ExportedGpmSetting
+{
+    [JsonPropertyName("strName")] public string StrName { get; set; } = "Panel A";
+    [JsonPropertyName("dictGUIPropMap")] public object?[] DictGUIPropMap { get; set; } = [];
 }
 
 /// <summary>A zoneColor {r,g,b,a} (components 0..1).</summary>

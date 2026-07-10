@@ -446,6 +446,95 @@ public class ShipExportTests
         }
     }
 
+    [Fact]
+    public void Serialize_writes_boarding_spawners_in_the_game_shape()
+    {
+        // No game install needed: a Boarding/NotBoarding spawner must serialize to the game's aShallowPSpecs shape —
+        // a SysLootSpawner whose dictGUIPropMap is a FLAT, order-sensitive key/value array with null prefab slots
+        // interleaved. This pins that the object?[] map survives serialization with strType=Pspec / strLoot=Boarding
+        // and the nulls intact (a null array element is emitted; WhenWritingNull only drops null object properties).
+        var ship = new ExportedShip
+        {
+            StrName = "Shape Test",
+            AShallowPSpecs =
+            [
+                new ExportedShallowPSpec
+                {
+                    FX = 3, FY = -2, StrID = "id-1",
+                    AGPMSettings =
+                    [
+                        new ExportedGpmSetting
+                        {
+                            DictGUIPropMap = ["strGUIPrefabLeft", null, "strType", "Pspec", "strLoot", "Boarding"],
+                        },
+                    ],
+                },
+            ],
+        };
+
+        var json = ShipExport.Serialize(ship);
+        using var doc = JsonDocument.Parse(json);
+        var spawner = Assert.Single(doc.RootElement[0].GetProperty("aShallowPSpecs").EnumerateArray().ToList());
+        Assert.Equal("SysLootSpawner", spawner.GetProperty("strName").GetString());
+        Assert.Equal(3.0, spawner.GetProperty("fX").GetDouble());
+        Assert.Equal(-2.0, spawner.GetProperty("fY").GetDouble());
+
+        var flat = spawner.GetProperty("aGPMSettings")[0].GetProperty("dictGUIPropMap").EnumerateArray().ToList();
+        Assert.Equal("strGUIPrefabLeft", flat[0].GetString());
+        Assert.Equal(JsonValueKind.Null, flat[1].ValueKind);   // the null prefab slot survives, in place
+        Assert.Equal("strType", flat[2].GetString());
+        Assert.Equal("Pspec", flat[3].GetString());
+        Assert.Equal("strLoot", flat[4].GetString());
+        Assert.Equal("Boarding", flat[5].GetString());
+    }
+
+    [SkippableFact]
+    public void Export_bakes_boarding_and_notboarding_spawners_on_interior_tiles()
+    {
+        // Boarding/NotBoarding SysLootSpawners (aShallowPSpecs) are where the game drops a person arriving via the
+        // P.A.S.S. ferry / a skywalk (Boarding) and an NPC already assigned to the ship (NotBoarding). Every core
+        // crewable ship carries them; without them a spawned/purchased design dumps arrivals at a fallback tile
+        // (the map origin, often outside the hull). The export must bake both — on pressurized interior tiles, with
+        // Boarding at least as close to the primary airlock as NotBoarding (arrivals should appear at the entry).
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
+        if (g.Catalog.Lookup(Catalog.PrimaryDocksysDef) is null) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+
+        var doc = BuildDooredHull(g.Catalog);            // a floored, pressurized hull...
+        Place(doc, Catalog.PrimaryDocksysDef, 2, 0);     // ...with the Primary Airlock on the north wall
+
+        var (ship, _, _) = ShipExport.Build(doc, g.Catalog, specs, "Boarding Test");
+
+        static string? Role(ExportedShallowPSpec s)
+        {
+            var map = s.AGPMSettings[0].DictGUIPropMap;
+            for (var i = 0; i + 1 < map.Length; i += 2)
+                if (map[i] as string == "strLoot") return map[i + 1] as string;
+            return null;
+        }
+
+        Assert.NotNull(ship.AShallowPSpecs);
+        Assert.All(ship.AShallowPSpecs!, s => Assert.Equal("SysLootSpawner", s.StrName));
+        Assert.Equal(ship.AShallowPSpecs!.Length, ship.AShallowPSpecs!.Select(s => s.StrID).Distinct().Count());
+        var boarding = Assert.Single(ship.AShallowPSpecs!, s => Role(s) == "Boarding");
+        var notBoarding = Assert.Single(ship.AShallowPSpecs!, s => Role(s) == "NotBoarding");
+
+        // both land on a baked interior (non-void) room tile — never a wall or open space (1×1: fX=col, fY=-row)
+        var interior = new HashSet<int>(ship.ARooms.Where(r => !r.BVoid).SelectMany(r => r.ATiles));
+        foreach (var s in ship.AShallowPSpecs!)
+        {
+            var col = (int)Math.Round(s.FX);
+            var row = (int)Math.Round(-s.FY);
+            Assert.Contains(col + row * ship.NCols, interior);
+        }
+
+        // Boarding is anchored to the airlock; NotBoarding sits deeper in
+        var airlock = Assert.Single(ship.AItems, i => i.StrName == Catalog.PrimaryDocksysDef);
+        double D(ExportedShallowPSpec s) { var dx = s.FX - airlock.FX; var dy = s.FY - airlock.FY; return dx * dx + dy * dy; }
+        Assert.True(D(boarding) <= D(notBoarding), "Boarding should be at least as close to the airlock as NotBoarding");
+    }
+
     [SkippableFact]
     public void Export_without_a_docking_port_omits_the_docking_fields()
     {

@@ -11,6 +11,21 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.16.0] — 2026-07-10 — P.A.S.S. boarding spawners
+
+### Fixed
+- **Exported ships now spawn you at a proper boarding point instead of somewhere random.** A ship template
+  carries hidden **spawn points** the game uses to place people: a **Boarding** point (where you appear when
+  arriving by the P.A.S.S. ferry or a skywalk) and a **NotBoarding** point (where an NPC already assigned to the
+  ship spawns). Ostraplan drops all system objects on import (loot spawners, fire, and these spawn points share
+  the same `IsSystem` flag) and never re-created them, so every exported ship had none — arriving at your own
+  Ostraplan ship dumped you at a fallback tile, frequently *outside* the hull (the "I skywalk to my ship and end
+  up somewhere random on the map" reports). Export now bakes both automatically: the **Boarding** point on the
+  interior tile nearest the primary airlock (the dock entry, where you'd expect to arrive), and the
+  **NotBoarding** point deeper inside. No action needed beyond re-exporting an existing design to pick up the fix.
+  (The **save-edit** path — "Update ship in save" — was never affected: it keeps the original ship's spawn points.
+  And **nav-console modules** were and remain correctly populated — a separate, already-working mechanism.)
+
 ## [0.15.0] — 2026-07-10 — flip a selection · reactor core fix · modded overrides
 
 ### Added
