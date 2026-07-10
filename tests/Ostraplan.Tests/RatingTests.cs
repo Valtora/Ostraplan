@@ -76,11 +76,15 @@ public class RatingTests(ITestOutputHelper output)
                 if (ship.Name != "Babak Refit")
                     Assert.Equal(stored[4], mine.Size);
 
-                // Slot 2 (room count): the game counts contained/pre-populated cargo the
-                // top-level loader can't (see certification parity), so recomputed count is a
-                // lower bound on these cargo-laden derelicts. Never over-counts.
-                Assert.True(int.Parse(mine.RoomCount) <= int.Parse(stored[2]),
-                    $"room count {mine.RoomCount} exceeds stored {stored[2]}");
+                // Slot 2 (room count): bound against the template's CURRENT baked aRooms, not the
+                // aRating string — both Babaks' aRating says 18 while their aRooms certify 20
+                // non-Blank rooms (the aRating is a stale bake from an older game version, the same
+                // staleness the Refit's size slot shows). The recomputed count stays a LOWER bound
+                // because the game counts contained/pre-populated cargo the top-level loader can't
+                // (see certification parity); it must never exceed the game's own room data.
+                var bakedNonBlank = ship.Rooms.Count(r => r.RoomSpec is not (null or "" or "Blank"));
+                Assert.True(int.Parse(mine.RoomCount) <= bakedNonBlank,
+                    $"room count {mine.RoomCount} exceeds the baked aRooms' {bakedNonBlank}");
 
                 // Slots 1 (condition) and 3 (maneuver) depend on runtime damage / full cargo
                 // mass a layout-only import doesn't carry; both baked-rating templates are

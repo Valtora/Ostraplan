@@ -197,8 +197,8 @@ public static class ProblemScan
             return false;
 
         var (w, h) = (part.Item.Width, part.Item.Height);
-        var (ax, ay) = Transform(a, w, h, p.Rot);
-        var (bx, by) = Transform(b, w, h, p.Rot);
+        var (ax, ay) = GridMath.MapPoint(a, w, h, p.Rot);
+        var (bx, by) = GridMath.MapPoint(b, w, h, p.Rot);
         var (vx, vy) = (bx - ax, by - ay);
         if (Math.Abs(vx) < 0.01 && Math.Abs(vy) < 0.01) return false;
 
@@ -208,16 +208,4 @@ public static class ProblemScan
         return true;
     }
 
-    /// <summary>px around item centre (+y up) -> tile coords in the rotated footprint (top-left origin, +y down).</summary>
-    private static (double X, double Y) Transform((double X, double Y) px, int w, int h, int rot)
-    {
-        var pt = (X: w / 2.0 + px.X / 16.0, Y: h / 2.0 - px.Y / 16.0);
-        return GridMath.Norm(rot) switch
-        {
-            90 => (h - pt.Y, pt.X),
-            180 => (w - pt.X, h - pt.Y),
-            270 => (pt.Y, w - pt.X),
-            _ => pt,
-        };
-    }
 }

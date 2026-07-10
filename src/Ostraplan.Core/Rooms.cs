@@ -85,9 +85,16 @@ public static class RoomBuilder
 
     /// <summary>
     /// Each installed part joins the room containing its anchor (centre) tile
-    /// — Ship.CreateRooms' Tile.AddToRoom pass over GetCOs(TIsInstalled). Walls
-    /// anchor on their own (room-less) tile and so join no room, which is correct:
-    /// certification only counts fixtures/systems sitting inside a compartment.
+    /// — Ship.CreateRooms' Tile.AddToRoom pass over GetCOs(TIsInstalled). When the anchor
+    /// tile has <b>no</b> room — a wall-embedded part such as a wall storage bin, sensor,
+    /// antenna, cooler, or ship weapon — the game retries at the part's <c>"use"</c> map
+    /// point and joins <i>that</i> room (Tile.AddToRoom's fallback, decompiled 0.15.1.6).
+    /// Without the fallback those parts vanish from certification (a wall bin never counts
+    /// toward Basic/Luxury Quarters) and from room value. The use-point lookup goes through
+    /// GetTileAtWorldCoords1, which only returns a tile that triggers TIsShipTileOrSub — so
+    /// a use point facing <b>empty space</b> (an outward-rotated wall part) rescues nothing,
+    /// even though Ostraplan's exterior void room claims that tile. Plain walls anchor on
+    /// their own (room-less) wall tile with no use point and so join no room, as in-game.
     /// </summary>
     private static void AssignParts(ShipGrid grid, List<RoomModel> rooms, int[] tileRoom)
     {
@@ -95,9 +102,22 @@ public static class RoomBuilder
         {
             if (part.AnchorIndex < 0 || !part.Part.Has("IsInstalled")) continue;
             var ri = tileRoom[part.AnchorIndex];
+            if (ri < 0 && part.Part.MapPoints.TryGetValue("use", out var use))
+            {
+                var t = grid.MapPointTile(part, use);
+                if (t >= 0 && IsShipTile(grid, t)) ri = tileRoom[t];
+            }
             if (ri >= 0) rooms[ri].Parts.Add(part);
         }
     }
+
+    /// <summary>The game's TIsShipTileOrSub (core 0.15.1.6): an OR over the tile conds that
+    /// mark a tile as part of the ship. GetTileAtWorldCoords1 returns null for anything else.</summary>
+    private static readonly string[] ShipTileConds =
+        ["IsFloor", "IsFixture", "IsObstruction", "IsPortal", "IsWall", "IsSubTile"];
+
+    private static bool IsShipTile(ShipGrid grid, int t) =>
+        ShipTileConds.Any(c => grid.Has(t, c));
 
     /// <summary>
     /// File each door tile into a compartment. An OPEN portal (IsPortal, no IsWall) is

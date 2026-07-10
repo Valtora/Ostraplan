@@ -263,7 +263,7 @@ public static class ShipExport
             BVoid = r.Void,
             ATiles = r.Tiles.ToArray(),
             RoomSpec = r.RoomSpec,
-            RoomValue = ShipValue.RoomValueOf(r, valueModifiers),
+            RoomValue = ShipValue.RoomValueOf(r, valueModifiers, catalog),
         }).ToArray();
 
         var roomCount = partition.Rooms.Count(r => r.RoomSpec is not ("" or "Blank"));
@@ -325,6 +325,11 @@ public static class ShipExport
             ARooms = rooms,
             AZones = zones,
             AShallowPSpecs = shallowPSpecs.Length > 0 ? shallowPSpecs : null,
+            // The shallow-load broker value is Σ roomValue ×3 iff nO2PumpCount > 0 (Ship.GetShipValue);
+            // the game only re-derives the count from the items on an Edit/Full load, so bake the real
+            // figure (installed pumps fed by an O2-charged RTA can at their GasInput tile) or a spawned
+            // design with a working O2 supply under-quotes at the broker until first fully loaded.
+            NO2PumpCount = ShipValue.CountO2Pumps(grid, catalog),
             // objSS at exact (0,0) around "Sol" is Sol's own coordinate origin, not a neutral placeholder: the
             // loot-spawn path (kiosk/Special-Offer/starting-ship) does NOT reposition it like template import does,
             // so a literal (0,0) spawns the ship inside the star. Every core template instead carries small nonzero

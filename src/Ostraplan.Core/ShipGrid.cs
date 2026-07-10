@@ -173,4 +173,19 @@ public sealed class ShipGrid
 
     /// <summary>Map a grid tile index back to document tile coords (grid origin = VShipPos).</summary>
     public (int X, int Y) GridToDoc(int index) => (Col(index) + (int)VShipPosX, Row(index) + (int)VShipPosY);
+
+    /// <summary>
+    /// The grid tile a part's map point lands on, or −1 off-grid — the game's
+    /// <c>CondOwner.GetPos(point)</c> → <c>GetTileIndexAtWorldCoords</c> chain: the point is
+    /// pixels around the item centre (+y up), rotated with the part (<see cref="GridMath.MapPoint"/>),
+    /// and the world coordinate rounds away-from-zero onto a tile (<c>MathUtils.RoundToInt</c>,
+    /// same as <see cref="Rnd"/>).
+    /// </summary>
+    public int MapPointTile(PlacedPart part, (double X, double Y) px)
+    {
+        var (tx, ty) = GridMath.MapPoint(px, part.Part.Item.Width, part.Part.Item.Height, part.Rot);
+        var col = Rnd(part.TopLeftCol + tx - 0.5);
+        var row = Rnd(part.TopLeftRow + ty - 0.5);
+        return InBounds(col, row) ? Index(col, row) : -1;
+    }
 }

@@ -104,6 +104,28 @@ public sealed class Catalog
     /// (imports reference far more than the buildable menu). Null in synthetic test catalogs.</summary>
     public DataIndex? Index { get; init; }
 
+    private IReadOnlyDictionary<string, double>? _gasPrices;
+
+    /// <summary>
+    /// Gas prices in credits/kg from the <c>GasPrices</c> loot (<c>GasContainer.InitGasPrices</c> reads the
+    /// same table: entries like "O2=1x13.2" → 13.2). Feeds the gas-contents part of a part's value
+    /// (<see cref="ShipValue"/>). Empty in synthetic catalogs (no <see cref="Index"/>) or when a mod removes
+    /// the table.
+    /// </summary>
+    public IReadOnlyDictionary<string, double> GasPrices => _gasPrices ??= ParseGasPrices();
+
+    private IReadOnlyDictionary<string, double> ParseGasPrices()
+    {
+        var prices = new Dictionary<string, double>(StringComparer.Ordinal);
+        if (Index is { } idx && idx.Type("loot").TryGetValue("GasPrices", out var raw))
+            foreach (var entry in Json.StrArray(raw.El, "aCOs"))
+            {
+                var gas = LootDef.CondName(entry);
+                if (gas.Length > 0) prices[gas] = LootDef.CondAmount(entry);
+            }
+        return prices;
+    }
+
     /// <summary>GUI-prop-map templates by name (from <c>data/guipropmaps</c>) — the <c>dictGUIPropMap</c> array
     /// each named map (e.g. "Electrical", "AirPump") expands to. Used to bake a new device's <c>aGPMSettings</c>
     /// so it wires up on load. Empty in synthetic test catalogs.</summary>

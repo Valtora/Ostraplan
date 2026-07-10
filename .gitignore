@@ -4,3 +4,7 @@ publish/
 .vs/
 *.user
 *.bak
+
+# Auto-generated WPF temp projects (created + deleted per build; a leftover one
+# gets loaded as a duplicate project and breaks the C# Dev Kit project system).
+*_wpftmp.*

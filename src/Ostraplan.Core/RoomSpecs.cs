@@ -52,6 +52,23 @@ public sealed record RoomSpecDef(
 public sealed record CertFailure(string Spec, string Reason);
 
 /// <summary>
+/// A room's full fit against one spec, requirements and forbids assessed <b>independently</b>
+/// (<see cref="RoomCertifier.Matches"/> stops at the first failure, which hides the
+/// "every requirement met but a forbidden item is present" case — exactly the diagnosis a
+/// player chasing Luxury Quarters needs). <see cref="ForbiddenParts"/> are the friendly names
+/// of member parts that fire any forbid trigger.
+/// </summary>
+public sealed record SpecDiagnosis(
+    RoomSpecDef Spec, bool ShapeOk, IReadOnlyList<RoomReq> Missing, IReadOnlyList<string> ForbiddenParts)
+{
+    /// <summary>Total requirement units still unmet (a "×2" req missing both counts 2).</summary>
+    public int MissingCount => Missing.Sum(m => m.Count);
+
+    /// <summary>Requirement units already satisfied (progress toward the spec).</summary>
+    public int SatisfiedCount => Spec.Reqs.Sum(r => r.Count) - MissingCount;
+}
+
+/// <summary>
 /// Port of <c>Room.CreateRoomSpecs</c> / <c>RoomSpec.Matches</c> (verified 0.15.1.6):
 /// a room certifies as the highest-<c>nPriority</c> spec that matches, else Blank.
 /// A spec matches iff <c>bAllowVoid == room.Void</c>, tile count within
@@ -118,6 +135,34 @@ public static class RoomCertifier
         if (need.Count == 0) return null;
         var missing = string.Join(", ", need.Select(r => r.Count == 1 ? r.Trigger : $"{r.Trigger} ×{r.Count}"));
         return new CertFailure(spec.Name, $"missing required: {missing}");
+    }
+
+    /// <summary>
+    /// Assess a room against one spec with requirements and forbids evaluated independently
+    /// (unlike <see cref="Matches"/>, which returns only the first failure). Feeds the law
+    /// report's "nearly certifies" diagnosis.
+    /// </summary>
+    public static SpecDiagnosis Diagnose(RoomSpecDef spec, RoomModel room, Catalog catalog)
+    {
+        var n = room.Tiles.Count;
+        var shapeOk = spec.AllowVoid == room.Void
+            && (spec.MinTileSize == -1 || n >= spec.MinTileSize)
+            && (spec.MaxTileSize == -1 || n <= spec.MaxTileSize);
+
+        var need = spec.Reqs.Select(r => new RoomReq(r.Trigger, r.Count)).ToList();
+        var forbidden = new List<string>();
+        foreach (var part in room.Parts)
+        {
+            if (part.Part.Has("IsFloorGrate")) continue;
+            if (spec.Forbids.Any(fb => Fires(fb.Trigger, part, catalog, null)))
+                forbidden.Add(part.Part.Friendly);
+            for (var i = need.Count - 1; i >= 0; i--)
+            {
+                if (Fires(need[i].Trigger, part, catalog, null)) need[i] = need[i] with { Count = need[i].Count - 1 };
+                if (need[i].Count <= 0) need.RemoveAt(i);
+            }
+        }
+        return new SpecDiagnosis(spec, shapeOk, need, forbidden);
     }
 
     /// <summary>Does a condtrigger (or bare condition) fire on a part's condition set?</summary>

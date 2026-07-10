@@ -325,6 +325,10 @@ public static class SaveEdit
         RoomCertifier.CertifyAll(partition, specs, catalog);
         var rating = Rating.Calculate(grid, partition, catalog);
 
+        // roomValue is the room's PARTS value (Room.CalculateRoomValue), which Ship.GetShipValue sums on a
+        // shallow load — bake that, not the physical volume, so a broker quote taken before the ship is
+        // fully re-loaded reads the real worth (same fix as ShipExport).
+        var valueModifiers = specs.ToDictionary(s => s.Name, s => s.ValueModifier, StringComparer.Ordinal);
         var roomsArr = new JsonArray();
         foreach (var r in partition.Rooms)
         {
@@ -336,7 +340,7 @@ public static class SaveEdit
                 ["bVoid"] = r.Void,
                 ["aTiles"] = tiles,
                 ["roomSpec"] = r.RoomSpec,
-                ["roomValue"] = r.Volume,
+                ["roomValue"] = ShipValue.RoomValueOf(r, valueModifiers, catalog),
             });
         }
         var ratingArr = new JsonArray(
@@ -362,6 +366,9 @@ public static class SaveEdit
         // relocates every zone (or pushes an index out of range, which drops that zone and all after it).
         ship["aZones"] = BuildZonesJson(doc, minC, minR, nColsNew, nRowsNew, ctx.Source.RegId);
         ship["aRating"] = ratingArr;
+        // the shallow value multiplier flag: recompute from the edited layout (the verbatim-cloned figure
+        // reflects the pre-edit pumps; the game itself refreshes it only on an Edit/Full load)
+        ship["nO2PumpCount"] = ShipValue.CountO2Pumps(grid, catalog);
         ship["nCols"] = nColsNew;
         ship["nRows"] = nRowsNew;
         ship["vShipPos"] = new JsonObject { ["x"] = vxNew, ["y"] = vyNew };

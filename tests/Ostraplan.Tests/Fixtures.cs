@@ -44,7 +44,8 @@ public sealed class Fixtures
         string[]? reqs = null, string[]? forbids = null, string category = "MISC",
         string[]? startingConds = null, (int W, int H)? container = null, string? containerCT = null,
         int stackLimit = 0, IReadOnlyDictionary<string, (double X, double Y)>? mapPoints = null,
-        double basePrice = 0, bool sheet = false, string origin = "core")
+        double basePrice = 0, bool sheet = false, string origin = "core",
+        IReadOnlyDictionary<string, double>? condValues = null)
     {
         string[] adds;
         if (tileConds is { Length: > 0 })
@@ -56,11 +57,10 @@ public sealed class Fixtures
         else adds = [.. Enumerable.Repeat("Blank", w * h)];
 
         var item = new ItemDef(name, name + ".png", sheet, null, 0, w, adds, reqs ?? [], forbids ?? []);
-        var condValues = basePrice > 0
-            ? new Dictionary<string, double> { ["StatBasePrice"] = basePrice }
-            : new Dictionary<string, double>();
+        var values = new Dictionary<string, double>(condValues ?? new Dictionary<string, double>());
+        if (basePrice > 0) values["StatBasePrice"] = basePrice;
         var part = new PartDef(name, name, category, origin, item, null, [], [],
-            startingConds ?? [], condValues, mapPoints ?? new Dictionary<string, (double, double)>())
+            startingConds ?? [], values, mapPoints ?? new Dictionary<string, (double, double)>())
         {
             ContainerGrid = container,
             ContainerCT = containerCT,

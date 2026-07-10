@@ -15,25 +15,52 @@ public class RatingValueFixTests
     // ---- roomValue = parts value (game-free) ----
 
     [Fact]
-    public void RoomValueOf_is_parts_times_pristine_times_modifier_and_zero_for_void()
+    public void RoomValueOf_is_parts_times_modifier_including_void_rooms_and_no_pristine_markup()
     {
+        var cat = new Fixtures().Build();
         var item = new ItemDef("X", "x.png", false, null, 0, 1, [], [], []);
         var part = new ResolvedPart("X", "X", item, [], new Dictionary<string, double> { ["StatBasePrice"] = 200 },
             new Dictionary<string, (double, double)>());
         var placed = new PlacedPart(part, null, 0, 0, 0, 0, 0, 0);
         var mods = new Dictionary<string, double> { ["Wellness"] = 1.9 };
 
+        // NO ×1.25: IsPristine is a runtime cond only derelict break-in and trader stock ever
+        // grant — a spawned/exported ship's parts never carry it, so the flat markup Ostraplan
+        // used to apply overshot real resale quotes by up to 25%
         var wellness = new RoomModel { RoomSpec = "Wellness" };
         wellness.Parts.Add(placed);
-        Assert.Equal(200 * ShipValue.PristineMarkup * 1.9, ShipValue.RoomValueOf(wellness, mods));
+        Assert.Equal(200 * 1.9, ShipValue.RoomValueOf(wellness, mods, cat));
 
         var blank = new RoomModel { RoomSpec = "Blank" };   // unknown/blank spec → modifier 1.0
         blank.Parts.Add(placed);
-        Assert.Equal(200 * ShipValue.PristineMarkup, ShipValue.RoomValueOf(blank, mods));
+        Assert.Equal(200, ShipValue.RoomValueOf(blank, mods, cat));
 
-        var voided = new RoomModel { Void = true, RoomSpec = "Wellness" };
+        // void rooms count too — neither CalculateRoomValue nor GetShipValue filters bVoid, and
+        // 192 baked core void rooms carry non-zero roomValue (engines/exterior gear); zeroing
+        // them undercut any ship with parts outside sealed rooms
+        var voided = new RoomModel { Void = true, RoomSpec = "Blank" };
         voided.Parts.Add(placed);
-        Assert.Equal(0, ShipValue.RoomValueOf(voided, mods));   // open-to-space rooms are worth nothing
+        Assert.Equal(200, ShipValue.RoomValueOf(voided, mods, cat));
+    }
+
+    [SkippableFact]
+    public void Part_value_includes_the_gas_a_def_starts_with()
+    {
+        var g = TestData.RequireGame();
+        var rta = g.Catalog.Lookup("ItmRTAO2");
+        Skip.If(rta is null, "RTA def not present");
+
+        // GetBasePrice adds GetTotalGasValue: an O2 RTA spawns full — 13,373 mol × 0.0319988 kg/mol
+        // × the data-driven $13.2/kg ≈ $5,648 of O2 on top of its $410 shell
+        var resolved = new ResolvedPart(rta!.DefName, rta.Friendly, rta.Item,
+            rta.StartingConds, rta.StartingCondValues, rta.MapPoints);
+        var value = ShipValue.PartValue(resolved, g.Catalog);
+
+        var shell = rta.StartingCondValues.GetValueOrDefault("StatBasePrice");
+        var mols = rta.StartingCondValues.GetValueOrDefault("StatGasMolO2");
+        var gas = g.Catalog.GasPrices.GetValueOrDefault("O2") * 0.0319988 * mols;
+        Assert.True(gas > 1000, $"expected a full can's O2 to be worth real money, got {gas:N0}");
+        Assert.Equal(shell + gas, value, 3);
     }
 
     [SkippableFact]
@@ -56,7 +83,7 @@ public class RatingValueFixTests
         var mods = specs.ToDictionary(s => s.Name, s => s.ValueModifier, System.StringComparer.Ordinal);
 
         var bakedTotal = ship.ARooms.Sum(r => r.RoomValue);
-        var expectedTotal = rooms.Rooms.Sum(r => ShipValue.RoomValueOf(r, mods));
+        var expectedTotal = rooms.Rooms.Sum(r => ShipValue.RoomValueOf(r, mods, g.Catalog));
         var volumeTotal = rooms.Rooms.Where(r => !r.Void).Sum(r => r.Volume);
 
         Assert.Equal(expectedTotal, bakedTotal, 3);        // export baked exactly the parts value...

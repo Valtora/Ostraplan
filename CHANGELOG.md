@@ -11,6 +11,150 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.25.0] — 2026-07-10 — dropped the pristine margin
+
+### Changed
+- **Removed the "Pristine bonus" margin from kiosk prices.** A full code trace confirmed a designed or exported
+  ship can never have pristine parts (the game only rolls pristine on used and derelict ships, and installing
+  always makes a fresh non-pristine part), so the margin implied an upside a built ship can't reach. The panel
+  now shows a clean sell price, buy price, and build cost, with a short note that the final in-game price can
+  vary by roughly ±15% (tanks topped past their default fill, cargo, or parts not in the design). The value
+  maths still prices the gas each tank starts with and excludes loose cargo, exactly as the game does.
+
+## [0.24.0] — 2026-07-10 — pristine wording made exact
+
+### Changed
+- **Sharpened the pristine bonus explanation after a full code trace.** Verified against the game code: pristine
+  is added in only two places (the random roll on used and derelict ships when they first load, and kiosk stock
+  items) and removed in only one (a part taking damage). Installing a part always creates a fresh non-pristine
+  part regardless of the kit it came from. The caption now says the roll only happens on used and derelict
+  ships, so a ship you build or buy new sits at the base price with no reachable pristine bonus.
+
+## [0.23.0] — 2026-07-10 — pristine bonus label + airlock hint gate
+
+### Changed
+- **The kiosk "Margin" figure is now "Pristine bonus, up to" and sits right next to the sale price.** It reads
+  as an add-on to the sell figure it qualifies (with a clear gap before the buy figure), and the clearer label
+  says what the number actually is: the extra sale value if parts were pristine, which the game only rolls
+  onto ships it spawns.
+- **Airlocks are no longer suggested as value upgrades.** Like the reactor core and the bridge, a docking port
+  is a deliberate, ship-defining placement (an airlock goes exactly where the ship mates), not a room
+  furnishing, so "needs a docking port" is out of the value hints. The "Nearly certifies" diagnostics still
+  show Airlock lines for a room actually being built as one.
+
+## [0.22.0] — 2026-07-10 — kiosk panel polish + bridge hint gate
+
+### Changed
+- **Kiosk price panel polish.** The margin now sits directly after the sale price (smaller type), all dollar
+  figures round to whole dollars, and the Ship Rating window opens larger by default (clamped to the screen).
+- **Bridge rooms are no longer suggested as value upgrades.** Like the reactor, "add a nav station" technically
+  qualifies for almost every room, and a ship wants one bridge, not a console per closet. The "Nearly
+  certifies" diagnostics still show Bridge lines for rooms actually being built as a bridge.
+- **Corrected the pristine story (checked the install code).** Buying a part fresh from a kiosk makes the
+  *item* pristine, but installing consumes the item and spawns a brand new part, which is never pristine. The
+  only way an installed part gets the 25% pristine markup is a small random roll (2.5%) the game makes on
+  used, damaged, and derelict ships when they first load. The margin hint now says so, prior wording claimed
+  hand-installed parts were pristine, which was wrong.
+
+## [0.21.0] — 2026-07-10 — kiosk prices + towing hint gate
+
+### Changed
+- **The Ship Rating value panel now shows kiosk prices, not abstract value.** "Estimated value / build cost /
+  broker sell / broker buy" is replaced by "Sell to kiosk", "Buy from kiosk", and a "Margin" figure with a
+  percentage. The margin is the honest uncertainty in the number: the game marks each pristine part up 25% (on
+  its shell price, never its gas), and pristine on installed parts only comes from a small random roll on
+  game-spawned ships. So the price shown is the base and the margin is the ceiling a lucky roll can reach.
+- **Towing Room is only suggested for airlocks that can hold the brace.** The towing brace's own placement rule
+  requires a docking-system tile beside it (it can only ever be built at a docking port) and the brace is a 7×2
+  fixture, so the hint now appears only for rooms certified as Airlock with at least 7 tiles. It previously
+  sprayed onto every uncertified room, since the Towing Room spec's only shape gate is "2+ sealed tiles".
+
+## [0.20.0] — 2026-07-10 — value engine field-calibrated against live sales
+
+### Fixed
+- **The Pristine markup is gone from estimates and export bakes — spawned ships never have it.** The game
+  applies its ×1.25 "Pristine" bonus per part only to a runtime condition that exactly two code paths grant:
+  derelict break-in, and trader stock items. A ship spawned from an export never gets it, so Ostraplan's flat
+  ×1.25 overshot real resale quotes by up to 25% and made exported ships buy high and sell low (the baked buy
+  price carried the markup, the game's own recompute didn't). Verified against a real sale: the reported
+  min-max build now estimates $2.14m sell vs its actual $2.3m in-game sale (was $2.65m); the remainder is the
+  game's random break-in roll on used ships plus parts the live ship carries that the plan doesn't.
+- **A part's value now includes the gas its def spawns with.** The game prices canister contents (mols ×
+  molar mass × the data-driven price/kg) plus liquid D2O and solid He3 fuel: a full O2 RTA is ~$5,648 of
+  oxygen on a $410 shell, which is why canister-heavy builds read low before. Gaseous He3 is worth $0 in the
+  game's own math (its molar-mass table has no He3 entry); He3 pellets are priced.
+- **Broker buy estimate corrected from 1.25× to the data's 1.2×.** Both factors are now read straight from
+  the core ship brokers' conds (they buy at `DiscountBuy` 0.8×, sell at `DiscountSell` 1.2×; the
+  "1.1 − break-in" haircut turns out to be derelict-only). The min-max build's buy estimate is now $3.21m
+  against the observed "3m or so" (was $4.14m).
+
+### Changed
+- **Reactor rooms are no longer suggested.** "Add a reactor core" technically qualifies for every sealed room
+  of 4+ tiles, which spammed both "Nearly certifies" and "Value opportunities" on every ship. A reactor is a
+  ship-defining build (5×5 core, field coils, vacuum exposure), not a room furnishing, so hints never advise
+  one; rooms that already contain a core still certify and report as Reactor rooms normally.
+
+## [0.19.0] — 2026-07-10 — void-room value + opportunity Show buttons
+
+### Fixed
+- **Engines and exterior-mounted gear now count toward the broker value, matching the game.** Ostraplan valued
+  void (unsealed / open-to-space) rooms at $0 on the assumption that only sealed compartments count — the game
+  disagrees: neither `Room.CalculateRoomValue` nor `Ship.GetShipValue` filters void rooms, and 192 core
+  templates bake real value into their void rooms (the AirRacer's unsealed engine space alone is worth $343k).
+  Parts in unsealed areas are now valued at that room's modifier (×1.0, or ×1.05 for an exterior cargo space),
+  which raises the estimate for any design with engines or exterior equipment. Also settles a Discord theory:
+  there is no special ×3 for wall-attached items — the ×3 O2 bonus is one global flag over the whole sum, so a
+  single added part merely *looks* tripled when the bonus is active.
+
+### Changed
+- **Every "Value opportunities" entry now has a Show button** that highlights exactly which room the hint is
+  about on the canvas (same mechanism as the airtightness leak highlighting; one highlight at a time). Rooms
+  come from the same flood-fill partition the game uses, so entries never overlap or double-count — a tank farm
+  legitimately produces one Engineering Room entry per canister compartment.
+
+## [0.18.0] — 2026-07-10 — value opportunities
+
+### Added
+- **"Value opportunities" in the Ship Rating report** — an optional, collapsed section at the bottom that shows,
+  for every sealed room (including completely empty ones), the higher-value room specs its shape allows, exactly
+  what to add or remove to get there, and the broker-sell gain on the room's current contents (for example, an
+  empty 9-tile room plus one installed canister or battery becomes an Engineering Room at ×1.4 room value).
+  Certified rooms get upgrade hints too (a Basic Quarters that is one storage bin and a chair away from Luxury
+  Quarters), but only when the upgrade also outranks the current spec in certification priority — the game picks
+  the highest-priority matching spec, so items added for a lower-priority spec would change nothing. The section
+  also calls out the single biggest lever: when the ship has no working O2 supply, it shows what feeding an air
+  pump from an installed O2 canister would add (the whole-ship ×3).
+
+## [0.17.0] — 2026-07-10 — room membership & value law (Discord reports)
+
+### Fixed
+- **Wall-mounted items now count toward room certification and value, matching the game.** The game assigns a
+  part to the room at its centre tile, but when that tile is a room-less wall tile it retries at the part's
+  "use" point (decompiled `Tile.AddToRoom`) — that's how wall storage bins, sensors, antennas, coolers, and ship
+  weapons participate in rooms. Ostraplan only used the centre tile, so a bin mounted on a south or east wall
+  silently vanished from certification (the Discord "bins present but quarters won't certify" report) and from
+  the room's broker value. Corpus certification parity improved from 2109/2148 to **2124/2148 rooms exact**
+  (still 0 over-certifications).
+- **The ×3 "O2 atmosphere" value bonus now requires a working O2 supply, not just a pump.** The game grants it
+  only when an installed air pump has an installed O2 canister (RTA) with O2 in it at its gas-input tile;
+  Ostraplan granted it for any placed air pump (the Discord "pump = valid O2 atmo?" report). One fed pump ×3s
+  the value; extra pumps add nothing — that part was always game-correct. Exports now also bake the real
+  `nO2PumpCount`, so a purchased design with a working O2 supply quotes the right price at the broker before its
+  first full load, and "Update ship in save" refreshes the count for the edited layout.
+- **"Update ship in save" now bakes the parts-based room value** (the same fix exports got in 0.7.0) instead of
+  the physical room volume, so a shallow-load broker quote of an edited ship reads its real worth.
+- **Report note:** an air pump embedded in the wall line contributes $0 to the ship's broker value *in the game
+  too* (its room-membership fallback lands on its own wall tile) — Ostraplan matches; this is not a bug.
+
+### Changed
+- **"Nearly certifies" now tells you what's actually wrong, including blockers.** The law report used to show
+  only the highest-priority spec missing items — which was almost always "Reactor room" (any ≥4-tile room is one
+  reactor core short of it), while never mentioning that a *forbidden* item was parked in the room. Each
+  uncertified room now lists its two closest specs ranked by how near they are, with concrete lines like
+  "Basic Quarters: remove O2 Resident Tank Assembly ×2" or "Luxury Quarters: needs a chair · remove Ship Battery"
+  — the exact answer to "why isn't my Luxury Quarters recognized?" (Quarters specs forbid gas canisters,
+  installed RTAs, ship batteries, floor hatches, toilets, and reactor cores — in the game too.)
+
 ## [0.16.0] — 2026-07-10 — P.A.S.S. boarding spawners
 
 ### Fixed
