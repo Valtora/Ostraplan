@@ -11,7 +11,18 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
-## [0.27.0] — 2026-07-11 — filtered box-select, reactor build hints, maneuver numbers, constructibility fix
+## [0.28.0] — 2026-07-11 — symmetry-aware selection, move, rotate, delete
+
+### Added
+- **Symmetry mode now applies to editing, not just placement.** With symmetry on (M: Vertical / Horizontal /
+  Both), selecting a part also selects its mirror partner(s), so a click, box-select, or flood-select grabs the
+  whole symmetric group (matched by def and exact mirrored position, the way a symmetry-mode build lays them
+  down). Manipulating the group keeps it symmetric: dragging moves the grabbed side by the raw delta and the far
+  side by the mirrored delta (a part straddling an axis is pinned along that axis), a group rotate turns one side
+  and reflects it onto its partners (so a left/right pair stays a left/right pair instead of swinging into a
+  top/bottom one), and deleting removes the whole group. The live drag preview mirrors too, and a symmetric move
+  commits as a single undo step. Ctrl+click still toggles a part (and its partner) out of the selection. The
+  geometry (`SymmetryOps`) is unit-tested. — 2026-07-11 — filtered box-select, reactor build hints, maneuver numbers, constructibility fix
 
 ### Fixed
 - **Reactor components no longer false-flag "needs an installed Fusion Reactor Core beneath".** The

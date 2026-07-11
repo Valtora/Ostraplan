@@ -154,6 +154,7 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action? ViewChanged;
     public event Action<(int X, int Y)>? ContextMenuRequested;   // right-clicked tile; window builds the layer picker
     public event Action? BandFilterRequested;   // a Shift+drag band select finished; window offers the layer filter chips
+    public event Action<IReadOnlyList<(Placement P, int X, int Y, int Rot)>>? PosesRequested;   // a symmetric move: per-part target poses, committed as one SetPosesCommand
     public event Action<(int X, int Y)>? LooseContextMenuRequested;   // right-clicked a loose floor item; window builds its menu
     public event Action<GhostStatus?>? GhostReasonChanged;   // the armed ghost's illegality status, null when legal/disarmed
     public event Action? ShowZonesChanged;              // the zone overlay was toggled (update the toolbar caption)
@@ -328,6 +329,55 @@ public sealed class ShipCanvas : FrameworkElement
 
     public List<Placement> SelectedPlacements() =>
         Doc is null ? [] : Doc.Placements.Where(p => SelectedIds.Contains(p.Id)).ToList();
+
+    // ---- symmetry-aware selection / move ----
+
+    private bool SymVertical => SymMode is SymmetryMode.Vertical or SymmetryMode.Both;
+    private bool SymHorizontal => SymMode is SymmetryMode.Horizontal or SymmetryMode.Both;
+
+    /// <summary>The placements that mirror <paramref name="p"/> across the active symmetry axes — the parts a
+    /// symmetry-mode build laid down opposite it, matched by exact mirrored top-left + def. Empty when symmetry is
+    /// off or nothing sits at the mirror pose (an asymmetric spot). A part on an axis mirrors onto itself and is
+    /// excluded (never yields <paramref name="p"/> itself).</summary>
+    private IEnumerable<Placement> MirrorPartners(Placement p)
+    {
+        if (Doc is null || SymMode == SymmetryMode.Off) yield break;
+        var (w, h) = Doc.FootprintOf(p);
+        foreach (var (mx, my, _) in Symmetry.Poses(p.X, p.Y, p.Rot, w, h, SymCenter.X, SymCenter.Y, SymVertical, SymHorizontal).Skip(1))
+        {
+            var partner = Doc.Placements.FirstOrDefault(q => q.Id != p.Id && q.DefName == p.DefName && q.X == mx && q.Y == my);
+            if (partner is not null) yield return partner;
+        }
+    }
+
+    /// <summary>With symmetry on, pull each selected part's mirror partner(s) into the selection so a click or
+    /// box-select grabs the whole symmetric group. One pass over the current selection reaches every partner (a
+    /// quadrant's three mirrors are all direct mirrors of the original), and it is idempotent.</summary>
+    private void ExtendSelectionAcrossSymmetry()
+    {
+        if (Doc is null || SymMode == SymmetryMode.Off || SelectedIds.Count == 0) return;
+        var add = SelectedPlacements().SelectMany(MirrorPartners).Select(p => p.Id).ToList();
+        foreach (var id in add) SelectedIds.Add(id);
+    }
+
+    /// <summary>Ctrl-clicking a part off the selection also drops its mirror partner(s), so the pair leaves together.</summary>
+    private void RemoveMirrorPartners(Placement p)
+    {
+        foreach (var partner in MirrorPartners(p)) SelectedIds.Remove(partner.Id);
+    }
+
+    /// <summary>The move offset for <paramref name="p"/> this drag: the raw <see cref="_moveDelta"/>, but mirrored on
+    /// the far side of each active axis so a symmetric selection stays symmetric (drag the left cluster right and the
+    /// right cluster tracks left). The grabbed tile (<see cref="_dragStartCell"/>) is the reference side that follows
+    /// the cursor; a part centred on an axis can't move along it without breaking its own symmetry, so that component
+    /// is pinned to zero. With symmetry off this is just the raw delta.</summary>
+    private (int X, int Y) MoveDeltaFor(Placement p)
+    {
+        if (Doc is null || SymMode == SymmetryMode.Off) return _moveDelta;
+        var (w, h) = Doc.FootprintOf(p);
+        return SymmetryOps.MoveDelta(p.X, p.Y, w, h, _moveDelta.X, _moveDelta.Y,
+            SymCenter.X, SymCenter.Y, _dragStartCell.X, _dragStartCell.Y, SymVertical, SymHorizontal);
+    }
 
     /// <summary>Replace the selection with a single placement (the layer picker's row click).</summary>
     public void SelectOnly(Placement p)
@@ -646,6 +696,7 @@ public sealed class ShipCanvas : FrameworkElement
             {
                 if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) SelectedIds.Clear();
                 foreach (var p in FloodSelect.Collect(Doc, seed)) SelectedIds.Add(p.Id);
+                ExtendSelectionAcrossSymmetry();
                 SelectionChanged?.Invoke();
                 InvalidateVisual();
                 e.Handled = true;
@@ -747,10 +798,12 @@ public sealed class ShipCanvas : FrameworkElement
             {
                 if (!additive) SelectedIds.Clear();
                 SelectedIds.Add(hit.Id);
+                ExtendSelectionAcrossSymmetry();   // grab the mirror partner(s) too
             }
             else if (additive)
             {
                 SelectedIds.Remove(hit.Id);
+                RemoveMirrorPartners(hit);
             }
             SelectionChanged?.Invoke();
             if (SelectedPlacements().Any(p => !Doc.IsLocked(p)))   // the primary airlock never drags
@@ -852,7 +905,14 @@ public sealed class ShipCanvas : FrameworkElement
         }
 
         if (drag == Drag.Move && Doc is not null && (_moveDelta.X != 0 || _moveDelta.Y != 0))
-            MoveRequested?.Invoke(SelectedPlacements().Where(p => !Doc.IsLocked(p)).ToList(), _moveDelta.X, _moveDelta.Y);
+        {
+            var moving = SelectedPlacements().Where(p => !Doc.IsLocked(p)).ToList();
+            if (SymMode == SymmetryMode.Off)
+                MoveRequested?.Invoke(moving, _moveDelta.X, _moveDelta.Y);
+            else
+                // per-part mirrored deltas keep a symmetric selection symmetric — commit as explicit poses
+                PosesRequested?.Invoke(moving.Select(p => { var (ox, oy) = MoveDeltaFor(p); return (p, p.X + ox, p.Y + oy, p.Rot); }).ToList());
+        }
 
         if (drag == Drag.Band && Doc is not null)
         {
@@ -865,6 +925,7 @@ public sealed class ShipCanvas : FrameworkElement
                 if (bx <= x1 && bx + bw - 1 >= x0 && by <= y1 && by + bh - 1 >= y0)
                     SelectedIds.Add(p.Id);
             }
+            ExtendSelectionAcrossSymmetry();   // a box-select grabs the mirrored cluster too
             SelectionChanged?.Invoke();
             if (_bandFilter && SelectedIds.Count > 0) BandFilterRequested?.Invoke();
             _bandFilter = false;
@@ -1303,7 +1364,7 @@ public sealed class ShipCanvas : FrameworkElement
         {
             foreach (var p in Doc.DrawOrder())
             {
-                var offset = _drag == Drag.Move && SelectedIds.Contains(p.Id) && !Doc.IsLocked(p) ? _moveDelta : (0, 0);
+                var offset = _drag == Drag.Move && SelectedIds.Contains(p.Id) && !Doc.IsLocked(p) ? MoveDeltaFor(p) : (0, 0);
                 DrawPlacement(dc, p, offset);
             }
         }
@@ -1324,7 +1385,7 @@ public sealed class ShipCanvas : FrameworkElement
         foreach (var p in Doc.Placements.Where(p => SelectedIds.Contains(p.Id)))
         {
             var (bx, by, bw, bh) = Doc.BodyBounds(p);   // outline the above-floor body (3×3 for the tanks), not the 7×7 socket
-            (int X, int Y) offset = _drag == Drag.Move && !Doc.IsLocked(p) ? _moveDelta : (0, 0);
+            (int X, int Y) offset = _drag == Drag.Move && !Doc.IsLocked(p) ? MoveDeltaFor(p) : (0, 0);
             dc.DrawRectangle(null, SelectPen, CellRect(bx + offset.X, by + offset.Y, bw, bh));
         }
 

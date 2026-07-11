@@ -63,6 +63,7 @@ public partial class MainWindow : Window
 
         Board.StrokeCommitted += OnStrokeCommitted;
         Board.MoveRequested += OnMoveRequested;
+        Board.PosesRequested += OnPosesRequested;
         Board.SymmetryChanged += () => BtnSym.Content = "Symmetry: " + Board.SymMode switch
         {
             SymmetryMode.Vertical => "V",
@@ -715,6 +716,13 @@ public partial class MainWindow : Window
         _stack.Push(_doc, new MoveCommand(placements, dx, dy));
     }
 
+    /// <summary>A symmetric move: the canvas has already computed each part's mirrored target pose. One undo step.</summary>
+    private void OnPosesRequested(IReadOnlyList<(Placement P, int X, int Y, int Rot)> poses)
+    {
+        if (_doc is null || poses.Count == 0) return;
+        _stack.Push(_doc, new SetPosesCommand(poses.Select(t => (t.P, t.X, t.Y, t.Rot)).ToList()));
+    }
+
     private void DeleteSelection()
     {
         if (_doc is null) return;
@@ -879,6 +887,28 @@ public partial class MainWindow : Window
         if (_doc is null) return;
         var parts = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
         if (parts.Count == 0) return;
+
+        // With symmetry on, the selection holds mirror partners (auto-selected together): rotate the primary side
+        // and reflect it onto its partners so the group stays symmetric, rather than spinning the combined bounds.
+        if (Board.SymMode != SymmetryMode.Off)
+        {
+            var symItems = parts
+                .Select(p =>
+                {
+                    var (w, h) = _doc.FootprintOf(p);
+                    return new SymmetryOps.Item(p.DefName, p.X, p.Y, w, h, p.Rot, _doc.Part(p)?.Item.HasSpriteSheet == true);
+                })
+                .ToList();
+            var (cx, cy) = Board.SymCenter;
+            var symPoses = SymmetryOps.RotateGroup(symItems, delta, cx, cy,
+                Board.SymMode is SymmetryMode.Vertical or SymmetryMode.Both,
+                Board.SymMode is SymmetryMode.Horizontal or SymmetryMode.Both);
+            var symBatch = new List<(Placement, int, int, int)>(parts.Count);
+            for (var i = 0; i < parts.Count; i++)
+                symBatch.Add((parts[i], symPoses[i].X, symPoses[i].Y, symPoses[i].Rot));
+            _stack.Push(_doc, new SetPosesCommand(symBatch));
+            return;
+        }
 
         if (parts.Count == 1)
         {
@@ -2505,7 +2535,7 @@ public partial class MainWindow : Window
             ("Context menu", "RMB", "Use as brush · Replace with… · Find and Replace All… · Make Loose Item / Install item · pick a buried layer on stacked tiles · Select only (after a box-select) · Close/Open door. Also cancels placement while armed."),
             ("Rotate part", "R / Shift+R", "CW / CCW — the armed part, a selected part in place, or a whole selection about its centre (walls & floors auto-tile rather than turn)."),
             ("Flip selection", "H / Shift+H", "Mirror the selection about its centre — H horizontal (left↔right), Shift+H vertical (up↔down); each part reflects and snaps to a real rotation."),
-            ("Symmetry", "M", "Cycle Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on."),
+            ("Symmetry", "M", "Cycle Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on. While on, it also drives editing: selecting a part grabs its mirror partner(s), and moving, rotating, or deleting the group keeps it symmetric (the far side tracks in the mirrored direction)."),
             ("Mod overrides", "Toolbar toggle", "Let modded parts place where the core-game rules say they don't fit (ghost turns amber, flagged as a warning — verify in-game). Core parts stay enforced."),
             ("Delete", "Del", "Delete the selection."),
             ("Copy / paste / duplicate", "Ctrl+C / V / D", "Copy · paste at the cursor · duplicate the selection."),
