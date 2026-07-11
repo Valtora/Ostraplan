@@ -64,6 +64,7 @@ public static class CheckFit
         {
             var failed = new List<(int, int)>();
             string? reason = null;
+            var reasonRank = int.MaxValue;   // staged-build reasons outrank generic ones (see CellPasses)
 
             for (var r = 0; r < rh; r++)
                 for (var c = 0; c < rw; c++)
@@ -75,7 +76,7 @@ public static class CheckFit
                     if (includeEnvelope && BeyondAnyFace(doc, wx, wy))
                     {
                         failed.Add((wx, wy));
-                        reason ??= "beyond the airlock's mating face";
+                        if (reasonRank == int.MaxValue) { reason = "beyond the airlock's mating face"; reasonRank = GenericRank; }
                         continue;
                     }
 
@@ -84,10 +85,10 @@ public static class CheckFit
                     var forbidConds = idx < forbids.Length ? doc.Catalog.LootConds(forbids[idx]) : [];
                     if (reqConds.Count == 0 && forbidConds.Count == 0) continue;   // unconstrained
 
-                    if (!CellPasses(doc.Conds, reqConds, forbidConds, wx, wy, out var why))
+                    if (!CellPasses(doc.Conds, reqConds, forbidConds, wx, wy, out var why, out var rank))
                     {
                         failed.Add((wx, wy));
-                        reason ??= why;
+                        if (rank < reasonRank) { reason = why; reasonRank = rank; }
                     }
                 }
 
@@ -99,18 +100,42 @@ public static class CheckFit
         }
     }
 
+    // Reason priority: when several cells fail, prefer a staged-build reason ("build the Field
+    // Coils first") over a generic one ("needs a sealed floor beneath") — the generic cell usually
+    // fails too, and first-cell-wins would bury the actionable tip.
+    private const int StagedRank = 0;
+    private const int GenericRank = 1;
+    private static readonly HashSet<string> StagedConds = new(StringComparer.Ordinal)
+    {
+        "IsFusionFieldCoilsFixture", "IsFusionReactorCoreFixture",
+    };
+
     /// <summary>Every req condition present, no forbid condition present (CondTrigger.Triggered, bAND path).</summary>
     private static bool CellPasses(TileConds conds, IReadOnlyList<string> reqConds, IReadOnlyList<string> forbidConds,
-        int x, int y, out string? why)
+        int x, int y, out string? why, out int rank)
     {
         why = null;
+        rank = GenericRank;
         var at = conds.At(x, y);   // null == off-ship / empty tile (empty entries are pruned, never a non-null empty dict)
+        string? missingReq = null;
         foreach (var rc in reqConds)
             if (at is null || !at.ContainsKey(rc))
             {
-                why = ReasonForReq(rc);
-                return false;
+                // A staged-build cond names the missing prerequisite part; the loots that carry one
+                // list generic conds (IsFixture, IsFloor, …) first, so first-missing would hide it.
+                if (StagedConds.Contains(rc))
+                {
+                    why = ReasonForReq(rc);
+                    rank = StagedRank;
+                    return false;
+                }
+                missingReq ??= rc;
             }
+        if (missingReq is not null)
+        {
+            why = ReasonForReq(missingReq);
+            return false;
+        }
         if (at is not null)
         {
             // A SEALED-FLOOR surface is a valid base to build on and stand on — even when that floor is a FLOOR
@@ -156,13 +181,18 @@ public static class CheckFit
         "IsWall" => "needs a wall alongside",
         "IsHull" => "needs hull structure",
         "IsPortal" => "needs a doorway",
+        "IsFusionFieldCoilsFixture" =>
+            "needs installed Fusion Field Coils beneath — build the Field Coils first (their centre tile must stay open to space)",
+        "IsFusionReactorCoreFixture" =>
+            "needs an installed Fusion Reactor Core beneath — build the core on its Field Coils first",
         _ => $"needs {cond}",
     };
 
     private static string ReasonForForbid(string cond) => cond switch
     {
-        "IsObstruction" or "IsFixture" or "IsFixtureExt" or "IsItemTile" or "IsFloorFlex" => "tile is already occupied",
+        "IsObstruction" or "IsFixture" or "IsFixtureExt" or "IsItemTile" or "IsFloorFlex" or "IsSubTile" => "tile is already occupied",
         "IsWall" => "blocked by a wall",
+        "IsFloor" or "IsFloorSealed" => "a floor is in the way here — this tile must stay unfloored",
         _ => $"blocked by {cond}",
     };
 }

@@ -91,29 +91,64 @@ public static class ProblemScan
         // legal in-game — so we flag it, name it, and (unlike a core failure) TRUST it into the simulation so parts
         // built on it don't cascade-flag. This is the same distinction the "allow modded overrides" placement toggle
         // makes; a modded part flagged here got there by an override or by a move, and either way we can't be sure.
+        // A part that fails now may fit once another SAME-PHASE part it depends on is down: a reactor
+        // component needs its core, the core needs its field coils, and those three are all "fixtures"
+        // (rank 3) — so a single ordered pass fails whenever the file lists a dependent before its base.
+        // The game only needs SOME order to work, so we sweep to a fixed point: each pass places every
+        // pending part that currently fits (removing it from the pool), and we repeat while any pass makes
+        // progress. Placed parts leave the pool, so after the first O(N) sweep each retry only re-checks
+        // the handful of still-deferred parts. What can't be placed in any reachable order is a real fault.
+        Placement Clone(Placement p) => new() { DefName = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot };
+        var pending = doc.Placements
+            .Where(p => !doc.IsLocked(p) && !p.IsGiven && doc.Part(p) is not null)
+            .OrderBy(p => BuildRank(doc.Catalog, doc.Part(p)!))
+            .ToList();
+
+        var lastFail = new Dictionary<Guid, FitResult>();
+        var moddedFails = new List<(Placement P, FitResult Res)>();
+        while (pending.Count > 0)
+        {
+            var placed = false;
+            var still = new List<Placement>();
+            foreach (var p in pending)
+            {
+                var res = CheckFit.Check(scratch, doc.Part(p)!, p.X, p.Y, p.Rot, self: null, includeEnvelope: false);
+                if (res.Ok)
+                {
+                    scratch.Add(Clone(p));
+                    placed = true;
+                }
+                else { lastFail[p.Id] = res; still.Add(p); }
+            }
+            pending = still;
+            if (placed) continue;   // progress this pass — another sweep may unblock more
+
+            // Stalled. A failing MODDED part is trusted into the sim (a mod can add conditions/behaviour we
+            // don't model, so it may be legal in-game) — placing it lets its dependents build rather than
+            // cascade-flagging them, and it is recorded as a Warning. Sweep again in case that unblocks
+            // core parts. When no modded parts remain to trust, whatever is still pending is a hard core
+            // failure and we stop. (Core parts are never trusted — the Law is authoritative for vanilla.)
+            var trust = pending.Where(p => doc.Part(p)!.IsModded).ToList();
+            if (trust.Count == 0) break;
+            foreach (var p in trust)
+            {
+                scratch.Add(Clone(p));
+                moddedFails.Add((p, lastFail[p.Id]));
+            }
+            pending = pending.Where(p => !doc.Part(p)!.IsModded).ToList();
+        }
+
         var coreGroups = new Dictionary<string, (List<(int, int)> Cells, List<string> Parts)>(StringComparer.Ordinal);
         var moddedGroups = new Dictionary<string, (List<(int, int)> Cells, List<string> Parts)>(StringComparer.Ordinal);
-        foreach (var p in doc.Placements
-                     .Where(p => !doc.IsLocked(p) && !p.IsGiven && doc.Part(p) is not null)
-                     .OrderBy(p => BuildRank(doc.Catalog, doc.Part(p)!)))
+        void Group(Dictionary<string, (List<(int, int)> Cells, List<string> Parts)> groups, PartDef part, FitResult res)
         {
-            var part = doc.Part(p)!;
-            var res = CheckFit.Check(scratch, part, p.X, p.Y, p.Rot, self: null, includeEnvelope: false);
-            if (res.Ok)
-            {
-                scratch.Add(new Placement { DefName = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot });
-                continue;
-            }
             var reason = res.Reason ?? "illegal placement";
-            var groups = part.IsModded ? moddedGroups : coreGroups;
             if (!groups.TryGetValue(reason, out var g)) groups[reason] = g = ([], []);
             g.Cells.AddRange(res.FailedCells);
             g.Parts.Add(part.Friendly);
-            // a failing modded part is trusted to be present (the user placed it) so its conditions support anything
-            // built on top; a failing core part is not (its dependents genuinely can't be built, so they flag too).
-            if (part.IsModded)
-                scratch.Add(new Placement { DefName = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot });
         }
+        foreach (var p in pending) Group(coreGroups, doc.Part(p)!, lastFail[p.Id]);   // hard core failures
+        foreach (var (p, res) in moddedFails) Group(moddedGroups, doc.Part(p)!, res);
 
         foreach (var (reason, g) in coreGroups)
         {

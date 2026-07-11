@@ -128,6 +128,7 @@ public sealed class ShipCanvas : FrameworkElement
     private IReadOnlyList<(int X, int Y)> _leakCells = [];      // unsealed tiles of a leaking compartment (from the Ship Rating report)
     private GhostStatus? _lastGhostReason;                     // dedupe GhostReasonChanged
     private bool _armedLoose;                                  // the armed brush is an Items-tab loose item, not structure (single-click drop, no CheckFit)
+    private bool _bandFilter;                                  // the current band select was Shift-initiated (offer the layer filter chips on release)
 
     /// <summary>The selected loose floor item (see <see cref="LooseObject"/>), or null. Distinct from the
     /// placement selection (<see cref="SelectedIds"/>): a loose item is a non-structural overlay, so it carries its
@@ -152,6 +153,7 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action? Disarmed;
     public event Action? ViewChanged;
     public event Action<(int X, int Y)>? ContextMenuRequested;   // right-clicked tile; window builds the layer picker
+    public event Action? BandFilterRequested;   // a Shift+drag band select finished; window offers the layer filter chips
     public event Action<(int X, int Y)>? LooseContextMenuRequested;   // right-clicked a loose floor item; window builds its menu
     public event Action<GhostStatus?>? GhostReasonChanged;   // the armed ghost's illegality status, null when legal/disarmed
     public event Action? ShowZonesChanged;              // the zone overlay was toggled (update the toolbar caption)
@@ -679,6 +681,27 @@ public sealed class ShipCanvas : FrameworkElement
             return;
         }
 
+        // Shift+drag with no brush armed = rectangle select even when the drag starts on a part
+        // (a plain drag there would move it, and a full-deck ship has no empty tile to start from).
+        // On release the window offers layer filter chips to prune the catch (walls without floors, …).
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
+        {
+            ClearLooseSelection();
+            if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+            {
+                SelectedIds.Clear();
+                SelectionChanged?.Invoke();
+            }
+            _drag = Drag.Band;
+            _bandFilter = true;
+            _dragStartScreen = screen;
+            _dragStartCell = cell;
+            CaptureMouse();
+            e.Handled = true;
+            InvalidateVisual();
+            return;
+        }
+
         // Unarmed left-click on a tile that holds a loose item selects it (it sits on top of the deck), so it can
         // be inspected and deleted. Ctrl-click falls through to the placement logic (reach the structure beneath).
         if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && Doc.LooseAt(cell.X, cell.Y) is { } looseHit)
@@ -746,6 +769,7 @@ public sealed class ShipCanvas : FrameworkElement
                 SelectionChanged?.Invoke();
             }
             _drag = Drag.Band;
+            _bandFilter = false;
             _dragStartScreen = screen;
             _dragStartCell = cell;
             CaptureMouse();
@@ -842,6 +866,8 @@ public sealed class ShipCanvas : FrameworkElement
                     SelectedIds.Add(p.Id);
             }
             SelectionChanged?.Invoke();
+            if (_bandFilter && SelectedIds.Count > 0) BandFilterRequested?.Invoke();
+            _bandFilter = false;
         }
 
         _moveDelta = (0, 0);

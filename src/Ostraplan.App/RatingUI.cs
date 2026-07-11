@@ -147,10 +147,17 @@ public sealed class RatingReportWindow : Window
         slots.Children.Add(Slot("Maneuver", report.Rating.Maneuver));
         slots.Children.Add(Slot("Size", report.Rating.Size));
         body.Children.Add(slots);
+        var rating = report.Rating;
+        var maneuverDetail = rating.RcsThrust > 0
+            ? $"Maneuver is mass ÷ RCS thrust: {rating.Mass:#,0} kg ÷ {rating.RcsThrust:#,0.#} = " +
+              $"{rating.Mass / rating.RcsThrust:#,0.#} (lower is better: <300 A, <500 B, <750 C, <1500 D, else E). " +
+              $"Thrust-to-mass ratio: {rating.RcsThrust / rating.Mass:0.####} per kg " +
+              $"({rating.RcsThrust * 1000 / rating.Mass:#,0.##} per tonne)."
+            : "Maneuver is O: no RCS thrusters installed" +
+              (rating.Mass > 0 ? $" (ship mass {rating.Mass:#,0} kg)." : ".");
         body.Children.Add(new TextBlock
         {
-            Text = "Condition assumes a pristine build (A). Maneuver is mass ÷ RCS thrust (O = no RCS). " +
-                   "Room count is your certified compartments.",
+            Text = "Condition assumes a pristine build (A). Room count is your certified compartments. " + maneuverDetail,
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 12),
         });
 

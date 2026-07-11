@@ -77,6 +77,7 @@ public partial class MainWindow : Window
         Board.Disarmed += ClearPaletteSelection;
         Board.ContextMenuRequested += OnContextMenuRequested;
         Board.LooseContextMenuRequested += OnLooseContextMenuRequested;
+        Board.BandFilterRequested += OnBandFilterRequested;
         Board.GhostReasonChanged += status => TxtGhost.Text = status is not { } s ? ""
             : (s.WillPlace ? "⚠ placing against the rules — " : "⛔ can't place here — ") + s.Reason;
         // restore the "allow modded parts to break the law" toggle (default off)
@@ -1354,6 +1355,50 @@ public partial class MainWindow : Window
         new InventoryWindow(_catalog, _sprites, p.DefName, friendly, p.Cargo, _doc, _stack, p) { Owner = this }.ShowDialog();
     }
 
+    /// <summary>
+    /// Filter chips after a Shift+drag rectangle select: one checkable row per render layer in the
+    /// catch, toggled live against the full band result — so a drag over a hull section can keep,
+    /// say, just the walls without the floors beneath them. Skipped when the catch is one layer
+    /// (nothing to filter). Unlike the right-click "Select only", chips combine (walls + conduits).
+    /// </summary>
+    private void OnBandFilterRequested()
+    {
+        if (_doc is null || _catalog is null) return;
+        var all = Board.SelectedPlacements();
+        var byLayer = all
+            .GroupBy(p => _catalog.RenderLayer(_doc.Part(p)))
+            .OrderBy(g => g.Key)
+            .ToList();
+        if (byLayer.Count < 2) return;
+
+        var menu = new ContextMenu { PlacementTarget = Board };
+        menu.Items.Add(new MenuItem
+        {
+            Header = $"{all.Count} parts selected — keep:",
+            IsEnabled = false,
+            FontWeight = FontWeights.SemiBold,
+        });
+        var included = byLayer.Select(g => g.Key).ToHashSet();
+        foreach (var g in byLayer)
+        {
+            var layer = g.Key;
+            var chip = new MenuItem
+            {
+                Header = $"{LayerName(layer)} ({g.Count()})",
+                IsCheckable = true,
+                IsChecked = true,
+                StaysOpenOnClick = true,   // toggle several chips before dismissing (Esc / click away)
+            };
+            chip.Click += (_, _) =>
+            {
+                if (chip.IsChecked) included.Add(layer); else included.Remove(layer);
+                Board.SetSelection(all.Where(p => included.Contains(_catalog.RenderLayer(_doc.Part(p)))));
+            };
+            menu.Items.Add(chip);
+        }
+        menu.IsOpen = true;
+    }
+
     /// <summary>Friendly name for a render layer, for the context-menu layer filter.</summary>
     private static string LayerName(int layer) => layer switch
     {
@@ -2454,6 +2499,7 @@ public partial class MainWindow : Window
             ("Box fill", "Shift + drag", "With a part armed: rubber-band a box and fill it with the part."),
             ("Hollow box", "Ctrl + Shift + drag", "With a part armed: place only the outline — walls, in practice."),
             ("Select", "LMB", "Select a part. Ctrl+click adds/removes; drag empty space to box-select."),
+            ("Filter box-select", "Shift + drag", "With nothing armed: box-select even when starting on a part, then filter chips let you keep only some layers (e.g. the walls without the floors)."),
             ("Flood-select", "Double-click", "Select every touching tile of the same type (bulk delete or re-skin). Ctrl+double-click adds the region."),
             ("Move", "Drag selection", "Move the selected parts."),
             ("Context menu", "RMB", "Use as brush · Replace with… · Find and Replace All… · Make Loose Item / Install item · pick a buried layer on stacked tiles · Select only (after a box-select) · Close/Open door. Also cancels placement while armed."),

@@ -11,6 +11,42 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.27.0] — 2026-07-11 — filtered box-select, reactor build hints, maneuver numbers, constructibility fix
+
+### Fixed
+- **Reactor components no longer false-flag "needs an installed Fusion Reactor Core beneath".** The
+  constructibility check (which verifies the game can build a design incrementally) simulated one fixed build
+  order: a coarse rank (docking → floors → walls → fixtures) then document order. Every reactor part (field
+  coils, core, and each component) is a "fixture", so their relative order was just the order they appear in
+  the file — and a real ship lists the components long before the coils and core they seat on, so each
+  component was checked before its core existed and flagged as un-buildable. The simulation now sweeps to a
+  fixed point instead: each pass places every pending part that currently fits, repeating while progress is
+  made, so it finds the coils → core → component order (or any valid order) whenever one exists. This is
+  general, not reactor-specific: any fixture that mounts on another fixture authored later in the file is
+  affected. Parts that genuinely fit no build order are still flagged, and the modded-part trust behaviour
+  (a failing modded part is trusted into the sim so its dependents don't cascade-flag) is preserved.
+
+### Added
+- **Shift+drag box-select with filter chips.** With nothing armed, holding Shift and dragging always
+  rubber-bands a selection rectangle, even when the drag starts on a part (previously that would grab and
+  move it, and a fully-decked ship had no empty tile to start a box-select from). When the catch spans more
+  than one layer, a chip menu opens at the cursor (Floors / Walls & doors / Fixtures / Conduits, with
+  counts); untick chips to prune the selection live — e.g. keep the walls without the floors under them.
+  Chips combine, unlike the right-click "Select only" single-layer filter. Ctrl+Shift+drag adds to the
+  existing selection.
+- **The Ship Rating panel now shows the maneuver numbers.** The caption spells out the actual figures behind
+  the grade: total installed mass, total RCS thrust, the graded mass ÷ thrust metric with the A–E cutoffs,
+  and the true thrust-to-mass ratio (per kg and per tonne). With no RCS installed it says so and still
+  reports the ship's mass.
+
+### Changed
+- **Placement failures now explain the reactor build chain.** Arming the Fusion Reactor Core over bare floor
+  used to fail with a raw condition name; it now says to build the Field Coils first (and that their centre
+  tile must stay open to space). Reactor components likewise point at the missing installed core. When a pose
+  fails several rules at once, these staged-build hints win over the generic "needs a sealed floor beneath"
+  so the actionable tip isn't buried. A forbidden floor now reads "a floor is in the way here" instead of
+  "blocked by IsFloor", and under-floor overlaps report "tile is already occupied".
+
 ## [0.25.0] — 2026-07-10 — dropped the pristine margin
 
 ### Changed

@@ -3,9 +3,12 @@ namespace Ostraplan.Core;
 /// <summary>
 /// A ship's rating, the game's six slots. Displayed as slots 1–5 joined with "-"
 /// (Ship.GetRatingString); slot 0 (epoch) and slot 5 (unused) are omitted from display.
+/// <see cref="Mass"/> (kg) and <see cref="RcsThrust"/> (summed StatThrustStrength) carry the
+/// raw numbers behind the Maneuver grade so the UI can show the actual ratio.
 /// </summary>
 public sealed record ShipRating(
-    string Epoch, string Condition, string RoomCount, string Maneuver, string Size, string Slot5)
+    string Epoch, string Condition, string RoomCount, string Maneuver, string Size, string Slot5,
+    double Mass = 0, double RcsThrust = 0)
 {
     public string Display => string.Join("-",
         new[] { Condition, RoomCount, Maneuver, Size, Slot5 }.Where(s => !string.IsNullOrEmpty(s)));
@@ -43,7 +46,7 @@ public static class Rating
         }
 
         var maneuver = rcs == 0 ? "O" : ManeuverGrade(mass / rcs);
-        return new ShipRating("", "A", roomCount.ToString(), maneuver, SizeClass(grid.NCols * grid.NRows), "");
+        return new ShipRating("", "A", roomCount.ToString(), maneuver, SizeClass(grid.NCols * grid.NRows), "", mass, rcs);
     }
 
     private static bool RoomSpecIsBlank(string spec) => string.IsNullOrEmpty(spec) || spec == "Blank";
