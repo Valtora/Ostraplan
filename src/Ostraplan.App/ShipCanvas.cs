@@ -1177,21 +1177,25 @@ public sealed class ShipCanvas : FrameworkElement
         var (savedPan, savedZoom, savedRot) = (_pan, Zoom, ViewRot);
         Zoom = px;
         _pan = new Vector(-(b.MinX - marginTiles) * (double)px, -(b.MinY - marginTiles) * (double)px);
-        ViewRot = 0;
+        ViewRot = 0;   // draw content unrotated; the editing orientation is applied as a wrapping transform
         try
         {
+            // match the user's Q/E plan-view rotation: sprites + tints turn, output dims swap at 90°/270°,
+            // labels stay upright and route to the nearest edge of the ROTATED output
+            var (outW, outH, m) = OrientOutput(savedRot, pxW, pxH);
+            double shipL = _pan.X + b.MinX * Zoom, shipR = _pan.X + (b.MaxX + 1) * Zoom;
+            double shipT = _pan.Y + b.MinY * Zoom, shipB = _pan.Y + (b.MaxY + 1) * Zoom;
+            var outShip = m.TransformBounds(new Rect(shipL, shipT, shipR - shipL, shipB - shipT));
+
+            var labels = new List<SnapRoomLabel>();
             var dv = new DrawingVisual();
             RenderOptions.SetBitmapScalingMode(dv, BitmapScalingMode.NearestNeighbor);
             using (var ctx = dv.RenderOpen())
             {
-                ctx.DrawRectangle(SnapshotBg, null, new Rect(0, 0, pxW, pxH));
+                ctx.DrawRectangle(SnapshotBg, null, new Rect(0, 0, outW, outH));
+                ctx.PushTransform(m);
                 foreach (var p in Doc.DrawOrder()) DrawPlacement(ctx, p, (0, 0));
 
-                // ship's pixel bounds — each label routes to its nearest edge (shortest leader)
-                double shipL = _pan.X + b.MinX * Zoom, shipR = _pan.X + (b.MaxX + 1) * Zoom;
-                double shipT = _pan.Y + b.MinY * Zoom, shipB = _pan.Y + (b.MaxY + 1) * Zoom;
-
-                var labels = new List<SnapRoomLabel>();
                 var roomIndex = 0;
                 foreach (var room in partition.Rooms)
                 {
@@ -1205,20 +1209,21 @@ public sealed class ShipCanvas : FrameworkElement
                         ctx.DrawRectangle(fill, null, CellRect(dx, dy, 1, 1));
                         sx += dx + 0.5; sy += dy + 0.5;
                     }
-                    var centre = new Point(_pan.X + sx / room.Tiles.Count * Zoom, _pan.Y + sy / room.Tiles.Count * Zoom);
-                    labels.Add(new SnapRoomLabel { Centre = centre, Ft = MakeLabel(text), Side = NearestSide(centre, shipL, shipR, shipT, shipB) });
+                    var centre = m.Transform(new Point(_pan.X + sx / room.Tiles.Count * Zoom, _pan.Y + sy / room.Tiles.Count * Zoom));
+                    labels.Add(new SnapRoomLabel { Centre = centre, Ft = MakeLabel(text), Side = NearestSide(centre, outShip.Left, outShip.Right, outShip.Top, outShip.Bottom) });
                 }
+                ctx.Pop();
 
-                // place each side's labels in its margin, spread so they neither overlap nor cross their leaders
-                double topY = marginTiles * 0.4 * px, botY = pxH - marginTiles * 0.4 * px;
-                double leftX = marginTiles * 0.4 * px, rightX = pxW - marginTiles * 0.4 * px;
-                LayoutSide(labels.Where(l => l.Side == 0), horizontal: true, fixedCoord: topY, min: px, max: pxW - px);
-                LayoutSide(labels.Where(l => l.Side == 1), horizontal: true, fixedCoord: botY, min: px, max: pxW - px);
-                LayoutSide(labels.Where(l => l.Side == 2), horizontal: false, fixedCoord: leftX, min: px, max: pxH - px);
-                LayoutSide(labels.Where(l => l.Side == 3), horizontal: false, fixedCoord: rightX, min: px, max: pxH - px);
+                // labels sit upright in the output margins, spread so they neither overlap nor cross their leaders
+                double topY = marginTiles * 0.4 * px, botY = outH - marginTiles * 0.4 * px;
+                double leftX = marginTiles * 0.4 * px, rightX = outW - marginTiles * 0.4 * px;
+                LayoutSide(labels.Where(l => l.Side == 0), horizontal: true, fixedCoord: topY, min: px, max: outW - px);
+                LayoutSide(labels.Where(l => l.Side == 1), horizontal: true, fixedCoord: botY, min: px, max: outW - px);
+                LayoutSide(labels.Where(l => l.Side == 2), horizontal: false, fixedCoord: leftX, min: px, max: outH - px);
+                LayoutSide(labels.Where(l => l.Side == 3), horizontal: false, fixedCoord: rightX, min: px, max: outH - px);
                 foreach (var l in labels) DrawRoomLabel(ctx, l.Ft, l.Centre, new Point(l.Ax, l.Ay));
             }
-            var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(pxW, pxH, 96, 96, PixelFormats.Pbgra32);
+            var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(outW, outH, 96, 96, PixelFormats.Pbgra32);
             rtb.Render(dv);
             rtb.Freeze();
             return rtb;
@@ -1257,10 +1262,15 @@ public sealed class ShipCanvas : FrameworkElement
         var (savedPan, savedZoom, savedRot) = (_pan, Zoom, ViewRot);
         Zoom = px;
         _pan = new Vector(-(b.MinX - marginTiles) * (double)px, -(b.MinY - marginTiles) * (double)px);
-        ViewRot = 0;
+        ViewRot = 0;   // draw content unrotated; the editing orientation is applied as a group transform
         try
         {
-            // sprite layer -> transparent bitmap -> base64 PNG (the SVG background is a vector rect, so it's not baked in)
+            // match the user's Q/E plan-view rotation: the sprite layer + room tints share a rotation group,
+            // labels stay upright outside it and route to the nearest edge of the ROTATED output
+            var (outW, outH, m) = OrientOutput(savedRot, pxW, pxH);
+            var xform = SvgTransform(savedRot, pxW, pxH);
+
+            // sprite layer -> transparent bitmap -> base64 PNG in content space (the group rotates it)
             var dv = new DrawingVisual();
             RenderOptions.SetBitmapScalingMode(dv, BitmapScalingMode.NearestNeighbor);
             using (var ctx = dv.RenderOpen())
@@ -1273,15 +1283,19 @@ public sealed class ShipCanvas : FrameworkElement
             enc.Save(ms);
             var spriteB64 = Convert.ToBase64String(ms.ToArray());
 
-            // ship pixel bounds — each label routes to its nearest edge (shortest leader), exactly as the raster path
+            // ship pixel bounds, mapped into the rotated output — labels route to its nearest edge (shortest leader)
             double shipL = _pan.X + b.MinX * Zoom, shipR = _pan.X + (b.MaxX + 1) * Zoom;
             double shipT = _pan.Y + b.MinY * Zoom, shipB = _pan.Y + (b.MaxY + 1) * Zoom;
+            var outShip = m.TransformBounds(new Rect(shipL, shipT, shipR - shipL, shipB - shipT));
 
             var svg = new StringBuilder();
             var ci = CultureInfo.InvariantCulture;
-            svg.Append(ci, $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{pxW}\" height=\"{pxH}\" viewBox=\"0 0 {pxW} {pxH}\">\n");
+            svg.Append(ci, $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{outW}\" height=\"{outH}\" viewBox=\"0 0 {outW} {outH}\">\n");
             var bg = ((SolidColorBrush)SnapshotBg).Color;
-            svg.Append(ci, $"<rect width=\"{pxW}\" height=\"{pxH}\" fill=\"{Hex(bg)}\"/>\n");
+            svg.Append(ci, $"<rect width=\"{outW}\" height=\"{outH}\" fill=\"{Hex(bg)}\"/>\n");
+
+            // the sprite layer + room tints share the rotation group; labels stay upright outside it
+            svg.Append(xform.Length > 0 ? $"<g transform=\"{xform}\">\n" : "<g>\n");
             svg.Append(ci, $"<image x=\"0\" y=\"0\" width=\"{pxW}\" height=\"{pxH}\" " +
                            $"style=\"image-rendering:pixelated;image-rendering:crisp-edges\" " +
                            $"href=\"data:image/png;base64,{spriteB64}\"/>\n");
@@ -1304,16 +1318,17 @@ public sealed class ShipCanvas : FrameworkElement
                     sx += dx + 0.5; sy += dy + 0.5;
                 }
                 svg.Append("</g>\n");
-                var centre = new Point(_pan.X + sx / room.Tiles.Count * Zoom, _pan.Y + sy / room.Tiles.Count * Zoom);
-                labels.Add(new SnapRoomLabel { Centre = centre, Ft = MakeLabel(text), Side = NearestSide(centre, shipL, shipR, shipT, shipB) });
+                var centre = m.Transform(new Point(_pan.X + sx / room.Tiles.Count * Zoom, _pan.Y + sy / room.Tiles.Count * Zoom));
+                labels.Add(new SnapRoomLabel { Centre = centre, Ft = MakeLabel(text), Side = NearestSide(centre, outShip.Left, outShip.Right, outShip.Top, outShip.Bottom) });
             }
+            svg.Append("</g>\n");   // close the rotation group — labels below are upright
 
-            double topY = marginTiles * 0.4 * px, botY = pxH - marginTiles * 0.4 * px;
-            double leftX = marginTiles * 0.4 * px, rightX = pxW - marginTiles * 0.4 * px;
-            LayoutSide(labels.Where(l => l.Side == 0), horizontal: true, fixedCoord: topY, min: px, max: pxW - px);
-            LayoutSide(labels.Where(l => l.Side == 1), horizontal: true, fixedCoord: botY, min: px, max: pxW - px);
-            LayoutSide(labels.Where(l => l.Side == 2), horizontal: false, fixedCoord: leftX, min: px, max: pxH - px);
-            LayoutSide(labels.Where(l => l.Side == 3), horizontal: false, fixedCoord: rightX, min: px, max: pxH - px);
+            double topY = marginTiles * 0.4 * px, botY = outH - marginTiles * 0.4 * px;
+            double leftX = marginTiles * 0.4 * px, rightX = outW - marginTiles * 0.4 * px;
+            LayoutSide(labels.Where(l => l.Side == 0), horizontal: true, fixedCoord: topY, min: px, max: outW - px);
+            LayoutSide(labels.Where(l => l.Side == 1), horizontal: true, fixedCoord: botY, min: px, max: outW - px);
+            LayoutSide(labels.Where(l => l.Side == 2), horizontal: false, fixedCoord: leftX, min: px, max: outH - px);
+            LayoutSide(labels.Where(l => l.Side == 3), horizontal: false, fixedCoord: rightX, min: px, max: outH - px);
 
             var leader = ((SolidColorBrush)LeaderPen.Brush).Color;
             var labelBg = ((SolidColorBrush)LabelBg).Color;
@@ -1342,6 +1357,40 @@ public sealed class ShipCanvas : FrameworkElement
 
     private static string Hex(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
     private static string Xml(string s) => s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+
+    /// <summary>
+    /// The output dimensions and content→output transform for a snapshot drawn in the editing orientation
+    /// (<see cref="ViewRot"/>): the content (a <paramref name="pxW"/>×<paramref name="pxH"/> image) is rotated in
+    /// 90° steps about its centre and re-origined at (0,0), matching the live Q/E plan-view rotation exactly.
+    /// 90°/270° swap the output's width and height.
+    /// </summary>
+    private static (int OutW, int OutH, Transform M) OrientOutput(int rot, int pxW, int pxH)
+    {
+        rot = ((rot % 360) + 360) % 360;
+        var g = new TransformGroup();
+        g.Children.Add(new RotateTransform(rot, pxW / 2.0, pxH / 2.0));
+        if (rot is 90 or 270)
+        {
+            // rotating a pxW×pxH box 90°/270° about its centre yields a pxH×pxW box centred at the same
+            // point; shift it back so its top-left lands at (0,0)
+            g.Children.Add(new TranslateTransform((pxH - pxW) / 2.0, (pxW - pxH) / 2.0));
+            return (pxH, pxW, g);
+        }
+        return (pxW, pxH, g);   // 0° or 180° keep the dimensions
+    }
+
+    /// <summary>The SVG transform string equivalent to <see cref="OrientOutput"/>'s content→output transform, for
+    /// the group holding the sprite layer and room tints. Empty at 0°.</summary>
+    private static string SvgTransform(int rot, double pxW, double pxH)
+    {
+        rot = ((rot % 360) + 360) % 360;
+        if (rot == 0) return "";
+        var ci = CultureInfo.InvariantCulture;
+        var rotate = string.Format(ci, "rotate({0} {1:0.##} {2:0.##})", rot, pxW / 2, pxH / 2);
+        return rot is 90 or 270
+            ? string.Format(ci, "translate({0:0.##} {1:0.##}) ", (pxH - pxW) / 2, (pxW - pxH) / 2) + rotate
+            : rotate;
+    }
 
     private static readonly Brush SnapshotBg = Frozen(new SolidColorBrush(Color.FromRgb(0x2A, 0x2E, 0x36)));
     private static readonly Brush RoomOpenFill = Frozen(new SolidColorBrush(Color.FromArgb(0x4A, 0xD6, 0x45, 0x45)));

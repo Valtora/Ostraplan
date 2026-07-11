@@ -167,7 +167,9 @@ Everything below is under **File ▸ Import** / the **Export** button.
     stays Ostrasort/ModTools' job. Untick it to register the mod yourself later.
 - **PNG snapshot:** export the current design as an image for sharing. The **Ship
   Rating** room map can also be saved as **SVG** (its "Save image…" dialog offers PNG
-  or SVG): the room tints and labels stay crisp at any zoom.
+  or SVG): the room tints and labels stay crisp at any zoom. The room map (PNG and
+  SVG) is rendered in your current view orientation, so if you've rotated the plan
+  view with **Q**/**E**, the image matches; the room labels stay upright.
 
 ## Editing your live in-game ship
 

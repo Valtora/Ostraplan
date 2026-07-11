@@ -299,7 +299,7 @@ Both paths reuse one forward mapping (`ShipGrid.TemplateTile`, the inverse of ex
 
 ### 8.4 PNG / SVG snapshot
 
-Render the current canvas (chosen zoom, optional overlays) to PNG for sharing. The **Ship Rating room map** (the room-annotated snapshot) additionally exports as **SVG**: the ship sprites are embedded once as a pixel-crisp base64 PNG layer and every annotation (per-room tint, leader lines, labels) is emitted as true vectors (`ShipCanvas.RenderRatingSnapshotSvg`), so the diagram stays sharp at any zoom. The "Save image…" dialog offers PNG and SVG side by side.
+Render the current canvas (chosen zoom, optional overlays) to PNG for sharing. The **Ship Rating room map** (the room-annotated snapshot) additionally exports as **SVG**: the ship sprites are embedded once as a pixel-crisp base64 PNG layer and every annotation (per-room tint, leader lines, labels) is emitted as true vectors (`ShipCanvas.RenderRatingSnapshotSvg`), so the diagram stays sharp at any zoom. The "Save image…" dialog offers PNG and SVG side by side. Both the PNG and the SVG render in the **current editing orientation** (the Q/E plan-view rotation): content is drawn unrotated and then turned by `ViewRot` as a wrapping transform (`OrientOutput`/`SvgTransform` — the raster swaps output width/height at 90°/270°, the SVG uses a rotation group), while the room labels stay upright and re-route to the nearest edge of the rotated image.
 
 ### 8.5 Save-edit round-trip (import for editing → write back to a copy)
 

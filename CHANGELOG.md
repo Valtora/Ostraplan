@@ -11,6 +11,15 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.30.0] — 2026-07-11 — Ship Rating image follows the editing orientation
+
+### Changed
+- **The Ship Rating room map (PNG and SVG) now renders in your current editing orientation.** If you've rotated
+  the plan view with Q/E, the exported image is rotated to match, so it reads the same way as your editor
+  instead of always snapping back to north-up. The ship art and room tints turn together (the raster canvas
+  swaps its width/height at 90°/270°, and the SVG wraps them in a rotation group); the room labels stay upright
+  and re-route to the nearest edge of the rotated image so they remain readable.
+
 ## [0.29.1] — 2026-07-11 — copy/paste keeps container contents
 
 ### Changed

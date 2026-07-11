@@ -198,12 +198,31 @@ public partial class App : Application
 
                 var canvas = new ShipCanvas { Sprites = sprites };
                 canvas.SetDocument(doc);
-                var svg = canvas.RenderRatingSnapshotSvg(specs)
-                          ?? throw new InvalidOperationException("RenderRatingSnapshotSvg returned null (empty design?).");
-                System.Xml.Linq.XDocument.Parse(svg);   // throws if the SVG isn't well-formed XML
-                File.WriteAllText(Path.Combine(dir, "room-map.svg"), svg, new System.Text.UTF8Encoding(false));
+
+                // render at each editing orientation (0/90/180/270) — every SVG must parse, and the raster
+                // dimensions must swap at 90°/270° (the snapshot follows the plan-view rotation)
+                var report = new System.Text.StringBuilder();
+                (int W, int H) baseDims = (0, 0);
+                for (var i = 0; i < 4; i++)
+                {
+                    var rot = i * 90;
+                    var svg = canvas.RenderRatingSnapshotSvg(specs)
+                              ?? throw new InvalidOperationException("RenderRatingSnapshotSvg returned null (empty design?).");
+                    var xdoc = System.Xml.Linq.XDocument.Parse(svg);   // throws if not well-formed XML
+                    var root = xdoc.Root!;
+                    var (w, h) = ((int)root.Attribute("width")!, (int)root.Attribute("height")!);
+                    var rtb = canvas.RenderRatingSnapshot(specs)!;     // raster path too
+                    if (i == 0) baseDims = (w, h);
+                    var expect = rot is 90 or 270 ? (baseDims.H, baseDims.W) : baseDims;
+                    var ok = (w, h) == expect && rtb.PixelWidth == w && rtb.PixelHeight == h;
+                    report.AppendLine($"rot {rot}: svg {w}x{h}, raster {rtb.PixelWidth}x{rtb.PixelHeight}, expect {expect.Item1}x{expect.Item2} -> {(ok ? "OK" : "MISMATCH")}");
+                    if (!ok) throw new InvalidOperationException($"orientation {rot} dims wrong:\n{report}");
+                    if (i == 0) File.WriteAllText(Path.Combine(dir, "room-map.svg"), svg, new System.Text.UTF8Encoding(false));
+                    if (i == 1) File.WriteAllText(Path.Combine(dir, "room-map-rot90.svg"), svg, new System.Text.UTF8Encoding(false));
+                    canvas.RotateView(90);
+                }
                 File.WriteAllText(Path.Combine(dir, "svgsmoke-ok.txt"),
-                    $"parsed OK · {svg.Length} chars · {doc.Placements.Count} parts");
+                    $"parsed OK · {doc.Placements.Count} parts\n{report}");
             }
             catch (Exception ex) { File.WriteAllText(Path.Combine(dir, "svgsmoke-error.txt"), ex.ToString()); }
             Shutdown(0);
