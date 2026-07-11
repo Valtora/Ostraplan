@@ -141,6 +141,24 @@ public static class Cargo
         return Build(rootId);
     }
 
+    /// <summary>
+    /// Deep-clone a cargo forest, giving every node a fresh <see cref="CargoItem.StrID"/> and marking it
+    /// <see cref="CargoItem.Authored"/> — for copy/paste and duplicate of a container, so the copy holds an
+    /// independent set of contents (no shared item identity with the original) that the write-back and export
+    /// treat as freshly authored items. All other fields (def, grid position/size/rotation, stack, slot) are
+    /// preserved. Cloning at paste/duplicate time (not at copy time) means every paste gets its own new ids.
+    /// </summary>
+    public static IReadOnlyList<CargoItem> CloneForest(IReadOnlyList<CargoItem> forest) =>
+        forest.Select(Clone).ToList();
+
+    private static CargoItem Clone(CargoItem item) =>
+        item with
+        {
+            StrID = Guid.NewGuid().ToString(),
+            Children = item.Children.Select(Clone).ToList(),
+            Authored = true,
+        };
+
     /// <summary>The slot an equipped item occupies: its <c>mapSlotEffects</c> key that its parent actually has,
     /// else its first declared key.</summary>
     private static string? ResolveSlot(PartDef? childDef, PartDef? parentDef)

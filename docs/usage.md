@@ -19,6 +19,9 @@ Press **F1** in-app at any time for the full keybinding table.
    entirely optional (pick **Not now** to skip), needs no admin rights, writes
    nothing outside your user profile, and you can re-run it any time from
    **Help ▾ ▸ Install Ostraplan / shortcuts**. Deleting that folder uninstalls it.
+   Once installed, updating is one step: download the newer `Ostraplan.exe` and run
+   it — it replaces the installed copy, refreshes your shortcuts, and restarts, so
+   your existing shortcuts always open the latest version.
 4. A new design opens with a single **Primary Airlock** at the origin. Every ship
    has exactly one; it's locked (you can't move or delete it), just like in-game.
 
@@ -33,7 +36,7 @@ right, but treat a mismatch as "double-check in-game".
 | **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**. Search by friendly or internal name. Modded parts show a small origin badge. |
 | **Canvas** (centre) | The tile grid. Place, paint, select, pan and zoom here. |
 | **Inspector** (right) | The selected part's details, ship stats, the **Problems** list, and the **Law report**. |
-| **Toolbar** (top) | Grouped **File · Edit · Design · Analyse · View**, with the theme picker and the **Help ▾** menu on the right. When a newer release exists, an update dialog appears on launch (**Download Latest Version** / **Not Now**) and an **Update** button stays in the toolbar. |
+| **Toolbar** (top) | Grouped **File · Edit · Design · Analyse · View**, with the theme picker and the **Help ▾** menu on the right. When a newer release exists, an update dialog appears on launch (**Download Latest Version** / **Not Now**) and an **Update** button stays in the toolbar. Running the downloaded exe then replaces the installed copy and refreshes your shortcuts automatically. |
 
 ## Placing parts
 
@@ -74,6 +77,12 @@ only affects modded content.
 - **Flood-select:** **double-click** a 1×1 part to grab every connected tile of
   the same kind (a whole wall run, a floor). **Ctrl+double-click** adds to the
   selection.
+- **Fill a compartment:** **double-click enclosed empty space** to highlight the
+  whole sealed compartment, then arm a part and press **Enter** to fill it in one
+  step (each tile is placed only where it actually fits; **Esc** cancels). Space that
+  opens to vacuum can't be selected, so a fill never leaks out.
+- **Use as brush (eyedropper):** **Alt+click** a part to arm it and keep painting
+  it. **Replace with…:** **Ctrl+R** swaps the selection for a compatible part.
 - **Move:** drag a selection. **Rotate a selection/group:** **R** / **Shift+R**.
 - **Flip a selection:** **H** mirrors it left↔right (horizontal), **Shift+H** up↔down
   (vertical), about the selection's centre. Each part reflects its position and snaps
@@ -82,7 +91,8 @@ only affects modded content.
   part can't be truly mirrored — flip a *group* to mirror a whole room or subassembly.)
 - **Right-click** for the context menu: Duplicate (**Ctrl+D**), Copy
   (**Ctrl+C**) / Paste (**Ctrl+V**), Rotate, Flip Horizontal / Vertical, Delete
-  (**Del**), and **Use as brush** (the eyedropper — arm the part you clicked and keep drawing).
+  (**Del**), **Use as brush** (**Alt+click**, the eyedropper — arm the part you clicked and keep
+  drawing), and **Replace with…** (**Ctrl+R**).
 - **Undo / redo:** **Ctrl+Z** / **Ctrl+Y**, unbounded. Paint strokes and fills
   are single steps.
 
@@ -155,7 +165,9 @@ Everything below is under **File ▸ Import** / the **Export** button.
     hands the mod to Ostrasort to register it (and patch any kiosk conflicts with
     other ship mods). **Ostraplan itself never writes `loading_order.json`** — that
     stays Ostrasort/ModTools' job. Untick it to register the mod yourself later.
-- **PNG snapshot:** export the current design as an image for sharing.
+- **PNG snapshot:** export the current design as an image for sharing. The **Ship
+  Rating** room map can also be saved as **SVG** (its "Save image…" dialog offers PNG
+  or SVG): the room tints and labels stay crisp at any zoom.
 
 ## Editing your live in-game ship
 

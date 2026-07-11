@@ -15,7 +15,7 @@ namespace Ostraplan.App;
 /// drag to pan, fit-to-window on open, and Save-to-PNG.</summary>
 public sealed class SnapshotWindow : Window
 {
-    public SnapshotWindow(BitmapSource image)
+    public SnapshotWindow(BitmapSource image, string? svg = null)
     {
         Title = "Ship snapshot — scroll to zoom, drag to pan";
         Width = 1000; Height = 900;
@@ -26,7 +26,7 @@ public sealed class SnapshotWindow : Window
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 10, 0, 0) };
         var save = new Button { Content = "Save image…", Padding = new Thickness(14, 4, 14, 4), Margin = new Thickness(0, 0, 8, 0) };
-        save.Click += (_, _) => RatingReportWindow.SaveSnapshotPng(this, image);
+        save.Click += (_, _) => RatingReportWindow.SaveSnapshot(this, image, svg);
         var close = new Button { Content = "Close", Padding = new Thickness(16, 4, 16, 4), IsCancel = true };
         close.Click += (_, _) => Close();
         buttons.Children.Add(save);
@@ -122,7 +122,7 @@ public sealed class RatingReportWindow : Window
     private static Brush Warn => ThemeManager.Warn;
 
     public RatingReportWindow(AnalysisReport report, ShipValueEstimate value, BitmapSource? snapshot,
-        Action<IReadOnlyList<(int X, int Y)>> highlightLeak)
+        Action<IReadOnlyList<(int X, int Y)>> highlightLeak, string? snapshotSvg = null)
     {
         Title = "Ship Rating";
         // roomy default (the report grew sections), clamped so it still fits smaller screens
@@ -181,11 +181,12 @@ public sealed class RatingReportWindow : Window
             body.Children.Add(Header("SNAPSHOT"));
             body.Children.Add(new TextBlock
             {
-                Text = "A room-annotated image of the ship (each compartment coloured and labelled).",
+                Text = "A room-annotated image of the ship (each compartment coloured and labelled). Save it as a PNG, or as " +
+                       "an SVG whose room tints and labels stay sharp at any zoom.",
                 Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 4),
             });
             var view = new Button { Content = "View room map…", Padding = new Thickness(14, 4, 14, 4), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 4) };
-            view.Click += (_, _) => new SnapshotWindow(snapshot) { Owner = this }.ShowDialog();
+            view.Click += (_, _) => new SnapshotWindow(snapshot, snapshotSvg) { Owner = this }.ShowDialog();
             body.Children.Add(view);
         }
 
@@ -334,16 +335,28 @@ public sealed class RatingReportWindow : Window
 
     private static string Money(double v) => "$" + v.ToString("#,##0", CultureInfo.InvariantCulture);
 
-    internal static void SaveSnapshotPng(Window owner, BitmapSource image)
+    /// <summary>Save the room map as a PNG or, when an SVG rendering is available, an SVG (scalable). The chosen
+    /// format follows the save dialog's file type / extension.</summary>
+    internal static void SaveSnapshot(Window owner, BitmapSource image, string? svg)
     {
-        var dlg = new SaveFileDialog { Title = "Save ship snapshot", Filter = "PNG image|*.png", FileName = "ship-rating.png" };
+        var filter = svg is not null ? "PNG image|*.png|SVG image (scalable)|*.svg" : "PNG image|*.png";
+        var dlg = new SaveFileDialog { Title = "Save ship snapshot", Filter = filter, FileName = "ship-rating.png" };
         if (dlg.ShowDialog(owner) != true) return;
         try
         {
-            var encoder = new PngBitmapEncoder();
-            encoder.Frames.Add(BitmapFrame.Create(image));
-            using var stream = File.Create(dlg.FileName);
-            encoder.Save(stream);
+            var asSvg = svg is not null &&
+                        (dlg.FilterIndex == 2 || dlg.FileName.EndsWith(".svg", StringComparison.OrdinalIgnoreCase));
+            if (asSvg)
+            {
+                File.WriteAllText(dlg.FileName, svg!, new System.Text.UTF8Encoding(false));
+            }
+            else
+            {
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(image));
+                using var stream = File.Create(dlg.FileName);
+                encoder.Save(stream);
+            }
         }
         catch (Exception ex)
         {

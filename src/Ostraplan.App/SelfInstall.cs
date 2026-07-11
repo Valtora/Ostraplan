@@ -55,14 +55,32 @@ public static class SelfInstall
         }
 
         var made = new List<string>();
-        if (desktopShortcut)
-            made.Add(CreateShortcut(Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "Ostraplan.lnk")));
-        if (startMenuShortcut)
-            made.Add(CreateShortcut(Path.Combine(
-                Environment.GetFolderPath(Environment.SpecialFolder.Programs), "Ostraplan.lnk")));
+        if (desktopShortcut) made.Add(CreateShortcut(DesktopShortcutPath));
+        if (startMenuShortcut) made.Add(CreateShortcut(StartMenuShortcutPath));
 
         return new Result(InstalledExePath, copied, made);
+    }
+
+    private static string DesktopShortcutPath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.DesktopDirectory), "Ostraplan.lnk");
+
+    private static string StartMenuShortcutPath => Path.Combine(
+        Environment.GetFolderPath(Environment.SpecialFolder.Programs), "Ostraplan.lnk");
+
+    /// <summary>
+    /// Re-points the standard Desktop / Start Menu shortcuts at the installed exe,
+    /// but ONLY those that already exist — the updater calls this after replacing
+    /// the installed binary so a link's icon/target is refreshed without silently
+    /// creating shortcuts the user never asked for. Returns the ones refreshed.
+    /// (Same as Ostrasort's SelfInstall.RefreshShortcuts.)
+    /// </summary>
+    public static List<string> RefreshShortcuts()
+    {
+        var refreshed = new List<string>();
+        foreach (var lnk in new[] { DesktopShortcutPath, StartMenuShortcutPath })
+            if (File.Exists(lnk))
+                refreshed.Add(CreateShortcut(lnk));   // CreateShortcut always targets InstalledExePath
+        return refreshed;
     }
 
     /// <summary>Writes a .lnk pointing at the installed exe via Windows Script Host (no extra dependency).</summary>

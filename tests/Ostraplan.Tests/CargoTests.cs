@@ -137,4 +137,47 @@ public class CargoTests
             "X", new Dictionary<string, List<string>>(), new Dictionary<string, JsonNode>(), NoCos, EmptyCatalog());
         Assert.Empty(forest);
     }
+
+    [Fact]
+    public void CloneForest_gives_fresh_ids_marks_authored_and_preserves_the_tree()
+    {
+        // A container holding a nested loose item — the shape copy/paste of a stocked container must reproduce.
+        var inner = new CargoItem("inner-id", "ItmWrench", "Wrench", Slotted: false, [])
+        {
+            GridX = 1, GridY = 2, GridW = 1, GridH = 2, GridRot = 90, Stack = 3, IsStack = true, Authored = false,
+        };
+        var outer = new CargoItem("outer-id", "ItmLocker", "Locker", Slotted: false, [inner]);
+        var original = new List<CargoItem> { outer };
+
+        var clone = Cargo.CloneForest(original);
+
+        var co = Assert.Single(clone);
+        var ci = Assert.Single(co.Children);
+        // fresh ids everywhere, none shared with the source subtree
+        var sourceIds = original.SelectMany(c => c.SubtreeIds()).ToHashSet();
+        Assert.All(clone.SelectMany(c => c.SubtreeIds()), id => Assert.DoesNotContain(id, sourceIds));
+        Assert.NotEqual("outer-id", co.StrID);
+        Assert.NotEqual("inner-id", ci.StrID);
+        // marked authored so write-back/export synthesize fresh items
+        Assert.True(co.Authored);
+        Assert.True(ci.Authored);
+        // every other field preserved
+        Assert.Equal("ItmLocker", co.DefName);
+        Assert.Equal("ItmWrench", ci.DefName);
+        Assert.Equal("Wrench", ci.Friendly);
+        Assert.Equal((1, 2), (ci.GridX, ci.GridY));
+        Assert.Equal((1, 2), (ci.GridW, ci.GridH));
+        Assert.Equal(90, ci.GridRot);
+        Assert.Equal(3, ci.Stack);
+        Assert.True(ci.IsStack);
+        // the source is untouched (immutable clone)
+        Assert.Equal("outer-id", outer.StrID);
+        Assert.False(inner.Authored);
+    }
+
+    [Fact]
+    public void CloneForest_of_empty_is_empty()
+    {
+        Assert.Empty(Cargo.CloneForest([]));
+    }
 }

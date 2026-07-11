@@ -11,6 +11,36 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.29.1] — 2026-07-11 — copy/paste keeps container contents
+
+### Changed
+- **Copy/paste and duplicate now carry a container's contents.** Copying (or duplicating) a stocked container
+  and pasting it reproduces the container *with* its cargo — each pasted copy gets an independent deep-clone of
+  the contents (fresh item ids, marked as authored), so it exports and writes back to a save as a real stocked
+  container rather than an empty one. Non-container parts are unaffected.
+
+## [0.29.0] — 2026-07-11 — compartment fill, brush/replace hotkeys, SVG room map, self-adopting updater
+
+### Added
+- **Fill a whole compartment.** Double-click enclosed ("compartmentalized") empty space to highlight the
+  entire sealed compartment, then arm a part and press **Enter** to fill it in one undo step — each tile is
+  placed only where the game's CheckFit allows and a same-def part isn't already there. Areas open to space
+  can't be selected, so a fill can never leak into vacuum. Esc (or any edit) clears the highlight. Reuses the
+  same room flood-fill that powers zone painting.
+- **Hotkeys for the two commonest edits.** **Alt+click** is now an eyedropper — arm the part under the cursor
+  as the brush (the "Use as brush" action, previously right-click only). **Ctrl+R** opens "Replace with…" for
+  the current selection. Both still appear on the right-click menu, now with their shortcuts shown.
+- **Save the room map as SVG.** The Ship Rating room map's "Save image…" dialog now offers **SVG** alongside
+  PNG: the ship sprites are embedded once as a pixel-crisp layer and every annotation (room tints, leader
+  lines, labels) is written as true vectors, so the diagram stays sharp at any zoom.
+
+### Changed
+- **The updater now self-adopts, so old shortcuts never open a stale build.** Running a freshly downloaded
+  newer Ostraplan.exe replaces the installed copy at `%LOCALAPPDATA%\Programs\Ostraplan`, refreshes your
+  Desktop/Start-Menu shortcuts, and relaunches from there — the same pattern Ostrasort uses. Because a design
+  can hold unsaved edits, it never force-kills a running copy: if the installed exe is in use it asks you to
+  close it and retry rather than risking your work. Dev/`bin` launches and same-location launches are skipped.
+
 ## [0.28.0] — 2026-07-11 — symmetry-aware selection, move, rotate, delete
 
 ### Added

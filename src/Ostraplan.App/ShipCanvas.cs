@@ -1,4 +1,6 @@
 using System.Globalization;
+using System.IO;
+using System.Text;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -45,6 +47,8 @@ public sealed class ShipCanvas : FrameworkElement
     private static readonly Brush SubfloorFill = Frozen(new SolidColorBrush(Color.FromArgb(0x33, 0x6A, 0x8E, 0xB8)));
     private static readonly Brush LeakFill = Frozen(new SolidColorBrush(Color.FromArgb(0x77, 0x3F, 0xC8, 0xE0)));
     private static readonly Pen LeakPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xC8, 0x5F, 0xE0, 0xF0)), 1));
+    private static readonly Brush AirFill = Frozen(new SolidColorBrush(Color.FromArgb(0x40, 0x5A, 0xD0, 0x9A)));   // fill-region highlight (double-click enclosed air)
+    private static readonly Pen AirPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x90, 0x6A, 0xE0, 0xB0)), 1));
     private static readonly Pen SubfloorPen = MakeSubfloorPen();
 
     private static T Frozen<T>(T freezable) where T : Freezable
@@ -126,6 +130,7 @@ public sealed class ShipCanvas : FrameworkElement
     private bool _zoneErase;                            // this stroke removes tiles (Ctrl) rather than adds
     private IReadOnlyList<(int X, int Y)> _illegalCells = [];   // tiles of existing illegal placements (from ProblemScan)
     private IReadOnlyList<(int X, int Y)> _leakCells = [];      // unsealed tiles of a leaking compartment (from the Ship Rating report)
+    private HashSet<(int X, int Y)> _airSelection = [];         // an enclosed "air" region highlighted for a fill (double-click empty space, then arm + Enter)
     private GhostStatus? _lastGhostReason;                     // dedupe GhostReasonChanged
     private bool _armedLoose;                                  // the armed brush is an Items-tab loose item, not structure (single-click drop, no CheckFit)
     private bool _bandFilter;                                  // the current band select was Shift-initiated (offer the layer filter chips on release)
@@ -153,6 +158,8 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action? Disarmed;
     public event Action? ViewChanged;
     public event Action<(int X, int Y)>? ContextMenuRequested;   // right-clicked tile; window builds the layer picker
+    public event Action<string>? BrushPicked;   // Alt+LMB eyedropper: arm the def of the part under the cursor
+    public event Action<int>? AirSelectionChanged;   // the highlighted air region's tile count changed (0 = cleared)
     public event Action? BandFilterRequested;   // a Shift+drag band select finished; window offers the layer filter chips
     public event Action<IReadOnlyList<(Placement P, int X, int Y, int Rot)>>? PosesRequested;   // a symmetric move: per-part target poses, committed as one SetPosesCommand
     public event Action<(int X, int Y)>? LooseContextMenuRequested;   // right-clicked a loose floor item; window builds its menu
@@ -184,14 +191,48 @@ public sealed class ShipCanvas : FrameworkElement
         ActiveZoneId = null;   // a zone id from the previous document is stale
         _zoneWorking = null;
         _staticShip = null;
+        ClearAirSelection();
         InvalidateVisual();
     }
 
-    /// <summary>The document's content changed — drop the cached ship drawing and repaint.</summary>
+    /// <summary>The document's content changed — drop the cached ship drawing and repaint. Any highlighted air
+    /// region is now potentially stale (a wall may have moved), so drop it too.</summary>
     private void OnContentChanged()
     {
         _staticShip = null;
+        ClearAirSelection();
         InvalidateVisual();
+    }
+
+    /// <summary>The tiles of the enclosed air region currently highlighted for a fill (see <see cref="FillAirSelection"/>).</summary>
+    public IReadOnlyCollection<(int X, int Y)> AirSelection => _airSelection;
+
+    /// <summary>Drop the highlighted air region (if any) and repaint.</summary>
+    public void ClearAirSelection()
+    {
+        if (_airSelection.Count == 0) return;
+        _airSelection = [];
+        AirSelectionChanged?.Invoke(0);
+        InvalidateVisual();
+    }
+
+    /// <summary>
+    /// Fill every tile of the highlighted air region with the armed part — wherever it fits (the game's CheckFit)
+    /// and a same-def part isn't already there — as one undo step, then clear the region. No-op without an armed
+    /// structural part and a non-empty air selection. The region itself is chosen by double-clicking enclosed
+    /// ("compartmentalized") empty space; open-to-space areas never become a selection, so a fill can't leak.
+    /// </summary>
+    public void FillAirSelection()
+    {
+        if (Doc is null || ArmedPart is null || _armedLoose || _airSelection.Count == 0) return;
+        var (w, h) = GridMath.Size(ArmedPart.Item.Width, ArmedPart.Item.Height, ArmedRot);
+        _stroke.Clear();
+        // one coalesced Changed for the whole fill (a big compartment is many tiles), like the box-fill path
+        using (Doc.SuspendChanged())
+            foreach (var (x, y) in _airSelection)
+                TryPlacePose(x - (w - 1) / 2, y - (h - 1) / 2, ArmedRot);
+        CommitStroke();
+        ClearAirSelection();
     }
 
     /// <summary>Pan/zoom/view-rotation changed: the cached ship drawing (baked in screen space) is stale.</summary>
@@ -652,6 +693,15 @@ public sealed class ShipCanvas : FrameworkElement
         if (e.ChangedButton != MouseButton.Left || Doc is null) return;
         var cell = CellAt(screen);
 
+        // Alt+LMB is the eyedropper: pick the (topmost) part under the cursor as the brush. Works whether or
+        // not something is already armed, and takes priority over placing/selecting so an Alt-click never edits.
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt) && Doc.HitTest(cell.X, cell.Y) is { } pick)
+        {
+            BrushPicked?.Invoke(pick.DefName);
+            e.Handled = true;
+            return;
+        }
+
         // Zone-paint mode (a zone is active): left = add tiles, Ctrl+left = erase, Shift+left = box, double-click =
         // fill the enclosed room. This intercepts before the part select/flood logic below (a double-click here is a
         // room-fill, not a part flood-select). The stroke edits a working set previewed live; commit is one command.
@@ -698,6 +748,22 @@ public sealed class ShipCanvas : FrameworkElement
                 foreach (var p in FloodSelect.Collect(Doc, seed)) SelectedIds.Add(p.Id);
                 ExtendSelectionAcrossSymmetry();
                 SelectionChanged?.Invoke();
+                InvalidateVisual();
+                e.Handled = true;
+                return;
+            }
+
+            // double-click on empty space selects the enclosed ("compartmentalized") air region, so you can arm a
+            // part and press Enter to fill it (FillAirSelection). Open-to-space areas yield nothing, so a fill can't
+            // leak into vacuum. The highlight persists until you fill it, edit the ship, or press Esc.
+            var air = RoomTilesAt(cell).ToList();
+            if (air.Count > 0)
+            {
+                SelectedIds.Clear();
+                ClearLooseSelection();
+                SelectionChanged?.Invoke();
+                _airSelection = [.. air];
+                AirSelectionChanged?.Invoke(_airSelection.Count);
                 InvalidateVisual();
                 e.Handled = true;
                 return;
@@ -1163,6 +1229,120 @@ public sealed class ShipCanvas : FrameworkElement
         }
     }
 
+    /// <summary>
+    /// The same room-annotated "Ship Rating" snapshot as <see cref="RenderRatingSnapshot"/>, but serialized as an
+    /// SVG string: the ship sprites are embedded once as a pixel-crisp base64 PNG layer, and everything drawn over
+    /// them (the per-room tint, leader lines, and labels) is emitted as true vectors, so the annotations stay sharp
+    /// at any zoom. Null when the design is empty. Does not disturb the on-screen view.
+    /// </summary>
+    public string? RenderRatingSnapshotSvg(IReadOnlyList<RoomSpecDef> specs, int pxPerTile = 64, int marginTiles = 5)
+    {
+        if (Doc?.Bounds() is not { } b || Sprites is null) return null;
+
+        const int pad = 1;
+        int minC = b.MinX - pad, minR = b.MinY - pad;
+        int cols = b.MaxX - b.MinX + 1 + 2 * pad, rows = b.MaxY - b.MinY + 1 + 2 * pad;
+        var grid = ShipGrid.FromDocumentFramed(Doc, Doc.Catalog, minC, minR, cols, rows);
+        var partition = RoomBuilder.Build(grid);
+        RoomCertifier.CertifyAll(partition, specs, Doc.Catalog);
+        var friendly = specs.ToDictionary(s => s.Name, s => s.Friendly, StringComparer.Ordinal);
+
+        var tilesW = b.MaxX - b.MinX + 1 + 2 * marginTiles;
+        var tilesH = b.MaxY - b.MinY + 1 + 2 * marginTiles;
+        var px = pxPerTile;
+        if (Math.Max(tilesW, tilesH) * px > 4200) px = Math.Max(24, 4200 / Math.Max(tilesW, tilesH));   // cap the sprite raster
+        var pxW = tilesW * px;
+        var pxH = tilesH * px;
+
+        var (savedPan, savedZoom, savedRot) = (_pan, Zoom, ViewRot);
+        Zoom = px;
+        _pan = new Vector(-(b.MinX - marginTiles) * (double)px, -(b.MinY - marginTiles) * (double)px);
+        ViewRot = 0;
+        try
+        {
+            // sprite layer -> transparent bitmap -> base64 PNG (the SVG background is a vector rect, so it's not baked in)
+            var dv = new DrawingVisual();
+            RenderOptions.SetBitmapScalingMode(dv, BitmapScalingMode.NearestNeighbor);
+            using (var ctx = dv.RenderOpen())
+                foreach (var p in Doc.DrawOrder()) DrawPlacement(ctx, p, (0, 0));
+            var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(pxW, pxH, 96, 96, PixelFormats.Pbgra32);
+            rtb.Render(dv);
+            var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+            enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+            using var ms = new MemoryStream();
+            enc.Save(ms);
+            var spriteB64 = Convert.ToBase64String(ms.ToArray());
+
+            // ship pixel bounds — each label routes to its nearest edge (shortest leader), exactly as the raster path
+            double shipL = _pan.X + b.MinX * Zoom, shipR = _pan.X + (b.MaxX + 1) * Zoom;
+            double shipT = _pan.Y + b.MinY * Zoom, shipB = _pan.Y + (b.MaxY + 1) * Zoom;
+
+            var svg = new StringBuilder();
+            var ci = CultureInfo.InvariantCulture;
+            svg.Append(ci, $"<svg xmlns=\"http://www.w3.org/2000/svg\" width=\"{pxW}\" height=\"{pxH}\" viewBox=\"0 0 {pxW} {pxH}\">\n");
+            var bg = ((SolidColorBrush)SnapshotBg).Color;
+            svg.Append(ci, $"<rect width=\"{pxW}\" height=\"{pxH}\" fill=\"{Hex(bg)}\"/>\n");
+            svg.Append(ci, $"<image x=\"0\" y=\"0\" width=\"{pxW}\" height=\"{pxH}\" " +
+                           $"style=\"image-rendering:pixelated;image-rendering:crisp-edges\" " +
+                           $"href=\"data:image/png;base64,{spriteB64}\"/>\n");
+
+            // per-room tints (one <rect> per tile, grouped by room) + collect the labels
+            var labels = new List<SnapRoomLabel>();
+            var roomIndex = 0;
+            foreach (var room in partition.Rooms)
+            {
+                if (room.Void || room.Tiles.Count == 0) continue;
+                var (fillBrush, text) = RoomStyle(room, friendly, roomIndex++);
+                var c = ((SolidColorBrush)fillBrush).Color;
+                svg.Append(ci, $"<g fill=\"{Hex(c)}\" fill-opacity=\"{c.A / 255.0:0.###}\">");
+                double sx = 0, sy = 0;
+                foreach (var idx in room.Tiles)
+                {
+                    int dx = minC + idx % cols, dy = minR + idx / cols;
+                    var r = CellRect(dx, dy, 1, 1);
+                    svg.Append(ci, $"<rect x=\"{r.X:0.##}\" y=\"{r.Y:0.##}\" width=\"{r.Width:0.##}\" height=\"{r.Height:0.##}\"/>");
+                    sx += dx + 0.5; sy += dy + 0.5;
+                }
+                svg.Append("</g>\n");
+                var centre = new Point(_pan.X + sx / room.Tiles.Count * Zoom, _pan.Y + sy / room.Tiles.Count * Zoom);
+                labels.Add(new SnapRoomLabel { Centre = centre, Ft = MakeLabel(text), Side = NearestSide(centre, shipL, shipR, shipT, shipB) });
+            }
+
+            double topY = marginTiles * 0.4 * px, botY = pxH - marginTiles * 0.4 * px;
+            double leftX = marginTiles * 0.4 * px, rightX = pxW - marginTiles * 0.4 * px;
+            LayoutSide(labels.Where(l => l.Side == 0), horizontal: true, fixedCoord: topY, min: px, max: pxW - px);
+            LayoutSide(labels.Where(l => l.Side == 1), horizontal: true, fixedCoord: botY, min: px, max: pxW - px);
+            LayoutSide(labels.Where(l => l.Side == 2), horizontal: false, fixedCoord: leftX, min: px, max: pxH - px);
+            LayoutSide(labels.Where(l => l.Side == 3), horizontal: false, fixedCoord: rightX, min: px, max: pxH - px);
+
+            var leader = ((SolidColorBrush)LeaderPen.Brush).Color;
+            var labelBg = ((SolidColorBrush)LabelBg).Color;
+            foreach (var l in labels)
+            {
+                var ft = l.Ft;
+                double lx = l.Ax, ly = l.Ay;
+                svg.Append(ci, $"<line x1=\"{l.Centre.X:0.##}\" y1=\"{l.Centre.Y:0.##}\" x2=\"{lx:0.##}\" y2=\"{ly:0.##}\" " +
+                               $"stroke=\"{Hex(leader)}\" stroke-opacity=\"{leader.A / 255.0:0.###}\" stroke-width=\"1.5\"/>\n");
+                svg.Append(ci, $"<circle cx=\"{l.Centre.X:0.##}\" cy=\"{l.Centre.Y:0.##}\" r=\"3\" fill=\"#FFFFFF\"/>\n");
+                double bxx = lx - ft.Width / 2 - 6, byy = ly - ft.Height / 2 - 3, bw = ft.Width + 12, bh = ft.Height + 6;
+                svg.Append(ci, $"<rect x=\"{bxx:0.##}\" y=\"{byy:0.##}\" width=\"{bw:0.##}\" height=\"{bh:0.##}\" rx=\"3\" " +
+                               $"fill=\"{Hex(labelBg)}\" fill-opacity=\"{labelBg.A / 255.0:0.###}\"/>\n");
+                svg.Append(ci, $"<text x=\"{lx:0.##}\" y=\"{ly:0.##}\" font-family=\"Segoe UI, sans-serif\" font-size=\"17\" " +
+                               $"fill=\"#FFFFFF\" text-anchor=\"middle\" dominant-baseline=\"central\">{Xml(ft.Text)}</text>\n");
+            }
+
+            svg.Append("</svg>\n");
+            return svg.ToString();
+        }
+        finally
+        {
+            (_pan, Zoom, ViewRot) = (savedPan, savedZoom, savedRot);
+        }
+    }
+
+    private static string Hex(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
+    private static string Xml(string s) => s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
+
     private static readonly Brush SnapshotBg = Frozen(new SolidColorBrush(Color.FromRgb(0x2A, 0x2E, 0x36)));
     private static readonly Brush RoomOpenFill = Frozen(new SolidColorBrush(Color.FromArgb(0x4A, 0xD6, 0x45, 0x45)));
     private static readonly Brush LabelBg = Frozen(new SolidColorBrush(Color.FromArgb(0xCC, 0x14, 0x16, 0x1A)));
@@ -1377,6 +1557,7 @@ public sealed class ShipCanvas : FrameworkElement
 
         DrawIllegalCells(dc);
         DrawLeakCells(dc);
+        DrawAirSelection(dc);
         if (ShowZones || ActiveZoneId is not null) DrawZones(dc);
         DrawOutOfBounds(dc, view);
         DrawOriginMarker(dc);
@@ -1470,6 +1651,13 @@ public sealed class ShipCanvas : FrameworkElement
     {
         foreach (var (x, y) in _leakCells)
             dc.DrawRectangle(LeakFill, LeakPen, CellRect(x, y, 1, 1));
+    }
+
+    /// <summary>Highlight the enclosed air region selected for a fill (double-click empty space; arm + Enter to fill).</summary>
+    private void DrawAirSelection(DrawingContext dc)
+    {
+        foreach (var (x, y) in _airSelection)
+            dc.DrawRectangle(AirFill, AirPen, CellRect(x, y, 1, 1));
     }
 
     /// <summary>

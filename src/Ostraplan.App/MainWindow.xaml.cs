@@ -43,7 +43,7 @@ public partial class MainWindow : Window
     private IReadOnlyList<RoomSpecDef>? _roomSpecs;   // lazily loaded once for the Ship Rating analysis
     private bool _analysing;
     private (int X, int Y)? _hoverCell;               // last hovered tile — the paste anchor
-    private List<(string Def, int X, int Y, int Rot)> _clip = [];   // copied selection, relative to its top-left
+    private List<(string Def, int X, int Y, int Rot, IReadOnlyList<CargoItem> Cargo)> _clip = [];   // copied selection, relative to its top-left (with container contents)
     private (int X, int Y) _clipOrigin;               // the copied selection's original top-left (paste fallback)
     private readonly DispatcherTimer _scanTimer;      // debounces the (now off-thread) problem scan
     private CancellationTokenSource? _scanCts;        // cancels a superseded scan
@@ -77,10 +77,14 @@ public partial class MainWindow : Window
         Board.ViewChanged += UpdateZoomText;
         Board.Disarmed += ClearPaletteSelection;
         Board.ContextMenuRequested += OnContextMenuRequested;
+        Board.BrushPicked += OnArmFromTile;   // Alt+LMB eyedropper
         Board.LooseContextMenuRequested += OnLooseContextMenuRequested;
         Board.BandFilterRequested += OnBandFilterRequested;
-        Board.GhostReasonChanged += status => TxtGhost.Text = status is not { } s ? ""
-            : (s.WillPlace ? "⚠ placing against the rules — " : "⛔ can't place here — ") + s.Reason;
+        Board.GhostReasonChanged += status => TxtGhost.Text =
+            status is { } s ? (s.WillPlace ? "⚠ placing against the rules — " : "⛔ can't place here — ") + s.Reason
+            : Board.AirSelection.Count > 0 ? AirHint(Board.AirSelection.Count)
+            : "";
+        Board.AirSelectionChanged += n => TxtGhost.Text = n > 0 ? AirHint(n) : "";
         // restore the "allow modded parts to break the law" toggle (default off)
         Board.AllowModdedOverrides = _settings.AllowModdedOverrides;
         UpdateModOverrideButton();
@@ -413,7 +417,8 @@ public partial class MainWindow : Window
             Board.SetLeakCells([]);
             var value = ShipValue.Estimate(doc, catalog, specs);
             var snapshot = Board.RenderRatingSnapshot(specs);
-            new RatingReportWindow(report, value, snapshot, cells => Board.SetLeakCells(cells)) { Owner = this }.ShowDialog();
+            var snapshotSvg = Board.RenderRatingSnapshotSvg(specs);   // scalable variant for the "Save image…" dialog
+            new RatingReportWindow(report, value, snapshot, cells => Board.SetLeakCells(cells), snapshotSvg) { Owner = this }.ShowDialog();
         }
     }
 
@@ -968,7 +973,11 @@ public partial class MainWindow : Window
         var selected = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
         if (selected.Count == 0) return;
         var clones = selected
-            .Select(p => new Placement { DefName = p.DefName, X = p.X + 1, Y = p.Y + 1, Rot = p.Rot })
+            .Select(p => new Placement
+            {
+                DefName = p.DefName, X = p.X + 1, Y = p.Y + 1, Rot = p.Rot,
+                Cargo = Cargo.CloneForest(p.Cargo),   // duplicate a container's contents with it
+            })
             .ToList();
         _stack.Push(_doc, new CompositeCommand(clones.Select(c => (IDocCommand)new PlaceCommand(c)).ToList()));
         Board.SelectedIds.Clear();
@@ -1146,7 +1155,9 @@ public partial class MainWindow : Window
         var minX = selected.Min(p => p.X);
         var minY = selected.Min(p => p.Y);
         _clipOrigin = (minX, minY);
-        _clip = selected.Select(p => (p.DefName, p.X - minX, p.Y - minY, p.Rot)).ToList();
+        // snapshot the container contents too (cargo is immutable, so the reference is a valid snapshot) — each
+        // paste deep-clones it with fresh ids, so a copied container pastes with its contents
+        _clip = selected.Select(p => (p.DefName, p.X - minX, p.Y - minY, p.Rot, p.Cargo)).ToList();
     }
 
     /// <summary>Paste the clipboard at the hovered tile (else just off the original), selecting the copies.</summary>
@@ -1155,7 +1166,11 @@ public partial class MainWindow : Window
         if (_doc is null || _clip.Count == 0) return;
         var anchor = _hoverCell ?? (_clipOrigin.X + 1, _clipOrigin.Y + 1);
         var clones = _clip
-            .Select(c => new Placement { DefName = c.Def, X = anchor.X + c.X, Y = anchor.Y + c.Y, Rot = c.Rot })
+            .Select(c => new Placement
+            {
+                DefName = c.Def, X = anchor.X + c.X, Y = anchor.Y + c.Y, Rot = c.Rot,
+                Cargo = Cargo.CloneForest(c.Cargo),   // fresh-id copies of the container's contents
+            })
             .ToList();
         _stack.Push(_doc, new CompositeCommand(clones.Select(c => (IDocCommand)new PlaceCommand(c)).ToList()));
         Board.SelectedIds.Clear();
@@ -1308,9 +1323,9 @@ public partial class MainWindow : Window
 
         menu.Items.Add(new Separator());
         if (brushDef is not null)
-            menu.Items.Add(Item("Use as brush", "", (_, _) => OnArmFromTile(brushDef)));
+            menu.Items.Add(Item("Use as brush", "Alt+Click", (_, _) => OnArmFromTile(brushDef)));
         if (canReplace)
-            menu.Items.Add(Item("Replace with…" + suffix, "", (_, _) => ReplaceSelection()));
+            menu.Items.Add(Item("Replace with…" + suffix, "Ctrl+R", (_, _) => ReplaceSelection()));
         if (canFindReplace)
             menu.Items.Add(Item("Find and Replace All…" + (findMatches.Count > 1 ? $" ({findMatches.Count})" : ""), "", (_, _) => FindAndReplace()));
         menu.Items.Add(Item("Duplicate" + suffix, "Ctrl+D", (_, _) => DuplicateSelection(), canAct));
@@ -1440,6 +1455,10 @@ public partial class MainWindow : Window
 
     // ---- input ----
 
+    /// <summary>Status-bar hint shown while an enclosed air region is selected for a fill.</summary>
+    private static string AirHint(int n) =>
+        $"🪣 {n}-tile compartment selected — arm a part and press Enter to fill (Esc to cancel)";
+
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.OriginalSource is TextBoxBase) return;
@@ -1448,6 +1467,10 @@ public partial class MainWindow : Window
 
         switch (e.Key)
         {
+            case Key.R when ctrl && !e.IsRepeat:   // Replace the selection with a compatible part (no-op if none)
+                ReplaceSelection();
+                e.Handled = true;
+                break;
             case Key.R when !ctrl:   // same key as the game's build mode
                 if (Board.ArmedPart is not null) Board.RotateArmed(shift ? -90 : 90);
                 else RotateSelection(shift ? -90 : 90);
@@ -1473,8 +1496,16 @@ public partial class MainWindow : Window
                 PasteClipboard();
                 e.Handled = true;
                 break;
+            case Key.Enter when !ctrl && Board.AirSelection.Count > 0:   // fill the selected air region with the armed part
+                Board.FillAirSelection();
+                e.Handled = true;
+                break;
             case Key.Escape:
-                if (Board.ActiveZoneId is not null)
+                if (Board.AirSelection.Count > 0)
+                {
+                    Board.ClearAirSelection();   // drop the fill highlight first
+                }
+                else if (Board.ActiveZoneId is not null)
                 {
                     Board.SetActiveZone(null);   // stop painting the zone
                 }
@@ -2530,7 +2561,10 @@ public partial class MainWindow : Window
             ("Hollow box", "Ctrl + Shift + drag", "With a part armed: place only the outline — walls, in practice."),
             ("Select", "LMB", "Select a part. Ctrl+click adds/removes; drag empty space to box-select."),
             ("Filter box-select", "Shift + drag", "With nothing armed: box-select even when starting on a part, then filter chips let you keep only some layers (e.g. the walls without the floors)."),
-            ("Flood-select", "Double-click", "Select every touching tile of the same type (bulk delete or re-skin). Ctrl+double-click adds the region."),
+            ("Flood-select", "Double-click", "On a part: select every touching tile of the same type (bulk delete or re-skin). Ctrl+double-click adds the region."),
+            ("Fill a compartment", "Double-click empty space, then Enter", "Double-click enclosed (sealed) empty space to highlight the whole compartment, then arm a part and press Enter to fill it (Esc to cancel). Areas open to space can't be selected, so a fill never leaks."),
+            ("Use as brush", "Alt + click", "Eyedropper: arm the part under the cursor so you can keep painting it. Also on the right-click menu."),
+            ("Replace with…", "Ctrl+R", "Swap the selection for a compatible part (same layer + footprint) via a picker. Also on the right-click menu."),
             ("Move", "Drag selection", "Move the selected parts."),
             ("Context menu", "RMB", "Use as brush · Replace with… · Find and Replace All… · Make Loose Item / Install item · pick a buried layer on stacked tiles · Select only (after a box-select) · Close/Open door. Also cancels placement while armed."),
             ("Rotate part", "R / Shift+R", "CW / CCW — the armed part, a selected part in place, or a whole selection about its centre (walls & floors auto-tile rather than turn)."),

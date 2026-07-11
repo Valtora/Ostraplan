@@ -159,6 +159,57 @@ public partial class App : Application
             return;
         }
 
+        // Self-adopting update: if the user ran a freshly downloaded newer exe, replace the installed
+        // copy (%LOCALAPPDATA%\Programs\Ostraplan), refresh shortcuts, and relaunch from there — so old
+        // shortcuts never open a stale binary. Handed off ⇒ this process exits. No-op for a dev/installed
+        // launch or when there's nothing newer to adopt.
+        if (Updater.Detect() is { } pending && Updater.PromptAndApply(pending))
+        {
+            Shutdown(0);
+            return;
+        }
+
+        // render self-test: render a real ship's room map to SVG, validate it parses as XML, and write it out
+        // for eyeballing, then exit. Confirms the SVG serializer (embedded sprite layer + vector annotations)
+        // produces well-formed output. Needs the game install.
+        if (e.Args.Contains("--svgsmoke"))
+        {
+            var dir = e.Args.SkipWhile(a => a != "--svgsmoke").Skip(1).FirstOrDefault() ?? AppContext.BaseDirectory;
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var env = GameEnv.Locate(null);
+                var index = DataIndex.Load(env);
+                var catalog = Catalog.Build(index);
+                var sprites = new SpriteCache();
+                var specs = RoomCertifier.LoadSpecs(index);
+
+                ShipDocument? doc = null;
+                foreach (var save in SaveImport.ListSaves(env))
+                {
+                    try
+                    {
+                        var d = SaveEditImport.ImportForEditing(save, catalog).Doc;
+                        if (d.Placements.Count > 0) { doc = d; break; }
+                    }
+                    catch { /* not a player-ship save */ }
+                }
+                doc ??= TemplateImport.LoadFile(TemplateImport.ListShipFiles(index)[0].Path, catalog).Doc;
+
+                var canvas = new ShipCanvas { Sprites = sprites };
+                canvas.SetDocument(doc);
+                var svg = canvas.RenderRatingSnapshotSvg(specs)
+                          ?? throw new InvalidOperationException("RenderRatingSnapshotSvg returned null (empty design?).");
+                System.Xml.Linq.XDocument.Parse(svg);   // throws if the SVG isn't well-formed XML
+                File.WriteAllText(Path.Combine(dir, "room-map.svg"), svg, new System.Text.UTF8Encoding(false));
+                File.WriteAllText(Path.Combine(dir, "svgsmoke-ok.txt"),
+                    $"parsed OK · {svg.Length} chars · {doc.Placements.Count} parts");
+            }
+            catch (Exception ex) { File.WriteAllText(Path.Combine(dir, "svgsmoke-error.txt"), ex.ToString()); }
+            Shutdown(0);
+            return;
+        }
+
         DispatcherUnhandledException += (_, args) =>
         {
             try
