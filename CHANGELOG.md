@@ -22,7 +22,9 @@ each release was verified against is recorded in
   and reflects it onto its partners (so a left/right pair stays a left/right pair instead of swinging into a
   top/bottom one), and deleting removes the whole group. The live drag preview mirrors too, and a symmetric move
   commits as a single undo step. Ctrl+click still toggles a part (and its partner) out of the selection. The
-  geometry (`SymmetryOps`) is unit-tested. — 2026-07-11 — filtered box-select, reactor build hints, maneuver numbers, constructibility fix
+  geometry (`SymmetryOps`) is unit-tested.
+
+## [0.27.0] — 2026-07-11 — filtered box-select, reactor build hints, maneuver numbers, constructibility fix
 
 ### Fixed
 - **Reactor components no longer false-flag "needs an installed Fusion Reactor Core beneath".** The
