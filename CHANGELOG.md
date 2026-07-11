@@ -11,6 +11,13 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.30.1] — 2026-07-11 — plain PNG snapshot follows the editing orientation too
+
+### Changed
+- **The plain PNG snapshot now also renders in your current view orientation**, matching the Ship Rating room
+  map (0.30.0). If you've rotated the plan view with Q/E, the exported image is rotated to match instead of
+  always north-up.
+
 ## [0.30.0] — 2026-07-11 — Ship Rating image follows the editing orientation
 
 ### Changed

@@ -202,7 +202,7 @@ public partial class App : Application
                 // render at each editing orientation (0/90/180/270) — every SVG must parse, and the raster
                 // dimensions must swap at 90°/270° (the snapshot follows the plan-view rotation)
                 var report = new System.Text.StringBuilder();
-                (int W, int H) baseDims = (0, 0);
+                (int W, int H) baseDims = (0, 0), basePlain = (0, 0);
                 for (var i = 0; i < 4; i++)
                 {
                     var rot = i * 90;
@@ -211,11 +211,14 @@ public partial class App : Application
                     var xdoc = System.Xml.Linq.XDocument.Parse(svg);   // throws if not well-formed XML
                     var root = xdoc.Root!;
                     var (w, h) = ((int)root.Attribute("width")!, (int)root.Attribute("height")!);
-                    var rtb = canvas.RenderRatingSnapshot(specs)!;     // raster path too
-                    if (i == 0) baseDims = (w, h);
+                    var rtb = canvas.RenderRatingSnapshot(specs)!;     // raster rating path
+                    var plain = canvas.RenderSnapshot()!;              // plain PNG snapshot follows orientation too
+                    if (i == 0) { baseDims = (w, h); basePlain = (plain.PixelWidth, plain.PixelHeight); }
                     var expect = rot is 90 or 270 ? (baseDims.H, baseDims.W) : baseDims;
-                    var ok = (w, h) == expect && rtb.PixelWidth == w && rtb.PixelHeight == h;
-                    report.AppendLine($"rot {rot}: svg {w}x{h}, raster {rtb.PixelWidth}x{rtb.PixelHeight}, expect {expect.Item1}x{expect.Item2} -> {(ok ? "OK" : "MISMATCH")}");
+                    var expectPlain = rot is 90 or 270 ? (basePlain.H, basePlain.W) : basePlain;
+                    var ok = (w, h) == expect && rtb.PixelWidth == w && rtb.PixelHeight == h
+                             && (plain.PixelWidth, plain.PixelHeight) == expectPlain;
+                    report.AppendLine($"rot {rot}: svg {w}x{h}, raster {rtb.PixelWidth}x{rtb.PixelHeight}, plain {plain.PixelWidth}x{plain.PixelHeight} (expect {expect.Item1}x{expect.Item2}, plain {expectPlain.Item1}x{expectPlain.Item2}) -> {(ok ? "OK" : "MISMATCH")}");
                     if (!ok) throw new InvalidOperationException($"orientation {rot} dims wrong:\n{report}");
                     if (i == 0) File.WriteAllText(Path.Combine(dir, "room-map.svg"), svg, new System.Text.UTF8Encoding(false));
                     if (i == 1) File.WriteAllText(Path.Combine(dir, "room-map-rot90.svg"), svg, new System.Text.UTF8Encoding(false));

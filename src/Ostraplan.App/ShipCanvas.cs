@@ -1123,20 +1123,24 @@ public sealed class ShipCanvas : FrameworkElement
         var (savedPan, savedZoom, savedRot) = (_pan, Zoom, ViewRot);
         Zoom = pxPerTile;
         _pan = new Vector(-(b.MinX - marginTiles) * (double)pxPerTile, -(b.MinY - marginTiles) * (double)pxPerTile);
-        ViewRot = 0;
+        ViewRot = 0;   // draw content unrotated; the editing orientation is applied as a wrapping transform
         try
         {
+            // match the user's Q/E plan-view rotation (output dims swap at 90°/270°)
+            var (outW, outH, m) = OrientOutput(savedRot, pxW, pxH);
             var dv = new DrawingVisual();
             RenderOptions.SetBitmapScalingMode(dv, BitmapScalingMode.NearestNeighbor);
             using (var ctx = dv.RenderOpen())
             {
-                ctx.DrawRectangle(Background, null, new Rect(0, 0, pxW, pxH));
+                ctx.DrawRectangle(Background, null, new Rect(0, 0, outW, outH));
+                ctx.PushTransform(m);
                 foreach (var p in Doc.DrawOrder())
                     DrawPlacement(ctx, p, (0, 0));
                 foreach (var lo in Doc.LooseObjects)
                     if (Doc.Catalog.Lookup(lo.DefName) is { } part) DrawSprite(ctx, part, lo.X, lo.Y, lo.Rot, ghost: false);
+                ctx.Pop();
             }
-            var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(pxW, pxH, 96, 96, PixelFormats.Pbgra32);
+            var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(outW, outH, 96, 96, PixelFormats.Pbgra32);
             rtb.Render(dv);
             rtb.Freeze();
             return rtb;
