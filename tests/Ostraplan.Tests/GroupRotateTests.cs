@@ -49,6 +49,27 @@ public class GroupRotateTests
     }
 
     [Fact]
+    public void A_non_square_group_returns_exactly_after_four_clockwise_turns()
+    {
+        // a 2x1 domino (even-parity, non-square bbox) used to creep +1 tile per turn under round-half-up
+        // re-centring — four turns landed it at (2,2),(3,2). Symmetric rounding makes the turn round-trip.
+        var cur = new List<GroupRotate.Item> { Tile(0, 0), Tile(1, 0) };
+        for (var i = 0; i < 4; i++)
+            cur = [.. GroupRotate.Rotate(cur, 90).Select(p => new GroupRotate.Item(p.X, p.Y, 1, 1, p.Rot, false))];
+        Assert.Equal([(0, 0), (1, 0)], Cells([.. cur.Select(i => (i.X, i.Y, 0))]));
+    }
+
+    [Fact]
+    public void A_clockwise_turn_and_its_inverse_cancel_for_a_non_square_group()
+    {
+        // CW then CCW must be identity in position for any bbox (the drift bug broke this for non-square bounds)
+        var start = new List<GroupRotate.Item> { Tile(0, 0), Tile(1, 0), Tile(2, 0) };   // a 3x1 row
+        var cw = GroupRotate.Rotate(start, 90).Select(p => new GroupRotate.Item(p.X, p.Y, 1, 1, p.Rot, false)).ToList();
+        var back = GroupRotate.Rotate(cw, -90);
+        Assert.Equal(Cells([.. start.Select(i => (i.X, i.Y, 0))]), Cells(back));
+    }
+
+    [Fact]
     public void Sheet_items_keep_rotation_zero_but_still_move()
     {
         // two horizontal walls (sheet) rotate to a vertical pair — positions turn, rot stays 0

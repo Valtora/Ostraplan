@@ -6,8 +6,9 @@ namespace Ostraplan.Core;
 /// unlike per-part in-place rotation (which only re-orients one part). Sheet items
 /// (walls/floors) keep rotation 0 — they auto-tile rather than turn — but still move to
 /// their rotated tile. The tile mapping is exact; only re-centring the swapped W×H↔H×W
-/// bounding box can cost up to half a tile of drift for odd-parity bounds (rounded
-/// consistently), which the user can nudge. Pure and tile-based, so it is unit-tested.
+/// bounding box can cost up to half a tile of one-time offset for odd-parity bounds. That offset is
+/// rounded symmetrically (half away from zero), so it cancels over a full turn and a rotate then its
+/// inverse land back exactly, so repeated rotation never drifts. Pure and tile-based, so it is unit-tested.
 /// </summary>
 public static class GroupRotate
 {
@@ -35,10 +36,11 @@ public static class GroupRotate
         int w = maxX - minX + 1, h = maxY - minY + 1;
         var cw = GridMath.Norm(delta) == 90;
 
-        // the rotated box is h×w; anchor it so its centre sits on the old box centre
-        // (round-half-up keeps the ≤½-tile drift for odd parity symmetric)
-        var newMinX = (int)Math.Floor(minX + w / 2.0 - h / 2.0 + 0.5);
-        var newMinY = (int)Math.Floor(minY + h / 2.0 - w / 2.0 + 0.5);
+        // the rotated box is h×w; anchor it so its centre sits on the old box centre. Round the ½-tile
+        // odd-parity offset half-away-from-zero (symmetric about 0), so R(d)+R(−d)=0: a rotate and its
+        // inverse cancel and four turns return exactly, where round-half-up would creep +x/+y each turn.
+        var newMinX = minX + (int)Math.Round((w - h) / 2.0, MidpointRounding.AwayFromZero);
+        var newMinY = minY + (int)Math.Round((h - w) / 2.0, MidpointRounding.AwayFromZero);
 
         for (var i = 0; i < items.Count; i++)
         {
