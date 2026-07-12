@@ -414,10 +414,33 @@ public sealed class ShipCanvas : FrameworkElement
     /// is pinned to zero. With symmetry off this is just the raw delta.</summary>
     private (int X, int Y) MoveDeltaFor(Placement p)
     {
-        if (Doc is null || SymMode == SymmetryMode.Off) return _moveDelta;
+        // symmetric per-part deltas only for a genuine mirror set (cached at drag start); anything else
+        // (a fresh paste straddling the axis) translates rigidly so it is not warped by the axis.
+        if (Doc is null || !_symMove) return _moveDelta;
         var (w, h) = Doc.FootprintOf(p);
         return SymmetryOps.MoveDelta(p.X, p.Y, w, h, _moveDelta.X, _moveDelta.Y,
             SymCenter.X, SymCenter.Y, _dragStartCell.X, _dragStartCell.Y, SymVertical, SymHorizontal);
+    }
+
+    /// <summary>Whether this Move drag preserves symmetry — set once at drag start from <see cref="SelectionIsSymmetric"/>
+    /// so the per-part mirror math is not recomputed each frame (and stays consistent between preview and commit).</summary>
+    private bool _symMove;
+
+    /// <summary>
+    /// True when the current selection is a genuine mirror-symmetric set about <see cref="SymCenter"/> for the active
+    /// axes: every selected part's mirror pose(s) are occupied by another selected part of the same def. Only then do
+    /// the symmetry-preserving group edits (rotate/move) apply; an arbitrary selection (e.g. a fresh paste on one side)
+    /// falls back to a plain group op so the axis it happens to straddle does not distort it.
+    /// </summary>
+    public bool SelectionIsSymmetric()
+    {
+        if (Doc is null || SymMode == SymmetryMode.Off) return false;
+        var parts = SelectedPlacements();
+        if (parts.Count == 0) return false;
+        var items = parts
+            .Select(p => { var (w, h) = Doc.FootprintOf(p); return new Symmetry.SetItem(p.DefName, p.X, p.Y, w, h); })
+            .ToList();
+        return Symmetry.IsSymmetricSet(items, SymCenter.X, SymCenter.Y, SymVertical, SymHorizontal);
     }
 
     /// <summary>Replace the selection with a single placement (the layer picker's row click).</summary>
@@ -848,6 +871,7 @@ public sealed class ShipCanvas : FrameworkElement
                     _drag = Drag.Move;
                     _dragStartCell = cell;
                     _moveDelta = (0, 0);
+                    _symMove = SelectionIsSymmetric();
                     CaptureMouse();
                 }
                 e.Handled = true;
@@ -877,6 +901,7 @@ public sealed class ShipCanvas : FrameworkElement
                 _drag = Drag.Move;
                 _dragStartCell = cell;
                 _moveDelta = (0, 0);
+                _symMove = SelectionIsSymmetric();
                 CaptureMouse();
             }
         }
@@ -973,7 +998,7 @@ public sealed class ShipCanvas : FrameworkElement
         if (drag == Drag.Move && Doc is not null && (_moveDelta.X != 0 || _moveDelta.Y != 0))
         {
             var moving = SelectedPlacements().Where(p => !Doc.IsLocked(p)).ToList();
-            if (SymMode == SymmetryMode.Off)
+            if (!_symMove)
                 MoveRequested?.Invoke(moving, _moveDelta.X, _moveDelta.Y);
             else
                 // per-part mirrored deltas keep a symmetric selection symmetric — commit as explicit poses

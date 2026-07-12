@@ -90,4 +90,78 @@ public class SymmetryTests
         var poses = Symmetry.Poses(2500, 10, 0, 1, 1, 3000, 10, vertical: true, horizontal: false).ToList();
         Assert.Equal((3500, 10, 0), poses[1]);
     }
+
+    // ---- IsSymmetricSet: the strict gate that decides whether symmetry-preserving edits apply ----
+
+    [Fact]
+    public void A_mirrored_pair_is_a_symmetric_set()
+    {
+        const int cx = 10;
+        // a part at col 5 and its vertical mirror at 2·10−5 = 15, same def
+        var set = new[]
+        {
+            new Symmetry.SetItem("W", 5, 3, 1, 1),
+            new Symmetry.SetItem("W", 15, 3, 1, 1),
+        };
+        Assert.True(Symmetry.IsSymmetricSet(set, cx, cy: 0, vertical: true, horizontal: false));
+    }
+
+    [Fact]
+    public void A_one_sided_paste_is_not_a_symmetric_set()
+    {
+        const int cx = 10;
+        // two parts both on the same side of the axis (a straight copy, no mirror partner present)
+        var set = new[]
+        {
+            new Symmetry.SetItem("W", 15, 3, 1, 1),
+            new Symmetry.SetItem("W", 16, 3, 1, 1),
+        };
+        Assert.False(Symmetry.IsSymmetricSet(set, cx, cy: 0, vertical: true, horizontal: false));
+    }
+
+    [Fact]
+    public void A_partner_of_the_wrong_def_does_not_count()
+    {
+        const int cx = 10;
+        // the mirror tile is occupied, but by a different part type — not a genuine partner
+        var set = new[]
+        {
+            new Symmetry.SetItem("W", 5, 3, 1, 1),
+            new Symmetry.SetItem("D", 15, 3, 1, 1),
+        };
+        Assert.False(Symmetry.IsSymmetricSet(set, cx, cy: 0, vertical: true, horizontal: false));
+    }
+
+    [Fact]
+    public void An_on_axis_part_mirrors_onto_itself_and_counts()
+    {
+        const int cx = 10;
+        var set = new[] { new Symmetry.SetItem("W", 10, 3, 1, 1) };   // exactly on the vertical axis tile
+        Assert.True(Symmetry.IsSymmetricSet(set, cx, cy: 0, vertical: true, horizontal: false));
+    }
+
+    [Fact]
+    public void Both_axes_need_the_full_quad()
+    {
+        const int cx = 10;
+        const int cy = 10;
+        // a top-left part with only its vertical and horizontal partners, missing the diagonal → not a full quad
+        var trio = new[]
+        {
+            new Symmetry.SetItem("W", 5, 5, 1, 1),
+            new Symmetry.SetItem("W", 15, 5, 1, 1),   // vertical mirror
+            new Symmetry.SetItem("W", 5, 15, 1, 1),   // horizontal mirror
+        };
+        Assert.False(Symmetry.IsSymmetricSet(trio, cx, cy, vertical: true, horizontal: true));
+
+        var quad = trio.Append(new Symmetry.SetItem("W", 15, 15, 1, 1)).ToArray();   // + diagonal
+        Assert.True(Symmetry.IsSymmetricSet(quad, cx, cy, vertical: true, horizontal: true));
+    }
+
+    [Fact]
+    public void Symmetry_off_is_never_a_symmetric_set()
+    {
+        var set = new[] { new Symmetry.SetItem("W", 5, 3, 1, 1) };
+        Assert.False(Symmetry.IsSymmetricSet(set, 10, 0, vertical: false, horizontal: false));
+    }
 }

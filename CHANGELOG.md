@@ -11,6 +11,22 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.30.2] — 2026-07-12 — transforming a pasted selection no longer drifts or breaks symmetry
+
+### Fixed
+- **A group rotation no longer drifts.** Rotating a multi-part selection with a non-square bounding box used to
+  creep down and to the right a little more with each turn (round-half-up re-centring of the swapped W×H box), so
+  repeated rotates walked the group across the grid. The re-centring now rounds symmetrically, so a rotate and its
+  inverse cancel and four turns return exactly. Odd-parity bounds still take at most a one-time half-tile offset,
+  but it no longer accumulates. ([#3](https://github.com/Valtora/Ostraplan/issues/3))
+- **Rotating or moving a non-symmetric selection with mirror mode on no longer warps it.** The symmetry-preserving
+  rotate and move only ever made sense for a genuine mirror-partner set. Applied to an arbitrary selection (most
+  visibly a fresh paste sitting on one side of the axis) they mangled it: identical parts collapsed onto each other
+  under rotation, and a drag reflected the far-side parts about the axis as if it were an "invisible mirror line".
+  Both edits now first check that the selection is actually symmetric about the axis; if it is not, they fall back
+  to a plain group rotate (about the selection's own centre) and a rigid move.
+  ([#3](https://github.com/Valtora/Ostraplan/issues/3), [#4](https://github.com/Valtora/Ostraplan/issues/4))
+
 ## [0.30.1] — 2026-07-11 — plain PNG snapshot follows the editing orientation too
 
 ### Changed

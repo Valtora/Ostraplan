@@ -893,9 +893,11 @@ public partial class MainWindow : Window
         var parts = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
         if (parts.Count == 0) return;
 
-        // With symmetry on, the selection holds mirror partners (auto-selected together): rotate the primary side
-        // and reflect it onto its partners so the group stays symmetric, rather than spinning the combined bounds.
-        if (Board.SymMode != SymmetryMode.Off)
+        // With symmetry on AND the selection a genuine mirror set, the selection holds mirror partners
+        // (auto-selected together): rotate the primary side and reflect it onto its partners so the group stays
+        // symmetric, rather than spinning the combined bounds. An arbitrary selection (e.g. a fresh paste on one
+        // side) is not a partner set — it falls through to the plain group rotate so it turns about its own centre.
+        if (Board.SymMode != SymmetryMode.Off && Board.SelectionIsSymmetric())
         {
             var symItems = parts
                 .Select(p =>

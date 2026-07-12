@@ -37,4 +37,29 @@ public static class Symmetry
         if (horizontal) yield return (x, my, GridMath.Norm(180 - rot));
         if (vertical && horizontal) yield return (mx, my, GridMath.Norm(rot + 180));
     }
+
+    /// <summary>A selected footprint for the symmetric-set test: a <paramref name="Key"/> partners match on
+    /// (the def name) and its tile span <paramref name="W"/>×<paramref name="H"/> at (<paramref name="X"/>,
+    /// <paramref name="Y"/>). Rotation is irrelevant here — the mirror TILE depends only on span and axis.</summary>
+    public readonly record struct SetItem(string Key, int X, int Y, int W, int H);
+
+    /// <summary>
+    /// True when the set is a genuine mirror-symmetric group about the axis tile (<paramref name="cx"/>,
+    /// <paramref name="cy"/>): every item's mirror copy across each active axis is occupied by another item of the
+    /// same <see cref="SetItem.Key"/> (an on-axis item mirrors onto itself, which counts). A single unmatched
+    /// mirror makes it false. This is the strict gate the canvas uses to decide whether the symmetry-preserving
+    /// group edits apply — an arbitrary selection (e.g. a fresh paste on one side of the axis) fails it and is
+    /// manipulated as a plain group instead of being warped by an axis it merely straddles.
+    /// </summary>
+    public static bool IsSymmetricSet(
+        IReadOnlyList<SetItem> items, int cx, int cy, bool vertical, bool horizontal)
+    {
+        if ((!vertical && !horizontal) || items.Count == 0) return false;
+        var occupied = new HashSet<(string, int, int)>();
+        foreach (var it in items) occupied.Add((it.Key, it.X, it.Y));
+        foreach (var it in items)
+            foreach (var (mx, my, _) in Poses(it.X, it.Y, 0, it.W, it.H, cx, cy, vertical, horizontal).Skip(1))
+                if (!occupied.Contains((it.Key, mx, my))) return false;
+        return true;
+    }
 }

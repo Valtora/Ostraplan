@@ -48,7 +48,10 @@ right, but treat a mismatch as "double-check in-game".
 - **Box fill:** **Shift**-drag a rectangle. **Ctrl+Shift**-drag fills only the
   rectangle's border (a hollow room).
 - **Symmetry:** **M** cycles off → vertical → horizontal → both; placements mirror
-  live, positions *and* rotations.
+  live, positions *and* rotations. Rotating or moving a selection stays symmetric only
+  when the selection is a genuine mirror set (its partners are selected too); an
+  arbitrary selection, such as a fresh paste on one side of the axis, rotates about its
+  own centre and moves rigidly instead.
 
 ### The Law — live validation
 
