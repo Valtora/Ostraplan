@@ -30,6 +30,7 @@ public sealed class ExportDialog : Window
     private readonly CheckBox _startingShip;
     private readonly TextBox _startStation, _startMortgage;
     private readonly double _startWeight;
+    private readonly WearControl _wear;
     private readonly RadioButton _toMods, _toFolder;
     private readonly CheckBox _registerOstrasort;
     private readonly TextBlock _folderPath;
@@ -68,6 +69,10 @@ public sealed class ExportDialog : Window
     public string Year => _year.Text.Trim();
     public string Designation => _designation.Text.Trim();
     public string Description => _description.Text.Trim();
+
+    /// <summary>The wear to bake into the exported ship (on by default at the vanilla ~88% condition; drag the
+    /// slider to 100% or untick to export pristine).</summary>
+    public WearOptions Wear => _wear.Wear;
 
     /// <summary>The obtainability options the user selected — which kiosk/Special-Offer pools to add the ship
     /// to, and whether to make it a possible Shipbreaker starting ship. <see cref="ShipDelivery.None"/> when
@@ -233,6 +238,10 @@ public sealed class ExportDialog : Window
                    "mods' ships survive.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0),
         });
+
+        // --- condition / wear: bake per-part damage (on by default at the vanilla ~88% used-ship condition) ---
+        _wear = new WearControl(defaultOn: true);
+        body.Children.Add(_wear);
 
         Header(body, "DESTINATION");
 

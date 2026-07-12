@@ -78,6 +78,8 @@ Please report your bugs here on the repo's Issues tracker.
   untouched).
 - **Export as a mod** — a spawnable local mod in the game's own `data/ships`
   shape, rooms and rating precomputed.
+- **Wear slider** — export or inject a ship worn rather than pristine, using the
+  game's own kiosk damage model (default ~88% condition, no part below 10%).
 
 ### Mod-aware
 

@@ -102,7 +102,8 @@ only affects modded content.
 ### Navigating
 
 - **Pan:** **WASD**, **Space**+left-drag, or middle-drag.
-- **Zoom:** mouse wheel (integer 1×–8×, crisp pixel art).
+- **Zoom:** mouse wheel (integer 0.125×–8×, crisp pixel art). Zoom right out to
+  frame a whole station; zoom in to 8× for tile-precise work.
 - **Rotate the view:** **Q** / **E**, in 90° steps, like the in-game camera. All
   input stays rotation-aware.
 
@@ -168,6 +169,10 @@ Everything below is under **File ▸ Import** / the **Export** button.
     hands the mod to Ostrasort to register it (and patch any kiosk conflicts with
     other ship mods). **Ostraplan itself never writes `loading_order.json`** — that
     stays Ostrasort/ModTools' job. Untick it to register the mod yourself later.
+  - **Wear** — spawn the ship worn rather than pristine. The slider picks the target
+    **average** condition; it defaults to **~88%**, which is what the game's own kiosk
+    ("Used") ships come at, and damage is spread randomly across parts (none below
+    10%). Drag it left for a grungier ship, or to 100% (or untick) for pristine.
 - **PNG snapshot:** export the current design as an image for sharing. The **Ship
   Rating** room map can also be saved as **SVG** (its "Save image…" dialog offers PNG
   or SVG): the room tints and labels stay crisp at any zoom. The room map (PNG and
@@ -186,6 +191,9 @@ identity*, so you can redesign the structure out-of-game and write it back.
   `.zip.bak`. Do it from the game's **Main Menu**, not while the save is loaded, or
   the game will overwrite your edit on its next autosave. In the in-game Load menu,
   press **Refresh** to see the just-written copy.
+- The update dialog also carries the **Wear** slider (on by default at ~88%). On a
+  save-edit it re-rolls the condition of **every** installed part to the chosen
+  average, replacing existing damage — untick it to keep each part's current wear.
 - A save-edit `.oplan` stays **linked** to its save — it references the live state
   rather than embedding it, so keep the save if you want to write back later. For a
   ship detached from any save, **Export** it instead.

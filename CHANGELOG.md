@@ -11,6 +11,25 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.31.0] — 2026-07-12 — wear slider + zoom out further
+
+### Added
+- **A Wear slider** on both **Export** and **Update Ship in Save**, so a design can enter the game worn rather
+  than pristine. It bakes per-part damage exactly the way the game wears a ship sold from a broker kiosk
+  (`Ship.DamageAllCOs` → `CondOwner.BreakIn`): each installed part takes `StatDamage = uniform(0, ceiling ×
+  StatDamageMax)`, so condition varies part to part. The slider picks the target **average** condition (10%–100%);
+  it defaults to **~88%**, the game's own kiosk ("Used") value, and no part is ever left below **10%** condition.
+  - **Note on vanilla wear:** the game's kiosk ships average ~88% condition (parts spread ~75%–100%), a lighter
+    knock than folklore suggests — drag the slider left for a grungier ship, or to 100% (or untick) for pristine.
+  - Export bakes the damage as each part's `aCondOverrides` (`DMGStatus` stays New, so the game keeps exactly the
+    baked wear); save-edit writes it as each installed part's `StatDamage` cond, the same way the game stores it.
+    The baked Ship Rating "Condition" grade reflects the applied wear. On a save-edit, wear re-rolls the condition
+    of **every** installed part (replacing existing damage) — leave it unticked to preserve each part's wear.
+
+### Changed
+- **You can zoom out much further.** The zoom range now goes down to 0.125× (2 px/tile) via new 0.5× / 0.25× /
+  0.125× steps, so a whole station fits on screen; panning was already unrestricted. Max zoom is unchanged (8×).
+
 ## [0.30.2] — 2026-07-12 — transforming a pasted selection no longer drifts or breaks symmetry
 
 ### Fixed

@@ -22,7 +22,9 @@ public readonly record struct GhostStatus(string Reason, bool WillPlace);
 /// </summary>
 public sealed class ShipCanvas : FrameworkElement
 {
-    private static readonly double[] ZoomSteps = [16, 24, 32, 48, 64, 96, 128];
+    // screen px per tile. 16 == 1x (the 16 px sprite drawn at native size); the sub-16 steps (0.5x/0.25x/0.125x)
+    // zoom out far enough to frame a whole station, and stay clean nearest-neighbor downscales.
+    private static readonly double[] ZoomSteps = [2, 4, 8, 16, 24, 32, 48, 64, 96, 128];
 
     private static readonly Brush Background = Frozen(new SolidColorBrush(Color.FromRgb(0x14, 0x16, 0x1A)));
     private static readonly Pen GridPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x2A, 0xFF, 0xFF, 0xFF)), 1));

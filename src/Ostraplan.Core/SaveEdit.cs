@@ -54,8 +54,13 @@ public static class SaveEdit
     /// <see cref="InvalidDataException"/> on a hard integrity failure (dangling reference, lost CO, duplicate id);
     /// placement-law problems are collected as warnings, not thrown (warn-and-allow).</summary>
     public static (JsonObject Ship, InjectReport Report) BuildInjectedShip(
-        ShipDocument doc, SaveShipContext ctx, Catalog catalog, IReadOnlyList<RoomSpecDef> specs, EditCharge? charge = null)
+        ShipDocument doc, SaveShipContext ctx, Catalog catalog, IReadOnlyList<RoomSpecDef> specs, EditCharge? charge = null,
+        WearOptions? wear = null)
     {
+        // Every surviving structural part's strID (kept / moved / new), collected as the item/CO tree is rebuilt.
+        // The optional wear pass (below) re-rolls StatDamage on exactly this set — the installed structure the
+        // Ship Rating's Condition slot averages over — leaving cargo, crew and system spawners alone.
+        var structuralIds = new HashSet<string>(StringComparer.Ordinal);
         var diff = ShipDiff.Compute(doc, ctx);
 
         // classify the origins we need to act on
@@ -268,6 +273,7 @@ public static class SaveEdit
                 fx = self is null ? 0 : Dbl(self, "fX");
                 fy = self is null ? 0 : Dbl(self, "fY");
             }
+            structuralIds.Add(containerId);
             EmitCargo(p.Cargo, containerId, fx, fy);
         }
 
@@ -325,6 +331,12 @@ public static class SaveEdit
         RoomCertifier.CertifyAll(partition, specs, catalog);
         var rating = Rating.Calculate(grid, partition, catalog);
 
+        // Optional wear: re-roll StatDamage on every installed structural part's CO (kept, moved, and new alike) to
+        // the chosen average condition — the game stores per-part wear exactly this way (a CO's aConds carry
+        // StatDamage). DMGStatus stays 0 (New) below, so the game keeps this baked wear rather than running its own
+        // pass. The resulting mean condition becomes the baked aRating Condition slot.
+        var wornGrade = ApplyWear(wear, outCOs, structuralIds, catalog);
+
         // roomValue is the room's PARTS value (Room.CalculateRoomValue), which Ship.GetShipValue sums on a
         // shallow load — bake that, not the physical volume, so a broker quote taken before the ship is
         // fully re-loaded reads the real worth (same fix as ShipExport).
@@ -344,7 +356,7 @@ public static class SaveEdit
             });
         }
         var ratingArr = new JsonArray(
-            rating.Epoch.Length == 0 ? "0" : rating.Epoch, rating.Condition, rating.RoomCount,
+            rating.Epoch.Length == 0 ? "0" : rating.Epoch, wornGrade ?? rating.Condition, rating.RoomCount,
             rating.Maneuver, rating.Size, rating.Slot5);
 
         // if the grid grew, crew nDestTile (a flat index into nCols*nRows) is stale — recompute from world pos
@@ -379,8 +391,9 @@ public static class SaveEdit
         // 297 K) once, then self-clears. On a Used/Damaged/Derelict ship bPrefill ALSO fires the break-in/damage
         // path — so mark the edited hull pristine (DMGStatus New) first. Ostraplan already treats the design as a
         // pristine build (Condition A), so this is consistent, and it makes the fill safe for every ship (a
-        // bought "Used" ship, a derelict) rather than only an undamaged one. Per-part wear (aCondOverrides) on
-        // kept parts is untouched.
+        // bought "Used" ship, a derelict) rather than only an undamaged one. Any per-part wear applied above
+        // (StatDamage on each structural CO) rides along regardless — DMGStatus New only suppresses the game's
+        // own break-in pass, it doesn't clear the damage we baked.
         ship["DMGStatus"] = 0;
         ship["bPrefill"] = true;
         const bool atmosphereFilled = true;
@@ -403,9 +416,9 @@ public static class SaveEdit
     /// The original save is never touched. Returns where the copy landed + the report.</summary>
     public static (string OutputDir, InjectReport Report) Inject(
         ShipDocument doc, SaveShipContext ctx, Catalog catalog, IReadOnlyList<RoomSpecDef> specs,
-        string? outputSaveDir = null, bool overwrite = false, EditCharge? charge = null)
+        string? outputSaveDir = null, bool overwrite = false, EditCharge? charge = null, WearOptions? wear = null)
     {
-        var (ship, report) = BuildInjectedShip(doc, ctx, catalog, specs, charge);
+        var (ship, report) = BuildInjectedShip(doc, ctx, catalog, specs, charge, wear);
         var outDir = outputSaveDir ?? SuggestCopyDir(ctx);
         WriteCopy(ctx, ship, outDir, overwrite, report.ResultingBalance);
         return (outDir, report);
@@ -651,6 +664,53 @@ public static class SaveEdit
         var candidate = baseName;
         for (var n = 2; !used.Add(candidate); n++) candidate = $"{baseName} {n}";
         return candidate;
+    }
+
+    /// <summary>
+    /// Re-roll <c>StatDamage</c> on every structural CO in <paramref name="structuralIds"/> to the wear target,
+    /// mirroring the game's own per-part storage (a CO's <c>aConds</c> carries <c>StatDamage</c>). Skips
+    /// <c>IsSystem</c> and undamageable (no <c>StatDamageMax</c>) parts, which stay pristine but still count in the
+    /// mean. Returns the resulting Ship-Rating Condition grade, or null when wear is off (leaving each part's
+    /// existing damage untouched). Mutates <paramref name="outCOs"/> in place.
+    /// </summary>
+    private static string? ApplyWear(WearOptions? wear, JsonArray outCOs, HashSet<string> structuralIds, Catalog catalog)
+    {
+        if (wear is not { Enabled: true } w) return null;
+        var rng = WearModel.NewRng(w);
+        var ceiling = WearModel.CeilingFor(w.TargetCondition);
+        var rates = new List<double>();
+        foreach (var node in outCOs)
+        {
+            if (node is not JsonObject co || Str(co, "strID") is not { } id || !structuralIds.Contains(id)) continue;
+            if (Str(co, "strCODef") is not { } def || catalog.Lookup(def) is not { } part
+                || part.StartingConds.Contains("IsSystem"))
+            {
+                rates.Add(0.0);   // undamageable / system installed part: pristine in the grade, left untouched
+                continue;
+            }
+            var damageMax = part.StartingCondValues.GetValueOrDefault("StatDamageMax");
+            if (damageMax <= 0) { rates.Add(0.0); continue; }
+            var dmg = WearModel.DamageAmount(rng, ceiling, damageMax);
+            SetStatDamage(co, dmg);
+            rates.Add(dmg / damageMax);
+        }
+        return WearModel.GradeFor(rates);
+    }
+
+    /// <summary>Set a CO's <c>StatDamage</c> to <paramref name="amount"/> (in <c>StatDamageMax</c> count units):
+    /// drop any existing <c>StatDamage</c>, and — when actually damaging it — its <c>IsPristine</c> resale flag
+    /// (the game removes it on first damage), then add a single <c>StatDamage=1.0x&lt;amount&gt;</c>. A zero amount
+    /// leaves the part undamaged (and keeps <c>IsPristine</c>). Does not touch <c>StatDamageMax</c>.</summary>
+    private static void SetStatDamage(JsonObject co, double amount)
+    {
+        if (co["aConds"] is not JsonArray conds) co["aConds"] = conds = new JsonArray();
+        for (var i = conds.Count - 1; i >= 0; i--)
+            if (conds[i] is JsonValue v && v.TryGetValue<string>(out var s)
+                && (s.StartsWith("StatDamage=", StringComparison.Ordinal)
+                    || (amount > 0 && s.StartsWith("IsPristine=", StringComparison.Ordinal))))
+                conds.RemoveAt(i);
+        if (amount > 0)
+            conds.Add($"StatDamage=1.0x{amount.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture)}");
     }
 
     /// <summary>

@@ -208,7 +208,7 @@ public partial class MainWindow : Window
     }
 
     private void UpdateZoomText() =>
-        TxtZoom.Text = $"zoom {Board.Zoom / 16:0.#}×" + (Board.ViewRot != 0 ? $" · view {Board.ViewRot}°" : "");
+        TxtZoom.Text = $"zoom {Board.Zoom / 16:0.##}×" + (Board.ViewRot != 0 ? $" · view {Board.ViewRot}°" : "");
 
     // ---- palette ----
 
@@ -1683,7 +1683,8 @@ public partial class MainWindow : Window
             : null;
         var opts = new ExportOptions(dlg.ShipName, dlg.Author, dlg.Notes, dlg.ModVersion,
             _env.InstalledVersion ?? GameEnv.VerifiedGameVersion, dlg.DestinationParent, dlg.PublicName,
-            dlg.Make, dlg.Model, dlg.Year, dlg.Designation, dlg.Description, dlg.Delivery, replaceTarget, dlg.ModName);
+            dlg.Make, dlg.Model, dlg.Year, dlg.Designation, dlg.Description, dlg.Delivery, replaceTarget, dlg.ModName,
+            dlg.Wear);
 
         ExportResult result;
         Mouse.OverrideCursor = Cursors.Wait;
@@ -1721,9 +1722,13 @@ public partial class MainWindow : Window
               "Ostraplan never writes loading_order.json itself."
             : "Copy this folder into Ostranauts_Data\\Mods.\n" +
               "Then register it with Ostrasort (or ModTools) to spawn it in game.";
+        var wearNote = dlg.Wear.Enabled
+            ? $"Worn to ~{dlg.Wear.TargetCondition * 100:0}% average condition (parts vary, none below 10%).\n"
+            : "";
         Dlg.Success(this, "Export complete",
             $"Exported {dlg.ShipName}.\n\n" +
             $"{result.PartCount} parts, {result.RoomCount} certified room(s), rating {(string.IsNullOrEmpty(result.Rating.Display) ? "None" : result.Rating.Display)}.\n" +
+            wearNote +
             deliverySummary + "\n" +
             $"Written to {result.ModDir}\n\n" +
             registerNote);
@@ -2037,7 +2042,7 @@ public partial class MainWindow : Window
         JsonObject shipObj;
         InjectReport report;
         Mouse.OverrideCursor = Cursors.Wait;
-        try { (shipObj, report) = await Task.Run(() => SaveEdit.BuildInjectedShip(doc, context, catalog, specs, charge)); }
+        try { (shipObj, report) = await Task.Run(() => SaveEdit.BuildInjectedShip(doc, context, catalog, specs, charge, opts.Wear)); }
         catch (Exception ex)
         {
             Dlg.Error(this, "Update ship in save", "The edit can't be written back.\n\n" + ex.Message);
@@ -2053,6 +2058,9 @@ public partial class MainWindow : Window
             ? $"\n\n{Money(c)} was deducted. Your balance is now {Money(report.ResultingBalance ?? 0)}."
             : "";
         var atmoNote = "\n\nThe ship refills with breathable atmosphere when you load it (about 22 kPa O₂ and 80 kPa N₂).";
+        var wearNote = opts.Wear.Enabled
+            ? $"\n\nEvery installed part was worn to ~{opts.Wear.TargetCondition * 100:0}% average condition (parts vary, none below 10%), replacing any existing damage."
+            : "";
         var powerNote = report.PowerFixed > 0
             ? $"\n\nRearmed {report.PowerFixed} powered device(s) that had lost their power ticker."
             : "";
@@ -2076,7 +2084,7 @@ public partial class MainWindow : Window
             {
                 var outDir = SaveEdit.SuggestCopyDir(context);
                 if (!Dlg.Confirm(this, DlgKind.Warning, $"Write a copy of \"{src.SaveName}\"?",
-                        $"{summary}{costNote}{atmoNote}{powerNote}{warn}\n\n" +
+                        $"{summary}{costNote}{atmoNote}{wearNote}{powerNote}{warn}\n\n" +
                         $"The copy will be named {Path.GetFileName(outDir)}.\n\n" +
                         "Your original save is not touched.",
                         "Write copy"))
@@ -2101,7 +2109,7 @@ public partial class MainWindow : Window
             : "\n\nYour original save is unchanged.";
         Dlg.Success(this, "Ship updated",
             $"Written to the save {writtenName}.\n\n" +
-            $"{summary}{costNote}{atmoNote}{powerNote}\n\n" +
+            $"{summary}{costNote}{atmoNote}{wearNote}{powerNote}\n\n" +
             "Open the in game Load menu and press Refresh first.\n" +
             "Ostranauts won't list a just written save until you do.\n" +
             $"Then load {writtenName} to see your edited ship, with crew and cargo intact." +

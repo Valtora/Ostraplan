@@ -20,6 +20,7 @@ public sealed class UpdateSaveDialog : Window
 
     private readonly RadioButton _copy, _inPlace;
     private readonly CheckBox _backup;
+    private readonly WearControl _wear;
     private readonly CheckBox _deduct;
     private readonly Slider _mult;
     private readonly TextBlock _multLabel, _costLine, _balanceLine, _cannotAfford;
@@ -40,6 +41,11 @@ public sealed class UpdateSaveDialog : Window
 
     /// <summary>True when the user opted to deduct the cost.</summary>
     public bool Deduct => _deduct.IsChecked == true && _deduct.IsEnabled;
+
+    /// <summary>The wear to apply to the injected ship (on by default at the vanilla ~88% condition; when armed it
+    /// re-rolls every installed part's condition, replacing existing damage). Slider at 100% / unticked leaves the
+    /// ship pristine and preserves each kept part's existing wear.</summary>
+    public WearOptions Wear => _wear.Wear;
 
     /// <summary>The credits the edit costs at the current settings (0 when not deducting).</summary>
     public double Cost => Deduct ? Multiplier * _baseCost.Total : 0;
@@ -109,6 +115,12 @@ public sealed class UpdateSaveDialog : Window
         _copy.Checked += (_, _) => SyncBackupEnabled();
         _inPlace.Checked += (_, _) => SyncBackupEnabled();
         SyncBackupEnabled();
+
+        // ---- condition / wear (on by default at the vanilla ~88% used-ship condition) ----
+        _wear = new WearControl(defaultOn: true,
+            overrideNote: "When armed, this replaces the current condition of every installed part on the ship, " +
+                          "not just the ones you edited. Untick to keep each part's existing wear.");
+        body.Children.Add(_wear);
 
         // ---- cost ----
         Header(body, "EDIT COST");

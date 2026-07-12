@@ -32,7 +32,8 @@ public sealed record ExportOptions(
     string ShipName, string Author, string Notes, string ModVersion, string GameVersion,
     string DestinationParent, string PublicName, string Make = "", string Model = "",
     string Year = "", string Designation = "", string Description = "",
-    ShipDelivery? Delivery = null, string? ReplaceTarget = null, string ModName = "");
+    ShipDelivery? Delivery = null, string? ReplaceTarget = null, string ModName = "",
+    WearOptions? Wear = null);
 
 /// <summary>How the exported ship becomes obtainable in game — the loot/chargen data an export
 /// injects on top of the ship file. All of it is full-object overrides / additive entries the game
@@ -104,12 +105,25 @@ public static class ShipExport
     /// </summary>
     public static (ExportedShip Ship, ShipRating Rating, int RoomCount) Build(
         ShipDocument doc, Catalog catalog, IReadOnlyList<RoomSpecDef> specs, string shipName,
-        List<string>? warnings = null, ExportMetadata? meta = null)
+        List<string>? warnings = null, ExportMetadata? meta = null, WearOptions? wear = null)
     {
         var grid = ShipGrid.FromDocument(doc, catalog);
         var partition = RoomBuilder.Build(grid);
         RoomCertifier.CertifyAll(partition, specs, catalog);
         var rating = Rating.Calculate(grid, partition, catalog);
+
+        // Optional wear: damage each installed part the way a kiosk "Used" ship is worn (see WearModel). The
+        // damage rides on each part's aCondOverrides (StatDamage) below, and the mean condition becomes the baked
+        // aRating "Condition" slot. DMGStatus stays 0 (New) so the game keeps exactly this baked wear — a New ship
+        // never runs its own DamageAllCOs pass.
+        Random? wearRng = null;
+        double wearCeiling = 0;
+        List<double>? wearRates = wear is { Enabled: true } ? [] : null;
+        if (wear is { Enabled: true } wo)
+        {
+            wearRng = WearModel.NewRng(wo);
+            wearCeiling = WearModel.CeilingFor(wo.TargetCondition);
+        }
 
         // map a grid part back to its source placement (PlacedPart.StrID == Placement.Id) so its contained cargo
         // travels into the export
@@ -176,14 +190,34 @@ public static class ShipExport
             var fx = part.TopLeftCol + (w / 2.0 - 0.5);
             var fy = -(part.TopLeftRow + (h / 2.0 - 0.5));
             var strID = Guid.NewGuid().ToString();
-            items.Add(new ExportedItem
+            var item = new ExportedItem
             {
                 StrName = part.Part.DefName,
                 FX = fx,
                 FY = fy,
                 FRotation = GridMath.Norm(-part.Rot),
                 StrID = strID,
-            });
+            };
+            items.Add(item);
+
+            // Wear: damage installed parts (the set the rating's Condition slot averages over). A part with a
+            // StatDamageMax health pool and no IsSystem flag takes uniform(0, ceiling)·M damage; system/undamageable
+            // installed parts count as pristine in the grade but are left untouched, exactly like the game.
+            if (wearRng is not null && part.Part.Has("IsInstalled"))
+            {
+                var damageMax = part.Part.StartingCondValues.GetValueOrDefault("StatDamageMax");
+                if (damageMax > 0 && !part.Part.Has("IsSystem"))
+                {
+                    var dmg = WearModel.DamageAmount(wearRng, wearCeiling, damageMax);
+                    if (dmg > 0)
+                        item.ACondOverrides = [new ExportedCondOverride { CondName = "StatDamage", Chance = 1.0, Amount = dmg }];
+                    wearRates!.Add(dmg / damageMax);
+                }
+                else
+                {
+                    wearRates!.Add(0.0);
+                }
+            }
 
             if (IsDocksysPart(part.Part, catalog))
                 docksysPorts.Add((strID, part.Part.Has("IsTypeB"), part.Part.DefName == Catalog.PrimaryDocksysDef, part.AnchorIndex));
@@ -213,6 +247,11 @@ public static class ShipExport
                 }
             }
         }
+
+        // Fold the applied wear into the rating's Condition slot (the mean over installed parts), so the baked
+        // aRating the broker/registry reads on a shallow load already shows the worn grade.
+        if (wearRates is not null)
+            rating = rating with { Condition = WearModel.GradeFor(wearRates) };
 
         // Loose items dropped on the floor (the Items palette): the stack head is a free-standing, parentless
         // top-level item at its tile — exactly how a core template lists floor cargo (a salvage pod's scrap, a
@@ -374,7 +413,7 @@ public static class ShipExport
         var publicName = ResolvePublicName(opts.PublicName, opts.ShipName, isReplace);
 
         var meta = new ExportMetadata(publicName, opts.Make, opts.Model, opts.Year, opts.Designation, opts.Description);
-        var (ship, rating, roomCount) = Build(doc, catalog, specs, strName, warnings, meta);
+        var (ship, rating, roomCount) = Build(doc, catalog, specs, strName, warnings, meta, opts.Wear);
 
         // The mod name (mod_info strName + folder) is separate from the ship: a replacement defaults to
         // "{target} - Replaced via Ostraplan" so the mod reads distinctly from the ship it overrides.
