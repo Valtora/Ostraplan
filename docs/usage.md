@@ -209,6 +209,26 @@ drill into nested containers. On an editable design you can also **add, remove a
 rearrange** loose cargo; contents travel with the ship through **Export** and save
 write-back.
 
+## Power
+
+Two aids for wiring a ship's electrics, both driven by the game's own power model.
+
+- **Connector badges.** A powered part shows labelled connector badges while you're
+  placing it (and when it's selected): a lightning glyph plus **IN** (blue, where it
+  draws power) or **OUT** (green, where a source feeds the network). They rotate with
+  the part (staying upright), so you can turn a device to line its plug up with a
+  conduit before you place it.
+- **PowerViz overlay** — the **Power** toolbar button or **P**. It floods power from
+  every installed generator and battery out along the conduit network: **live runs**
+  animate a cyan flow, **orphaned runs** (conduit that reaches no live source) draw
+  dim dashed red, and a **wired device with no feed** gets an **amber warning
+  marker** on its plug. Turn it on to confirm at a glance that everything is hooked
+  up; the toolbar tooltip says how many device plugs aren't connected.
+
+This shows *connectivity* — what's wired to a live source — not a power budget:
+Ostranauts doesn't publish per-device draw, so a generation-vs-load balance isn't
+something Ostraplan can honestly compute.
+
 ## Zones
 
 Zones are the painted crew/trade areas the game lets you draw on a ship — **Haul**

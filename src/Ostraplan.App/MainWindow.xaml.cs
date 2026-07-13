@@ -90,6 +90,7 @@ public partial class MainWindow : Window
         UpdateModOverrideButton();
         Board.ZoneStrokeCommitted += OnZoneStrokeCommitted;
         Board.ShowZonesChanged += UpdateZonesButton;
+        Board.ShowPowerChanged += OnShowPowerChanged;   // update the caption and (re)compute the overlay off-thread
         Board.ActiveZoneChanged += UpdateZones;   // reflect which zone (if any) is being painted
         _stack.StateChanged += RefreshChrome;
         _stack.Applied += (cmd, action) => AuditLog.Command(action, cmd);   // audit every edit/undo/redo
@@ -365,15 +366,35 @@ public partial class MainWindow : Window
         var token = cts.Token;
         var snapshot = _doc.Snapshot();   // UI thread, cheap; immutable while the scan runs
         var catalog = _catalog;
+        var showPower = Board.ShowPower;   // only pay for the power flood when PowerViz is on
 
         List<Problem> problems;
+        PowerOverlay power;
         try
         {
-            problems = await Task.Run(() => ProblemScan.Scan(snapshot, catalog), token);
+            (problems, power) = await Task.Run(() =>
+            {
+                var probs = ProblemScan.Scan(snapshot, catalog);
+                var pov = PowerOverlay.Empty;
+                if (showPower)
+                {
+                    var grid = ShipGrid.FromDocument(snapshot, catalog);
+                    pov = PowerNetwork.ToOverlay(grid, PowerNetwork.Build(grid, catalog));
+                }
+                return (probs, pov);
+            }, token);
         }
         catch (OperationCanceledException) { return; }
         if (token.IsCancellationRequested || !ReferenceEquals(cts, _scanCts)) return;   // superseded
         UpdateProblems(problems);
+        Board.SetPowerOverlay(power);
+        if (showPower)
+        {
+            var n = power.UnconnectedPlugs.Count;
+            BtnPower.ToolTip = n == 0
+                ? "Power: On. Every wired device is fed from a live source."
+                : $"Power: On. {n} device plug{(n == 1 ? "" : "s")} not connected to a live power source (amber markers).";
+        }
     }
 
     // ---- Ship Rating (rooms · airtightness · certification · rating) ----
@@ -750,6 +771,22 @@ public partial class MainWindow : Window
     private void OnZonesClick(object sender, RoutedEventArgs e) => Board.ToggleZones();
 
     private void UpdateZonesButton() => BtnZones.Content = "Zones: " + (Board.ShowZones ? "On" : "Off");
+
+    // ---- power (PowerViz) ----
+
+    private void OnPowerClick(object sender, RoutedEventArgs e) => Board.TogglePower();
+
+    /// <summary>PowerViz was toggled: refresh the caption and, when turned on, kick a scan so the overlay computes
+    /// (the network flood only runs while the overlay is on). Turning it off resets the hint tooltip.</summary>
+    private void OnShowPowerChanged()
+    {
+        BtnPower.Content = "Power: " + (Board.ShowPower ? "On" : "Off");
+        if (Board.ShowPower) ScheduleScan();
+        else BtnPower.ToolTip = _powerTooltip;
+    }
+
+    private const string _powerTooltip =
+        "Show/hide the conduit power overlay (P): lit runs flow from a live generator/battery, orphaned runs are dim red, and a wired device with no feed gets an amber warning marker.";
 
     private void OnAddZoneClick(object sender, RoutedEventArgs e)
     {
@@ -1556,6 +1593,10 @@ public partial class MainWindow : Window
                 break;
             case Key.Z when !ctrl && !e.IsRepeat:
                 Board.ToggleZones();
+                e.Handled = true;
+                break;
+            case Key.P when !ctrl && !e.IsRepeat:
+                Board.TogglePower();
                 e.Handled = true;
                 break;
             case Key.W or Key.A or Key.S or Key.D when !ctrl:
@@ -2581,6 +2622,7 @@ public partial class MainWindow : Window
             ("Flip selection", "H / Shift+H", "Mirror the selection about its centre — H horizontal (left↔right), Shift+H vertical (up↔down); each part reflects and snaps to a real rotation."),
             ("Symmetry", "M", "Cycle Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on. While on, it also drives editing: selecting a part grabs its mirror partner(s), and moving, rotating, or deleting the group keeps it symmetric (the far side tracks in the mirrored direction)."),
             ("Mod overrides", "Toolbar toggle", "Let modded parts place where the core-game rules say they don't fit (ghost turns amber, flagged as a warning — verify in-game). Core parts stay enforced."),
+            ("Power overlay", "P", "Show/hide PowerViz: lit conduit runs flow from a live generator/battery, orphaned runs are dim red, and a wired device with no feed gets an amber marker. A powered part also shows its connector badges (blue IN, green OUT) while armed or selected."),
             ("Delete", "Del", "Delete the selection."),
             ("Copy / paste / duplicate", "Ctrl+C / V / D", "Copy · paste at the cursor · duplicate the selection."),
             ("Cancel", "Esc", "Cancel placement, then clear the selection."),

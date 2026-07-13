@@ -45,7 +45,8 @@ public sealed class Fixtures
         string[]? startingConds = null, (int W, int H)? container = null, string? containerCT = null,
         int stackLimit = 0, IReadOnlyDictionary<string, (double X, double Y)>? mapPoints = null,
         double basePrice = 0, bool sheet = false, string origin = "core",
-        IReadOnlyDictionary<string, double>? condValues = null)
+        IReadOnlyDictionary<string, double>? condValues = null,
+        IReadOnlyList<(double X, double Y)>? powerInputs = null, (double X, double Y)? powerOutput = null)
     {
         string[] adds;
         if (tileConds is { Length: > 0 })
@@ -65,6 +66,8 @@ public sealed class Fixtures
             ContainerGrid = container,
             ContainerCT = containerCT,
             StackLimit = stackLimit,
+            PowerInputPoints = powerInputs ?? [],
+            PowerOutputPoint = powerOutput,
         };
         _parts.Add(part);
         _byName[name] = part;

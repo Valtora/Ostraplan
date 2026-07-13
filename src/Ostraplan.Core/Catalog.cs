@@ -64,6 +64,21 @@ public sealed record PartDef(
     /// <summary>The slot name(s) this part occupies when equipped into a parent (its <c>mapSlotEffects</c> keys).</summary>
     public string[] SlotKeys { get; init; } = [];
 
+    /// <summary>Where this part plugs <b>into</b> the conduit network — the map-point offsets named by its
+    /// power-info's <c>aInputPts</c> (pixels around the item centre, +y up), resolved from the condowner's map
+    /// points. Empty for a part that draws no power. Drawn as input connector nubs on the build cursor and used to
+    /// decide whether a device is hooked up (its input tile sits on a live power path). See <see cref="PowerNetwork"/>.</summary>
+    public IReadOnlyList<(double X, double Y)> PowerInputPoints { get; init; } = [];
+
+    /// <summary>Where this part feeds the conduit network — its <c>PowerOutput</c> map point (pixels around the
+    /// item centre, +y up), or null when it is not a power source. Generators/batteries/recharging containers
+    /// carry one; the power flood starts here (<see cref="PowerNetwork"/>). Drawn as an output connector nub.</summary>
+    public (double X, double Y)? PowerOutputPoint { get; init; }
+
+    /// <summary>True when this part participates in the power network as a drawing device or a source (has any
+    /// input point or an output point) — i.e. it should show connector nubs and take part in PowerViz.</summary>
+    public bool IsPowered => PowerInputPoints.Count > 0 || PowerOutputPoint is not null;
+
     /// <summary>True if this part holds an inventory grid (has a container grid).</summary>
     public bool IsContainer => ContainerGrid is not null;
 
@@ -552,6 +567,19 @@ public sealed class Catalog
             Math.Max(1, co?.InvW is > 0 ? co.InvW : item.Width),
             Math.Max(1, co?.InvH is > 0 ? co.InvH : item.Height));
 
+        // Power connectors. A device names a power-info via its condowner's jsonPI (data/powerinfos); that
+        // power-info's aInputPts name the map points where it plugs into the conduit network. The game skips input
+        // nubs on a part carrying IsPowerInputIgnore (Powered draw path). A source (generator/battery) instead
+        // carries a PowerOutput map point — the flood's start tile. Resolve names → (x, y) offsets now.
+        var powerInputs = new List<(double X, double Y)>();
+        if (co is not null && !string.IsNullOrEmpty(co.Jpi)
+            && !co.StartingCondNames.Contains("IsPowerInputIgnore")
+            && index.Type("powerinfos").TryGetValue(co.Jpi, out var rawPi))
+            foreach (var ptName in PowerInfoDef.Parse(rawPi.El).InputPointNames)
+                if (co.MapPoints.TryGetValue(ptName, out var pt)) powerInputs.Add(pt);
+        (double X, double Y)? powerOutput =
+            co is not null && co.MapPoints.TryGetValue("PowerOutput", out var po) ? po : null;
+
         return new PartDef(
             defName, friendly, category, origin, item, index.ResolveImage(item.Img), inputs, tools,
             co?.StartingCondNames ?? [],
@@ -568,6 +596,8 @@ public sealed class Catalog
             SlotsWeHave = co?.SlotsWeHave ?? [],
             SlotLayout = co?.SlotLayout ?? new Dictionary<string, (double X, double Y)>(),
             SlotKeys = co?.SlotKeys ?? [],
+            PowerInputPoints = powerInputs,
+            PowerOutputPoint = powerOutput,
         };
     }
 

@@ -52,6 +52,24 @@ public sealed class ShipCanvas : FrameworkElement
     private static readonly Brush AirFill = Frozen(new SolidColorBrush(Color.FromArgb(0x40, 0x5A, 0xD0, 0x9A)));   // fill-region highlight (double-click enclosed air)
     private static readonly Pen AirPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x90, 0x6A, 0xE0, 0xB0)), 1));
     private static readonly Pen SubfloorPen = MakeSubfloorPen();
+    // PowerViz: a soft cyan glow under the animated lit-conduit flow, a dim dashed red for orphaned runs, and
+    // connector nubs (cyan = power input, green = power output) with a dark outline. The flowing lit pen is built
+    // per-frame from the current phase, so it isn't frozen here.
+    private static readonly Pen PowerGlowPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x55, 0x38, 0xC8, 0xF0)), 5) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round });
+    private static readonly Color PowerLitColor = Color.FromRgb(0x9A, 0xF0, 0xFF);
+    private static readonly Pen PowerOffPen = MakePowerOffPen();
+    // Connector badges: a lightning glyph + IN/OUT label on a dark pill, coloured blue for a power input (draws from
+    // the conduit) and green for an output (feeds it) — a clearer cue than a plain square that vanished into the flow.
+    private static readonly Brush ConnBgBrush = Frozen(new SolidColorBrush(Color.FromArgb(0xE6, 0x0A, 0x0E, 0x12)));
+    private static readonly Brush ConnInBrush = Frozen(new SolidColorBrush(Color.FromRgb(0x54, 0xAE, 0xFF)));    // input accent (blue, distinct from the cyan flow)
+    private static readonly Brush ConnOutBrush = Frozen(new SolidColorBrush(Color.FromRgb(0x5A, 0xD8, 0x74)));   // output accent (green)
+    private static readonly Pen ConnInPen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0x7C, 0xC2, 0xFF)), 1.4));
+    private static readonly Pen ConnOutPen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0x84, 0xE6, 0x99)), 1.4));
+    private static readonly Brush ConnTextBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xF2, 0xF7, 0xFF)));
+    private static readonly Typeface ConnTypeface = new(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
+    private static readonly Geometry BoltGeometry = MakeBolt();
+    private static readonly Brush PowerWarnBrush = Frozen(new SolidColorBrush(Color.FromArgb(0x55, 0xE0, 0xB0, 0x40)));   // unconnected-plug warning fill
+    private static readonly Pen PowerWarnPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xE0, 0xF0, 0xB8, 0x40)), 2));
 
     private static T Frozen<T>(T freezable) where T : Freezable
     {
@@ -73,6 +91,30 @@ public sealed class ShipCanvas : FrameworkElement
         { DashStyle = DashStyles.Dash };
         pen.Freeze();
         return pen;
+    }
+
+    private static Pen MakePowerOffPen()
+    {
+        var pen = new Pen(new SolidColorBrush(Color.FromArgb(0xB0, 0xC8, 0x55, 0x50)), 2)
+        { DashStyle = new DashStyle([3, 3], 0), StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round };
+        pen.Freeze();
+        return pen;
+    }
+
+    /// <summary>A lightning-bolt glyph in a unit box (0..1, y-down), for the power connector badges.</summary>
+    private static Geometry MakeBolt()
+    {
+        var g = new StreamGeometry();
+        using (var c = g.Open())
+        {
+            c.BeginFigure(new Point(0.60, 0.02), true, true);
+            c.PolyLineTo(
+                [new Point(0.18, 0.56), new Point(0.45, 0.56), new Point(0.34, 0.98),
+                 new Point(0.82, 0.42), new Point(0.53, 0.42)],
+                true, false);
+        }
+        g.Freeze();
+        return g;
     }
 
     /// <summary>Classic red hazard stripes (screen-fixed scale) for out-of-bounds areas.</summary>
@@ -114,6 +156,7 @@ public sealed class ShipCanvas : FrameworkElement
 
     public bool ShowZones { get; private set; }        // zone overlay visibility (toolbar/key toggle)
     public Guid? ActiveZoneId { get; private set; }    // the zone being painted, or null when not in zone-paint mode
+    public bool ShowPower { get; private set; }        // PowerViz conduit overlay visibility (toolbar/P toggle)
 
     /// <summary>When true, a MODDED part may be placed where the (core-only) placement law says it doesn't fit — it's
     /// placed and flagged as a warning rather than hard-blocked. Core parts are always enforced. Set from
@@ -133,6 +176,17 @@ public sealed class ShipCanvas : FrameworkElement
     private IReadOnlyList<(int X, int Y)> _illegalCells = [];   // tiles of existing illegal placements (from ProblemScan)
     private IReadOnlyList<(int X, int Y)> _leakCells = [];      // unsealed tiles of a leaking compartment (from the Ship Rating report)
     private HashSet<(int X, int Y)> _airSelection = [];         // an enclosed "air" region highlighted for a fill (double-click empty space, then arm + Enter)
+    private PowerOverlay _powerOverlay = PowerOverlay.Empty;    // the computed power network (doc coords), pushed by the window after each scan
+    private double _powerPhase;                                 // animated dash offset for the lit conduit flow
+    private bool _powerAnimating;                               // whether the per-frame flow tick is hooked
+    private TimeSpan _lastPowerTime;                            // last CompositionTarget.Rendering time, to advance the phase by elapsed seconds
+    private TimeSpan _lastPowerDraw;                            // last frame we actually repainted the flow (throttles the animation)
+    // The power segments baked into frozen geometries in pan-zero space at the current zoom (one DrawGeometry each,
+    // not hundreds of DrawLine calls) — rebuilt only when the overlay data or the zoom changes, then panned by a
+    // transform like the ship. This is what keeps panning smooth with PowerViz on.
+    private Geometry? _powerLitGeo;
+    private Geometry? _powerOffGeo;
+    private bool _powerGeoDirty;
     private GhostStatus? _lastGhostReason;                     // dedupe GhostReasonChanged
     private bool _armedLoose;                                  // the armed brush is an Items-tab loose item, not structure (single-click drop, no CheckFit)
     private bool _bandFilter;                                  // the current band select was Shift-initiated (offer the layer filter chips on release)
@@ -167,6 +221,7 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action<(int X, int Y)>? LooseContextMenuRequested;   // right-clicked a loose floor item; window builds its menu
     public event Action<GhostStatus?>? GhostReasonChanged;   // the armed ghost's illegality status, null when legal/disarmed
     public event Action? ShowZonesChanged;              // the zone overlay was toggled (update the toolbar caption)
+    public event Action? ShowPowerChanged;              // the PowerViz overlay was toggled (update the toolbar caption + trigger a scan)
     public event Action? ActiveZoneChanged;             // the painted zone changed (sync the zones panel selection)
     /// <summary>A zone paint/erase/box/room-fill stroke finished: (zone id, tiles before, tiles after). The window
     /// turns this into one <c>SetZoneTilesCommand</c> undo step. Not raised when the stroke changed nothing.</summary>
@@ -279,6 +334,58 @@ public sealed class ShipCanvas : FrameworkElement
         if (ShowZones == on) return;
         ShowZones = on;
         ShowZonesChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    /// <summary>Dash-offset units per second the lit-conduit flow advances (cosmetic "energised" motion).</summary>
+    private const double PowerFlowSpeed = 6.0;
+
+    /// <summary>Toggle the PowerViz conduit overlay. The window listens on <see cref="ShowPowerChanged"/> to update
+    /// the toolbar caption and schedule a scan — the network is only computed off-thread while the overlay is on.</summary>
+    public void TogglePower() => SetShowPower(!ShowPower);
+
+    public void SetShowPower(bool on)
+    {
+        if (ShowPower == on) return;
+        ShowPower = on;
+        if (!on) _powerOverlay = PowerOverlay.Empty;   // drop stale data so it can't flash on re-enable
+        UpdatePowerAnimation();
+        ShowPowerChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    /// <summary>The freshly computed power network (document coords), pushed by the window after each scan.</summary>
+    public void SetPowerOverlay(PowerOverlay overlay)
+    {
+        _powerOverlay = overlay ?? PowerOverlay.Empty;
+        _powerGeoDirty = true;
+        UpdatePowerAnimation();
+        InvalidateVisual();
+    }
+
+    // Hook the per-frame flow tick only while the overlay is on AND there is something lit to animate.
+    private void UpdatePowerAnimation()
+    {
+        var want = ShowPower && _powerOverlay.Powered.Count > 0;
+        if (want == _powerAnimating) return;
+        _powerAnimating = want;
+        if (want) { _lastPowerTime = TimeSpan.Zero; CompositionTarget.Rendering += OnPowerFrame; }
+        else CompositionTarget.Rendering -= OnPowerFrame;
+    }
+
+    private void OnPowerFrame(object? sender, EventArgs e)
+    {
+        if (e is not RenderingEventArgs re) return;
+        if (_lastPowerTime == TimeSpan.Zero) { _lastPowerTime = _lastPowerDraw = re.RenderingTime; return; }   // first frame: seed the clock
+        var dt = (re.RenderingTime - _lastPowerTime).TotalSeconds;
+        if (dt <= 0) return;
+        _lastPowerTime = re.RenderingTime;
+        _powerPhase = (_powerPhase + dt * PowerFlowSpeed) % 1000.0;   // bounded so the float never drifts
+
+        // Repaint the flow at ~30 fps rather than every compositor frame — the flow reads the same but halves the
+        // overlay redraws. A pan repaints on its own frame, so the flow still tracks the ship smoothly while panning.
+        if ((re.RenderingTime - _lastPowerDraw).TotalSeconds < 1.0 / 30) return;
+        _lastPowerDraw = re.RenderingTime;
         InvalidateVisual();
     }
 
@@ -1641,6 +1748,7 @@ public sealed class ShipCanvas : FrameworkElement
         if (ShowZones || ActiveZoneId is not null) DrawZones(dc);
         DrawOutOfBounds(dc, view);
         DrawOriginMarker(dc);
+        if (ShowPower) DrawPowerOverlay(dc);
         if (SymMode != SymmetryMode.Off) DrawSymmetryAxes(dc, view);
 
         foreach (var p in Doc.Placements.Where(p => SelectedIds.Contains(p.Id)))
@@ -1648,6 +1756,8 @@ public sealed class ShipCanvas : FrameworkElement
             var (bx, by, bw, bh) = Doc.BodyBounds(p);   // outline the above-floor body (3×3 for the tanks), not the 7×7 socket
             (int X, int Y) offset = _drag == Drag.Move && !Doc.IsLocked(p) ? MoveDeltaFor(p) : (0, 0);
             dc.DrawRectangle(null, SelectPen, CellRect(bx + offset.X, by + offset.Y, bw, bh));
+            // connector nubs on a selected powered part, so its plugs/feed are visible for wiring
+            if (Doc.Part(p) is { IsPowered: true } pd) DrawConnectorNubs(dc, pd, p.X + offset.X, p.Y + offset.Y, p.Rot);
         }
 
         if (ArmedPart is not null && _armedLoose && _hoverCell is { } looseHover)
@@ -1766,6 +1876,135 @@ public sealed class ShipCanvas : FrameworkElement
         if (zones.Children.Count > 0) dc.DrawGeometry(OobBrush, null, zones);
     }
 
+    /// <summary>Centre of a document tile in screen space (pre view-rotation transform, like <see cref="CellRect"/>).</summary>
+    private Point TileCenter((int X, int Y) t) => new(_pan.X + (t.X + 0.5) * Zoom, _pan.Y + (t.Y + 0.5) * Zoom);
+
+    /// <summary>
+    /// PowerViz: the ship's conduit network. Orphaned (unpowered) runs draw as dim dashed red; live runs draw as a
+    /// soft cyan glow under animated flowing dashes; wired devices with no live feed get an amber warning marker on
+    /// each unpowered plug. A port of the game's power path draw (linePower / linePowerOff over aPwrTiles).
+    /// </summary>
+    private void DrawPowerOverlay(DrawingContext dc)
+    {
+        if (_powerOverlay.IsEmpty) return;
+        EnsurePowerGeometry();
+
+        // The segment geometries are baked at pan zero, so draw them under the live-pan transform (one DrawGeometry
+        // per layer, not a DrawLine per segment) — the whole overlay is a handful of GPU strokes even on a station.
+        dc.PushTransform(new TranslateTransform(_pan.X, _pan.Y));
+
+        if (_powerOffGeo is not null)
+            dc.DrawGeometry(null, PowerOffPen, _powerOffGeo);
+
+        if (_powerLitGeo is not null)
+        {
+            var t = Math.Max(2.5, Zoom / 14.0);
+            var litPen = new Pen(new SolidColorBrush(PowerLitColor), t)
+            {
+                DashStyle = new DashStyle([2, 2], -_powerPhase),
+                StartLineCap = PenLineCap.Round,
+                EndLineCap = PenLineCap.Round,
+            };
+            dc.DrawGeometry(null, PowerGlowPen, _powerLitGeo);   // static soft glow underlay
+            dc.DrawGeometry(null, litPen, _powerLitGeo);         // animated flowing dashes on top
+        }
+
+        dc.Pop();
+
+        // The unconnected-plug markers are few and don't animate — draw them directly in screen space.
+        var r = Math.Max(3.0, Zoom * 0.16);
+        foreach (var plug in _powerOverlay.UnconnectedPlugs)
+            dc.DrawEllipse(PowerWarnBrush, PowerWarnPen, TileCenter(plug), r, r);
+    }
+
+    /// <summary>Bake the lit/unpowered segment sets into frozen pan-zero geometries at the current zoom, so the
+    /// animated overlay is a couple of <see cref="DrawingContext.DrawGeometry"/> calls per frame. Rebuilt only when
+    /// the overlay data or the zoom changes (see <see cref="_powerGeoDirty"/>).</summary>
+    private void EnsurePowerGeometry()
+    {
+        if (!_powerGeoDirty) return;
+        _powerGeoDirty = false;
+        _powerLitGeo = BuildSegmentGeometry(_powerOverlay.Powered);
+        _powerOffGeo = BuildSegmentGeometry(_powerOverlay.Unpowered);
+    }
+
+    private Geometry? BuildSegmentGeometry(IReadOnlyList<((int X, int Y) A, (int X, int Y) B)> segments)
+    {
+        if (segments.Count == 0) return null;
+        Point Centre((int X, int Y) t) => new((t.X + 0.5) * Zoom, (t.Y + 0.5) * Zoom);   // pan-zero tile centre
+        var geo = new StreamGeometry();
+        using (var c = geo.Open())
+            foreach (var (a, b) in segments)
+            {
+                c.BeginFigure(Centre(a), false, false);
+                c.LineTo(Centre(b), true, false);
+            }
+        geo.Freeze();
+        return geo;
+    }
+
+    /// <summary>
+    /// Draw a part's power connector nubs at their map points, rotated with the part: input plugs (cyan, where the
+    /// device draws from the conduit) and the output feed (green, where a source pushes into it). <paramref
+    /// name="gx"/>/<paramref name="gy"/> is the rotated footprint's top-left doc cell. Mirrors the game's build-
+    /// cursor connector sprites (CanvasManager's PowerInput/PowerOutput grid sprites) so a part can be oriented to
+    /// meet a conduit before it is placed.
+    /// </summary>
+    private void DrawConnectorNubs(DrawingContext dc, PartDef part, int gx, int gy, int rot)
+    {
+        if (!part.IsPowered) return;
+        Point At((double X, double Y) px)
+        {
+            var (tx, ty) = GridMath.MapPoint(px, part.Item.Width, part.Item.Height, rot);
+            return new Point(_pan.X + (gx + tx) * Zoom, _pan.Y + (gy + ty) * Zoom);
+        }
+        foreach (var pt in part.PowerInputPoints) DrawConnectorBadge(dc, At(pt), isInput: true);
+        if (part.PowerOutputPoint is { } outPt) DrawConnectorBadge(dc, At(outPt), isInput: false);
+    }
+
+    /// <summary>
+    /// Draw a power-connector badge centred on <paramref name="center"/>: a lightning glyph plus an <b>IN</b>/<b>OUT</b>
+    /// label on a dark pill, blue for an input plug, green for an output feed. Stays upright under view rotation and
+    /// drops the label (bolt only) when the zoom is too small for legible text.
+    /// </summary>
+    private void DrawConnectorBadge(DrawingContext dc, Point center, bool isInput)
+    {
+        var accent = isInput ? ConnInBrush : ConnOutBrush;
+        var border = isInput ? ConnInPen : ConnOutPen;
+        var label = isInput ? "IN" : "OUT";
+
+        var hgt = Math.Clamp(Zoom * 0.5, 13, 24);
+        var pad = hgt * 0.2;
+        var bolt = hgt * 0.66;
+        var showText = hgt >= 15;
+
+        FormattedText? txt = null;
+        if (showText)
+            txt = new FormattedText(label, CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
+                ConnTypeface, hgt * 0.6, ConnTextBrush, VisualTreeHelper.GetDpi(this).PixelsPerDip);
+        var gap = showText ? hgt * 0.14 : 0;
+        var w = pad + bolt + gap + (txt?.Width ?? 0) + pad;
+        var rect = new Rect(center.X - w / 2, center.Y - hgt / 2, w, hgt);
+
+        var rotate = ViewRot != 0;
+        if (rotate) dc.PushTransform(new RotateTransform(-ViewRot, center.X, center.Y));   // keep the label upright
+
+        dc.DrawRoundedRectangle(ConnBgBrush, border, rect, hgt * 0.3, hgt * 0.3);
+
+        // the bolt, scaled uniformly from its unit box into a square slot
+        var by = center.Y - bolt / 2;
+        dc.PushTransform(new TranslateTransform(rect.X + pad, by));
+        dc.PushTransform(new ScaleTransform(bolt, bolt));
+        dc.DrawGeometry(accent, null, BoltGeometry);
+        dc.Pop();
+        dc.Pop();
+
+        if (txt is not null)
+            dc.DrawText(txt, new Point(rect.X + pad + bolt + gap, center.Y - txt.Height / 2));
+
+        if (rotate) dc.Pop();
+    }
+
     /// <summary>
     /// Draw one armed-part ghost at (<paramref name="gx"/>,<paramref name="gy"/>,<paramref name="rot"/>): the
     /// sub-floor reservation shade (the tanks), the translucent sprite, hazard-tinted failing cells, and a
@@ -1806,6 +2045,7 @@ public sealed class ShipCanvas : FrameworkElement
         {
             dc.DrawRectangle(null, outlinePen, CellRect(gx, gy, w, h));
         }
+        DrawConnectorNubs(dc, part, gx, gy, rot);   // show where this part plugs into power, to orient it before placing
         return fit;
     }
 

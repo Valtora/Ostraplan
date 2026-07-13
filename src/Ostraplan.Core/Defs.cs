@@ -96,6 +96,12 @@ public sealed record CondOwnerDef(
     /// (<c>Slots.SlotItem</c>), so the paper-doll uses <c>SlotKeys ∩ parent.SlotsWeHave</c> to place it.</summary>
     public string[] SlotKeys { get; init; } = [];
 
+    /// <summary>The <c>jsonPI</c> field: the name of this device's <see cref="PowerInfoDef"/> (an entry in
+    /// <c>data/powerinfos</c>), or null for a part that draws no power. The game adds a <c>Powered</c> component
+    /// keyed by this name (<c>CondOwner.SetData</c> → <c>Powered.SetData(jid.jsonPI)</c>); the power-info's
+    /// <c>aInputPts</c> name the map points where the device plugs into the conduit network.</summary>
+    public string? Jpi { get; init; }
+
     public static CondOwnerDef Parse(JsonElement e)
     {
         var conds = Json.StrArray(e, "aStartingConds");
@@ -119,6 +125,7 @@ public sealed record CondOwnerDef(
             SlotsWeHave = Json.StrArray(e, "aSlotsWeHave"),
             SlotLayout = ParsePointObject(e, "dictSlotsLayout"),
             SlotKeys = DictKeys(Json.StrArray(e, "mapSlotEffects")),
+            Jpi = Json.Str(e, "jsonPI"),
         };
     }
 
@@ -177,6 +184,20 @@ public sealed record CondOwnerDef(
         }
         return map;
     }
+}
+
+/// <summary>
+/// A power-info template (<c>data/powerinfos</c>, the game's <c>JsonPowerInfo</c> / <c>dictPowerInfo</c>): the
+/// electrical profile a powered device references by name through its condowner's <c>jsonPI</c> field. Only the
+/// fields Ostraplan needs to visualise connectivity are kept — <see cref="InputPointNames"/> (<c>aInputPts</c>),
+/// the map-point names where the device plugs into the conduit network. The runtime draw/recharge fields
+/// (<c>fAmount</c>, <c>strUsePowerCT</c>, …) drive the in-game power <i>simulation</i>, a non-goal here.
+/// </summary>
+public sealed record PowerInfoDef(string Name, string[] InputPointNames)
+{
+    public static PowerInfoDef Parse(JsonElement e) => new(
+        Json.Str(e, "strName") ?? "",
+        Json.StrArray(e, "aInputPts"));
 }
 
 /// <summary>

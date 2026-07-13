@@ -103,6 +103,8 @@
                             ToolTip="Cycle symmetry: Off → Vertical → Horizontal → Both (M). Axes centre on the tile under the cursor when switching on."/>
                     <Button x:Name="BtnZones" Content="Zones: Off" Padding="10,3" Margin="0,0,3,0" Click="OnZonesClick"
                             ToolTip="Show/hide the crew &amp; trade zone overlay (Z). Manage zones in the panel on the right."/>
+                    <Button x:Name="BtnPower" Content="Power: Off" Padding="10,3" Margin="0,0,3,0" Click="OnPowerClick"
+                            ToolTip="Show/hide the conduit power overlay (P): lit runs flow from a live generator/battery, orphaned runs are dim red, and a wired device with no feed gets an amber warning marker."/>
                     <Button x:Name="BtnModOverride" Content="Mod overrides: Off" Padding="10,3" Margin="0,0,3,0" Click="OnModOverrideClick"
                             ToolTip="Allow modded parts to be placed where Ostraplan's core-game rules say they don't fit. Ostraplan's Law models the base game, so a mod may still be valid in-game; overridden placements are flagged as warnings — verify in Ostranauts. Core parts stay enforced."/>
                 </StackPanel>

@@ -11,6 +11,23 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.32.0] — 2026-07-13 — power connectors + PowerViz
+
+### Added
+- **Ghost power connector points.** While placing (or with a powered part selected), the part shows its power
+  connectors as labelled badges — a lightning glyph plus **IN** (blue, where it draws power) or **OUT** (green,
+  where a source feeds the network) — so input vs output reads at a glance and the marker stands out against the
+  conduit flow. Rotates with the part (and stays upright), so you can orient a device to meet a conduit before you
+  place it. Ported from the game's build-cursor connector sprites; the plugs come from each device's
+  `data/powerinfos` `aInputPts` (resolved through the condowner's `jsonPI`).
+- **PowerViz — a conduit power overlay** (toolbar **Power: On/Off**, or **`P`**). A port of the game's
+  `TileUtils.GetPoweredTiles`: power floods 4-cardinally from every installed generator/battery's output over
+  `IsPowerPath` tiles (conduits and powered fixtures). **Lit runs** animate a cyan flow, **orphaned runs** (conduit
+  not reaching any live source) draw dim dashed red, and a **wired device with no feed** gets an amber warning
+  marker on its unpowered plug — so you can confirm at a glance that everything is hooked up. The toolbar tooltip
+  reports how many device plugs are unconnected. This is connectivity *visualisation*, not a power-draw simulation
+  (still a non-goal): it answers "is it wired and oriented right", using the game's own network graph.
+
 ## [0.31.0] — 2026-07-12 — wear slider + zoom out further
 
 ### Added
