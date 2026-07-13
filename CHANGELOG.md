@@ -11,6 +11,21 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.33.0] — 2026-07-13 — smooth panning on big ships
+
+### Fixed
+- **WASD / drag panning is smooth again on large ships.** The cached ship drawing was baked in screen space, so
+  **every pan frame rebuilt the whole ship** (draw-order sort + per-tile autotile + every sprite) — on a big station
+  that dropped the frame rate far enough that panning stuttered and chained key presses (e.g. W then A for a
+  diagonal) arrived late and felt one-directional. The cache is now baked **pan-independently** and the live pan is
+  applied as a transform, so a pan frame is a single cached blit, not a rebuild. The cache still rebuilds on a zoom
+  or content change (both actually change the baked geometry), and view rotation was already a transform.
+- **PowerViz panning is smooth too.** The conduit overlay was re-stroked as one dashed `DrawLine` per segment (plus
+  a thick glow pass) every animation frame, so panning with it on stayed laggy on a big ship. The lit and unpowered
+  segment sets are now baked into **frozen pan-independent geometries** (one `DrawGeometry` per layer, rebuilt only
+  on a data or zoom change) and the flow animation is throttled to ~30 fps — the whole overlay is a handful of GPU
+  strokes per frame.
+
 ## [0.32.0] — 2026-07-13 — power connectors + PowerViz
 
 ### Added

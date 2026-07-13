@@ -146,7 +146,20 @@ public sealed class ShipCanvas : FrameworkElement
     public int ArmedRot { get; private set; }
     public HashSet<Guid> SelectedIds { get; } = [];
 
-    public double Zoom { get; private set; } = 48;   // screen px per tile
+    // Screen px per tile. Sprite sizes are baked into the cached ship drawing at this zoom, so a change must
+    // rebuild it — but pan is applied as a transform (see StaticShip / OnRender), so panning never does.
+    public double Zoom
+    {
+        get => _zoom;
+        private set
+        {
+            if (_zoom == value) return;
+            _zoom = value;
+            _staticShip = null;
+            _powerGeoDirty = true;   // segment geometries bake tile centres at this zoom
+        }
+    }
+    private double _zoom = 48;
     private Vector _pan;                             // screen position of world origin
     private bool _panInitialized;
 
@@ -292,10 +305,13 @@ public sealed class ShipCanvas : FrameworkElement
         ClearAirSelection();
     }
 
-    /// <summary>Pan/zoom/view-rotation changed: the cached ship drawing (baked in screen space) is stale.</summary>
+    /// <summary>Pan or view-rotation changed: just notify listeners. The cached ship drawing is baked pan- and
+    /// rotation-independently (both are applied as transforms in <see cref="OnRender"/>), so it survives — only a
+    /// zoom change (via the <see cref="Zoom"/> setter) or a content change (<see cref="OnContentChanged"/>) drops it.
+    /// This is what makes WASD/drag panning cheap on a big ship: a frame is a transform + one cached blit, not a full
+    /// DrawOrder + autotile rebuild.</summary>
     private void RaiseViewChanged()
     {
-        _staticShip = null;
         ViewChanged?.Invoke();
     }
 
@@ -1737,7 +1753,11 @@ public sealed class ShipCanvas : FrameworkElement
         }
         else
         {
+            // The cache is baked at pan zero, so shift it to the live pan with a transform — panning stays a
+            // transform + one blit instead of rebuilding the whole ship each frame.
+            dc.PushTransform(new TranslateTransform(_pan.X, _pan.Y));
             dc.DrawDrawing(StaticShip());
+            dc.Pop();
         }
 
         DrawLooseObjects(dc);   // loose floor items sit on top of the deck/fixtures they rest on
@@ -2102,19 +2122,28 @@ public sealed class ShipCanvas : FrameworkElement
     }
 
     /// <summary>
-    /// The cached vector drawing of every placement at rest (screen space). Built on first use and
-    /// reused until the ship content or the pan/zoom mapping changes (both null it). Frozen so WPF
-    /// can render it on the compositor thread without re-walking the scene each frame.
+    /// The cached vector drawing of every placement at rest, baked at <b>pan zero</b> (so it is
+    /// pan-independent — <see cref="OnRender"/> applies the current pan as a <see cref="TranslateTransform"/>) but at
+    /// the current <see cref="Zoom"/>. Built on first use and reused until the ship content (<see
+    /// cref="OnContentChanged"/>) or the zoom (the <see cref="Zoom"/> setter) changes. Frozen so WPF can render it on
+    /// the compositor thread without re-walking the scene each frame. Baking pan in used to rebuild the whole ship
+    /// every pan frame — the source of the WASD/drag pan lag on big ships.
     /// </summary>
     private Drawing StaticShip()
     {
         if (_staticShip is not null) return _staticShip;
-        var dg = new DrawingGroup();
-        using (var ctx = dg.Open())
-            foreach (var p in Doc!.DrawOrder())
-                DrawPlacement(ctx, p, (0, 0));
-        dg.Freeze();
-        return _staticShip = dg;
+        var savedPan = _pan;
+        _pan = default;   // bake at the origin; the live pan rides on a transform, not the geometry
+        try
+        {
+            var dg = new DrawingGroup();
+            using (var ctx = dg.Open())
+                foreach (var p in Doc!.DrawOrder())
+                    DrawPlacement(ctx, p, (0, 0));
+            dg.Freeze();
+            return _staticShip = dg;
+        }
+        finally { _pan = savedPan; }
     }
 
     /// <summary>Draw every loose floor item at its tile (resolved to its sprite), plus a select outline on the
