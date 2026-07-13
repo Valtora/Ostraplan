@@ -79,7 +79,8 @@ public sealed class ShipCanvas : FrameworkElement
 
     private static Pen MakeSymPen()
     {
-        var pen = new Pen(new SolidColorBrush(Color.FromArgb(0xB0, 0x39, 0xC8, 0xC8)), 1)
+        // A bolder, brighter dashed cyan than before — the axes were easy to lose against the ship.
+        var pen = new Pen(new SolidColorBrush(Color.FromArgb(0xE6, 0x4A, 0xE4, 0xE4)), 2.5)
         { DashStyle = DashStyles.Dash };
         pen.Freeze();
         return pen;

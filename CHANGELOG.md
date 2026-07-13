@@ -11,6 +11,12 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.34.0] — 2026-07-13 — clearer symmetry axes
+
+### Changed
+- **The symmetry axes are more prominent.** Thicker and brighter dashed lines, so the mirror axis (and its centre
+  marker) is easy to see against the ship instead of getting lost in it.
+
 ## [0.33.0] — 2026-07-13 — smooth panning on big ships
 
 ### Fixed
