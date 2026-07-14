@@ -544,6 +544,15 @@ public sealed class Catalog
         var co = owners.TryGetValue(coName, out var rawCo) ? CondOwnerDef.Parse(rawCo.El) : null;
         var itemName = string.IsNullOrWhiteSpace(co?.ItemDefName) ? coName : co!.ItemDefName!;
 
+        // A cooverlay skin's real conds are its base condowner's PLUS the deltas in the skin's strCondLoot: the
+        // game's COOverlay.Init runs Loot.ApplyCondLoot on every spawn, so e.g. an MSS "Light Framework" wall is
+        // ItmWall1x1's 24 kg minus a -StatMass x4 (= 20), plus IsMSS/IsWhite. Fold them in here, or every branded
+        // wall/floor reads the shared base's flat stats. Non-skinned parts (no overlay) keep their base conds.
+        var startNames = co?.StartingCondNames ?? [];
+        var startVals = co?.StartingCondValues ?? new Dictionary<string, double>();
+        if (overlay is { CondLoot: { Length: > 0 } condLoot })
+            (startNames, startVals) = ApplyCondLoot(index, condLoot, startVals);
+
         if (!items.TryGetValue(itemName, out var rawItem) && !items.TryGetValue(defName, out rawItem))
             return null;   // no geometry (e.g. a modded def whose mod isn't loaded)
 
@@ -563,7 +572,7 @@ public sealed class Catalog
         // A container if the def declares any container signal (a filter CT, a grid, or the IsContainer cond);
         // the grid defaults to 6×6 when it's a container but names no dimensions (the game's Container default).
         var isContainer = co is not null &&
-            (co.ContainerCT is not null || co.ContainerW > 0 || co.StartingCondNames.Contains("IsContainer"));
+            (co.ContainerCT is not null || co.ContainerW > 0 || startNames.Contains("IsContainer"));
         (int, int)? containerGrid = isContainer
             ? (co!.ContainerW > 0 ? co.ContainerW : 6, co.ContainerH > 0 ? co.ContainerH : 6)
             : null;
@@ -578,7 +587,7 @@ public sealed class Catalog
         // carries a PowerOutput map point — the flood's start tile. Resolve names → (x, y) offsets now.
         var powerInputs = new List<(double X, double Y)>();
         if (co is not null && !string.IsNullOrEmpty(co.Jpi)
-            && !co.StartingCondNames.Contains("IsPowerInputIgnore")
+            && !startNames.Contains("IsPowerInputIgnore")
             && index.Type("powerinfos").TryGetValue(co.Jpi, out var rawPi))
             foreach (var ptName in PowerInfoDef.Parse(rawPi.El).InputPointNames)
                 if (co.MapPoints.TryGetValue(ptName, out var pt)) powerInputs.Add(pt);
@@ -587,8 +596,8 @@ public sealed class Catalog
 
         return new PartDef(
             defName, friendly, category, origin, item, index.ResolveImage(item.Img), inputs, tools,
-            co?.StartingCondNames ?? [],
-            co?.StartingCondValues ?? new Dictionary<string, double>(),
+            startNames,
+            startVals,
             co?.MapPoints ?? new Dictionary<string, (double, double)>())
         {
             Gpm = ResolveGpm(co?.GpmNames, overlay?.GpmNames),
@@ -604,6 +613,45 @@ public sealed class Catalog
             PowerInputPoints = powerInputs,
             PowerOutputPoint = powerOutput,
         };
+    }
+
+    /// <summary>
+    /// Fold a cooverlay's <c>strCondLoot</c> into a base condowner's starting conds, replicating the game's
+    /// <c>COOverlay.Init</c> → <c>Loot.ApplyCondLoot</c>: each of the loot's <c>aCOs</c> entries is a <b>signed
+    /// delta</b> accumulated onto the base value (a leading <c>-</c> subtracts — see <see cref="LootDef.CondAmount"/>),
+    /// and nested <c>aLoots</c> recurse. Only <c>strType:"condition"</c> loots apply (the game early-returns
+    /// otherwise). Conds driven to zero are dropped, matching the game's <c>UpdateCondRecords</c> (and its "x0 is
+    /// absent" rule). Returns the merged cond names + magnitudes — the real per-skin stats.
+    /// </summary>
+    private static (string[] Names, IReadOnlyDictionary<string, double> Values) ApplyCondLoot(
+        DataIndex index, string lootName, IReadOnlyDictionary<string, double> baseVals)
+    {
+        var vals = new Dictionary<string, double>(baseVals, StringComparer.Ordinal);
+        var loots = index.Type("loot");
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        void Apply(string name)
+        {
+            if (!seen.Add(name) || !loots.TryGetValue(name, out var raw)) return;
+            var el = raw.El;
+            if (!string.Equals(Json.Str(el, "strType"), "condition", StringComparison.Ordinal)) return;
+            foreach (var entry in Json.StrArray(el, "aCOs"))
+            {
+                // A leading '-' negates the delta and is NOT part of the cond name (LootDef.CondAmount reads the
+                // sign; CondName must see the un-prefixed name, or "-StatMass=..." would key a bogus "-StatMass").
+                var cn = LootDef.CondName(entry.StartsWith('-') ? entry[1..] : entry);
+                if (cn.Length == 0) continue;
+                vals[cn] = vals.GetValueOrDefault(cn) + LootDef.CondAmount(entry);   // signed-delta accumulate
+            }
+            foreach (var child in Json.StrArray(el, "aLoots"))
+                Apply(child);
+        }
+        Apply(lootName);
+        // The game removes any cond whose count reaches <= 0 (UpdateCondRecords; "zero == absent"), so a delta that
+        // drives a stat to zero or below (e.g. a CAYL floor loot subtracting more mass than the grate base carries)
+        // leaves the cond ABSENT, not negative. Match that, or the part shows a bogus <=0 mass/health.
+        var cleaned = vals.Where(kv => kv.Value > 0.0)
+                          .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+        return (cleaned.Keys.ToArray(), cleaned);
     }
 
     /// <summary>

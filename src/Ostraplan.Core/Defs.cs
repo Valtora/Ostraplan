@@ -42,6 +42,13 @@ public sealed record ItemDef(
 public sealed record CoOverlayDef(
     string Name, string? NameFriendly, string? Img, string? COBase, string[] GpmNames, string[] ModeSwitches)
 {
+    /// <summary>The condition-loot this skin applies on top of its base condowner (<c>strCondLoot</c>) — the game's
+    /// <c>COOverlay.Init</c> runs <c>Loot.ApplyCondLoot</c> with it on <b>every</b> spawn, so a skin's real stats are
+    /// the base's plus these signed deltas (e.g. an MSS "Light Framework" wall is <c>ItmWall1x1</c>'s 24 kg minus a
+    /// <c>-StatMass x4</c> to 20, plus <c>IsMSS</c>/<c>IsWhite</c>). Null for a purely-cosmetic skin. Ignoring it is
+    /// why the branded walls all read the base 24. See <see cref="Catalog"/>'s cond-loot application.</summary>
+    public string? CondLoot { get; init; }
+
     public static CoOverlayDef Parse(JsonElement e) => new(
         Json.Str(e, "strName") ?? "",
         Json.Str(e, "strNameFriendly"),
@@ -50,7 +57,10 @@ public sealed record CoOverlayDef(
         Json.StrArray(e, "mapGUIPropMaps"),
         // Flat [base, skin] pairs mapping each base-condowner state to this skin's counterpart
         // (installed/patch/damaged/loose); the game uses it to re-skin a base drop. See LooseForms.
-        Json.StrArray(e, "mapModeSwitches"));
+        Json.StrArray(e, "mapModeSwitches"))
+    {
+        CondLoot = Json.Str(e, "strCondLoot"),
+    };
 }
 
 public sealed record CondOwnerDef(

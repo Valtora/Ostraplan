@@ -11,7 +11,18 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
-## [0.42.0] 2026-07-14, no more game version verification banner
+## [0.43.0] 2026-07-14, skinned parts show their real per-brand stats (cooverlay cond-loot)
+
+### Fixed
+- **Branded walls, floors, and other cooverlay skins now show their true in-game stats, not the shared base's.**
+  A skin (e.g. a Mobile Space Systems "Light Framework" wall) is a cooverlay over a base condowner (`ItmWall1x1`,
+  24 kg), but it also carries a `strCondLoot` that the game applies on every spawn to shift the stats per brand.
+  Ostraplan resolved the skin to its base and ignored that loot, so every branded metal wall read a flat 24 kg.
+  It now folds the cooverlay's cond-loot deltas onto the base exactly as the game's `COOverlay.Init` does, so the
+  palette and inspector match what you actually build: MSS "Light Framework" 20 kg, Testudo 25, Van Hummel 27,
+  Ryokka 28, Langdon-Phillips 48, and likewise for price, install effort, and brand flags. Base (unskinned) parts
+  are unchanged. This also flows into Base Value, the bill of materials, and the maneuver rating, which read the
+  same figures.
 
 ### Changed
 - **Removed the "Law verified against 0.x.y" banner.** The status bar previously turned the version yellow and
