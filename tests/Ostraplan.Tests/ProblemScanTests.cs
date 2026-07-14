@@ -164,6 +164,20 @@ public class ProblemScanTests
     }
 
     [Fact]
+    public void Unsealed_compartment_warning_is_dismissible_and_carries_leak_cells()
+    {
+        var cat = FixtureCat();
+        // a lone sealed-floor tile with no walls floods to open space -> an unsealed (open-to-space) compartment
+        var doc = Doc(cat, new Placement { DefName = "FloorTile", X = 3, Y = 3 });
+
+        var warn = Assert.Single(ProblemScan.Scan(doc, cat), p => p.DismissKey == ProblemScan.UnsealedAlertKey);
+        Assert.Equal(ProblemSeverity.Warning, warn.Severity);
+        Assert.Contains("unsealed compartment", warn.Title);
+        Assert.NotNull(warn.Cells);
+        Assert.NotEmpty(warn.Cells!);   // leak points are carried, so the sidebar can Show + focus them
+    }
+
+    [Fact]
     public void A_fixture_over_its_own_floor_is_legal_and_unflagged()
     {
         var cat = FixtureCat();

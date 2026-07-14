@@ -11,6 +11,20 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.41.0] — 2026-07-14 — dismissible unsealed-compartment alerts
+
+### Added
+- **Unsealed compartments are now findable and dismissible from the PROBLEMS panel.** The "N unsealed compartments"
+  warning previously only pointed you at the Ship Rating modal to locate the leaks. Now:
+  - a **Show** button on the warning highlights the leak points on the canvas and brings them into view (no need to
+    open the Ship Rating report);
+  - a **Dismiss** button hides the warning (and drops it from the warning badge count);
+  - a **Restore Alerts** button appears under the PROBLEMS list to bring dismissed warnings back;
+  - **dismissals persist in the `.oplan`**, so a design reopens with the same alerts hidden.
+
+  Dismissal is by warning type, so it survives edits (the general mechanism, `Problem.DismissKey` /
+  `ShipDocument.DismissedAlerts`, can cover more warnings later).
+
 ## [0.40.0] — 2026-07-14 — comprehensive keyboard shortcuts
 
 ### Added

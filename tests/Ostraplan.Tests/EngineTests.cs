@@ -197,6 +197,25 @@ public class EngineTests
     }
 
     [Fact]
+    public void Dismissed_alerts_persist_through_oplan_load_and_mutate_correctly()
+    {
+        var cat = Fake([Part("X", 1, 1)], [new LootDef("L", ["IsX"], [])]);
+
+        // load side: an .oplan carrying dismissed keys restores them onto the document
+        var (doc, _) = new OplanFile { DismissedAlerts = ["unsealed-compartments"] }.ToDocument(cat);
+        Assert.True(doc.IsAlertDismissed("unsealed-compartments"));
+        Assert.Single(doc.DismissedAlerts);
+
+        // mutators: add dedups, restore clears
+        Assert.True(doc.DismissAlert("other"));
+        Assert.False(doc.DismissAlert("other"));
+        Assert.Equal(2, doc.DismissedAlerts.Count);
+        Assert.True(doc.RestoreAlerts());
+        Assert.Empty(doc.DismissedAlerts);
+        Assert.False(doc.RestoreAlerts());
+    }
+
+    [Fact]
     public void Oplan_persists_ship_identity_metadata()
     {
         var tmp = Path.Combine(Path.GetTempPath(), $"ostraplan-test-{Guid.NewGuid():N}.oplan");

@@ -59,6 +59,7 @@ public sealed class ShipDocument
     private readonly List<ShipZone> _zones = [];   // painted crew/trade zones (overlays, not tile-grid parts)
     private readonly Dictionary<(int, int), LooseObject> _looseByTile = [];   // loose items lying on tiles (overlay, one per tile)
     private readonly List<DeviceLink> _links = [];   // signal connections between signalable devices (overlay, by Placement.Id)
+    private readonly HashSet<string> _dismissedAlerts = new(StringComparer.Ordinal);   // problem warnings the user hid (by DismissKey)
 
     public Catalog Catalog { get; }
     public TileConds Conds { get; }
@@ -136,6 +137,32 @@ public sealed class ShipDocument
     /// <summary>The placement with this <see cref="Placement.Id"/>, or null — the reverse of the id a
     /// <see cref="DeviceLink"/> stores.</summary>
     public Placement? ById(Guid id) => _placements.FirstOrDefault(p => p.Id == id);
+
+    /// <summary>The problem-warning keys the user has dismissed (see <see cref="ProblemScan"/> <c>DismissKey</c>).
+    /// A dismissed warning is hidden from the PROBLEMS panel and the badge count until restored. Persisted in the
+    /// <c>.oplan</c>. These are a display/persistence preference, not a design edit, so their mutators do <b>not</b>
+    /// raise <see cref="Changed"/> (no re-scan) or go through the undo stack — the caller refreshes the panel.</summary>
+    public IReadOnlyCollection<string> DismissedAlerts => _dismissedAlerts;
+
+    public bool IsAlertDismissed(string key) => _dismissedAlerts.Contains(key);
+
+    /// <summary>Dismiss a warning; true if it wasn't already dismissed.</summary>
+    public bool DismissAlert(string key) => _dismissedAlerts.Add(key);
+
+    /// <summary>Restore every dismissed warning; true if any were dismissed.</summary>
+    public bool RestoreAlerts()
+    {
+        if (_dismissedAlerts.Count == 0) return false;
+        _dismissedAlerts.Clear();
+        return true;
+    }
+
+    /// <summary>Replace the dismissed-alert set (restoring the <c>.oplan</c> snapshot on open).</summary>
+    public void LoadDismissedAlerts(IEnumerable<string> keys)
+    {
+        _dismissedAlerts.Clear();
+        foreach (var k in keys) _dismissedAlerts.Add(k);
+    }
 
     /// <summary>
     /// An independent copy for off-thread analysis: the same placements (poses + given-ness) with
@@ -405,6 +432,7 @@ public sealed class ShipDocument
         _zones.Clear();
         _looseByTile.Clear();
         _links.Clear();
+        _dismissedAlerts.Clear();
         _seq = 0;
         RaiseChanged();
     }

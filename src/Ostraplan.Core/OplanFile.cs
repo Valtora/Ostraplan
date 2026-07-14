@@ -37,6 +37,9 @@ public sealed class OplanFile
     /// array order is preserved, so an index pair round-trips a link. A pair referencing a part that was dropped on
     /// load (a missing-mod part) is skipped. Additive at format v1, like <see cref="Zones"/>.</summary>
     [JsonPropertyName("links")] public List<OplanLink> Links { get; set; } = [];
+    /// <summary>Problem-warning keys the user dismissed (see <see cref="ShipDocument.DismissedAlerts"/>). Additive
+    /// at format v1, like <see cref="Zones"/>.</summary>
+    [JsonPropertyName("dismissedAlerts")] public List<string> DismissedAlerts { get; set; } = [];
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 
     private static readonly JsonSerializerOptions Options = new()
@@ -78,6 +81,7 @@ public sealed class OplanFile
         foreach (var l in doc.Links)
             if (indexById.TryGetValue(l.Source, out var si) && indexById.TryGetValue(l.Target, out var ti))
                 file.Links.Add(new OplanLink { Src = si, Tgt = ti });
+        file.DismissedAlerts = doc.DismissedAlerts.OrderBy(k => k, StringComparer.Ordinal).ToList();
         file.Meta.Modified = DateTime.UtcNow;
         return file;
     }
@@ -128,6 +132,7 @@ public sealed class OplanFile
             if (l.Src >= 0 && l.Src < byIndex.Length && l.Tgt >= 0 && l.Tgt < byIndex.Length
                 && byIndex[l.Src] is { } src && byIndex[l.Tgt] is { } tgt)
                 doc.AddLink(new DeviceLink(src.Id, tgt.Id));
+        doc.LoadDismissedAlerts(DismissedAlerts);
         foreach (var z in Zones) doc.AddZone(FromOplanZone(z));
         // Restore loose floor items whose def still resolves (a missing def is dropped, like a missing part). One
         // per tile: a later duplicate at the same tile simply overwrites, matching the in-editor invariant.

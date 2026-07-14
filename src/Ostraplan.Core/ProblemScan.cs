@@ -3,12 +3,14 @@ namespace Ostraplan.Core;
 public enum ProblemSeverity { Warning, Blocking }
 
 /// <summary>
-/// A design issue. <see cref="Cells"/> are the world tiles to hazard-tint on the
-/// canvas (socket-legality and constructibility problems); null for ship-level
-/// problems (no docking port) and envelope breaches, which the red stripes cover.
+/// A design issue. <see cref="Cells"/> are the world tiles the problem points at — hazard-tinted on the canvas
+/// for socket-legality/constructibility problems, or highlighted as leak points for an airtightness warning; null
+/// for ship-level problems (no docking port). A non-null <see cref="DismissKey"/> makes the problem
+/// <b>dismissible</b>: the user can hide it (and later Restore Alerts), keyed by this stable string so the
+/// dismissal survives edits and persists in the <c>.oplan</c> (see <see cref="ShipDocument.DismissedAlerts"/>).
 /// </summary>
 public sealed record Problem(ProblemSeverity Severity, string Title, string Detail,
-    IReadOnlyList<(int X, int Y)>? Cells = null);
+    IReadOnlyList<(int X, int Y)>? Cells = null, string? DismissKey = null);
 
 /// <summary>
 /// Design checks the planner can already evaluate honestly. More join as the
@@ -186,10 +188,14 @@ public static class ProblemScan
         return 3;
     }
 
+    /// <summary>The dismiss key for the unsealed-compartment (airtightness) warning.</summary>
+    public const string UnsealedAlertKey = "unsealed-compartments";
+
     /// <summary>
-    /// A live warning (count only — the Ship Rating report has the tile-level detail and
-    /// highlight) when the design has compartments that aren't sealed: floor that isn't
-    /// enclosed by walls (open to space) or an enclosed room missing a sealed floor.
+    /// A live warning when the design has compartments that aren't sealed: floor that isn't enclosed by walls
+    /// (open to space) or an enclosed room missing a sealed floor. Carries the <b>leak points</b> as its
+    /// <see cref="Problem.Cells"/> (the same tiles the Ship Rating report highlights), so the sidebar can show and
+    /// focus them directly; and a <see cref="Problem.DismissKey"/> so the user can dismiss it.
     /// </summary>
     private static void AddAirtightnessWarning(ShipDocument doc, Catalog catalog, List<Problem> problems)
     {
@@ -201,9 +207,11 @@ public static class ProblemScan
         var kinds = new List<string>();
         if (open > 0) kinds.Add($"{open} open to space (not walled in)");
         if (holes > 0) kinds.Add($"{holes} missing a sealed floor");
+        var leakCells = breaches.SelectMany(b => b.Tiles).Distinct().ToList();
         problems.Add(new Problem(ProblemSeverity.Warning,
             $"{breaches.Count} unsealed compartment{(breaches.Count == 1 ? "" : "s")}",
-            $"{string.Join(", ", kinds)}. Run Ship Rating to pinpoint and highlight the leak points."));
+            $"{string.Join(", ", kinds)}. Use Show to highlight the leak points on the canvas, or Dismiss to hide this alert.",
+            leakCells, DismissKey: UnsealedAlertKey));
     }
 
     /// <summary>

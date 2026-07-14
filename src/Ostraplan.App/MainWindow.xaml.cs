@@ -48,6 +48,7 @@ public partial class MainWindow : Window
     private (int X, int Y) _clipOrigin;               // the copied selection's original top-left (paste fallback)
     private readonly DispatcherTimer _scanTimer;      // debounces the (now off-thread) problem scan
     private CancellationTokenSource? _scanCts;        // cancels a superseded scan
+    private List<Problem> _lastProblems = [];         // the most recent scan result, re-rendered when an alert is dismissed/restored
 
 
     public MainWindow()
@@ -451,11 +452,18 @@ public partial class MainWindow : Window
 
     private void UpdateProblems(List<Problem> problems)
     {
-        var blocking = problems.Where(p => p.Severity == ProblemSeverity.Blocking).ToList();
-        var warnings = problems.Where(p => p.Severity == ProblemSeverity.Warning).ToList();
+        _lastProblems = problems;
 
-        // hazard-tint the tiles of every socket-illegal / unconstructible placement
-        Board.SetIllegalCells([.. problems.Where(p => p.Cells is not null).SelectMany(p => p.Cells!).Distinct()]);
+        // Split into shown vs. dismissed (a warning whose DismissKey the user hid — see ShipDocument.DismissedAlerts).
+        var dismissedKeys = _doc?.DismissedAlerts ?? [];
+        var shown = problems.Where(p => p.DismissKey is null || !dismissedKeys.Contains(p.DismissKey)).ToList();
+
+        var blocking = shown.Where(p => p.Severity == ProblemSeverity.Blocking).ToList();
+        var warnings = shown.Where(p => p.Severity == ProblemSeverity.Warning).ToList();
+
+        // hazard-tint the tiles of every socket-illegal / unconstructible placement (NOT the airtightness leak
+        // points — those are a dismissible warning with their own on-demand "Show" highlight, not a red tint).
+        Board.SetIllegalCells([.. shown.Where(p => p.Cells is not null && p.DismissKey is null).SelectMany(p => p.Cells!).Distinct()]);
 
         BadgeBlocking.Visibility = blocking.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         BadgeBlockingText.Text = $"!  {blocking.Count}";
@@ -465,11 +473,11 @@ public partial class MainWindow : Window
         BadgeWarning.ToolTip = warnings.Count > 0 ? string.Join("\n", warnings.Select(p => p.Title)) : null;
 
         ProblemsPanel.Children.Clear();
-        if (problems.Count == 0)
+        if (shown.Count == 0)
         {
             ProblemsPanel.Children.Add(new TextBlock
             {
-                Text = "None found.",
+                Text = dismissedKeys.Count > 0 ? "None showing." : "None found.",
                 Foreground = ThemeManager.Good,
             });
             ProblemsPanel.Children.Add(new TextBlock
@@ -480,30 +488,67 @@ public partial class MainWindow : Window
                 TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 3, 0, 0),
             });
-            return;
+        }
+        else
+        {
+            foreach (var problem in shown.OrderByDescending(p => p.Severity))
+                ProblemsPanel.Children.Add(ProblemRow(problem));
         }
 
-        foreach (var problem in problems.OrderByDescending(p => p.Severity))
-            ProblemsPanel.Children.Add(ProblemRow(problem));
+        // "Restore Alerts" appears under the list whenever anything is dismissed (whether or not it currently applies).
+        if (dismissedKeys.Count > 0)
+        {
+            var restore = new Button
+            {
+                Content = $"Restore Alerts ({dismissedKeys.Count})",
+                Padding = new Thickness(8, 2, 8, 2), Margin = new Thickness(0, 8, 0, 0),
+                HorizontalAlignment = HorizontalAlignment.Left, Cursor = System.Windows.Input.Cursors.Hand,
+                ToolTip = "Bring back the warnings you dismissed.",
+            };
+            restore.Click += (_, _) => RestoreDismissedAlerts();
+            ProblemsPanel.Children.Add(restore);
+        }
     }
 
-    /// <summary>One problem as an expandable row: a coloured title, a "View" button that pans/zooms the canvas to
-    /// the offending tiles, and the detail revealed on expand.</summary>
+    /// <summary>One problem as an expandable row: a coloured title, action buttons (Show/View, and Dismiss for a
+    /// dismissible warning), and the detail revealed on expand.</summary>
     private FrameworkElement ProblemRow(Problem problem)
     {
         var color = problem.Severity == ProblemSeverity.Blocking ? ThemeManager.Bad : ThemeManager.Warn;
 
         var header = new DockPanel { LastChildFill = true };
+
+        // Buttons dock right, in reverse visual order (Dismiss rightmost, then Show/View).
+        if (problem.DismissKey is { } key)
+        {
+            var dismiss = new Button
+            {
+                Content = "Dismiss", Padding = new Thickness(8, 1, 8, 1), Margin = new Thickness(4, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center, ToolTip = "Hide this warning (restore it later with Restore Alerts).",
+            };
+            dismiss.Click += (_, e) => { e.Handled = true; DismissAlert(key); };
+            DockPanel.SetDock(dismiss, Dock.Right);
+            header.Children.Add(dismiss);
+        }
         if (problem.Cells is { Count: > 0 } cells)
         {
-            var view = new Button
+            // A leak/airtightness warning (dismissible) highlights its leak points AND focuses; a plain illegal
+            // problem (already hazard-tinted) just pans/zooms into view.
+            var isLeak = problem.DismissKey is not null;
+            var btn = new Button
             {
-                Content = "View", Padding = new Thickness(8, 1, 8, 1), Margin = new Thickness(6, 0, 0, 0),
-                VerticalAlignment = VerticalAlignment.Center, ToolTip = "Pan and zoom the view to this problem",
+                Content = isLeak ? "Show" : "View", Padding = new Thickness(8, 1, 8, 1), Margin = new Thickness(4, 0, 0, 0),
+                VerticalAlignment = VerticalAlignment.Center,
+                ToolTip = isLeak ? "Highlight the leak points and bring them into view" : "Pan and zoom the view to this problem",
             };
-            view.Click += (_, e) => { e.Handled = true; Board.FocusTiles(cells); };   // don't also toggle the expander
-            DockPanel.SetDock(view, Dock.Right);
-            header.Children.Add(view);
+            btn.Click += (_, e) =>
+            {
+                e.Handled = true;
+                if (isLeak) Board.SetLeakCells(cells);
+                Board.FocusTiles(cells);
+            };
+            DockPanel.SetDock(btn, Dock.Right);
+            header.Children.Add(btn);
         }
         header.Children.Add(new TextBlock
         {
@@ -521,6 +566,26 @@ public partial class MainWindow : Window
                 Margin = new Thickness(4, 4, 2, 2),
             },
         };
+    }
+
+    /// <summary>Dismiss a warning by key (persisted in the .oplan), clear any leak highlight, and re-render the
+    /// problems from the last scan — no re-scan needed, since dismissal only filters the display.</summary>
+    private void DismissAlert(string key)
+    {
+        if (_doc is null || !_doc.DismissAlert(key)) return;
+        Board.SetLeakCells([]);   // if the dismissed warning's leak points were showing, drop them
+        _stateDirty = true;
+        RefreshChrome();
+        UpdateProblems(_lastProblems);
+    }
+
+    /// <summary>Restore every dismissed warning (the "Restore Alerts" button).</summary>
+    private void RestoreDismissedAlerts()
+    {
+        if (_doc is null || !_doc.RestoreAlerts()) return;
+        _stateDirty = true;
+        RefreshChrome();
+        UpdateProblems(_lastProblems);
     }
 
     private void RefreshChrome()
