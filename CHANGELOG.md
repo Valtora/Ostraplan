@@ -11,6 +11,19 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.40.0] — 2026-07-14 — comprehensive keyboard shortcuts
+
+### Added
+- **More keyboard shortcuts, and they now show in the menus.** The File/Design/View dropdown items display their
+  shortcut on the right (standard app-menu style), so they're discoverable, and a few common ones were added:
+  - **Ctrl+A** select all parts;
+  - **Ctrl+Shift+Z** redo (alias for Ctrl+Y);
+  - **Ctrl+E** export, **Ctrl+I** Ship Info, **Ctrl+B** Bill of Materials;
+  - **+ / −** zoom in/out from the keyboard (anchored at the view centre; the wheel still zooms at the cursor).
+
+  The existing file/edit shortcuts (Ctrl+N/O/S, Ctrl+Shift+S save-as, Ctrl+Z/Y, Ctrl+C/V/D, Ctrl+R replace) are
+  unchanged. The F1 controls window now lists the full set.
+
 ## [0.39.0] — 2026-07-14 — raw stats in the inspector
 
 ### Added

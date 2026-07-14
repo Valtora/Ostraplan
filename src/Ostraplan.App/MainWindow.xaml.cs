@@ -1573,12 +1573,20 @@ public partial class MainWindow : Window
                 }
                 e.Handled = true;
                 break;
+            case Key.Z when ctrl && shift:   // Ctrl+Shift+Z: redo (the common alias for Ctrl+Y)
+                if (_doc is not null) _stack.Redo(_doc);
+                e.Handled = true;
+                break;
             case Key.Z when ctrl:
                 if (_doc is not null) _stack.Undo(_doc);
                 e.Handled = true;
                 break;
             case Key.Y when ctrl:
                 if (_doc is not null) _stack.Redo(_doc);
+                e.Handled = true;
+                break;
+            case Key.A when ctrl && !e.IsRepeat:   // select every part
+                if (_doc is not null) { Board.SetSelection(_doc.Placements); UpdateInspector(); }
                 e.Handled = true;
                 break;
             case Key.S when ctrl && !e.IsRepeat:
@@ -1592,6 +1600,26 @@ public partial class MainWindow : Window
                 break;
             case Key.N when ctrl && !e.IsRepeat:
                 if (ConfirmDiscardChanges()) { NewDocument(); AuditLog.Add("New design."); }
+                e.Handled = true;
+                break;
+            case Key.E when ctrl && !e.IsRepeat:   // export as a spawnable mod
+                OnExportClick(this, e);
+                e.Handled = true;
+                break;
+            case Key.I when ctrl && !e.IsRepeat:   // ship info (in-game identity)
+                OnShipInfoClick(this, e);
+                e.Handled = true;
+                break;
+            case Key.B when ctrl && !e.IsRepeat:   // bill of materials
+                OnMaterialsClick(this, e);
+                e.Handled = true;
+                break;
+            case Key.OemPlus or Key.Add when !ctrl:   // keyboard zoom in (anchored at the view centre)
+                Board.ZoomStep(+1);
+                e.Handled = true;
+                break;
+            case Key.OemMinus or Key.Subtract when !ctrl:   // keyboard zoom out
+                Board.ZoomStep(-1);
                 e.Handled = true;
                 break;
             case Key.F when !ctrl:
@@ -2017,10 +2045,13 @@ public partial class MainWindow : Window
 
     // ---- toolbar dropdown menus (File / Design / View) ----
 
-    /// <summary>A menu item wired to an action, optionally disabled or shown as a check state.</summary>
-    private static MenuItem MenuAction(string header, Action act, bool enabled = true, bool? check = null)
+    /// <summary>A menu item wired to an action, optionally disabled, shown as a check state, and/or labelled with
+    /// its keyboard shortcut (<paramref name="gesture"/> → the right-aligned <c>InputGestureText</c>, so the dropdown
+    /// advertises the shortcut like a standard app menu).</summary>
+    private static MenuItem MenuAction(string header, Action act, bool enabled = true, bool? check = null, string? gesture = null)
     {
         var item = new MenuItem { Header = header, IsEnabled = enabled };
+        if (gesture is not null) item.InputGestureText = gesture;
         if (check is { } c) { item.IsCheckable = true; item.IsChecked = c; }
         item.Click += (_, _) => act();
         return item;
@@ -2037,13 +2068,13 @@ public partial class MainWindow : Window
     private void OnFileMenuClick(object sender, RoutedEventArgs e)
     {
         var m = new ContextMenu();
-        m.Items.Add(MenuAction("New", () => OnNewClick(this, e)));
-        m.Items.Add(MenuAction("Open…", () => OnOpenClick(this, e)));
-        m.Items.Add(MenuAction("Save", () => OnSaveClick(this, e)));
-        m.Items.Add(MenuAction("Save As…", () => OnSaveAsClick(this, e)));
+        m.Items.Add(MenuAction("New", () => OnNewClick(this, e), gesture: "Ctrl+N"));
+        m.Items.Add(MenuAction("Open…", () => OnOpenClick(this, e), gesture: "Ctrl+O"));
+        m.Items.Add(MenuAction("Save", () => OnSaveClick(this, e), gesture: "Ctrl+S"));
+        m.Items.Add(MenuAction("Save As…", () => OnSaveAsClick(this, e), gesture: "Ctrl+Shift+S"));
         m.Items.Add(new Separator());
         m.Items.Add(BuildImportSubmenu());
-        m.Items.Add(MenuAction("Export…", () => OnExportClick(this, e)));
+        m.Items.Add(MenuAction("Export…", () => OnExportClick(this, e), gesture: "Ctrl+E"));
         m.Items.Add(new Separator());
         // write-back is only meaningful for a design imported from a save FOR EDITING
         m.Items.Add(MenuAction("Update Ship in Save…", () => OnUpdateSaveClick(this, e), enabled: _doc?.SourceSave is not null));
@@ -2065,11 +2096,11 @@ public partial class MainWindow : Window
     private void OnDesignMenuClick(object sender, RoutedEventArgs e)
     {
         var m = new ContextMenu();
-        m.Items.Add(MenuAction("Ship Info…", () => OnShipInfoClick(this, e)));
+        m.Items.Add(MenuAction("Ship Info…", () => OnShipInfoClick(this, e), gesture: "Ctrl+I"));
         m.Items.Add(MenuAction("Ship Re-skin…", () => OnThemeClick(this, e)));
         m.Items.Add(new Separator());
         m.Items.Add(MenuAction("Snapshot…", () => OnSnapshotClick(this, e)));
-        m.Items.Add(MenuAction("Bill of Materials…", () => OnMaterialsClick(this, e)));
+        m.Items.Add(MenuAction("Bill of Materials…", () => OnMaterialsClick(this, e), gesture: "Ctrl+B"));
         OpenMenuUnder(m, BtnDesignMenu);
     }
 
@@ -2078,10 +2109,10 @@ public partial class MainWindow : Window
     private void OnViewMenuClick(object sender, RoutedEventArgs e)
     {
         var m = new ContextMenu();
-        m.Items.Add(MenuAction("Fit to ship  (F)", Board.FitContent));
+        m.Items.Add(MenuAction("Fit to ship", Board.FitContent, gesture: "F"));
         m.Items.Add(new Separator());
 
-        var sym = new MenuItem { Header = "Symmetry" };
+        var sym = new MenuItem { Header = "Symmetry", InputGestureText = "M" };
         foreach (var (mode, label) in new[]
                  {
                      (SymmetryMode.Off, "Off"), (SymmetryMode.Vertical, "Vertical"),
@@ -2091,8 +2122,8 @@ public partial class MainWindow : Window
         m.Items.Add(sym);
 
         m.Items.Add(new Separator());
-        m.Items.Add(MenuAction("Zones overlay  (Z)", Board.ToggleZones, check: Board.ShowZones));
-        m.Items.Add(MenuAction("Power overlay  (P)", Board.TogglePower, check: Board.ShowPower));
+        m.Items.Add(MenuAction("Zones overlay", Board.ToggleZones, check: Board.ShowZones, gesture: "Z"));
+        m.Items.Add(MenuAction("Power overlay", Board.TogglePower, check: Board.ShowPower, gesture: "P"));
         m.Items.Add(MenuAction("Wire mode (device connections)", Board.ToggleWireMode, check: Board.WireMode));
         m.Items.Add(new Separator());
         m.Items.Add(MenuAction("Mod overrides", ToggleModOverrides, check: Board.AllowModdedOverrides));
@@ -2800,16 +2831,20 @@ public partial class MainWindow : Window
             ("Symmetry", "M", "Cycle Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on. While on, it also drives editing: selecting a part grabs its mirror partner(s), and moving, rotating, or deleting the group keeps it symmetric (the far side tracks in the mirrored direction)."),
             ("Mod overrides", "Toolbar toggle", "Let modded parts place where the core-game rules say they don't fit (ghost turns amber, flagged as a warning — verify in-game). Core parts stay enforced."),
             ("Power overlay", "P", "Show/hide PowerViz: lit conduit runs flow from a live generator/battery, orphaned runs are dim red, and a wired device with no feed gets an amber marker. A powered part also shows its connector badges (blue IN, green OUT) while armed or selected."),
+            ("Wire mode", "View menu", "Wire signalable devices: click a device to arm it as the signal source, then click another to connect (or a connected one to disconnect). Connectable devices ring violet, wires draw source→target. Esc / right-click cancels."),
             ("Delete", "Del", "Delete the selection."),
+            ("Select all", "Ctrl+A", "Select every part in the design."),
             ("Copy / paste / duplicate", "Ctrl+C / V / D", "Copy · paste at the cursor · duplicate the selection."),
             ("Cancel", "Esc", "Cancel placement, then clear the selection."),
             ("Pan", "W A S D", "Pan the view (smooth while held)."),
             ("Pan (mouse)", "MMB / Space + drag", "Pan the view by dragging."),
             ("Rotate view", "Q / E", "Rotate the plan view CCW / CW, like the in-game camera."),
-            ("Zoom", "Mouse wheel", "Zoom, anchored at the cursor."),
+            ("Zoom", "Mouse wheel / + −", "Wheel zooms at the cursor; + and − zoom at the view centre."),
             ("Fit to ship", "F", "Fit the view to the whole ship."),
-            ("Undo / redo", "Ctrl+Z / Ctrl+Y", "Undo · redo."),
+            ("Undo / redo", "Ctrl+Z / Ctrl+Y", "Undo · redo (Ctrl+Shift+Z also redoes)."),
             ("New / open / save", "Ctrl+N / O / S", "New · open · save (Ctrl+Shift+S = Save As)."),
+            ("Export", "Ctrl+E", "Export the design as a spawnable local data mod."),
+            ("Ship Info / Materials", "Ctrl+I / Ctrl+B", "Edit the in-game identity · open the bill of materials."),
             ("Help", "F1", "Open this window."),
         ];
 

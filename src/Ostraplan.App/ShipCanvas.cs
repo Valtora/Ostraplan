@@ -836,6 +836,23 @@ public sealed class ShipCanvas : FrameworkElement
         InvalidateVisual();
     }
 
+    /// <summary>Step the zoom one level in (<paramref name="dir"/> &gt; 0) or out, anchored at the viewport centre —
+    /// the keyboard zoom (+/-), mirroring the wheel step but around the middle of the view.</summary>
+    public void ZoomStep(int dir)
+    {
+        var idx = Array.IndexOf(ZoomSteps, Zoom);
+        if (idx < 0) idx = 3;
+        var next = Math.Clamp(idx + Math.Sign(dir), 0, ZoomSteps.Length - 1);
+        if (ZoomSteps[next] == Zoom) return;
+
+        var centre = ScreenToPanSpace(new Point(RenderSize.Width / 2, RenderSize.Height / 2));
+        var world = new Point((centre.X - _pan.X) / Zoom, (centre.Y - _pan.Y) / Zoom);
+        Zoom = ZoomSteps[next];
+        _pan = new Vector(centre.X - world.X * Zoom, centre.Y - world.Y * Zoom);
+        RaiseViewChanged();
+        InvalidateVisual();
+    }
+
     protected override void OnMouseDown(MouseButtonEventArgs e)
     {
         Focus();
