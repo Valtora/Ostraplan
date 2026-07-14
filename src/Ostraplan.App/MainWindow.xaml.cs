@@ -1655,6 +1655,9 @@ public partial class MainWindow : Window
             PriceBlock.Visibility = Visibility.Collapsed;
             InsOrigin.Text = "";
             InsInputs.Text = "";
+            StatsBlock.Visibility = Visibility.Collapsed;
+            RawExpander.Visibility = Visibility.Collapsed;
+            FlagsExpander.Visibility = Visibility.Collapsed;
             return;
         }
 
@@ -1682,6 +1685,71 @@ public partial class MainWindow : Window
         else PriceBlock.Visibility = Visibility.Collapsed;
         InsOrigin.Text = part.Origin;
         InsInputs.Text = part.Inputs.Length == 0 ? "none" : string.Join("\n", part.Inputs);
+        PopulateStats(part);
+    }
+
+    /// <summary>The curated key figures the inspector surfaces (in this order, only when present) — the raw game
+    /// data values the game never shows as numbers. Mass is kilograms; Health is the durability pool
+    /// (<c>StatDamageMax</c>); the "work" figures are install/dismantle/repair effort.</summary>
+    private static readonly (string Key, string Label, string Unit)[] KeyStats =
+    [
+        ("StatMass", "Mass", "kg"),
+        ("StatDamageMax", "Health", ""),
+        ("StatPowerMax", "Power capacity", ""),
+        ("StatPower", "Power draw", ""),
+        ("StatInstallProgressMax", "Install work", ""),
+        ("StatUninstallProgressMax", "Uninstall work", ""),
+        ("StatDismantleProgressMax", "Dismantle work", ""),
+        ("StatRepairProgressMax", "Repair work", ""),
+        ("StatVolume", "Volume", "m³"),
+        ("StatGasPressureMax", "Max pressure", ""),
+        ("StatThrustStrength", "Thrust", ""),
+        ("StatArmorBlunt", "Armor (blunt)", ""),
+        ("StatArmorCut", "Armor (cut)", ""),
+    ];
+
+    /// <summary>Fill the STATS block (curated key figures), the "All game data (raw)" list (every numeric
+    /// <c>Stat*</c> cond verbatim), and the "Conditions (flags)" list (every non-<c>Stat</c> starting cond) for the
+    /// selected part — the true, raw figures the game keeps hidden. All three read <see cref="PartDef"/> data
+    /// already in memory (the same source as Base Value), so this adds no data loading.</summary>
+    private void PopulateStats(PartDef part)
+    {
+        var vals = part.StartingCondValues;
+
+        StatsList.Children.Clear();
+        foreach (var (key, label, unit) in KeyStats)
+            if (vals.TryGetValue(key, out var v))
+                StatsList.Children.Add(StatRow(label, FormatStat(v) + (unit.Length > 0 ? " " + unit : ""), raw: false));
+        StatsBlock.Visibility = StatsList.Children.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        RawList.Children.Clear();
+        foreach (var kv in vals.Where(kv => kv.Key.StartsWith("Stat", StringComparison.Ordinal))
+                                .OrderBy(kv => kv.Key, StringComparer.Ordinal))
+            RawList.Children.Add(StatRow(kv.Key, FormatStat(kv.Value), raw: true));
+        RawExpander.Visibility = RawList.Children.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+        var flags = part.StartingConds.Where(c => !c.StartsWith("Stat", StringComparison.Ordinal))
+                                      .OrderBy(c => c, StringComparer.Ordinal).ToList();
+        FlagsList.Text = string.Join(", ", flags);
+        FlagsExpander.Visibility = flags.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private static string FormatStat(double v) => v.ToString("#,##0.####", System.Globalization.CultureInfo.InvariantCulture);
+
+    /// <summary>A two-column inspector row: dim label on the left, right-aligned value on the right.</summary>
+    private static FrameworkElement StatRow(string label, string value, bool raw)
+    {
+        var size = raw ? 11.0 : 12.0;
+        var row = new DockPanel { Margin = new Thickness(0, 1, 0, 1) };
+        var val = new TextBlock { Text = value, Foreground = ThemeManager.Ink, FontSize = size };
+        DockPanel.SetDock(val, Dock.Right);
+        row.Children.Add(val);
+        row.Children.Add(new TextBlock
+        {
+            Text = label, Foreground = ThemeManager.Dim, FontSize = size,
+            TextTrimming = TextTrimming.CharacterEllipsis, Margin = new Thickness(0, 0, 8, 0),
+        });
+        return row;
     }
 
     // ---- toolbar ----

@@ -11,6 +11,19 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.39.0] — 2026-07-14 — raw stats in the inspector
+
+### Added
+- **The inspector shows the raw game figures the game hides.** Selecting (or arming) a part now adds:
+  - a **STATS** block with the true numbers, friendly-labelled — **Mass** (kg), **Health** (the durability pool
+    `StatDamageMax`, which the game never shows as a number), install/dismantle/uninstall/repair **work**, **power**,
+    volume, pressure, thrust, armor — shown only when the part carries them;
+  - an **All game data (raw)** expander listing every numeric `Stat*` cond verbatim (internal name → value);
+  - a **Conditions (flags)** expander listing every non-stat starting cond the part has (`IsInstalled`,
+    `IsSignalable`, `IsWall`, …).
+  All of it reads data already in memory (the same source as Base Value), so it adds no loading. The inspector now
+  scrolls when the detail runs long.
+
 ## [0.38.0] — 2026-07-14 — device signal connections
 
 ### Added

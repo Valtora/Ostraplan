@@ -47,6 +47,23 @@ public class GameDataTests
     }
 
     [SkippableFact]
+    public void Parts_expose_raw_mass_and_health_figures()
+    {
+        // The inspector's STATS block reads these straight from PartDef.StartingCondValues (the same source as
+        // Base Value). Mass is kilograms; Health is the durability pool StatDamageMax the game never shows.
+        var g = TestData.RequireGame();
+        var withStats = g.Catalog.Parts.Where(p =>
+            p.StartingCondValues.ContainsKey("StatMass") && p.StartingCondValues.ContainsKey("StatDamageMax")).ToList();
+        Assert.True(withStats.Count >= 200, $"only {withStats.Count} parts carry mass + health");
+
+        foreach (var p in withStats)
+        {
+            Assert.True(p.StartingCondValues["StatMass"] > 0, $"{p.DefName} has non-positive mass");
+            Assert.True(p.StartingCondValues["StatDamageMax"] > 0, $"{p.DefName} has non-positive health");
+        }
+    }
+
+    [SkippableFact]
     public void Door_open_and_closed_states_both_resolve_and_toggle()
     {
         var g = TestData.RequireGame();
