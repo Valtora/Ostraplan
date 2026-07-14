@@ -197,6 +197,52 @@ public class EngineTests
     }
 
     [Fact]
+    public void Oplan_persists_ship_identity_metadata()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), $"ostraplan-test-{Guid.NewGuid():N}.oplan");
+        try
+        {
+            var file = new OplanFile
+            {
+                Meta = new OplanMeta
+                {
+                    Name = "Vagabond+", PublicName = "The Wanderer", Make = "Okuda",
+                    Model = "VG-2", Year = "2231", Designation = "Salvage Tug", Description = "A trusty hauler.",
+                },
+            };
+            file.Save(tmp);
+
+            var loaded = OplanFile.Load(tmp);
+            Assert.Equal("The Wanderer", loaded.Meta.PublicName);
+            Assert.Equal("Okuda", loaded.Meta.Make);
+            Assert.Equal("VG-2", loaded.Meta.Model);
+            Assert.Equal("2231", loaded.Meta.Year);
+            Assert.Equal("Salvage Tug", loaded.Meta.Designation);
+            Assert.Equal("A trusty hauler.", loaded.Meta.Description);
+        }
+        finally
+        {
+            File.Delete(tmp);
+        }
+    }
+
+    [Fact]
+    public void Oplan_persists_view_orientation()
+    {
+        var tmp = Path.Combine(Path.GetTempPath(), $"ostraplan-test-{Guid.NewGuid():N}.oplan");
+        try
+        {
+            new OplanFile { ViewRot = 270 }.Save(tmp);
+            Assert.Equal(270, OplanFile.Load(tmp).ViewRot);
+            Assert.Equal(0, new OplanFile().ViewRot);   // default is north-up
+        }
+        finally
+        {
+            File.Delete(tmp);
+        }
+    }
+
+    [Fact]
     public void Oplan_round_trip_preserves_unknown_fields_and_reports_missing_defs()
     {
         var tmp = Path.Combine(Path.GetTempPath(), $"ostraplan-test-{Guid.NewGuid():N}.oplan");

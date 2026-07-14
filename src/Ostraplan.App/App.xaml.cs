@@ -137,6 +137,16 @@ public partial class App : Application
                 new SetCargoCommand(editBp, editBp.Cargo, cargo).Do(editDoc);
                 RenderInv("inv-edit.png", "ItmBackpack01", "Backpack (editing)", editBp.Cargo, editDoc, editStack, editBp);
 
+                // rotation smoke: a tall (1×5) missile unrotated vs rotated 90°, so an aspect/squish regression is
+                // obvious — a faithful rotation is a rigid turn, so the sprite's proportions must not change.
+                CargoItem Rot(string def, int rot)
+                {
+                    var (gw, gh) = catalog.Lookup(def)?.InvSize ?? (1, 1);
+                    return new CargoItem("a", def, catalog.Lookup(def)?.Friendly, false, []) { GridRot = rot, GridW = gw, GridH = gh };
+                }
+                RenderInv("inv-rot0.png", "ItmBackpack01", "Missile rot 0", [Rot("ItmAmmoMissile01", 0)]);
+                RenderInv("inv-rot90.png", "ItmBackpack01", "Missile rot 90", [Rot("ItmAmmoMissile01", 90)]);
+
                 // the first real save container that actually holds cargo
                 foreach (var save in SaveImport.ListSaves(env))
                 {

@@ -40,11 +40,15 @@ public sealed record ExportOptions(
 /// merges by <c>strName</c>; a same-pool clash with another ship mod is Ostrasort's <c>--patch</c> case.
 /// <see cref="TouchesLoot"/> is true when anything here writes <c>data/loot</c> (drives the Ostrasort
 /// patch follow-up). Default <see cref="None"/> exports the ship file only, as before.</summary>
+/// <param name="StartingShipExclusive">When a starting ship: if true, the exported ship <b>replaces</b> the
+/// Shipbreaker start-event pick pool with only this ship (guaranteed start), dropping the vanilla salvage pods;
+/// if false (default) it is appended as one more weighted option alongside them.</param>
 public sealed record ShipDelivery(
     IReadOnlyList<string> BrokerPools, double BrokerWeight,
     IReadOnlyList<string> SpecialOfferPools,
     bool StartingShip, double StartingShipWeight, string StartingShipStation,
-    double StartingShipMortgage, string StartingShipTitle, string StartingShipDesc)
+    double StartingShipMortgage, string StartingShipTitle, string StartingShipDesc,
+    bool StartingShipExclusive = false)
 {
     public bool TouchesLoot => BrokerPools.Count > 0 || SpecialOfferPools.Count > 0 || StartingShip;
     public static ShipDelivery None => new([], 0, [], false, 0, "OKLG", 0, "", "");
@@ -129,6 +133,11 @@ public static class ShipExport
         // travels into the export
         var byPlacementId = doc.Placements.ToDictionary(p => p.Id.ToString());
 
+        // device signal connections need each part's fresh export strID + its emitted item, gathered in the loop
+        // below and wired up after (see WireDeviceLinks).
+        var exportIdByPlacementId = new Dictionary<string, string>();
+        var itemByExportId = new Dictionary<string, ExportedItem>();
+
         var items = new List<ExportedItem>(grid.Parts.Count);
         var cos = new List<ExportedCondOwnerSave>();
 
@@ -199,6 +208,11 @@ public static class ShipExport
                 StrID = strID,
             };
             items.Add(item);
+            if (part.StrID is { } placementId)
+            {
+                exportIdByPlacementId[placementId] = strID;
+                itemByExportId[strID] = item;
+            }
 
             // Wear: damage installed parts (the set the rating's Condition slot averages over). A part with a
             // StatDamageMax health pool and no IsSystem flag takes uniform(0, ceiling)·M damage; system/undamageable
@@ -247,6 +261,10 @@ public static class ShipExport
                 }
             }
         }
+
+        // Device signal connections (the Electrical GPM): bake each wired part's inputConnections/outputConnections
+        // so the wiring spawns with the ship. Only resolved links (both endpoints present) reach here.
+        WireDeviceLinks(doc, exportIdByPlacementId, itemByExportId);
 
         // Fold the applied wear into the rating's Condition slot (the mean over installed parts), so the baked
         // aRating the broker/registry reads on a shallow load already shows the worn grade.
@@ -504,7 +522,8 @@ public static class ShipExport
                 string.IsNullOrWhiteSpace(delivery.StartingShipTitle) ? shipStrName + "." : delivery.StartingShipTitle,
                 string.IsNullOrWhiteSpace(delivery.StartingShipDesc)
                     ? $"You come across a listing for the {shipStrName}. It could be your ticket out of the day-labour berth."
-                    : delivery.StartingShipDesc);
+                    : delivery.StartingShipDesc,
+                delivery.StartingShipExclusive);
             loot.AddRange(frags.LootObjects);
             lifeevents = frags.Lifeevents.ToList();
             interactions = frags.Interactions.ToList();
@@ -515,6 +534,61 @@ public static class ShipExport
         if (interactions is { Count: > 0 }) WriteJsonArray(Path.Combine(modDir, "data", "interactions", "interactions.json"), interactions);
 
         return loot.Count > 0;
+    }
+
+    /// <summary>
+    /// Bake the design's device signal connections onto the exported items. For each resolved link (source drives
+    /// target), the source's <c>Electrical</c> GPM gains the target in <c>outputConnections</c> and the target gains
+    /// the source in <c>inputConnections</c> — the exact shape a core template carries (see GAME-INTERNALS "Device
+    /// signal connections"). Connections are by item <c>strID</c> with no geometry, so this is a pure id rewrite.
+    /// </summary>
+    private static void WireDeviceLinks(
+        ShipDocument doc, Dictionary<string, string> exportIdByPlacementId, Dictionary<string, ExportedItem> itemByExportId)
+    {
+        var outputs = new Dictionary<string, List<string>>();   // source export id → target export ids it drives
+        var inputs = new Dictionary<string, List<string>>();    // target export id → source export ids driving it
+
+        static void Add(Dictionary<string, List<string>> map, string key, string value)
+        {
+            if (!map.TryGetValue(key, out var list)) map[key] = list = [];
+            list.Add(value);
+        }
+
+        foreach (var (_, source, target) in DeviceLinks.Resolved(doc))
+        {
+            if (!exportIdByPlacementId.TryGetValue(source.Id.ToString(), out var sId)
+                || !exportIdByPlacementId.TryGetValue(target.Id.ToString(), out var tId))
+                continue;
+            Add(outputs, sId, tId);
+            Add(inputs, tId, sId);
+        }
+
+        foreach (var id in outputs.Keys.Union(inputs.Keys))
+            if (itemByExportId.TryGetValue(id, out var item))
+                item.AGPMSettings = [ElectricalGpm(inputs.GetValueOrDefault(id) ?? [], outputs.GetValueOrDefault(id) ?? [])];
+    }
+
+    /// <summary>Build the <c>Electrical</c> GPM panel for a wired item: the game's flat, order-sensitive
+    /// <c>dictGUIPropMap</c> with <c>inputConnections</c>/<c>outputConnections</c> as comma-joined
+    /// <c>&lt;strID&gt;#0#true#</c> entries (type 0, on, no name — the format observed on real templates).</summary>
+    private static ExportedGpmSetting ElectricalGpm(List<string> inputIds, List<string> outputIds)
+    {
+        static string Join(List<string> ids) => string.Join(",", ids.Select(id => id + "#0#true#"));
+        return new ExportedGpmSetting
+        {
+            StrName = "Electrical",
+            DictGUIPropMap =
+            [
+                "status", "true",
+                "inputIDs", "",
+                "outputIDs", "",
+                "positives", inputIds.Count.ToString(),
+                "inputConnections", Join(inputIds),
+                "outputConnections", Join(outputIds),
+                "signalQueue", "",
+                "gate", "0",
+            ],
+        };
     }
 
     /// <summary>Write a list of objects as the game expects a data file: a top-level JSON array, indented.</summary>
@@ -786,6 +860,11 @@ public sealed class ExportedItem
     /// a fresh one), which is what links each item to its baked CO and lets a stack head find its members. Null —
     /// and omitted — on a top-level part.</summary>
     [JsonPropertyName("bForceLoad")] public bool? BForceLoad { get; set; }
+
+    /// <summary>GPM panels baked onto this item — used to write the <c>Electrical</c> signal-connection state on a
+    /// wired device (its <c>inputConnections</c>/<c>outputConnections</c>; see <see cref="ShipExport"/> device
+    /// links). Null — and omitted — on an unwired part.</summary>
+    [JsonPropertyName("aGPMSettings")] public ExportedGpmSetting[]? AGPMSettings { get; set; }
 }
 
 /// <summary>One entry in an item's <c>aCondOverrides</c>: a condition set to a fixed value on the spawned instance.

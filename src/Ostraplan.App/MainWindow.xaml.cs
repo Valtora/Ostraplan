@@ -33,6 +33,7 @@ public partial class MainWindow : Window
     private ShipDocument? _doc;
     private SaveShipContext? _saveContext;   // set when a design was imported from a save FOR EDITING — enables writing it back
     private OplanMeta _meta = new();
+    private bool _stateDirty;   // non-command persisted edits (ship identity, view orientation) — their unsaved state
     // Parts an opened .oplan referenced whose defs aren't in the current game + mods data. While this is
     // non-empty the design is INCOMPLETE and treated as read-only: Save is blocked (writing now would
     // permanently drop these parts) and the chrome shows a standing warning, because building over — or
@@ -64,13 +65,6 @@ public partial class MainWindow : Window
         Board.StrokeCommitted += OnStrokeCommitted;
         Board.MoveRequested += OnMoveRequested;
         Board.PosesRequested += OnPosesRequested;
-        Board.SymmetryChanged += () => BtnSym.Content = "Symmetry: " + Board.SymMode switch
-        {
-            SymmetryMode.Vertical => "V",
-            SymmetryMode.Horizontal => "H",
-            SymmetryMode.Both => "V+H",
-            _ => "Off",
-        };
         Board.SelectionChanged += UpdateInspector;
         Board.LooseSelectionChanged += UpdateInspector;
         Board.HoverChanged += cell => { _hoverCell = cell; TxtCell.Text = cell is { } c ? $"tile {c.X}, {c.Y}" : "—"; };
@@ -87,10 +81,10 @@ public partial class MainWindow : Window
         Board.AirSelectionChanged += n => TxtGhost.Text = n > 0 ? AirHint(n) : "";
         // restore the "allow modded parts to break the law" toggle (default off)
         Board.AllowModdedOverrides = _settings.AllowModdedOverrides;
-        UpdateModOverrideButton();
         Board.ZoneStrokeCommitted += OnZoneStrokeCommitted;
-        Board.ShowZonesChanged += UpdateZonesButton;
-        Board.ShowPowerChanged += OnShowPowerChanged;   // update the caption and (re)compute the overlay off-thread
+        Board.ShowPowerChanged += OnShowPowerChanged;   // (re)compute the overlay off-thread when toggled on
+        Board.WireModeChanged += OnWireModeChanged;     // swap the status hint for the wiring instructions
+        Board.LinkToggleRequested += OnLinkToggleRequested;   // connect/disconnect two devices via the command stack
         Board.ActiveZoneChanged += UpdateZones;   // reflect which zone (if any) is being painted
         _stack.StateChanged += RefreshChrome;
         _stack.Applied += (cmd, action) => AuditLog.Command(action, cmd);   // audit every edit/undo/redo
@@ -318,18 +312,15 @@ public partial class MainWindow : Window
             new PlaceCommand(new Placement { DefName = Catalog.PrimaryDocksysDef, X = 0, Y = 0 }).Do(_doc);
         _doc.Changed += OnDocChanged;
         _meta = new OplanMeta();
+        _stateDirty = false;
         _saveContext = null;
         _unresolvedParts = [];
         _stack.Reset();
         Board.SetDocument(_doc);
+        Board.SetViewRot(0);
         OnDocChanged();
         UpdateInspector();
-        UpdateSaveEditUi();
     }
-
-    /// <summary>Enable "Update Ship in Save…" only for a save-derived design (fresh import, or reopened .oplan
-    /// carrying a source reference — the context is re-located on demand).</summary>
-    private void UpdateSaveEditUi() => BtnUpdateSave.IsEnabled = _doc?.SourceSave is not null;
 
     private void OnDocChanged()
     {
@@ -388,13 +379,6 @@ public partial class MainWindow : Window
         if (token.IsCancellationRequested || !ReferenceEquals(cts, _scanCts)) return;   // superseded
         UpdateProblems(problems);
         Board.SetPowerOverlay(power);
-        if (showPower)
-        {
-            var n = power.UnconnectedPlugs.Count;
-            BtnPower.ToolTip = n == 0
-                ? "Power: On. Every wired device is fed from a live source."
-                : $"Power: On. {n} device plug{(n == 1 ? "" : "s")} not connected to a live power source (amber markers).";
-        }
     }
 
     // ---- Ship Rating (rooms · airtightness · certification · rating) ----
@@ -544,7 +528,7 @@ public partial class MainWindow : Window
         BtnUndo.IsEnabled = _stack.CanUndo;
         BtnRedo.IsEnabled = _stack.CanRedo;
         var name = _doc?.FilePath is { } f ? Path.GetFileNameWithoutExtension(f) : _meta.Name;
-        var star = _stack.Dirty ? " *" : "";
+        var star = _stack.Dirty || _stateDirty ? " *" : "";
         var incomplete = _unresolvedParts.Count > 0 ? "  ⚠ MISSING MODS — read-only" : "";
         TxtDoc.Text = name + star + incomplete;
         Title = $"Ostraplan v{AppVersion} — {name}{star}{incomplete}";
@@ -552,7 +536,7 @@ public partial class MainWindow : Window
 
     private bool ConfirmDiscardChanges()
     {
-        if (_doc is null || !_stack.Dirty) return true;
+        if (_doc is null || (!_stack.Dirty && !_stateDirty)) return true;
         var name = _doc.FilePath is { } f ? Path.GetFileNameWithoutExtension(f) : _meta.Name;
 
         // An incomplete design (missing-mod parts) can't be saved — don't offer a Save that will fail;
@@ -578,7 +562,9 @@ public partial class MainWindow : Window
         if (_doc.FilePath is null) return SaveAs();
         try
         {
-            OplanFile.FromDocument(_doc, _index, _meta).Save(_doc.FilePath);
+            var file = OplanFile.FromDocument(_doc, _index, _meta);
+            file.ViewRot = Board.ViewRot;   // reopen in the orientation it was saved in
+            file.Save(_doc.FilePath);
         }
         catch (Exception ex)
         {
@@ -586,6 +572,7 @@ public partial class MainWindow : Window
             return false;
         }
         _stack.MarkSaved();
+        _stateDirty = false;
         AuditLog.Add($"Saved {_doc.FilePath}.");
         _settings.Touch(_doc.FilePath);
         _settings.Save();
@@ -651,14 +638,15 @@ public partial class MainWindow : Window
         _doc.FilePath = dlg.FileName;
         _doc.Changed += OnDocChanged;
         _meta = file.Meta;
+        _stateDirty = false;
         _saveContext = null;   // a reopened save-derived design re-locates its context on demand (from SourceSave)
         _unresolvedParts = missing;   // a design missing its mods is incomplete: read-only until they're enabled
         _stack.Reset();
         Board.SetDocument(_doc);
+        Board.SetViewRot(file.ViewRot);   // restore the saved plan-view orientation
         Board.FitContent();
         OnDocChanged();
         UpdateInspector();
-        UpdateSaveEditUi();
         _settings.Touch(dlg.FileName);
         _settings.Save();
         AuditLog.Add($"Opened {dlg.FileName}.");
@@ -768,25 +756,44 @@ public partial class MainWindow : Window
 
     // ---- zones ----
 
-    private void OnZonesClick(object sender, RoutedEventArgs e) => Board.ToggleZones();
-
-    private void UpdateZonesButton() => BtnZones.Content = "Zones: " + (Board.ShowZones ? "On" : "Off");
-
     // ---- power (PowerViz) ----
 
-    private void OnPowerClick(object sender, RoutedEventArgs e) => Board.TogglePower();
-
-    /// <summary>PowerViz was toggled: refresh the caption and, when turned on, kick a scan so the overlay computes
-    /// (the network flood only runs while the overlay is on). Turning it off resets the hint tooltip.</summary>
+    /// <summary>PowerViz was toggled: when turned on, kick a scan so the overlay computes (the network flood only
+    /// runs while the overlay is on).</summary>
     private void OnShowPowerChanged()
     {
-        BtnPower.Content = "Power: " + (Board.ShowPower ? "On" : "Off");
         if (Board.ShowPower) ScheduleScan();
-        else BtnPower.ToolTip = _powerTooltip;
     }
 
-    private const string _powerTooltip =
-        "Show/hide the conduit power overlay (P): lit runs flow from a live generator/battery, orphaned runs are dim red, and a wired device with no feed gets an amber warning marker.";
+    private string? _defaultHint;   // the status-bar hint to restore when wire mode turns off
+
+    /// <summary>Wire mode toggled: swap the status-bar hint for the wiring instructions (and back).</summary>
+    private void OnWireModeChanged()
+    {
+        _defaultHint ??= TxtHint.Text;
+        TxtHint.Text = Board.WireMode
+            ? "WIRE MODE · click a device, then another to connect · click a connected one to disconnect · right-click/Esc to cancel"
+            : _defaultHint;
+    }
+
+    /// <summary>Connect two devices, or disconnect them if the directed link already exists — one undo step. The
+    /// canvas only offers connectable targets, so the add path is validated (a redundant guard keeps it honest).</summary>
+    private void OnLinkToggleRequested(Placement source, Placement target)
+    {
+        if (_doc is null) return;
+        var link = new DeviceLink(source.Id, target.Id);
+        string Name(Placement p) => _doc.Part(p)?.Friendly ?? p.DefName;
+        if (_doc.Links.Contains(link))
+        {
+            _stack.Push(_doc, new RemoveLinkCommand(link));
+            AuditLog.Add($"Disconnected {Name(source)} → {Name(target)}.");
+        }
+        else if (DeviceLinks.CanConnect(_doc, source, target))
+        {
+            _stack.Push(_doc, new AddLinkCommand(link));
+            AuditLog.Add($"Connected {Name(source)} → {Name(target)}.");
+        }
+    }
 
     private void OnAddZoneClick(object sender, RoutedEventArgs e)
     {
@@ -847,7 +854,6 @@ public partial class MainWindow : Window
 
     private void UpdateZones()
     {
-        UpdateZonesButton();
         if (ZonesPanel is null) return;
         ZonesPanel.Children.Clear();
         if (_doc is null || _doc.Zones.Count == 0)
@@ -1540,7 +1546,12 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.Escape:
-                if (Board.AirSelection.Count > 0)
+                if (Board.WireMode)
+                {
+                    if (Board.WireSourceArmed) Board.ClearWireSource();   // first Esc drops the armed source
+                    else Board.SetWireMode(false);                        // second Esc leaves wire mode
+                }
+                else if (Board.AirSelection.Count > 0)
                 {
                     Board.ClearAirSelection();   // drop the fill highlight first
                 }
@@ -1605,10 +1616,12 @@ public partial class MainWindow : Window
                 break;
             case Key.E when !ctrl && !e.IsRepeat:   // rotate the view, like in-game
                 Board.RotateView(90);
+                MarkViewOrientationChanged();
                 e.Handled = true;
                 break;
             case Key.Q when !ctrl && !e.IsRepeat:
                 Board.RotateView(-90);
+                MarkViewOrientationChanged();
                 e.Handled = true;
                 break;
             case Key.F1 when !e.IsRepeat:
@@ -1688,6 +1701,30 @@ public partial class MainWindow : Window
     /// and writes a mod folder — never <c>loading_order.json</c> (registration stays with
     /// Ostrasort/ModTools; the dialog and confirmation both say so).
     /// </summary>
+    /// <summary>Edit the ship's in-game identity (name/make/model/year/designation/description). The values live
+    /// on <see cref="_meta"/>, so they persist in the .oplan and pre-fill the export dialog.</summary>
+    private void OnShipInfoClick(object sender, RoutedEventArgs e)
+    {
+        if (_doc is null) return;
+        var dlg = new ShipInfoDialog(_meta) { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+        if (dlg.PublicName == _meta.PublicName && dlg.Make == _meta.Make && dlg.Model == _meta.Model
+            && dlg.Year == _meta.Year && dlg.Designation == _meta.Designation && dlg.Description == _meta.Description)
+            return;   // nothing changed — don't dirty the document
+        dlg.ApplyTo(_meta);
+        _stateDirty = true;
+        RefreshChrome();
+    }
+
+    /// <summary>A Q/E view rotation changes persisted state now (the .oplan stores the orientation), so flag the
+    /// design as having unsaved changes — but only for a real document (not the empty startup state).</summary>
+    private void MarkViewOrientationChanged()
+    {
+        if (_doc is null || _stateDirty) return;
+        _stateDirty = true;
+        RefreshChrome();
+    }
+
     private async void OnExportClick(object sender, RoutedEventArgs e)
     {
         if (_doc is null || _catalog is null || _index is null || _env is null) return;
@@ -1705,8 +1742,18 @@ public partial class MainWindow : Window
         var ostrasortKnown = OstrasortLauncher.Detect(_settings) is not null;
 
         var dlg = new ExportDialog(_meta.Name, _settings.ExportAuthor ?? _meta.Author, _env.ModsDir,
-            _settings.LastExportDir, index, buyEstimate, ostrasortKnown) { Owner = this };
+            _settings.LastExportDir, index, buyEstimate, ostrasortKnown, _meta) { Owner = this };
         if (dlg.ShowDialog() != true) return;
+
+        // Identity edited in the export dialog flows back onto the design's saved metadata, so the two never drift.
+        if (dlg.PublicName != _meta.PublicName || dlg.Make != _meta.Make || dlg.Model != _meta.Model
+            || dlg.Year != _meta.Year || dlg.Designation != _meta.Designation || dlg.Description != _meta.Description)
+        {
+            _meta.PublicName = dlg.PublicName; _meta.Make = dlg.Make; _meta.Model = dlg.Model;
+            _meta.Year = dlg.Year; _meta.Designation = dlg.Designation; _meta.Description = dlg.Description;
+            _stateDirty = true;
+            RefreshChrome();
+        }
 
         // don't silently clobber an existing mod folder we may not have created
         var targetDir = Path.Combine(dlg.DestinationParent, ShipExport.SanitizeName(dlg.ShipName));
@@ -1782,7 +1829,7 @@ public partial class MainWindow : Window
         var parts = new List<string>();
         if (d.BrokerPools.Count > 0) parts.Add($"{d.BrokerPools.Count} broker kiosk(s)");
         if (d.SpecialOfferPools.Count > 0) parts.Add($"{d.SpecialOfferPools.Count} Special Offer slot(s)");
-        if (d.StartingShip) parts.Add("Shipbreaker starting ship");
+        if (d.StartingShip) parts.Add(d.StartingShipExclusive ? "Shipbreaker starting ship (guaranteed)" : "Shipbreaker starting ship");
         return parts.Count == 0 ? "" : "Obtainable via: " + string.Join(", ", parts) + ".\n";
     }
 
@@ -1900,21 +1947,88 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>The Import menu: start a design from an existing ship (template now; save game in P3 slice 3).</summary>
-    private void OnImportClick(object sender, RoutedEventArgs e)
+    // ---- toolbar dropdown menus (File / Design / View) ----
+
+    /// <summary>A menu item wired to an action, optionally disabled or shown as a check state.</summary>
+    private static MenuItem MenuAction(string header, Action act, bool enabled = true, bool? check = null)
     {
-        var menu = new ContextMenu { PlacementTarget = BtnImport, Placement = PlacementMode.Bottom };
-        var fromTemplate = new MenuItem { Header = "From ship template…" };
-        fromTemplate.Click += (_, _) => ImportTemplate();
-        var fromSave = new MenuItem { Header = "From save game (layout only)…" };
-        fromSave.Click += (_, _) => ImportSave();
-        var forEditing = new MenuItem { Header = "Your ship, for editing (write back to the save)…" };
-        forEditing.Click += (_, _) => ImportSaveForEditing();
-        menu.Items.Add(fromTemplate);
-        menu.Items.Add(fromSave);
-        menu.Items.Add(new Separator());
-        menu.Items.Add(forEditing);
+        var item = new MenuItem { Header = header, IsEnabled = enabled };
+        if (check is { } c) { item.IsCheckable = true; item.IsChecked = c; }
+        item.Click += (_, _) => act();
+        return item;
+    }
+
+    private static void OpenMenuUnder(ContextMenu menu, UIElement anchor)
+    {
+        menu.PlacementTarget = anchor;
+        menu.Placement = PlacementMode.Bottom;
         menu.IsOpen = true;
+    }
+
+    /// <summary>The File ▾ dropdown: document lifecycle, import, export, and write-back to a save.</summary>
+    private void OnFileMenuClick(object sender, RoutedEventArgs e)
+    {
+        var m = new ContextMenu();
+        m.Items.Add(MenuAction("New", () => OnNewClick(this, e)));
+        m.Items.Add(MenuAction("Open…", () => OnOpenClick(this, e)));
+        m.Items.Add(MenuAction("Save", () => OnSaveClick(this, e)));
+        m.Items.Add(MenuAction("Save As…", () => OnSaveAsClick(this, e)));
+        m.Items.Add(new Separator());
+        m.Items.Add(BuildImportSubmenu());
+        m.Items.Add(MenuAction("Export…", () => OnExportClick(this, e)));
+        m.Items.Add(new Separator());
+        // write-back is only meaningful for a design imported from a save FOR EDITING
+        m.Items.Add(MenuAction("Update Ship in Save…", () => OnUpdateSaveClick(this, e), enabled: _doc?.SourceSave is not null));
+        OpenMenuUnder(m, BtnFileMenu);
+    }
+
+    /// <summary>The Import ▸ submenu: start a design from an existing ship or a save game.</summary>
+    private MenuItem BuildImportSubmenu()
+    {
+        var import = new MenuItem { Header = "Import" };
+        import.Items.Add(MenuAction("From ship template…", ImportTemplate));
+        import.Items.Add(MenuAction("From save game (layout only)…", ImportSave));
+        import.Items.Add(new Separator());
+        import.Items.Add(MenuAction("Your ship, for editing (write back to the save)…", ImportSaveForEditing));
+        return import;
+    }
+
+    /// <summary>The Design ▾ dropdown: ship identity, wall/floor re-skin, snapshot, and the bill of materials.</summary>
+    private void OnDesignMenuClick(object sender, RoutedEventArgs e)
+    {
+        var m = new ContextMenu();
+        m.Items.Add(MenuAction("Ship Info…", () => OnShipInfoClick(this, e)));
+        m.Items.Add(MenuAction("Ship Re-skin…", () => OnThemeClick(this, e)));
+        m.Items.Add(new Separator());
+        m.Items.Add(MenuAction("Snapshot…", () => OnSnapshotClick(this, e)));
+        m.Items.Add(MenuAction("Bill of Materials…", () => OnMaterialsClick(this, e)));
+        OpenMenuUnder(m, BtnDesignMenu);
+    }
+
+    /// <summary>The View ▾ dropdown: fit, symmetry, and the zone / power / mod-override overlays. State is read
+    /// live when the menu opens (checkmarks / the active symmetry mode) rather than shown on the toolbar.</summary>
+    private void OnViewMenuClick(object sender, RoutedEventArgs e)
+    {
+        var m = new ContextMenu();
+        m.Items.Add(MenuAction("Fit to ship  (F)", Board.FitContent));
+        m.Items.Add(new Separator());
+
+        var sym = new MenuItem { Header = "Symmetry" };
+        foreach (var (mode, label) in new[]
+                 {
+                     (SymmetryMode.Off, "Off"), (SymmetryMode.Vertical, "Vertical"),
+                     (SymmetryMode.Horizontal, "Horizontal"), (SymmetryMode.Both, "Both"),
+                 })
+            sym.Items.Add(MenuAction(label, () => Board.SetSymmetry(mode), check: Board.SymMode == mode));
+        m.Items.Add(sym);
+
+        m.Items.Add(new Separator());
+        m.Items.Add(MenuAction("Zones overlay  (Z)", Board.ToggleZones, check: Board.ShowZones));
+        m.Items.Add(MenuAction("Power overlay  (P)", Board.TogglePower, check: Board.ShowPower));
+        m.Items.Add(MenuAction("Wire mode (device connections)", Board.ToggleWireMode, check: Board.WireMode));
+        m.Items.Add(new Separator());
+        m.Items.Add(MenuAction("Mod overrides", ToggleModOverrides, check: Board.AllowModdedOverrides));
+        OpenMenuUnder(m, BtnViewMenu);
     }
 
     /// <summary>Pick a save and import the player's ship from it — layout only, behind an explicit confirmation.</summary>
@@ -2249,14 +2363,15 @@ public partial class MainWindow : Window
         _doc.FilePath = null;
         _doc.Changed += OnDocChanged;
         _meta = new OplanMeta { Name = result.ShipName };
+        _stateDirty = false;
         _saveContext = context;
         _unresolvedParts = [];   // a fresh import is a complete, saveable design (unlike a reopened .oplan missing its mods)
         _stack.Reset();
         Board.SetDocument(_doc);
+        Board.SetViewRot(0);
         Board.FitContent();
         OnDocChanged();
         UpdateInspector();
-        UpdateSaveEditUi();
         ReportImport(result, keptContents: context is not null);
     }
 
@@ -2296,25 +2411,19 @@ public partial class MainWindow : Window
         if (_doc is not null) _stack.Redo(_doc);
     }
 
-    private void OnFitClick(object sender, RoutedEventArgs e) => Board.FitContent();
-    private void OnSymClick(object sender, RoutedEventArgs e) => Board.CycleSymmetry();
-
     /// <summary>Toggle whether modded parts may be placed where the core-only placement law says they don't fit
     /// (persisted). Core parts stay hard-blocked; overridden modded parts are placed and flagged as warnings.</summary>
-    private void OnModOverrideClick(object sender, RoutedEventArgs e)
+    private void ToggleModOverrides()
     {
         Board.AllowModdedOverrides = !Board.AllowModdedOverrides;
         _settings.AllowModdedOverrides = Board.AllowModdedOverrides;
         _settings.Save();
-        UpdateModOverrideButton();
         Board.InvalidateVisual();   // refresh the armed ghost (green/amber/red) under the new rule
         AuditLog.Add(Board.AllowModdedOverrides
             ? "Modded overrides enabled — modded parts may break the placement law (flagged)."
             : "Modded overrides disabled — modded parts are enforced like core.");
     }
 
-    private void UpdateModOverrideButton() =>
-        BtnModOverride.Content = "Mod overrides: " + (Board.AllowModdedOverrides ? "On" : "Off");
     /// <summary>The Help ▾ dropdown: controls/keybinds, report a bug, and the on-disk activity log.</summary>
     private void OnHelpMenuClick(object sender, RoutedEventArgs e)
     {

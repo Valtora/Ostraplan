@@ -38,11 +38,13 @@ public static class StartingShipExport
     /// (from <see cref="KioskExport.ClonePoolOrDefault"/>) — the intro is appended to it. <paramref name="station"/>
     /// is the ATC the player begins docked at (<c>strStartATC</c>, e.g. "OKLG"); <paramref name="mortgage"/> is the
     /// debt they start owing (pre-fill from the broker buy estimate). <paramref name="title"/>/<paramref name="desc"/>
-    /// are the encounter's shown title/body.
+    /// are the encounter's shown title/body. When <paramref name="exclusive"/> is true the events pool is
+    /// <b>pinned</b> to this ship alone (a guaranteed start, dropping the vanilla salvage pods); otherwise the
+    /// intro is appended as one more weighted option alongside them.
     /// </summary>
     public static StartingShipFragments Build(
         JsonObject eventsPool, string shipName, double weight, string station, double mortgage,
-        string title, string desc)
+        string title, string desc, bool exclusive = false)
     {
         var token = Token(shipName);
         var intro = "CGEnc" + token + "Intro";
@@ -58,8 +60,11 @@ public static class StartingShipExport
             ["aLoots"] = new JsonArray(),
             ["strType"] = "ship",
         };
-        // Append the intro as a weighted option in the shipbreaker events pool (preserving the core options).
-        var eventsOverride = KioskExport.AppendShipToPool(eventsPool, intro, weight);
+        // The shipbreaker events pool: either pin it to ONLY this ship's intro (a guaranteed start — drops the
+        // vanilla salvage pods) or append the intro as one more weighted option, preserving the core picks.
+        var eventsOverride = exclusive
+            ? KioskExport.PinShipToPool(eventsPool, intro)
+            : KioskExport.AppendShipToPool(eventsPool, intro, weight);
         // Empty no-op trigger loots the interactions' LootCTsUs reference (mirrors core exactly — a missing
         // reference would log a load warning).
         var introTrigger = EmptyTrigger(intro);

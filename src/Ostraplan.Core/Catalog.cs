@@ -82,6 +82,11 @@ public sealed record PartDef(
     /// <summary>True if this part holds an inventory grid (has a container grid).</summary>
     public bool IsContainer => ContainerGrid is not null;
 
+    /// <summary>True when this part carries the game's <c>IsSignalable</c> starting cond — i.e. it owns an
+    /// <c>Electrical</c> GPM and can be wired into a signal connection (alarms, pumps, sensors, lights, …). These
+    /// are the endpoints the connection editor lets you wire together (see <see cref="DeviceLink"/>).</summary>
+    public bool IsSignalable => Array.IndexOf(StartingConds, "IsSignalable") >= 0;
+
     /// <summary>
     /// True if this part came from a mod rather than the base game (its <see cref="Origin"/> is not core). Ostraplan's
     /// placement law is a port of the <b>core</b> game's logic, so it is authoritative for core parts but only

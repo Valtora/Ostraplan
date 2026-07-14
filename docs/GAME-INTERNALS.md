@@ -210,6 +210,43 @@ Connectivity visualisation only (no draw/generation balance — a non-goal). **S
 
 **Connector points** (the build-cursor nubs). A device names a `JsonPowerInfo` via its condowner's **`jsonPI`** field (`data/powerinfos`, `DataHandler.dictPowerInfo`); that power-info's **`aInputPts`** are the map-point names where it draws power (`PowerSource`/`PowerA`/`PowerB`/…). The game's `CanvasManager` draws a `GetPowerInputGridSprite` at each `aInputPts` point (unless the CO has `IsPowerInputIgnore`) and a `GetPowerOutputGridSprite` at `PowerOutput`. Ostraplan resolves these into `PartDef.PowerInputPoints` / `PowerOutputPoint` (offsets → tiles via `GridMath.MapPoint`) and draws the same nubs on the armed ghost and selected parts. **Key link:** `jsonPI` is a condowner field whose value is a *power-info* name, **not** the condowner's own `strName` (0/126 overlap) — resolve through `dictPowerInfo`, never by CO name.
 
+### Device signal connections — the `Electrical` GPM (**ported v0.38** — model + on-canvas wiring + export)
+
+The game's **signal-wiring** system (sensor → alarm/pump/light, controllers, logic gates) is distinct from the power
+network above. It is driven by an **`Electrical`** GPM component (`strGPMKey = "Electrical"`) attached to every
+condowner whose `aStartingConds` carry **`IsSignalable`** (alarms `ItmAlarm*`, air pumps `ItmAirPump*`, sensors,
+switches, lights, …). Observed against 0.15.1.6:
+
+- **The model is directional and ID-based, not geometric.** `Electrical` holds `outputConnections` and
+  `inputConnections`, each a `Dictionary<string, ElectricalConnection>` **keyed by the connected item's `strID`**.
+  `Electrical.SetUpConnection(co)` adds `co.strID` to *this* device's **`outputConnections`** (so this device
+  **drives** `co`) and queues `SignalType.Connect` + `SignalType.On`; `RemoveConnection` queues `SignalType.Disconnect`.
+  So **A→B means A's `outputConnections` lists B and B's `inputConnections` lists A.** There is **no distance /
+  adjacency / conduit requirement** in the persisted model — a connection is a pair of `strID` references. (In game
+  the wiring is *created* with a rewire tool — `IsToolWireCutter`, conds `Rewire`/`CTAddConnection`/`CTRemoveConnection` —
+  whose interaction has its own proximity rules, but the *stored* connection is pure ID.)
+- **Runtime semantics** (already visible in the condtrig vocabulary). A wired sink gains **`IsConnected`** (via
+  `TUpConnected`) and **`IsSignalledOn`** (via `TUpSignalled`); **`TIsConnctedSignalledOff`** = `IsConnected` ∧ ¬`IsSignalledOn`
+  fires the device's power-info **`strShutDownCT`**, i.e. **a connected device is held off until its source signals it on.**
+  `gate` (a `GateMode`), `positives`, and the threshold slider (`sliderPercent`/`sliderMax`) are per-device *logic*
+  (AND/OR/threshold over inputs), not connection legality.
+- **Persist / export shape (confirmed).** The wiring rides on each item's **`aGPMSettings`** entry
+  `{ "strName": "Electrical", "dictGUIPropMap": [ …flat key/value… ] }` (the same order-sensitive flat-array shape
+  `ShipExport.ExportedGpmSetting` already emits for a spawner). Relevant keys: `status`, `inputConnections`,
+  `outputConnections`, `gate`, `positives`. A connections value is a **comma-joined list of
+  `<targetStrID>#<signalType>#<status>#<name>`** entries (e.g. `…#0#true#N2 Pressure Alarm`) — verified non-empty on
+  the Babak Refit (a controller with ~28 output entries; every core template ships the keys, mostly empty).
+- **Legality (what "valid" means for Ostraplan).** Both endpoints must be **installed** parts carrying `IsSignalable`
+  (i.e. own an `Electrical` GPM), on the same ship; a device should not connect to itself, and duplicate links collapse.
+  That is the whole rule — there is no geometric constraint to enforce, unlike `CheckFit`.
+
+**Ostraplan port (v0.38).** `DeviceLink` (a directed `Placement.Id` pair), `DeviceLinks` (the validity rules above),
+persisted in the `.oplan` as (source, target) index pairs (`OplanLink`, dangling pairs pruned), and baked on export
+into each wired item's `Electrical` GPM (`ShipExport.WireDeviceLinks`, entries `<strID>#0#true#`). Authored on the
+canvas in **wire mode** (`ShipCanvas`): click a device to arm it as the source, click another to connect/disconnect.
+Gate/threshold logic is intentionally out of scope — that is the in-game signal box's job; Ostraplan authors only the
+plain connection. In-game E2E (spawn a wired export, confirm the devices actually signal) remains owner-driven.
+
 ### The parity gate — the ground-truth reality
 The corpus is **192 core ship objects** (files are top-level arrays; the ship is an element with `nCols`+`aItems`; ~a dozen files are non-ship). **All 192 carry baked `aRooms`** (roomSpec + bVoid + tile sets) → a 192-ship rooms **and** certification gate. **Only Babak / Babak Refit carry `aRating`** (both damaged derelicts; the Refit's rating is a verbatim stale copy of the base ship, from before it grew) → rating is size-slot parity on the base Babak + unit-tested cutoffs.
 - **Rooms parity: 188/192** (4 named exclusions: malformed Coffin, two aero slant-wall hulls, one interceptor airlock).

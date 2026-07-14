@@ -71,6 +71,13 @@ public sealed class ShipCanvas : FrameworkElement
     private static readonly Brush PowerWarnBrush = Frozen(new SolidColorBrush(Color.FromArgb(0x55, 0xE0, 0xB0, 0x40)));   // unconnected-plug warning fill
     private static readonly Pen PowerWarnPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xE0, 0xF0, 0xB8, 0x40)), 2));
 
+    // Device signal connections (wire mode). Violet, to stand apart from the blue selection and the cyan power flow.
+    private static readonly Brush WireDotBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xC0, 0x8C, 0xF0)));
+    private static readonly Pen WirePen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xCC, 0xC0, 0x8C, 0xF0)), 1.5) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round });
+    private static readonly Pen WirePreviewPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x99, 0xD8, 0xB0, 0xFF)), 1.5) { DashStyle = new DashStyle([3, 3], 0), StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round });
+    private static readonly Pen WireNodePen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x70, 0xC0, 0x8C, 0xF0)), 1.2));
+    private static readonly Pen WireSourcePen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0xD8, 0xB0, 0xFF)), 2.5));
+
     private static T Frozen<T>(T freezable) where T : Freezable
     {
         freezable.Freeze();
@@ -172,6 +179,12 @@ public sealed class ShipCanvas : FrameworkElement
     public Guid? ActiveZoneId { get; private set; }    // the zone being painted, or null when not in zone-paint mode
     public bool ShowPower { get; private set; }        // PowerViz conduit overlay visibility (toolbar/P toggle)
 
+    /// <summary>When true the canvas is in <b>wire mode</b>: click a signalable device to arm it as the signal
+    /// source, then click another to connect them (click a connected one again to disconnect). See
+    /// <see cref="DeviceLink"/> / <see cref="LinkToggleRequested"/>. Wires always render; this mode drives editing.</summary>
+    public bool WireMode { get; private set; }
+    private Placement? _wireSource;   // the armed signal source awaiting a target (wire mode)
+
     /// <summary>When true, a MODDED part may be placed where the (core-only) placement law says it doesn't fit — it's
     /// placed and flagged as a warning rather than hard-blocked. Core parts are always enforced. Set from
     /// <see cref="AppSettings.AllowModdedOverrides"/>.</summary>
@@ -236,6 +249,8 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action<GhostStatus?>? GhostReasonChanged;   // the armed ghost's illegality status, null when legal/disarmed
     public event Action? ShowZonesChanged;              // the zone overlay was toggled (update the toolbar caption)
     public event Action? ShowPowerChanged;              // the PowerViz overlay was toggled (update the toolbar caption + trigger a scan)
+    public event Action? WireModeChanged;               // wire mode was toggled (update the hint / menu check)
+    public event Action<Placement, Placement>? LinkToggleRequested;   // connect source→target, or disconnect if already linked
     public event Action? ActiveZoneChanged;             // the painted zone changed (sync the zones panel selection)
     /// <summary>A zone paint/erase/box/room-fill stroke finished: (zone id, tiles before, tiles after). The window
     /// turns this into one <c>SetZoneTilesCommand</c> undo step. Not raised when the stroke changed nothing.</summary>
@@ -368,6 +383,29 @@ public sealed class ShipCanvas : FrameworkElement
         if (!on) _powerOverlay = PowerOverlay.Empty;   // drop stale data so it can't flash on re-enable
         UpdatePowerAnimation();
         ShowPowerChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    /// <summary>True while a signal source is armed and awaiting its target (wire mode).</summary>
+    public bool WireSourceArmed => _wireSource is not null;
+
+    /// <summary>Drop the armed signal source without leaving wire mode (Esc, first press).</summary>
+    public void ClearWireSource()
+    {
+        if (_wireSource is null) return;
+        _wireSource = null;
+        InvalidateVisual();
+    }
+
+    /// <summary>Toggle wire mode (device signal connections). Leaving the mode clears the armed source.</summary>
+    public void ToggleWireMode() => SetWireMode(!WireMode);
+
+    public void SetWireMode(bool on)
+    {
+        if (WireMode == on) return;
+        WireMode = on;
+        _wireSource = null;
+        WireModeChanged?.Invoke();
         InvalidateVisual();
     }
 
@@ -606,9 +644,29 @@ public sealed class ShipCanvas : FrameworkElement
         InvalidateVisual();
     }
 
+    /// <summary>Set the symmetry mode directly (the View menu's radio options). Turning symmetry on centres the
+    /// axes on the tile under the cursor, matching <see cref="CycleSymmetry"/>.</summary>
+    public void SetSymmetry(SymmetryMode mode)
+    {
+        if (SymMode == mode) return;
+        if (SymMode == SymmetryMode.Off && mode != SymmetryMode.Off) SymCenter = _hoverCell ?? (0, 0);
+        SymMode = mode;
+        SymmetryChanged?.Invoke();
+        InvalidateVisual();
+    }
+
     public void RotateView(int delta)
     {
         ViewRot = GridMath.Norm(ViewRot + delta);
+        RaiseViewChanged();
+        InvalidateVisual();
+    }
+
+    /// <summary>Set the plan-view orientation directly (restoring a saved design's last orientation, or resetting
+    /// to 0 for a new document). Normalized to a 90° step.</summary>
+    public void SetViewRot(int rot)
+    {
+        ViewRot = GridMath.Norm(rot);
         RaiseViewChanged();
         InvalidateVisual();
     }
@@ -791,6 +849,33 @@ public sealed class ShipCanvas : FrameworkElement
             CaptureMouse();
             e.Handled = true;
             return;
+        }
+
+        // Wire mode: left-click a signalable device to arm it as the signal source, then click another to
+        // connect (or click a connected one to disconnect); the source stays armed so you can wire it to several
+        // targets. Right-click (or a click on empty/non-device) clears the armed source. Intercepts before the
+        // normal select/place/zone logic.
+        if (WireMode && Doc is not null)
+        {
+            var wc = CellAt(screen);
+            if (e.ChangedButton == MouseButton.Left)
+            {
+                var target = Doc.HitTestStack(wc.X, wc.Y).FirstOrDefault(p => DeviceLinks.IsConnectable(Doc, p));
+                if (target is null) _wireSource = null;                       // empty / non-device → clear
+                else if (_wireSource is null) _wireSource = target;           // arm the source
+                else if (ReferenceEquals(_wireSource, target)) _wireSource = null;   // clicked source again → disarm
+                else LinkToggleRequested?.Invoke(_wireSource, target);        // connect / disconnect (source stays armed)
+                InvalidateVisual();
+                e.Handled = true;
+                return;
+            }
+            if (e.ChangedButton == MouseButton.Right)
+            {
+                _wireSource = null;
+                InvalidateVisual();
+                e.Handled = true;
+                return;
+            }
         }
 
         if (e.ChangedButton == MouseButton.Right)
@@ -1770,6 +1855,7 @@ public sealed class ShipCanvas : FrameworkElement
         DrawOutOfBounds(dc, view);
         DrawOriginMarker(dc);
         if (ShowPower) DrawPowerOverlay(dc);
+        DrawDeviceLinks(dc);
         if (SymMode != SymmetryMode.Off) DrawSymmetryAxes(dc, view);
 
         foreach (var p in Doc.Placements.Where(p => SelectedIds.Contains(p.Id)))
@@ -2068,6 +2154,50 @@ public sealed class ShipCanvas : FrameworkElement
         }
         DrawConnectorNubs(dc, part, gx, gy, rot);   // show where this part plugs into power, to orient it before placing
         return fit;
+    }
+
+    /// <summary>Draw the device signal connections: a violet line from each source device's centre to its target,
+    /// a dot at the target end (source → target = signaller → driven). In wire mode it additionally rings every
+    /// connectable device, brightly rings the armed source, and previews a wire to the device under the cursor.</summary>
+    private void DrawDeviceLinks(DrawingContext dc)
+    {
+        if (Doc is null) return;
+
+        foreach (var (_, source, target) in DeviceLinks.Resolved(Doc))
+        {
+            var a = DeviceCentre(source);
+            var b = DeviceCentre(target);
+            dc.DrawLine(WirePen, a, b);
+            dc.DrawEllipse(WireDotBrush, null, b, 2.5, 2.5);
+        }
+
+        if (!WireMode) return;
+
+        foreach (var p in Doc.Placements)
+            if (DeviceLinks.IsConnectable(Doc, p))
+            {
+                var (bx, by, bw, bh) = Doc.BodyBounds(p);
+                dc.DrawRectangle(null, WireNodePen, CellRect(bx, by, bw, bh));
+            }
+
+        if (_wireSource is not null && Doc.ById(_wireSource.Id) is not null)
+        {
+            var (sx, sy, sw, sh) = Doc.BodyBounds(_wireSource);
+            dc.DrawRectangle(null, WireSourcePen, CellRect(sx, sy, sw, sh));
+
+            if (_hoverCell is { } hc
+                && Doc.HitTestStack(hc.X, hc.Y).FirstOrDefault(p => DeviceLinks.IsConnectable(Doc, p)) is { } hoverTarget
+                && !ReferenceEquals(hoverTarget, _wireSource))
+                dc.DrawLine(WirePreviewPen, DeviceCentre(_wireSource), DeviceCentre(hoverTarget));
+        }
+    }
+
+    /// <summary>Screen-space centre of a placement's above-floor body — the anchor a wire connects to.</summary>
+    private Point DeviceCentre(Placement p)
+    {
+        var (bx, by, bw, bh) = Doc!.BodyBounds(p);
+        var r = CellRect(bx, by, bw, bh);
+        return new Point(r.X + r.Width / 2, r.Y + r.Height / 2);
     }
 
     private void DrawSymmetryAxes(DrawingContext dc, Rect view)

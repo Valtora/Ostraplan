@@ -416,10 +416,24 @@ public sealed class InventoryWindow : Window
     private Border ItemTile(CargoItem item, double w, double h, int count)
     {
         var drillable = IsDrillable(item);   // a stack's "children" are copies, not cargo — never drillable
-        var img = PixelImage(Bmp(item.DefName));
+
+        // The stored sprite is authored upright; when a grid item is rotated its footprint (EffW/EffH) is swapped
+        // but the sprite must turn with it, or a rotated item is squashed into the swapped cell (a tall missile
+        // laid flat renders as a stretched sliver). Rotate the BITMAP itself (a rigid 90° pixel turn, dimensions
+        // swapped) then let Stretch.Uniform fit it into the cell as usual — so no aspect distortion and no layout
+        // overflow from an over-tall holder. Slot cells never rotate.
+        var bmp = Bmp(item.DefName);
+        var rot = item.Slotted ? 0 : GridMath.Norm(item.GridRot);
+        if (rot != 0)
+        {
+            var turned = new TransformedBitmap(bmp, new RotateTransform(rot));
+            turned.Freeze();
+            bmp = turned;
+        }
+        var img = PixelImage(bmp);
 
         var overlay = new Grid();
-        overlay.Children.Add(img);
+        overlay.Children.Add(img);   // badges (below) stay upright in the cell corners
 
         if (count > 1)
             overlay.Children.Add(Badge("×" + count, HorizontalAlignment.Right, VerticalAlignment.Bottom, Accent));
@@ -571,6 +585,11 @@ public sealed class InventoryWindow : Window
             _dragging = true;
             _ghost = new Image { Source = Bmp(_dragItem.DefName), Width = 40, Height = 40, Opacity = 0.7, IsHitTestVisible = false };
             RenderOptions.SetBitmapScalingMode(_ghost, BitmapScalingMode.NearestNeighbor);
+            if (GridMath.Norm(_dragItem.GridRot) is var gr and not 0)
+            {
+                _ghost.RenderTransformOrigin = new Point(0.5, 0.5);
+                _ghost.RenderTransform = new RotateTransform(gr);
+            }
             _overlay.Children.Add(_ghost);
         }
         if (_ghost is null) return;

@@ -58,6 +58,7 @@ public sealed class ShipDocument
     private readonly HashSet<Guid> _cargoEdited = [];   // placements whose container contents were authored/removed
     private readonly List<ShipZone> _zones = [];   // painted crew/trade zones (overlays, not tile-grid parts)
     private readonly Dictionary<(int, int), LooseObject> _looseByTile = [];   // loose items lying on tiles (overlay, one per tile)
+    private readonly List<DeviceLink> _links = [];   // signal connections between signalable devices (overlay, by Placement.Id)
 
     public Catalog Catalog { get; }
     public TileConds Conds { get; }
@@ -125,6 +126,16 @@ public sealed class ShipDocument
 
     /// <summary>The loose item on a tile, or null.</summary>
     public LooseObject? LooseAt(int x, int y) => _looseByTile.GetValueOrDefault((x, y));
+
+    /// <summary>The signal connections between devices (see <see cref="DeviceLink"/>). Like zones/loose items these
+    /// are a non-structural overlay — they carry no tile conditions and take no part in CheckFit/rooms/rating; they
+    /// only render, persist and export. Held by <see cref="Placement.Id"/>. All mutation goes through the command
+    /// stack (the <c>internal</c> mutators below).</summary>
+    public IReadOnlyList<DeviceLink> Links => _links;
+
+    /// <summary>The placement with this <see cref="Placement.Id"/>, or null — the reverse of the id a
+    /// <see cref="DeviceLink"/> stores.</summary>
+    public Placement? ById(Guid id) => _placements.FirstOrDefault(p => p.Id == id);
 
     /// <summary>
     /// An independent copy for off-thread analysis: the same placements (poses + given-ness) with
@@ -376,6 +387,14 @@ public sealed class ShipDocument
     /// <summary>Set the stacked quantity of a loose item in place (keeps its identity for selection).</summary>
     internal void SetLooseQuantity(LooseObject o, int quantity) { o.Quantity = quantity; RaiseChanged(); }
 
+    // ---- device-link mutations (command implementations only) ----
+
+    /// <summary>Add a signal connection (no-op if the identical directed link already exists).</summary>
+    internal void AddLink(DeviceLink link) { if (!_links.Contains(link)) { _links.Add(link); RaiseChanged(); } }
+
+    /// <summary>Remove a signal connection.</summary>
+    internal void RemoveLink(DeviceLink link) { if (_links.Remove(link)) RaiseChanged(); }
+
     internal void Clear()
     {
         _placements.Clear();
@@ -385,6 +404,7 @@ public sealed class ShipDocument
         _cargoEdited.Clear();
         _zones.Clear();
         _looseByTile.Clear();
+        _links.Clear();
         _seq = 0;
         RaiseChanged();
     }

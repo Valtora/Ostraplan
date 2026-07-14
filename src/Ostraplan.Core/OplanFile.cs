@@ -15,6 +15,10 @@ public sealed class OplanFile
     public const int CurrentFormatVersion = 1;
 
     [JsonPropertyName("formatVersion")] public int FormatVersion { get; set; } = CurrentFormatVersion;
+    /// <summary>The plan-view orientation (Q/E rotation, a 90° step) the design was last saved in, so it reopens
+    /// in the same orientation. Additive since format v1 — an older build ignores it and round-trips it via
+    /// <see cref="Extra"/>. Defaults to 0 (north-up).</summary>
+    [JsonPropertyName("viewRot")] public int ViewRot { get; set; }
     [JsonPropertyName("game")] public OplanGame Game { get; set; } = new();
     [JsonPropertyName("mods")] public List<OplanMod> Mods { get; set; } = [];
     [JsonPropertyName("meta")] public OplanMeta Meta { get; set; } = new();
@@ -28,6 +32,11 @@ public sealed class OplanFile
     /// <summary>The design's loose floor items (see <see cref="LooseObject"/>). Additive at format v1, exactly like
     /// <see cref="Zones"/>: an older build ignores it and round-trips it via <see cref="Extra"/>, so no version bump.</summary>
     [JsonPropertyName("looseObjects")] public List<OplanLoose> LooseObjects { get; set; } = [];
+    /// <summary>The design's device signal connections (see <see cref="DeviceLink"/>). Each is a directed pair of
+    /// <b>indices into <see cref="Parts"/></b> (source, target) — parts have no stable id in the file, but their
+    /// array order is preserved, so an index pair round-trips a link. A pair referencing a part that was dropped on
+    /// load (a missing-mod part) is skipped. Additive at format v1, like <see cref="Zones"/>.</summary>
+    [JsonPropertyName("links")] public List<OplanLink> Links { get; set; } = [];
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 
     private static readonly JsonSerializerOptions Options = new()
@@ -62,6 +71,13 @@ public sealed class OplanFile
             Zones = doc.Zones.Select(ToOplanZone).ToList(),
             LooseObjects = doc.LooseObjects.Select(lo => new OplanLoose { Def = lo.DefName, X = lo.X, Y = lo.Y, Rot = lo.Rot, Qty = lo.Quantity }).ToList(),
         };
+        // Device links as (source, target) index pairs into the parts array (= doc.Placements order); only links
+        // whose both endpoints still exist are written (a dangling one, left by an un-undone delete, is pruned here).
+        var indexById = new Dictionary<Guid, int>();
+        for (var i = 0; i < doc.Placements.Count; i++) indexById[doc.Placements[i].Id] = i;
+        foreach (var l in doc.Links)
+            if (indexById.TryGetValue(l.Source, out var si) && indexById.TryGetValue(l.Target, out var ti))
+                file.Links.Add(new OplanLink { Src = si, Tgt = ti });
         file.Meta.Modified = DateTime.UtcNow;
         return file;
     }
@@ -86,8 +102,10 @@ public sealed class OplanFile
             SourceSave = Source is { } s ? new SaveSourceRef(s.SaveName, s.RegId) : null,
         };
         var missing = new List<OplanPart>();
-        foreach (var part in Parts)
+        var byIndex = new Placement?[Parts.Count];   // original part index → placement (null where dropped), for links
+        for (var i = 0; i < Parts.Count; i++)
         {
+            var part = Parts[i];
             if (part.Def.Length == 0 || catalog.Lookup(part.Def) is null)
             {
                 missing.Add(part);
@@ -95,6 +113,7 @@ public sealed class OplanFile
             }
             var placement = new Placement { DefName = part.Def, X = part.X, Y = part.Y, Rot = GridMath.Norm(part.Rot), IsGiven = part.Given, OriginStrID = part.Origin };
             doc.Add(placement);
+            byIndex[i] = placement;
             // Restore an edited container's authored contents from the snapshot and re-mark it edited, so the
             // save re-attach on open leaves it alone (its snapshot is authoritative) and a re-save re-persists it.
             if (part.Cargo is { Count: > 0 } snap)
@@ -103,6 +122,12 @@ public sealed class OplanFile
                 doc.MarkCargoEdited(placement);
             }
         }
+        // Device links: resolve each (source, target) index pair to its placements; skip a pair whose endpoint was
+        // dropped (missing-mod part) so a stale index can never wire the wrong parts.
+        foreach (var l in Links)
+            if (l.Src >= 0 && l.Src < byIndex.Length && l.Tgt >= 0 && l.Tgt < byIndex.Length
+                && byIndex[l.Src] is { } src && byIndex[l.Tgt] is { } tgt)
+                doc.AddLink(new DeviceLink(src.Id, tgt.Id));
         foreach (var z in Zones) doc.AddZone(FromOplanZone(z));
         // Restore loose floor items whose def still resolves (a missing def is dropped, like a missing part). One
         // per tile: a later duplicate at the same tile simply overwrites, matching the in-editor invariant.
@@ -204,6 +229,19 @@ public sealed class OplanMeta
     [JsonPropertyName("notes")] public string Notes { get; set; } = "";
     [JsonPropertyName("created")] public DateTime Created { get; set; } = DateTime.UtcNow;
     [JsonPropertyName("modified")] public DateTime Modified { get; set; } = DateTime.UtcNow;
+
+    // The ship's in-game identity — edited in the Ship Info dialog, persisted here, and used to pre-fill the
+    // export dialog (see ExportMetadata / ShipExport). Additive since format v1: an older build ignores these
+    // and round-trips them via Extra. All default to "" so a design that never set them exports exactly as before.
+    /// <summary>The in-game display name (the ship's transponder/comms/broker name). Blank ⇒ the exporter falls
+    /// back to the design name (or vanilla varied naming when replacing a ship). See <see cref="OplanMeta"/>.</summary>
+    [JsonPropertyName("publicName")] public string PublicName { get; set; } = "";
+    [JsonPropertyName("make")] public string Make { get; set; } = "";
+    [JsonPropertyName("model")] public string Model { get; set; } = "";
+    [JsonPropertyName("year")] public string Year { get; set; } = "";
+    [JsonPropertyName("designation")] public string Designation { get; set; } = "";
+    [JsonPropertyName("description")] public string Description { get; set; } = "";
+
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }
 
@@ -266,6 +304,15 @@ public sealed class OplanLoose
     [JsonPropertyName("y")] public int Y { get; set; }
     [JsonPropertyName("rot")] public int Rot { get; set; }
     [JsonPropertyName("qty")] public int Qty { get; set; } = 1;   // stacked count (>=1); absent/0 in an older file → single
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
+}
+
+/// <summary>One persisted device signal connection (see <see cref="OplanFile.Links"/>): a directed pair of
+/// indices into the <c>parts</c> array (<c>src</c> drives <c>tgt</c>).</summary>
+public sealed class OplanLink
+{
+    [JsonPropertyName("src")] public int Src { get; set; }
+    [JsonPropertyName("tgt")] public int Tgt { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }
 

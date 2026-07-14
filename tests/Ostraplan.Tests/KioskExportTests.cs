@@ -138,4 +138,18 @@ public class KioskExportTests
         Assert.Equal("addus," + StartingShipExport.StarterLoadout,
             takeInteraction["aLootItms"]!.AsArray()[0]!.GetValue<string>());
     }
+
+    [Fact]
+    public void StartingShip_exclusive_pins_the_pool_to_only_this_ship()
+    {
+        var events = Pool(StartingShipExport.ShipEventsPool, "CGEncShipSalvagePodIntro=0.16x1|CGEncShipSalvagePod2Intro=0.16x1");
+        var frags = StartingShipExport.Build(events, "Vagabond+", 0.16, "OKLG", 500000, "A ship.", "A listing.", exclusive: true);
+
+        // the events pool now holds ONLY our intro at weight 1 — the vanilla pods are dropped (guaranteed start)
+        var evOverride = Assert.Single(frags.LootObjects, o => o["strName"]!.GetValue<string>() == StartingShipExport.ShipEventsPool);
+        var entries = LootList.Parse(evOverride["aCOs"]!.AsArray()[0]!.GetValue<string>()).ToList();
+        var only = Assert.Single(entries);
+        Assert.Equal("CGEncVagabondIntro", only.Name);
+        Assert.Equal(1.0, only.Weight, 6);
+    }
 }

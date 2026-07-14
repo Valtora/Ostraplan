@@ -11,6 +11,54 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.38.0] — 2026-07-14 — device signal connections
+
+### Added
+- **Wire devices together (signal connections).** A new **Wire mode** (View menu) lets you connect signalable
+  devices the way the game does: click a device to arm it as the signal source, then click another to connect them
+  (click a connected one again to disconnect); the source stays armed so you can wire it to several targets.
+  Connectable devices (alarms, air pumps, sensors, lights, anything `IsSignalable`) ring in violet, the armed source
+  rings brightly, and existing wires draw as violet lines with a dot at the driven end. Esc or right-click cancels.
+  - **Validated like the game.** A connection is legal only between two distinct **installed** signalable parts; there
+    is no distance rule (the game wires by id, not proximity), so that is the whole check.
+  - **Saved and exported.** Connections persist in the `.oplan` and are baked into the exported ship's
+    `Electrical` GPM (`inputConnections`/`outputConnections`), so the wiring spawns with the ship.
+  - Gate/threshold logic is left to the in-game signal box; Ostraplan authors plain connections only.
+
+## [0.37.0] — 2026-07-14 — tidier toolbar
+
+### Changed
+- **The toolbar is grouped into dropdown menus.** The File, Design and View groups each collapse into a single
+  menu button (matching the existing Import/Help menus), so the toolbar is far less crowded. Undo/Redo and the
+  headline **Ship Rating** stay as direct buttons. **File** holds New/Open/Save/Save As/Import/Export/Update Ship
+  in Save; **Design** holds Ship Info/Ship Re-skin/Snapshot/Bill of Materials; **View** holds Fit, a Symmetry
+  submenu (Off/Vertical/Horizontal/Both), and the Zones/Power/Mod-overrides toggles as checkmarked items (their
+  state is also visible on the canvas). All keyboard shortcuts are unchanged (F, M, Z, P, Q/E, Ctrl+Z/Y, etc.).
+
+## [0.36.0] — 2026-07-14 — remembered view orientation
+
+### Added
+- **The design remembers its orientation.** The plan-view rotation (Q/E) is saved in the `.oplan`, so a design
+  reopens in the same orientation it was saved in. New/imported designs start north-up. Rotating the view now
+  marks the design as having unsaved changes (the `*`), since the orientation is part of the saved file.
+
+## [0.35.0] — 2026-07-14 — ship info editor, guaranteed starting ship, container rotate fix
+
+### Added
+- **"Ship Info" editor.** A new toolbar button (Design group) edits the ship's in-game identity — in-game name,
+  make, model, year, designation and description. The values are **saved with the design** (in the `.oplan`) and
+  **pre-fill the Export dialog**, so they no longer reset to blank every export. Edits made in the Export dialog
+  flow back onto the saved identity, so the two never drift.
+- **Guaranteed starting ship.** When exporting as a Shipbreaker starting ship you can now choose **"Only your ship
+  offered (guaranteed start)"** instead of the weighted chance. This pins the start-event pool to your ship alone
+  (dropping the vanilla salvage pods, and any other mod's start ships, from that roll), so a fresh Shipbreaker
+  always starts with it. The old **"Weighted chance"** (one option alongside the vanilla pods) stays the default.
+
+### Fixed
+- **Rotating an item inside a container no longer squashes its sprite.** In the container Contents window, an item
+  rotated with `R` swapped its grid footprint but drew its sprite upright, so a rotated item (e.g. a tall missile
+  laid flat) rendered as a stretched sliver. The sprite now turns with the footprint and fills the cell correctly.
+
 ## [0.34.0] — 2026-07-13 — clearer symmetry axes
 
 ### Changed

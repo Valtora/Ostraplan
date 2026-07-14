@@ -129,6 +129,48 @@ public class RenderSmokeTests
     }
 
     [SkippableFact]
+    public void Render_device_links_wire_mode()
+    {
+        // Drives the device-connection overlay end to end: place signalable devices on a floor, wire one to two
+        // others, turn on wire mode (rings + armed source), and prove DrawDeviceLinks produces a real frame.
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey("ItmFloorGrate01")) return;
+        var devices = g.Catalog.Parts
+            .Where(p => p.IsSignalable && p.StartingConds.Contains("IsInstalled"))
+            .DistinctBy(p => p.DefName).Take(3).ToList();
+        Skip.If(devices.Count < 3, "no three signalable installed parts in this install");
+        RunSta(() =>
+        {
+            var doc = new ShipDocument(g.Catalog);
+            for (var x = 0; x < 9; x++)
+                for (var y = 0; y < 5; y++)
+                    new PlaceCommand(new Placement { DefName = "ItmFloorGrate01", X = x, Y = y }).Do(doc);
+            Placement Dev(string def, int x, int y) { var p = new Placement { DefName = def, X = x, Y = y }; new PlaceCommand(p).Do(doc); return p; }
+            var hub = Dev(devices[0].DefName, 1, 2);
+            var a = Dev(devices[1].DefName, 5, 1);
+            var b = Dev(devices[2].DefName, 5, 3);
+            new AddLinkCommand(new DeviceLink(hub.Id, a.Id)).Do(doc);
+            new AddLinkCommand(new DeviceLink(hub.Id, b.Id)).Do(doc);
+
+            var canvas = new ShipCanvas { Sprites = new SpriteCache() };
+            canvas.SetDocument(doc);
+            canvas.SetWireMode(true);
+            canvas.Measure(new Size(900, 640));
+            canvas.Arrange(new Rect(0, 0, 900, 640));
+            canvas.FitContent();
+            canvas.UpdateLayout();
+
+            var bitmap = new RenderTargetBitmap(900, 640, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(canvas);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            var path = Path.Combine(AppContext.BaseDirectory, "smoke-wires.png");
+            using (var stream = File.Create(path)) encoder.Save(stream);
+            Assert.True(new FileInfo(path).Length > 5000);
+        });
+    }
+
+    [SkippableFact]
     public void Large_tank_sprite_is_3x3_inside_its_7x7_footprint()
     {
         var g = TestData.RequireGame();

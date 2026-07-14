@@ -52,26 +52,12 @@
         <Border DockPanel.Dock="Top" Background="{DynamicResource PanelBg}" Padding="8,6">
             <DockPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
-                    <!-- File -->
-                    <Button x:Name="BtnNew" Content="New" Padding="10,3" Margin="0,0,3,0" Click="OnNewClick"
-                            ToolTip="New ship (Ctrl+N) — starts with a docking port at 0,0"/>
-                    <Button x:Name="BtnOpen" Content="Open…" Padding="10,3" Margin="0,0,3,0" Click="OnOpenClick"
-                            ToolTip="Open an .oplan design (Ctrl+O)"/>
-                    <Button x:Name="BtnSave" Content="Save" Padding="10,3" Margin="0,0,3,0" Click="OnSaveClick"
-                            ToolTip="Save (Ctrl+S)"/>
-                    <Button x:Name="BtnSaveAs" Content="Save As…" Padding="10,3" Margin="0,0,3,0" Click="OnSaveAsClick"
-                            ToolTip="Save As (Ctrl+Shift+S)"/>
-                    <Button x:Name="BtnImport" Content="Import ▾" Padding="10,3" Margin="0,0,3,0" Click="OnImportClick"
-                            ToolTip="Start a design from an existing ship — an in-game ship or a save game"/>
-                    <Button x:Name="BtnExport" Content="Export…" Padding="10,3" Margin="0,0,3,0" Click="OnExportClick"
-                            ToolTip="Export the design as a spawnable local data mod (data/ships) with precomputed rooms &amp; rating"/>
-                    <Button x:Name="BtnUpdateSave" Content="Update Ship in Save…" Padding="10,3" Margin="0,0,3,0" Click="OnUpdateSaveClick"
-                            IsEnabled="False"
-                            ToolTip="Write this edited ship back into a COPY of the save it came from, keeping crew and cargo (enabled only for a design imported for editing)"/>
+                    <Button x:Name="BtnFileMenu" Content="File ▾" Padding="10,3" Margin="0,0,3,0" Click="OnFileMenuClick"
+                            ToolTip="New, Open, Save, Import, Export, and write-back to a save"/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 
-                    <!-- Edit -->
+                    <!-- Edit (frequent — kept as direct buttons) -->
                     <Button x:Name="BtnUndo" Content="Undo" Padding="10,3" Margin="0,0,3,0" Click="OnUndoClick"
                             ToolTip="Undo (Ctrl+Z)"/>
                     <Button x:Name="BtnRedo" Content="Redo" Padding="10,3" Margin="0,0,3,0" Click="OnRedoClick"
@@ -79,34 +65,20 @@
 
                     <Border Style="{StaticResource ToolSep}"/>
 
-                    <!-- Design -->
-                    <Button x:Name="BtnTheme" Content="Ship Re-skin…" Padding="10,3" Margin="0,0,3,0" Click="OnThemeClick"
-                            ToolTip="Re-skin every wall and floor to a chosen style (sprites only — rooms &amp; rating are unaffected)"/>
-                    <Button x:Name="BtnSnapshot" Content="Snapshot…" Padding="10,3" Margin="0,0,3,0" Click="OnSnapshotClick"
-                            ToolTip="Save a PNG image of the ship (no grid or UI) to share or reference"/>
+                    <Button x:Name="BtnDesignMenu" Content="Design ▾" Padding="10,3" Margin="0,0,3,0" Click="OnDesignMenuClick"
+                            ToolTip="Ship identity, wall/floor re-skin, snapshot, and the bill of materials"/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 
-                    <!-- Analyse -->
+                    <!-- Analyse (headline action — kept prominent) -->
                     <Button x:Name="BtnRating" Content="Ship Rating" Padding="10,3" Margin="0,0,3,0" Click="OnShipRatingClick"
                             Background="{DynamicResource AccentBg}" Foreground="{DynamicResource AccentText}"
                             ToolTip="Analyse rooms, airtightness, certification and the Ship Rating for the current design"/>
-                    <Button x:Name="BtnMaterials" Content="Bill of Materials" Padding="10,3" Margin="0,0,3,0" Click="OnMaterialsClick"
-                            ToolTip="Bill of materials — how many install kits of each part the design needs (whole ship, or the current selection)"/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 
-                    <!-- View -->
-                    <Button x:Name="BtnFit" Content="Fit" Padding="10,3" Margin="0,0,3,0" Click="OnFitClick"
-                            ToolTip="Fit the view to the ship (F)"/>
-                    <Button x:Name="BtnSym" Content="Symmetry: Off" Padding="10,3" Margin="0,0,3,0" Click="OnSymClick"
-                            ToolTip="Cycle symmetry: Off → Vertical → Horizontal → Both (M). Axes centre on the tile under the cursor when switching on."/>
-                    <Button x:Name="BtnZones" Content="Zones: Off" Padding="10,3" Margin="0,0,3,0" Click="OnZonesClick"
-                            ToolTip="Show/hide the crew &amp; trade zone overlay (Z). Manage zones in the panel on the right."/>
-                    <Button x:Name="BtnPower" Content="Power: Off" Padding="10,3" Margin="0,0,3,0" Click="OnPowerClick"
-                            ToolTip="Show/hide the conduit power overlay (P): lit runs flow from a live generator/battery, orphaned runs are dim red, and a wired device with no feed gets an amber warning marker."/>
-                    <Button x:Name="BtnModOverride" Content="Mod overrides: Off" Padding="10,3" Margin="0,0,3,0" Click="OnModOverrideClick"
-                            ToolTip="Allow modded parts to be placed where Ostraplan's core-game rules say they don't fit. Ostraplan's Law models the base game, so a mod may still be valid in-game; overridden placements are flagged as warnings — verify in Ostranauts. Core parts stay enforced."/>
+                    <Button x:Name="BtnViewMenu" Content="View ▾" Padding="10,3" Margin="0,0,3,0" Click="OnViewMenuClick"
+                            ToolTip="Fit, symmetry, and the zone / power / mod-override overlays"/>
                 </StackPanel>
 
                 <!-- Right side (added right-to-left) -->

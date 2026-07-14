@@ -28,6 +28,7 @@ public sealed class ExportDialog : Window
     private readonly List<(string Pool, CheckBox Box)> _specialChecks = [];
     private readonly TextBox _brokerWeight;
     private readonly CheckBox _startingShip;
+    private readonly RadioButton _startWeighted, _startExclusive;
     private readonly TextBox _startStation, _startMortgage;
     private readonly double _startWeight;
     private readonly WearControl _wear;
@@ -86,10 +87,11 @@ public sealed class ExportDialog : Window
         _startStation.Text.Trim() is { Length: > 0 } s ? s : "OKLG",
         ParseDouble(_startMortgage.Text, 0),
         PublicName is { Length: > 0 } pn ? pn : ShipName,
-        Description);
+        Description,
+        _startExclusive.IsChecked == true);
 
     public ExportDialog(string defaultName, string defaultAuthor, string? modsDir, string? lastFolder,
-        DataIndex? index = null, double buyEstimate = 0, bool ostrasortKnown = false)
+        DataIndex? index = null, double buyEstimate = 0, bool ostrasortKnown = false, OplanMeta? meta = null)
     {
         _modsDir = modsDir;
         _pickedFolder = lastFolder;
@@ -113,17 +115,19 @@ public sealed class ExportDialog : Window
         _notes = Field(body, "Notes (optional)", "", multiline: true);
 
         Header(body, "SHIP IDENTITY (IN-GAME)");
-        _publicName = Field(body, "In-game name (optional)", "");
-        _make = Field(body, "Make", "");
-        _model = Field(body, "Model", "");
-        _year = Field(body, "Year", "");
-        _designation = Field(body, "Designation (class/role, e.g. \"Salvage Tug\")", "");
-        _description = Field(body, "Description (optional)", "", multiline: true);
+        // Pre-fill from the design's saved identity (the Ship Info dialog) — edits here flow back to it on export.
+        _publicName = Field(body, "In-game name (optional)", meta?.PublicName ?? "");
+        _make = Field(body, "Make", meta?.Make ?? "");
+        _model = Field(body, "Model", meta?.Model ?? "");
+        _year = Field(body, "Year", meta?.Year ?? "");
+        _designation = Field(body, "Designation (class/role, e.g. \"Salvage Tug\")", meta?.Designation ?? "");
+        _description = Field(body, "Description (optional)", meta?.Description ?? "", multiline: true);
         body.Children.Add(new TextBlock
         {
             Text = "Leave the in-game name blank to use the ship name (or, when replacing a ship, the game's usual " +
                    "varied names). Type a name to pin it — it shows at the transponder, comms, and broker listings. " +
-                   "The rest is flavor text (make/model/year/designation/description).",
+                   "The rest is flavor text (make/model/year/designation/description). Edit these anytime from " +
+                   "\"Ship Info\" — they're saved with the design.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0),
         });
 
@@ -209,6 +213,22 @@ public sealed class ExportDialog : Window
         body.Children.Add(_startingShip);
         _startWeight = index is not null ? KioskExport.DefaultBrokerWeight(index, StartingShipExport.ShipEventsPool) : 0.16;
 
+        // weighted (alongside vanilla pods) vs guaranteed (only ship offered — pins the start-event pool)
+        _startWeighted = new RadioButton
+        {
+            Content = "Weighted chance (alongside the vanilla salvage pods)",
+            GroupName = "startMode", IsChecked = true, IsEnabled = false, Foreground = Ink, Margin = new Thickness(20, 4, 0, 1),
+        };
+        _startExclusive = new RadioButton
+        {
+            Content = "Only your ship offered (guaranteed start)",
+            GroupName = "startMode", IsEnabled = false, Foreground = Ink, Margin = new Thickness(20, 0, 0, 2),
+        };
+        body.Children.Add(_startWeighted);
+        body.Children.Add(_startExclusive);
+        _startingShip.Checked += (_, _) => { _startWeighted.IsEnabled = true; _startExclusive.IsEnabled = true; };
+        _startingShip.Unchecked += (_, _) => { _startWeighted.IsEnabled = false; _startExclusive.IsEnabled = false; };
+
         var startRow = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(20, 2, 0, 2) };
         startRow.Children.Add(new TextBlock { Text = "Start at ATC:", Foreground = Dim, FontSize = 11, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 6, 0) });
         _startStation = new TextBox
@@ -228,8 +248,10 @@ public sealed class ExportDialog : Window
         body.Children.Add(startRow);
         body.Children.Add(new TextBlock
         {
-            Text = "A starting ship is a weighted option in a fresh Shipbreaker start (alongside the vanilla " +
-                   "salvage pods), not a guaranteed pick — the game has no true ship picker.",
+            Text = "The game has no true ship picker. \"Weighted chance\" adds your ship as one option among the " +
+                   "vanilla salvage pods. \"Only your ship offered\" replaces that start-event pool with just your " +
+                   "ship, so a fresh Shipbreaker always starts with it (this drops the vanilla pods, and any other " +
+                   "mod's start ships, from the roll).",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(20, 2, 0, 0),
         });
         body.Children.Add(new TextBlock

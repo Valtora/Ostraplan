@@ -235,6 +235,22 @@ public sealed class SetZoneMetaCommand(ShipZone zone, ZoneMeta before, ZoneMeta 
     public void Undo(ShipDocument doc) => doc.SetZoneMeta(zone, before);
 }
 
+// ---- device-link commands (signal connections — see DeviceLink) ----
+
+/// <summary>Add a signal connection between two devices.</summary>
+public sealed class AddLinkCommand(DeviceLink link) : IDocCommand
+{
+    public void Do(ShipDocument doc) => doc.AddLink(link);
+    public void Undo(ShipDocument doc) => doc.RemoveLink(link);
+}
+
+/// <summary>Remove a signal connection.</summary>
+public sealed class RemoveLinkCommand(DeviceLink link) : IDocCommand
+{
+    public void Do(ShipDocument doc) => doc.RemoveLink(link);
+    public void Undo(ShipDocument doc) => doc.AddLink(link);
+}
+
 // ---- loose-object commands (items dropped on the floor — see LooseObject) ----
 
 /// <summary>Drop a loose item onto a tile.</summary>
