@@ -14,9 +14,12 @@ That includes, placement rules, sockets, airtightness, room certification, and t
 
 **Ostraplan** is a sibling tool to [**Ostrasort**](https://github.com/Valtora/Ostrasort) and I encourage you to use both. **Ostrasort** lets you register your modded ships as a valid mod as well generally managing mod conflicts and loading order.
 
-<img width="2560" height="1380" alt="image" src="https://github.com/user-attachments/assets/5923e307-a749-423a-81cc-a138edddcf10" />
+<img width="2560" height="1380" alt="image" src="https://github.com/user-attachments/assets/8fe5d9c0-09e8-4162-a2f2-04c295cdf13b" />
 
-<img width="2560" height="1380" alt="image" src="https://github.com/user-attachments/assets/c1e52c32-666e-4503-a4c7-8d21b2fc7018" />
+<img width="2147" height="1313" alt="image" src="https://github.com/user-attachments/assets/3ca140cd-46dc-4730-a3bd-6a9fe75f03ad" />
+
+<img width="603" height="1010" alt="image" src="https://github.com/user-attachments/assets/d8f2211d-88f1-4cb1-b7dd-a88570448140" />
+
 
 ## Licence & Disclaimer(s)
 
