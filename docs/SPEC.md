@@ -85,9 +85,9 @@ One positional rule **does** exist, and it is the important one: **no constructi
 
 ### 5.3 Version pinning
 
-- The app records the game version it was **verified against** (rating cutoffs and other constants are hardcoded in `Assembly-CSharp.dll` and invisible to data diffing).
-- Detect the installed game version at runtime (detection source pinned at P0 — candidates: `data/info`, main-menu string source) and show a warning banner on mismatch: *"Law verified against 0.x.y; your install is 0.x.z — validation may drift."*
-- After each game patch: re-decompile (ilspycmd, ~7 s), re-check constants, re-run parity corpus, bump the verified version.
+- The app records the game version it was **verified against** (`GameEnv.VerifiedGameVersion`; rating cutoffs and other constants are hardcoded in `Assembly-CSharp.dll` and invisible to data diffing).
+- The installed game version is detected at runtime and shown in the status bar (`Game 0.x.y`). Ostraplan does **not** compare it against the verified version (the version mismatch banner was removed in v0.42). The Law changes rarely, so the verified version is reviewed and updated manually per game patch rather than nagging on every version bump.
+- After a game patch that touches the Law: re-decompile (ilspycmd), re-check constants, re-run the parity corpus, bump `VerifiedGameVersion`.
 
 ## 6. Validation engine (normative — ported from decompiled game code)
 
@@ -386,7 +386,7 @@ Ostraplan.sln
 | Order-dependent legality vs final-state validation | Constructibility pass (§6.6), warn-only |
 | Void/edge semantics tied to grid pad/trim lifecycle | Mirror `PadTilemap`/`TrimAllSides` explicitly; flood-fill edge-case unit tests |
 | Room-spec matching subtleties (priority, multiplicity, exclusions) | Direct port + per-spec unit tests + corpus |
-| Version drift: rating cutoffs & constants hardcoded in the DLL | Version pinning + banner (§5.3); re-decompile check each patch (ilspycmd, seconds) |
+| Version drift: rating cutoffs & constants hardcoded in the DLL | Version pinning (§5.3), reviewed and re-decompiled manually per game patch (ilspycmd, seconds) |
 | Mass accounting for maneuver grade | Port `GetTotalMass` semantics at P2; planner ships are empty/pristine, which removes most complexity |
 | Sprite-sheet/autotile mapping wrong | Pin mapping from decompiled sprite code at P0; visual diff against in-game screenshots |
 

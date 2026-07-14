@@ -39,9 +39,6 @@ public sealed class GameEnv
         }
     }
 
-    public bool VersionMatchesVerified =>
-        InstalledVersion is null || InstalledVersion == VerifiedGameVersion;
-
     public static GameEnv Locate(string? gameRootOverride)
     {
         string root, via;

@@ -180,15 +180,7 @@ public partial class MainWindow : Window
 
         var v = env.InstalledVersion ?? "unknown";
         AuditLog.Add($"Loaded game data (Game {v}).");
-        if (env.VersionMatchesVerified)
-        {
-            TxtVersion.Text = $"Game {v}";
-        }
-        else
-        {
-            TxtVersion.Text = $"Game {v} — Law verified against {GameEnv.VerifiedGameVersion}";
-            TxtVersion.SetResourceReference(TextBlock.ForegroundProperty, "Warn");   // tracks the theme
-        }
+        TxtVersion.Text = $"Game {v}";
 
         var warnings = index.Warnings.Concat(catalog.Warnings).ToList();
         if (warnings.Count > 0)
@@ -2680,7 +2672,7 @@ public partial class MainWindow : Window
                 "*Diagnostics (please keep these — they help me reproduce it):*\n" +
                 $"- Ostraplan: v{AppVersion}\n" +
                 $"- OS: {DescribeOs()}\n" +
-                $"- Game: {_env?.InstalledVersion ?? "unknown"} (Law verified against {GameEnv.VerifiedGameVersion})\n" +
+                $"- Game: {_env?.InstalledVersion ?? "unknown"}\n" +
                 $"- Design: {DescribeDocument()}\n";
 
             var recent = AuditLog.Recent(25);

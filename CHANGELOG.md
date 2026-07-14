@@ -11,6 +11,14 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.42.0] 2026-07-14, no more game version verification banner
+
+### Changed
+- **Removed the "Law verified against 0.x.y" banner.** The status bar previously turned the version yellow and
+  warned when your installed game version differed from the version the Law was verified against. That nag is gone.
+  It now just shows the detected game version (`Game 0.x.y`). The Law changes rarely, so the verified version is
+  reviewed and updated manually on a per patch basis rather than warning on every game update.
+
 ## [0.41.0] — 2026-07-14 — dismissible unsealed-compartment alerts
 
 ### Added
