@@ -2348,12 +2348,13 @@ public partial class MainWindow : Window
         var charge = opts.Deduct && context.PlayerCoId is { } coId && opts.ResultingBalance is { } newBal
             ? new EditCharge(coId, opts.Cost, newBal)
             : null;
+        var wear = opts.Wear;   // read the dialog's controls here — off-thread it throws (WPF thread affinity)
 
         // build the injected ship off-thread (runs the room/rating engine); a hard integrity failure surfaces here
         JsonObject shipObj;
         InjectReport report;
         Mouse.OverrideCursor = Cursors.Wait;
-        try { (shipObj, report) = await Task.Run(() => SaveEdit.BuildInjectedShip(doc, context, catalog, specs, charge, opts.Wear)); }
+        try { (shipObj, report) = await Task.Run(() => SaveEdit.BuildInjectedShip(doc, context, catalog, specs, charge, wear)); }
         catch (Exception ex)
         {
             Dlg.Error(this, "Update ship in save", "The edit can't be written back.\n\n" + ex.Message);
@@ -2369,8 +2370,8 @@ public partial class MainWindow : Window
             ? $"\n\n{Money(c)} was deducted. Your balance is now {Money(report.ResultingBalance ?? 0)}."
             : "";
         var atmoNote = "\n\nThe ship refills with breathable atmosphere when you load it (about 22 kPa O₂ and 80 kPa N₂).";
-        var wearNote = opts.Wear.Enabled
-            ? $"\n\nEvery installed part was worn to ~{opts.Wear.TargetCondition * 100:0}% average condition (parts vary, none below 10%), replacing any existing damage."
+        var wearNote = wear.Enabled
+            ? $"\n\nEvery installed part was worn to ~{wear.TargetCondition * 100:0}% average condition (parts vary, none below 10%), replacing any existing damage."
             : "";
         var powerNote = report.PowerFixed > 0
             ? $"\n\nRearmed {report.PowerFixed} powered device(s) that had lost their power ticker."

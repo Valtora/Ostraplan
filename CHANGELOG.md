@@ -11,6 +11,15 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.43.1] 2026-07-15, "Update ship in save" works again
+
+### Fixed
+- **"Update ship in save" always failed with "The edit can't be written back. The calling thread cannot access this
+  object because a different thread owns it."** The wear setting was read off the dialog's slider from inside the
+  `Task.Run` that builds the injected ship, so a WPF control was touched from a background thread and threw before
+  the engine ever ran. The value is now snapshotted on the UI thread before going off-thread, as the export path
+  already did. The failure was unconditional — it did not depend on the ship, the save, or anything installed.
+
 ## [0.43.0] 2026-07-14, skinned parts show their real per-brand stats (cooverlay cond-loot)
 
 ### Fixed
