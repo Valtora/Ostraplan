@@ -11,6 +11,30 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.43.2] 2026-07-15, "Update ship in save" works again (hotfix)
+
+Ships the 0.43.1 fix below, which was never released separately, plus the hardening that keeps that class of bug
+from hiding again.
+
+### Fixed
+- **Editing the ship while an export, a save write-back or a Ship Rating was running could corrupt the result.**
+  Those three engines read the live design on a background thread, so a part moved (or an Undo pressed) at the wrong
+  moment could be written half-way between two positions, drop out entirely, or abort the run outright. The Ship
+  Rating was the easiest to hit, being the one that takes long enough to click something during. The editing
+  surface is now greyed out for the run. The problem scan was never affected: it already reads its own snapshot.
+
+### Changed
+- **A failure that isn't really about your save no longer claims to be.** "The edit can't be written back" and
+  "Export failed" now appear only for causes you can act on (a ship that can't be represented, a write that didn't
+  land). Anything else is a bug in Ostraplan and now surfaces as an unexpected error with its full stack trace in
+  `error.log`, instead of being flattened into a misleading message. That flattening is what disguised the 0.43.1
+  bug as a save problem.
+
+### Internal
+- Background work goes through `Ui.OffThread`, which in Debug builds rejects a lambda that captures anything owned
+  by the UI thread, naming the capture. Release builds strip the check. This is the bug below, caught at the call
+  site rather than in a user's dialog.
+
 ## [0.43.1] 2026-07-15, "Update ship in save" works again
 
 ### Fixed

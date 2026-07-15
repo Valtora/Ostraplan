@@ -43,6 +43,7 @@ public partial class MainWindow : Window
     private bool _syncingPalette;
     private IReadOnlyList<RoomSpecDef>? _roomSpecs;   // lazily loaded once for the Ship Rating analysis
     private bool _analysing;
+    private FreezeGate _freeze = null!;               // raised while an off-thread read of the LIVE _doc is in flight — see FreezeDoc
     private (int X, int Y)? _hoverCell;               // last hovered tile — the paste anchor
     private List<(string Def, int X, int Y, int Rot, IReadOnlyList<CargoItem> Cargo)> _clip = [];   // copied selection, relative to its top-left (with container contents)
     private (int X, int Y) _clipOrigin;               // the copied selection's original top-left (paste fallback)
@@ -89,6 +90,9 @@ public partial class MainWindow : Window
         Board.ActiveZoneChanged += UpdateZones;   // reflect which zone (if any) is being painted
         _stack.StateChanged += RefreshChrome;
         _stack.Applied += (cmd, action) => AuditLog.Command(action, cmd);   // audit every edit/undo/redo
+
+        // the whole editing surface goes dead while an engine reads the live document off-thread (FreezeDoc)
+        _freeze = new FreezeGate(frozen => Chrome.IsEnabled = !frozen);
 
         _scanTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
         _scanTimer.Tick += (_, _) => RunScan();
@@ -146,7 +150,7 @@ public partial class MainWindow : Window
         List<PartVM> parts;
         try
         {
-            (index, catalog, sprites, parts) = await Task.Run(() =>
+            (index, catalog, sprites, parts) = await Ui.OffThread(() =>
             {
                 var idx = DataIndex.Load(env);
                 var cat = Catalog.Build(idx);
@@ -356,7 +360,7 @@ public partial class MainWindow : Window
         PowerOverlay power;
         try
         {
-            (problems, power) = await Task.Run(() =>
+            (problems, power) = await Ui.OffThread(() =>
             {
                 var probs = ProblemScan.Scan(snapshot, catalog);
                 var pov = PowerOverlay.Empty;
@@ -373,6 +377,27 @@ public partial class MainWindow : Window
         UpdateProblems(problems);
         Board.SetPowerOverlay(power);
     }
+
+    /// <summary>
+    /// Freeze editing while an engine reads the <b>live</b> document on a pool thread.
+    /// <para>
+    /// The scan can hand off a <see cref="ShipDocument.Snapshot"/> because it only reads the tile grid. The export,
+    /// save-edit and rating engines can't: they also read cargo, zones, loose items and device links, none of which
+    /// Snapshot copies. So they take the real <c>_doc</c>, and it must not change under them — a torn read means a
+    /// wrong export, or a collection mutated mid-enumeration. Freezing for the run is cheaper and far safer than
+    /// deep-copying the whole document.
+    /// </para>
+    /// <para>
+    /// It must close <b>every</b> edit route, so it disables <c>Chrome</c> — the whole editing surface — rather than
+    /// picking off individual controls. Gating just the canvas and the keyboard left the toolbar live, and Undo
+    /// during a (multi-second) Ship Rating mutates the very list the analysis is walking. Window-level keys don't
+    /// route through the disabled tree, so <see cref="OnPreviewKeyDown"/> checks the gate too. The chrome greying
+    /// out is honest: the app really is busy, and the rating already has a progress dialog up.
+    /// </para>
+    /// Nestable (see <see cref="FreezeGate"/>): overlapping runs — an export started while a rating is still going —
+    /// thaw on the <b>last</b> scope out, not the first.
+    /// </summary>
+    private IDisposable FreezeDoc() => _freeze.Enter();
 
     // ---- Ship Rating (rooms · airtightness · certification · rating) ----
 
@@ -395,19 +420,21 @@ public partial class MainWindow : Window
         var reporter = new Progress<(string Stage, double Frac)>(p => progress.Update(p.Stage, p.Frac));
         AnalysisReport? report = null;
         progress.Show();
-        try
+        // AnalyzeDocument is pure computation over the live document (no IO), so it has no failure a user could act
+        // on: anything it throws is our bug. Let it reach the app's handler, which logs the stack to error.log —
+        // "Analysis failed: <message>" swallowed exactly that. The document is frozen while it reads.
+        using (FreezeDoc())
         {
-            report = await Task.Run(() => ShipAnalysis.AnalyzeDocument(doc, catalog, specs, reporter));
-        }
-        catch (Exception ex)
-        {
-            Dlg.Show(this, "Analysis failed: " + ex.Message, "Ship Rating", MessageBoxButton.OK, MessageBoxImage.Error);
-        }
-        finally
-        {
-            progress.Close();
-            BtnRating.IsEnabled = true;
-            _analysing = false;
+            try
+            {
+                report = await Ui.OffThread(() => ShipAnalysis.AnalyzeDocument(doc, catalog, specs, reporter));
+            }
+            finally
+            {
+                progress.Close();
+                BtnRating.IsEnabled = true;
+                _analysing = false;
+            }
         }
 
         if (report is not null)
@@ -742,7 +769,7 @@ public partial class MainWindow : Window
         SaveShipContext? ctx;
         try
         {
-            ctx = await Task.Run(() =>
+            ctx = await Ui.OffThread(() =>
             {
                 var match = SaveImport.ListSaves(env0).FirstOrDefault(s => string.Equals(s.Name, save0, StringComparison.Ordinal));
                 return match is null ? null : SaveEditImport.RelocateContext(match.ZipPath, match.Name, reg0, catalog0);
@@ -1564,6 +1591,7 @@ public partial class MainWindow : Window
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
         if (e.OriginalSource is TextBoxBase) return;
+        if (_freeze.IsFrozen) return;   // an engine is reading the live document off-thread; no edits until it lands
         var ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
         var shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
 
@@ -1929,18 +1957,23 @@ public partial class MainWindow : Window
 
         ExportResult result;
         Mouse.OverrideCursor = Cursors.Wait;
-        try
+        using (FreezeDoc())
         {
-            result = await Task.Run(() => ShipExport.Write(doc, catalog, specs, opts, index));
-        }
-        catch (Exception ex)
-        {
-            Dlg.Show(this, "Export failed:\n\n" + ex.Message, "Export", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
-        }
-        finally
-        {
-            Mouse.OverrideCursor = null;
+            try
+            {
+                result = await Ui.OffThread(() => ShipExport.Write(doc, catalog, specs, opts, index));
+            }
+            // a real, explainable export failure is a write that didn't land (disk full, read-only, file in use);
+            // anything else is our bug and belongs in error.log with its stack, not behind "Export failed"
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+            {
+                Dlg.Show(this, "Export failed:\n\n" + ex.Message, "Export", MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            finally
+            {
+                Mouse.OverrideCursor = null;
+            }
         }
 
         _settings.ExportAuthor = dlg.Author;
@@ -2217,7 +2250,7 @@ public partial class MainWindow : Window
         Mouse.OverrideCursor = Cursors.Wait;
         try
         {
-            result = await Task.Run(() => SaveImport.ImportPlayerShip(zip, catalog));
+            result = await Ui.OffThread(() => SaveImport.ImportPlayerShip(zip, catalog));
         }
         catch (Exception ex)
         {
@@ -2282,7 +2315,7 @@ public partial class MainWindow : Window
         Mouse.OverrideCursor = Cursors.Wait;
         try
         {
-            edit = await Task.Run(() => SaveEditImport.ImportForEditing(entry, reg, catalog));
+            edit = await Ui.OffThread(() => SaveEditImport.ImportForEditing(entry, reg, catalog));
         }
         catch (Exception ex)
         {
@@ -2322,7 +2355,7 @@ public partial class MainWindow : Window
             }
             var (catalog0, zip0, name0, reg0) = (_catalog, match.ZipPath, match.Name, src.RegId);
             Mouse.OverrideCursor = Cursors.Wait;
-            try { ctx = await Task.Run(() => SaveEditImport.RelocateContext(zip0, name0, reg0, catalog0)); }
+            try { ctx = await Ui.OffThread(() => SaveEditImport.RelocateContext(zip0, name0, reg0, catalog0)); }
             catch (Exception ex)
             {
                 Dlg.Show(this, "Couldn't re-locate the ship in that save:\n\n" + ex.Message +
@@ -2350,17 +2383,23 @@ public partial class MainWindow : Window
             : null;
         var wear = opts.Wear;   // read the dialog's controls here — off-thread it throws (WPF thread affinity)
 
-        // build the injected ship off-thread (runs the room/rating engine); a hard integrity failure surfaces here
+        // Build the injected ship off-thread (runs the room/rating engine) against the live document, frozen for the
+        // duration. A hard integrity failure (InvalidDataException) is a real, explainable "this ship can't be
+        // written back"; anything else is a bug in us, so let it through to the crash handler rather than dress it
+        // up as a save problem — a thread-affinity throw hid here as "the edit can't be written back" once already.
         JsonObject shipObj;
         InjectReport report;
         Mouse.OverrideCursor = Cursors.Wait;
-        try { (shipObj, report) = await Task.Run(() => SaveEdit.BuildInjectedShip(doc, context, catalog, specs, charge, wear)); }
-        catch (Exception ex)
+        using (FreezeDoc())
         {
-            Dlg.Error(this, "Update ship in save", "The edit can't be written back.\n\n" + ex.Message);
-            return;
+            try { (shipObj, report) = await Ui.OffThread(() => SaveEdit.BuildInjectedShip(doc, context, catalog, specs, charge, wear)); }
+            catch (Exception ex) when (ex is InvalidDataException or IOException)
+            {
+                Dlg.Error(this, "Update ship in save", "The edit can't be written back.\n\n" + ex.Message);
+                return;
+            }
+            finally { Mouse.OverrideCursor = null; }
         }
-        finally { Mouse.OverrideCursor = null; }
 
         // loud cargo-loss warning: deleting a container that still holds cargo drops it
         if (report.CargoDropped.Count > 0 && !ConfirmCargoLoss(report.CargoDropped)) return;
@@ -2495,7 +2534,7 @@ public partial class MainWindow : Window
         Mouse.OverrideCursor = Cursors.Wait;
         try
         {
-            result = await Task.Run(() => TemplateImport.LoadFile(path, catalog));
+            result = await Ui.OffThread(() => TemplateImport.LoadFile(path, catalog));
         }
         catch (Exception ex)
         {

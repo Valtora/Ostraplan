@@ -48,7 +48,9 @@
         </DataTemplate>
     </Window.Resources>
 
-    <DockPanel>
+    <!-- Chrome = everything the user can edit with (toolbar, sidebar, canvas). MainWindow.FreezeDoc disables it as
+         one switch while an engine reads the live document off-thread; naming it is what makes that possible. -->
+    <DockPanel x:Name="Chrome">
         <Border DockPanel.Dock="Top" Background="{DynamicResource PanelBg}" Padding="8,6">
             <DockPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
