@@ -1,9 +1,23 @@
 # Builds the runnable release: ONE self-contained Ostraplan.exe (no .NET install
-# needed on the machine). Output: publish\Ostraplan.exe — just double-click it.
+# needed on the machine). Output: publish\Ostraplan-vX.Y.Z.exe — just double-click it.
 # Run this after code changes to refresh the exe.
-# CLOSE the running Ostraplan first — a running app locks its own exe.
+# CLOSE the running Ostraplan first — a running app locks its own exe (checked below).
+# -NoLaunch skips the launch at the end (for scripted/agent runs that shouldn't leave a window behind).
+param([switch]$NoLaunch)
 $ErrorActionPreference = 'Stop'
 $out = Join-Path $PSScriptRoot 'publish'
+
+# Refuse up front while a previously built exe is still running: it holds its own file open, so the versioned
+# rename below dies on a bare "Access to the path ... is denied" that never says why. The usual culprit is this
+# script itself — its last line launches what it built, so it's typically the previous run's window. Prompt
+# rather than kill: that window may hold an unsaved design. Checked before the build, so it fails in a second
+# rather than after a minute of publishing.
+$held = @(Get-Process -Name 'Ostraplan*' -ErrorAction SilentlyContinue |
+    Where-Object { $_.Path -and $_.Path -like (Join-Path $out '*') })
+if ($held) {
+    $list = ($held | ForEach-Object { '    {0}  (PID {1})' -f $_.Path, $_.Id }) -join "`n"
+    throw "Close the running Ostraplan before publishing - it locks its own exe:`n$list`n`nThis script launches the exe it builds, so this is usually the previous run's window. Re-run with -NoLaunch to stop it happening again."
+}
 
 # IncludeNativeLibrariesForSelfExtract is REQUIRED for WPF single-file: without it
 # the app dies at the first window with a DllNotFoundException (PresentationNative /
@@ -38,6 +52,7 @@ $exe = Get-Item $named
     $exe.FullName, $exe.VersionInfo.ProductVersion, ($exe.Length / 1MB)
 
 # Launch the freshly-built exe so the release can be eyeballed immediately.
-# Start-Process is non-blocking, so the GUI opens and this script returns.
-Start-Process -FilePath $exe.FullName
+# Start-Process is non-blocking, so the GUI opens and this script returns. Note this is what leaves the exe
+# locked for the NEXT run — the preflight check at the top turns that into a clear message; -NoLaunch avoids it.
+if (-not $NoLaunch) { Start-Process -FilePath $exe.FullName }
 exit 0
