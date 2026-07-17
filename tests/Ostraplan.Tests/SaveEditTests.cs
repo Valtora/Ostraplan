@@ -92,6 +92,24 @@ public class SaveEditTests(ITestOutputHelper output)
         return null;
     }
 
+    /// <summary>
+    /// The first save whose player ship has a <b>sealed compartment</b>, or null. Room-priced assertions need
+    /// one: the player's current ship is whatever they were last flying, and a hulk under renovation
+    /// legitimately has no rooms at all (the game bakes it a single void room), which prices at ~0 and says
+    /// nothing about the valuation logic.
+    /// </summary>
+    private static SaveEditImportResult? FirstRoomedImport(GameEnv env, Catalog catalog)
+    {
+        foreach (var save in SaveImport.ListSaves(env))
+        {
+            SaveEditImportResult r;
+            try { r = SaveEditImport.ImportForEditing(save, catalog); }
+            catch { continue; /* not a player-ship save — keep looking */ }
+            if (RoomBuilder.Build(ShipGrid.FromDocument(r.Doc, catalog)).Rooms.Any(x => !x.Void)) return r;
+        }
+        return null;
+    }
+
     [SkippableFact]
     public void Import_for_editing_builds_full_context_with_1to1_identity()
     {
@@ -139,9 +157,11 @@ public class SaveEditTests(ITestOutputHelper output)
     public void ShipValue_broker_estimate_exceeds_build_cost_on_a_real_ship()
     {
         // the broker prices off room value (contents × room modifier × 1.25, ×3 with an O2 pump), so a real ship's
-        // broker value is well above its raw parts/build cost, and buy > sell.
+        // broker value is well above its raw parts/build cost, and buy > sell. Needs a ship that HAS rooms:
+        // an unsealed hulk has no room value to price, so it is not a specimen for this rule (see FirstRoomedImport).
         var g = TestData.RequireGame();
-        if (FirstImport(g.Env, g.Catalog) is not { } r) return;
+        var r = FirstRoomedImport(g.Env, g.Catalog);
+        Skip.If(r is null, "no save on this machine has a player ship with a sealed compartment");
         var specs = RoomCertifier.LoadSpecs(g.Index);
 
         var v = ShipValue.Estimate(r.Doc, g.Catalog, specs);
