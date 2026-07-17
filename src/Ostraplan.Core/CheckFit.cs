@@ -28,10 +28,11 @@ public sealed record FitResult(bool Ok, IReadOnlyList<(int X, int Y)> FailedCell
 ///   "must attach to structure / needs floor beneath" encoding.</item>
 ///   <item>Rotation rotates the ring masks (TileUtils.RotateTilesCW ≡
 ///   <see cref="GridMath.Rotate"/>); sheet items (walls/floors) never rotate.</item>
-///   <item>Envelope (opt-in): no ring cell may fall beyond a docking port's mating
-///   face. The game bounds only the first port; Ostraplan bounds <b>all</b> ports
-///   (ring-inclusive) — provably never allows what the game refuses, identical to
-///   the game on the single-port ships that are the norm.</item>
+///   <item>Envelope (opt-in): no ring cell may fall beyond the mating face of the
+///   <b>single</b> bounding docking port (<c>aDocksys.FirstOrDefault()</c>, resolved by
+///   <see cref="ProblemScan.BoundingPort"/>), derived once before the ring loop exactly
+///   as the game does. Only the Primary airlock ever bounds; a Secondary (TypeB) bounds
+///   nothing, which is what makes an internal docking bay legal.</item>
 /// </list>
 ///
 /// <para>Excluded by design (in-game only, cannot occur in a planner): crew
@@ -54,6 +55,7 @@ public static class CheckFit
         var effRot = item.HasSpriteSheet ? 0 : GridMath.Norm(rot);   // sheet items never rotate
         var (rw, rh, reqs) = GridMath.Rotate(item.SocketReqs, item.Width + 2, item.Height + 2, effRot);
         var (_, _, forbids) = GridMath.Rotate(item.SocketForbids, item.Width + 2, item.Height + 2, effRot);
+        var envelope = includeEnvelope ? BoundingFace(doc) : null;   // derived once, like the game (see Check's remarks)
 
         // re-validating a placed part: lift its own conditions so it doesn't fail
         // against itself, restore them no matter what (UI thread only; no re-entrancy
@@ -73,7 +75,7 @@ public static class CheckFit
                     var wx = x - 1 + c;
                     var wy = y - 1 + r;
 
-                    if (includeEnvelope && BeyondAnyFace(doc, wx, wy))
+                    if (envelope is { } env && Beyond(env, wx, wy))
                     {
                         failed.Add((wx, wy));
                         if (reasonRank == int.MaxValue) { reason = "beyond the airlock's mating face"; reasonRank = GenericRank; }
@@ -158,19 +160,22 @@ public static class CheckFit
         return true;
     }
 
-    /// <summary>True if the tile lies beyond any installed docking port's mating face (all ports, ring-inclusive).</summary>
-    private static bool BeyondAnyFace(ShipDocument doc, int x, int y)
+    /// <summary>
+    /// The mating face bounding new construction, or null when nothing bounds it (no installed port, or a
+    /// port whose DockA/DockB give no direction — the game leaves its bounds infinite in both those cases).
+    /// Only the single bounding port is consulted: a design with a Secondary airlock facing into the hull
+    /// is legal, because the game never derives an envelope from it (<see cref="ProblemScan.BoundingPort"/>).
+    /// </summary>
+    private static (bool AxisY, int Dir, double Face)? BoundingFace(ShipDocument doc)
     {
-        foreach (var p in doc.Placements)
-        {
-            var part = doc.Part(p);
-            if (part is null || !ProblemScan.IsDocksys(part, doc.Catalog)) continue;
-            if (!ProblemScan.TryGetFace(part, p, out var axisY, out var dir, out var face)) continue;
-            var center = (axisY ? y : x) + 0.5;
-            if ((center - face) * dir > 0.01) return true;
-        }
-        return false;
+        if (ProblemScan.BoundingPort(doc, doc.Catalog) is not { } p) return null;
+        if (!ProblemScan.TryGetFace(doc.Part(p)!, p, out var axisY, out var dir, out var face)) return null;
+        return (axisY, dir, face);
     }
+
+    /// <summary>True if the tile lies beyond the bounding mating face (ring-inclusive, as the game tests it).</summary>
+    private static bool Beyond((bool AxisY, int Dir, double Face) env, int x, int y) =>
+        (((env.AxisY ? y : x) + 0.5) - env.Face) * env.Dir > 0.01;
 
     // Friendly reasons for the ghost / problem grouping. Socket masks lean on a
     // small vocabulary of tile conditions; anything unmapped falls back to the raw

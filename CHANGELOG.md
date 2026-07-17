@@ -11,7 +11,20 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
-## [0.43.2] 2026-07-15, "Update ship in save" works again (hotfix)
+## [0.43.4] 2026-07-17, Secondary airlocks no longer wall off half the map
+
+### Fixed
+- **A Secondary Exterior Airlock no longer paints a no-build zone in front of itself.** Placing one used to redden
+  everything beyond its face, out to the edge of the map, and block building there. The game doesn't do this: it
+  bounds construction by the **Primary** airlock only, so a Secondary can face into the hull. Internal docking bays
+  for smaller craft are now buildable in Ostraplan, as they already were in Ostranauts. The Primary's own red zone
+  is real and stays. Thanks to @hkorhal for the report (#5).
+
+  Ostraplan had been bounding by *every* docking port. That was a deliberate "stricter than the game is always safe"
+  call, on the reasoning that over-refusing can never let through a design the game would reject. It was wrong twice
+  over: the game's build law (`Item.CheckFit`) derives its envelope from `aDocksys.FirstOrDefault()` alone, and
+  `Ship.AddCO` sorts every Secondary behind the Primary, so a Secondary is never that port. The all-ports rule does
+  exist in the game (`TileUtils.GetAirlockBounds`), but only to decide where a **meat blob** may spread.
 
 Ships the 0.43.1 fix below, which was never released separately, plus the hardening that keeps that class of bug
 from hiding again.

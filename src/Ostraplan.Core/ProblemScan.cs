@@ -21,6 +21,14 @@ public static class ProblemScan
 {
     public const string DocksysTrigger = "TIsDockSysInstalled";
 
+    /// <summary>
+    /// The game's docking-port class marker. Carried by every Secondary Exterior Airlock
+    /// (<c>ItmDockSys03*</c>); absent from the Primary (<c>ItmDockSys02*</c>). It decides where
+    /// <c>Ship.AddCO</c> files a port in <c>aDocksys</c>, and so which port bounds construction
+    /// (see <see cref="BoundingPort"/>).
+    /// </summary>
+    public const string TypeBCond = "IsTypeB";
+
     public static List<Problem> Scan(ShipDocument doc, Catalog catalog)
     {
         var problems = new List<Problem>();
@@ -35,11 +43,11 @@ public static class ProblemScan
             return problems;
         }
 
-        foreach (var port in ports)
+        // Exactly ONE port bounds construction, and only the Primary ever does — see BoundingPort.
+        if (BoundingPort(doc, catalog) is { } port
+            && TryGetFace(doc.Part(port)!, port, out var axisY, out var dir, out var face))
         {
             var part = doc.Part(port)!;
-            if (!TryGetFace(part, port, out var axisY, out var dir, out var face)) continue;
-
             var blocked = 0;
             (int X, int Y)? sample = null;
             foreach (var q in doc.Placements)
@@ -61,8 +69,8 @@ public static class ProblemScan
             if (blocked > 0)
                 problems.Add(new Problem(ProblemSeverity.Blocking, "Construction beyond the airlock",
                     $"{blocked} tile(s) lie beyond the mating face of \"{part.Friendly}\" at ({port.X},{port.Y}) — " +
-                    $"first at ({sample!.Value.X},{sample.Value.Y}). The game forbids building past an airlock's " +
-                    "face (TileUtils.GetAirlockBounds), and a blocked face cannot mate with a station collar."));
+                    $"first at ({sample!.Value.X},{sample.Value.Y}). The game forbids building past the primary " +
+                    "airlock's face (Item.CheckFit), and a blocked face cannot mate with a station collar."));
         }
 
         AddLegalityProblems(doc, problems);
@@ -225,11 +233,44 @@ public static class ProblemScan
         && ct.Reqs.All(part.StartingConds.Contains);
 
     /// <summary>
+    /// The <b>one</b> installed port whose mating face bounds new construction, or null when the
+    /// design has none. This is <c>Ship.aDocksys.FirstOrDefault()</c> — the single port
+    /// <c>Item.CheckFit</c> derives its envelope from. Every other port bounds nothing.
+    ///
+    /// <para><b>Which port that is is decided by <c>IsTypeB</c>, not by position.</b>
+    /// <c>Ship.AddCO</c> files a non-TypeB port with <c>aDocksys.Insert(0, …)</c> and a TypeB port
+    /// with <c>aDocksys.Add(…)</c>, so a non-TypeB port always sorts ahead of every TypeB one. In
+    /// core data the only installed non-TypeB port is the <b>Primary</b> Exterior Airlock
+    /// (<c>ItmDockSys02Closed</c>/<c>02Open</c>); every <b>Secondary</b> (<c>ItmDockSys03*</c>) is
+    /// TypeB. So the Primary bounds construction and a Secondary never does — which is what makes
+    /// an internal docking bay (a Secondary facing into the hull) legal in game.</para>
+    ///
+    /// <para>Registration order only breaks ties within a class: <c>Insert(0, …)</c> means the
+    /// <i>last</i> non-TypeB port registered lands at index 0, while <c>Add(…)</c> means the
+    /// <i>first</i> TypeB port does. We read <see cref="ShipDocument.Placements"/> as that order
+    /// (it is the order an export emits <c>aItems</c>, which is the order the game spawns and
+    /// registers them). Both ties are unreachable in practice: core ships carry exactly one
+    /// Primary, and Ostraplan seeds exactly one per document.</para>
+    /// </summary>
+    public static Placement? BoundingPort(ShipDocument doc, Catalog catalog)
+    {
+        Placement? nonTypeB = null, typeB = null;
+        foreach (var p in doc.Placements)
+        {
+            var part = doc.Part(p);
+            if (part is null || !IsDocksys(part, catalog)) continue;
+            if (part.StartingConds.Contains(TypeBCond)) typeB ??= p;   // Add(…): first registered leads
+            else nonTypeB = p;                                          // Insert(0, …): last registered leads
+        }
+        return nonTypeB ?? typeB;
+    }
+
+    /// <summary>
     /// The port's mating face, from its DockA/DockB map points (pixels around
     /// the item centre, +y up; DockA sits at the door, DockB outside the hull).
     /// The face line is the A-B midpoint on the dominant axis and everything
-    /// beyond it (toward B) is out of bounds - the exact envelope
-    /// TileUtils.GetAirlockBounds derives per port.
+    /// beyond it (toward B) is out of bounds - the exact envelope Item.CheckFit
+    /// derives for the bounding port (see <see cref="BoundingPort"/>).
     /// </summary>
     public static bool TryGetFace(PartDef part, Placement p, out bool axisY, out int dir, out double face)
     {

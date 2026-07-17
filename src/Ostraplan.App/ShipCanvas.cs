@@ -1975,29 +1975,24 @@ public sealed class ShipCanvas : FrameworkElement
     }
 
     /// <summary>
-    /// Hazard-stripe every area beyond a docking port's mating face - the game's
-    /// GetAirlockBounds envelope, made visible.
+    /// Hazard-stripe the area beyond the mating face of the one port that bounds construction
+    /// (Item.CheckFit's envelope, made visible). At most one zone: only the Primary airlock ever
+    /// bounds, so a Secondary draws nothing (ProblemScan.BoundingPort).
     /// </summary>
     private void DrawOutOfBounds(DrawingContext dc, Rect view)
     {
-        var zones = new GeometryGroup { FillRule = FillRule.Nonzero };
-        foreach (var p in Doc!.Placements)
-        {
-            var part = Doc.Part(p);
-            if (part is null || !ProblemScan.IsDocksys(part, Doc.Catalog)) continue;
-            if (!ProblemScan.TryGetFace(part, p, out var axisY, out var dir, out var face)) continue;
+        if (ProblemScan.BoundingPort(Doc!, Doc!.Catalog) is not { } p) return;
+        if (!ProblemScan.TryGetFace(Doc.Part(p)!, p, out var axisY, out var dir, out var face)) return;
 
-            var faceScreen = (axisY ? _pan.Y : _pan.X) + face * Zoom;
-            var zone = axisY
-                ? dir < 0
-                    ? new Rect(view.X, view.Y, view.Width, Math.Max(0, faceScreen - view.Y))
-                    : new Rect(view.X, faceScreen, view.Width, Math.Max(0, view.Bottom - faceScreen))
-                : dir < 0
-                    ? new Rect(view.X, view.Y, Math.Max(0, faceScreen - view.X), view.Height)
-                    : new Rect(faceScreen, view.Y, Math.Max(0, view.Right - faceScreen), view.Height);
-            if (zone.Width > 0 && zone.Height > 0) zones.Children.Add(new RectangleGeometry(zone));
-        }
-        if (zones.Children.Count > 0) dc.DrawGeometry(OobBrush, null, zones);
+        var faceScreen = (axisY ? _pan.Y : _pan.X) + face * Zoom;
+        var zone = axisY
+            ? dir < 0
+                ? new Rect(view.X, view.Y, view.Width, Math.Max(0, faceScreen - view.Y))
+                : new Rect(view.X, faceScreen, view.Width, Math.Max(0, view.Bottom - faceScreen))
+            : dir < 0
+                ? new Rect(view.X, view.Y, Math.Max(0, faceScreen - view.X), view.Height)
+                : new Rect(faceScreen, view.Y, Math.Max(0, view.Right - faceScreen), view.Height);
+        if (zone.Width > 0 && zone.Height > 0) dc.DrawGeometry(OobBrush, null, new RectangleGeometry(zone));
     }
 
     /// <summary>Centre of a document tile in screen space (pre view-rotation transform, like <see cref="CellRect"/>).</summary>

@@ -132,24 +132,7 @@ public class CheckFitTests
     [Fact]
     public void Ring_cells_beyond_a_docking_face_are_unplaceable()
     {
-        // 7x2 docking port, DockA (0,8)px / DockB (0,24)px: outward arrow up, face at doc y = 0
-        var dock = new PartDef("Dock", "Dock", "HULL", "core",
-            new ItemDef("Dock", "", false, null, 0, 7, [.. Enumerable.Repeat("FloorAdds", 14)], [], []),
-            null, [], [], ["IsDockSys", "IsInstalled"],
-            new Dictionary<string, double>(),
-            new Dictionary<string, (double, double)> { ["DockA"] = (0, 8), ["DockB"] = (0, 24) });
-        var cat = new Catalog
-        {
-            Parts = [dock, Floor],
-            ByDefName = new[] { dock, Floor }.ToDictionary(p => p.DefName),
-            Loots = Loots.ToDictionary(l => l.Name),
-            Triggers = new Dictionary<string, CondTriggerDef>
-            {
-                [ProblemScan.DocksysTrigger] = new(ProblemScan.DocksysTrigger, ["IsDockSys", "IsInstalled"], [], false),
-            },
-            Warnings = [],
-        };
-        var doc = Doc(cat, new Placement { DefName = "Dock", X = 0, Y = 0 });
+        var doc = Doc(DockCat(Primary, Floor), new Placement { DefName = "Primary", X = 0, Y = 0 });
 
         var beyond = CheckFit.Check(doc, Floor, 2, -2, 0, includeEnvelope: true);
         Assert.False(beyond.Ok);
@@ -158,4 +141,59 @@ public class CheckFitTests
         Assert.True(CheckFit.Check(doc, Floor, 2, 5, 0, includeEnvelope: true).Ok);    // inside the hull
         Assert.True(CheckFit.Check(doc, Floor, 2, -2, 0, includeEnvelope: false).Ok);  // envelope off: geometry ignored
     }
+
+    /// <summary>
+    /// Issue #5. Item.CheckFit bounds construction by aDocksys.FirstOrDefault() alone, and Ship.AddCO
+    /// files every TypeB port BEHIND every non-TypeB one — so a Secondary airlock never bounds while a
+    /// Primary is present, and building "past" one (an internal docking bay) is legal.
+    /// </summary>
+    [Fact]
+    public void A_secondary_airlock_does_not_bound_construction_when_a_primary_is_present()
+    {
+        var doc = Doc(DockCat(Primary, Secondary, Floor),
+            new Placement { DefName = "Primary", X = 0, Y = 0 },      // face at doc y = 0
+            new Placement { DefName = "Secondary", X = 0, Y = 10 });  // face at doc y = 10
+
+        Assert.Equal("Primary", doc.Part(ProblemScan.BoundingPort(doc, doc.Catalog)!)!.DefName);
+        Assert.True(CheckFit.Check(doc, Floor, 2, 5, 0, includeEnvelope: true).Ok);    // beyond the SECONDARY's face: legal
+        Assert.False(CheckFit.Check(doc, Floor, 2, -2, 0, includeEnvelope: true).Ok);  // beyond the PRIMARY's face: still refused
+    }
+
+    /// <summary>
+    /// The flip side of issue #5: TypeB is not "never bounds", it is "sorts last". With no Primary to
+    /// outrank it, a lone Secondary IS aDocksys[0] and does bound.
+    /// </summary>
+    [Fact]
+    public void A_lone_secondary_airlock_bounds_construction()
+    {
+        var doc = Doc(DockCat(Secondary, Floor), new Placement { DefName = "Secondary", X = 0, Y = 0 });
+
+        Assert.False(CheckFit.Check(doc, Floor, 2, -2, 0, includeEnvelope: true).Ok);
+        Assert.True(CheckFit.Check(doc, Floor, 2, 5, 0, includeEnvelope: true).Ok);
+    }
+
+    // 7x2 docking port, DockA (0,8)px / DockB (0,24)px: outward arrow up, so the mating face lands on the
+    // port's own doc y and everything above it (smaller y) is beyond. IsTypeB marks a Secondary airlock.
+    private static readonly PartDef Primary = Dock("Primary", typeB: false);
+    private static readonly PartDef Secondary = Dock("Secondary", typeB: true);
+
+    private static PartDef Dock(string name, bool typeB) => new(
+        name, name, "HULL", "core",
+        new ItemDef(name, "", false, null, 0, 7, [.. Enumerable.Repeat("FloorAdds", 14)], [], []),
+        null, [], [],
+        typeB ? ["IsDockSys", "IsInstalled", ProblemScan.TypeBCond] : ["IsDockSys", "IsInstalled"],
+        new Dictionary<string, double>(),
+        new Dictionary<string, (double, double)> { ["DockA"] = (0, 8), ["DockB"] = (0, 24) });
+
+    private static Catalog DockCat(params PartDef[] parts) => new()
+    {
+        Parts = parts,
+        ByDefName = parts.ToDictionary(p => p.DefName),
+        Loots = Loots.ToDictionary(l => l.Name),
+        Triggers = new Dictionary<string, CondTriggerDef>
+        {
+            [ProblemScan.DocksysTrigger] = new(ProblemScan.DocksysTrigger, ["IsDockSys", "IsInstalled"], [], false),
+        },
+        Warnings = [],
+    };
 }
