@@ -1347,7 +1347,7 @@ public sealed class ShipCanvas : FrameworkElement
         foreach (var pose in WithSymmetry(x, y, rot, w, h))
         {
             if (!seen.Add(pose)) continue;
-            if (SameDefCovers(pose.X, pose.Y, w, h, ArmedPart.DefName)) continue;   // no stacking while painting
+            if (SameDefAtPose(Doc.PlacementsAt(pose.X, pose.Y), pose.X, pose.Y, pose.Rot, ArmedPart.DefName)) continue;   // skip an exact duplicate (paint-stroke re-entry), not a legal overlap
             // the placement law: skip any pose the game's Item.CheckFit would refuse (each symmetry mirror judged
             // independently — legal ones land, illegal ones don't). EXCEPTION: a MODDED part may be placed against
             // the core-only law when the override toggle is on — it lands and is flagged as a warning (ProblemScan).
@@ -1373,14 +1373,15 @@ public sealed class ShipCanvas : FrameworkElement
             vertical: SymMode is SymmetryMode.Vertical or SymmetryMode.Both,
             horizontal: SymMode is SymmetryMode.Horizontal or SymmetryMode.Both);
 
-    private bool SameDefCovers(int x, int y, int w, int h, string defName)
+    // Skip only an EXACT duplicate: same def already sitting at this exact pose (same top-left + rotation).
+    // This still absorbs a paint stroke re-entering a cell it just painted, but it no longer overrides the
+    // placement law — a legal same-def OVERLAP (cargopod trusses share a wall row by one tile; other
+    // multi-tile parts interlock similarly) must stay placeable, and CheckFit is the sole judge of that.
+    // A same-def duplicate shares the origin tile, so passing that tile's placements is one index lookup.
+    internal static bool SameDefAtPose(IEnumerable<Placement> atOrigin, int x, int y, int rot, string defName)
     {
-        // any same-def part overlapping the w×h rect must cover one of its tiles — an index lookup
-        // per tile, not an O(parts) scan (this runs per pose across a whole box-fill)
-        for (var r = 0; r < h; r++)
-            for (var c = 0; c < w; c++)
-                foreach (var p in Doc!.PlacementsAt(x + c, y + r))
-                    if (p.DefName == defName) return true;
+        foreach (var p in atOrigin)
+            if (p.DefName == defName && p.X == x && p.Y == y && p.Rot == rot) return true;
         return false;
     }
 

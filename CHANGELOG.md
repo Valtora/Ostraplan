@@ -11,7 +11,15 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
-## [0.45.0] 2026-07-17, No more ghost rooms
+### Fixed
+- **Cargo pods (and other interlocking parts) can be stacked again.** Building a cargo train worked in the game
+  but not in Ostraplan: the second pod's ghost lit up green, yet the click placed nothing. Two cargo pods attach
+  by overlapping a single row (the lower pod's top edge shares the upper pod's bottom wall), and the planner's
+  anti-double-paint guard was rejecting *any* overlap of a same part, so the one placement the game actually
+  allows was the one Ostraplan refused. The guard now only skips an exact duplicate (the same part already at the
+  same tile and rotation, which is all it was ever meant to catch while dragging), leaving the placement law
+  (`CheckFit`) the sole judge of overlaps. Reported as
+  [#6](https://github.com/Valtora/Ostraplan/issues/6).
 
 ### Added
 - **RoomViz, a rooms overlay (`C`).** Shows every compartment the way the game will flood-fill it: each one tinted

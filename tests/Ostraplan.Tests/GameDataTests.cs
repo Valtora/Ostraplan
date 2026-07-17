@@ -204,6 +204,41 @@ public class GameDataTests
         Assert.True(CheckFit.Check(doc, bed, 20, 20, 0, includeEnvelope: false).Ok);
     }
 
+    /// <summary>
+    /// Issue #6. A cargo pod (ItmCargoPod01, 3×6) requires a wall at its top-middle tile and contributes a
+    /// wall at its own bottom-middle tile — so the "cargo train" is pods overlapping by ONE row: the lower
+    /// pod's top edge sits on the upper pod's bottom wall. That single-row overlap is the only CheckFit-legal
+    /// stack, and the planner's paint-dedup guard used to reject any same-def overlap and so refused it.
+    /// </summary>
+    [SkippableFact]
+    public void Cargo_pods_stack_by_overlapping_one_row()
+    {
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.TryGetValue("ItmCargoPod01", out var pod)) return;
+        Assert.Equal((3, 6), (pod.Item.Width, pod.Item.Height));
+
+        var doc = new ShipDocument(g.Catalog);
+        void Place(string def, int x, int y) => new PlaceCommand(new Placement { DefName = def, X = x, Y = y }).Do(doc);
+
+        // a lone pod in open space fails: nothing provides the wall its top edge needs
+        var lone = CheckFit.Check(doc, pod, 10, 10, 0, includeEnvelope: false);
+        Assert.False(lone.Ok);
+        Assert.Equal("needs a wall alongside", lone.Reason);
+
+        // a wall at the pod's top-middle tile (11,10) lets the first pod attach
+        Place("ItmWall1x1", 11, 10);
+        Assert.True(CheckFit.Check(doc, pod, 10, 10, 0, includeEnvelope: false).Ok);
+        Place("ItmCargoPod01", 10, 10);   // now contributes IsWall at its bottom-middle tile (11,15)
+
+        // the second pod stacks by overlapping the first's bottom row (y=15), where that wall now sits -> legal
+        Assert.True(CheckFit.Check(doc, pod, 10, 15, 0, includeEnvelope: false).Ok);
+
+        // a flush pod one row lower (y=16) has no wall at its top edge -> refused, exactly as the game refuses it
+        var flush = CheckFit.Check(doc, pod, 10, 16, 0, includeEnvelope: false);
+        Assert.False(flush.Ok);
+        Assert.Equal("needs a wall alongside", flush.Reason);
+    }
+
     [SkippableFact]
     public void Real_envelope_makes_construction_beyond_the_airlock_unplaceable()
     {
