@@ -11,6 +11,31 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.45.0] 2026-07-17, No more ghost rooms
+
+### Fixed
+- **Editing a save no longer leaves ghost rooms behind, or skews your zones.** Two separate bugs, both of which
+  corrupted the ship on load. Thanks to @Maddremor for the report and, crucially, for the two saves (one clean, one
+  broken, same ship) that made this a five-minute diff instead of a hunt.
+
+  **Ghost rooms.** In Ostranauts a room *is* an object: the game backs each one with a hidden `Compartment` and
+  saves the room under that object's id. Ostraplan rebuilt the room list with brand-new ids on every save edit, but
+  left the old `Compartment`s in the file. On load the game couldn't match them up, so it minted a fresh room for
+  each one and the originals stayed behind as rooms belonging to nothing — the ghosts. This happened on **every**
+  save edit, whatever you changed. Ostraplan now clears the old room objects and lets the game rebuild each room
+  cleanly. (If you have an affected save, its `Player.log` will be full of `Generating new room with old ID`.)
+
+  **Skewed zones.** The game does not read the ship's grid size from the save; it rebuilds it on load, always
+  leaving a one-tile margin around the ship. Ostraplan grew the grid to fit the ship *exactly*, with no margin,
+  whenever an edit pushed a part past the old edge. Rooms and zones are stored as plain tile numbers, so the two
+  grids disagreeing shifted every one of them — a little at the top of the ship, more with every row down. What
+  set it off was subtle: the big fuel and gas tanks reserve a 7×7 under-floor area around a 3×3 body, so moving
+  one near the hull could push the grid out with nothing visibly out there at all. Ostraplan now uses the game's
+  own rule, verified against every ship in every local save.
+
+- **Ship dimensions no longer come out as `15,36m x 11,20m`** on a machine whose region uses a decimal comma. The
+  game writes and reads a decimal point. Cosmetic (the game recalculates the field), but it was wrong in the file.
+
 ## [0.44.0] 2026-07-17, Secondary airlocks no longer wall off half the map
 
 ### Added

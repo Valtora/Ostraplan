@@ -273,6 +273,24 @@ So export gives every contained/slotted item **both** `bForceLoad: true` (keep `
 
 **Save games.** A save is a **folder** with `<name>.zip` + `saveInfo.json` (+ portrait/screenshot). Inside the zip: `ships/<RegID>.json` (one per ship in the loaded neighbourhood — dozens to ~140), a `<playerName>.json` character record, and copies of `saveInfo`/portrait/screenshot. The **player's ship** is `strShip` on that character record (a RegID). Do **not** match `saveInfo.shipName` — it's a renamed **display** name (`publicName`, e.g. "Charon") that matches no ship's `strName` (which is the RegID or stock model name). Save ships are the same `JsonShip` schema (a superset of a template), so import reads only the top-level layout and drops all runtime state for free.
 
+### Save edit — the inject (`SaveEdit`, fixed 0.45.0)
+
+Writing an edited layout **back into a save** is not the export inverse: the record is live, and two of its fields are re-derived by the loader rather than trusted. Both got this wrong and corrupted ships ("ghost rooms skewing my zones").
+
+**The grid frame is rebuilt on load — the saved one is not authoritative.** A full load does **not** trust `nCols`/`vShipPos`; they feed only the *shallow* (unloaded) view, which is exactly what `Ship`'s `x = (LoadState > Loaded.Shallow) ? nCols : json.nCols` says. `Ship.UpdateTiles` re-derives the tilemap as each item spawns: it seeds `vShipPos` off the first item's `TLTileCoords`, then `TileUtils.PadTilemap`s a **one-tile margin** around every subsequent item (`Vector2 vector = new Vector2(-1f, 1f)`; `IsRoom` COs get `Vector2.zero` and pad nothing). So the loaded grid is always:
+
+> **frame = bounding box of all item footprints, plus a one-tile margin on every edge.**
+
+Confirmed on real saves: the game's own baked frames inset their content by exactly 1 on all four edges (`SaveEditFrameTests` asserts this over every local save). Every `aRooms`/`aZones` entry is a flat `col + row·nCols` index, so a frame of a different **width or origin** makes each index decode to the wrong tile, the error compounding by one column per row. A stale trailing **row** is inert by the same arithmetic.
+
+Two consequences worth internalising:
+- **Pad by the margin, don't hug the content.** Ostraplan grew the frame to the bounding box *exactly* whenever an edit pushed a part outside the old grid. The trigger in the wild was a big tank: its **socket** footprint is 7×7 (the under-floor ring — §4) while its body is 3×3, so sliding one to the hull edge put the bounding box a column past the origin with no item tile out there and nothing visibly wrong in `aItems`.
+- **The frame may legitimately SHRINK.** `PadTilemap` only ever grows, so deconstructing an outermost part in play leaves a stale empty rank in the live grid; a reload rebuilds it tight. The inject must track the content, not preserve the saved frame (and recompute crew `nDestTile` whenever the frame moves at all).
+
+**A room's strID is its `Compartment` CO's strID.** Rooms are not parts; each is backed by a `Compartment` condowner (`Room`'s `coRoom`, from `DataHandler.GetCondOwner("Compartment")`) and `Room.GetJSONSave` writes `jsonRoom.strID = coRoom.strID`. On load, `Ship.CreateRooms` maps **tile index → JsonRoom**, and for each room resolves `GetCOByID(strID)`: a hit becomes `new Room(co)` and is consumed by `RemoveCO`; a miss logs `Generating new room with old ID: <guid> for Tile: <n>` and mints a replacement. So regenerating `aRooms` with fresh strIDs while keeping the original Compartments leaves **every original unbound** — an IsRoom CO no room claims, which is precisely a ghost room. Ostraplan drops every room CO on inject (`SaveEdit.RoomCoIds` — by the source's own `aRooms`, widened to any `Compartment`/`IsRoom` CO so a previously orphaned one is swept up) and lets the game rebuild each room from the saved strID. Room atmosphere is regenerated anyway (`bPrefill`), so nothing of value is lost.
+
+**`dimensions` is display-only but locale-sensitive.** The game writes it with `((float)nCols * 0.32f).ToString("#.00")`; format it with `InvariantCulture` or a comma-decimal machine emits `"15,36m x 11,20m"` into the save.
+
 ---
 
 ## 9. Gotcha index (quick reference)
@@ -293,6 +311,8 @@ So export gives every contained/slotted item **both** `bForceLoad: true` (keep `
 - **Item `(fX,fY)` is the footprint CENTRE, not a corner** — top-left via `TLTileCoords = (x−(W/2−0.5), y+(H/2−0.5))` (§8).
 - **Only `IsWall` bounds the room fill** — a door's side cells are always `IsWall`; its centre is a walkable portal when open (flood-sinks) and an `IsWall` boundary when closed. Same two rooms either way — door state is cosmetic to the rooms/rating; a closed door's centre is filed by `AssignPortals` to a non-void neighbour, never the exterior (§8).
 - **Ship files are top-level arrays** — the ship is an element with `nCols`+`aItems`; skip non-ship files. Only ~2 carry `aRating`; all carry `aRooms` (§8).
+- **A loading ship rebuilds its own grid — saved `nCols`/`vShipPos` are only the shallow view** — the frame is always `bbox(item footprints) ± a one-tile margin` (`Ship.UpdateTiles` → `PadTilemap`). Write a room/zone index in any other frame and it decodes to the wrong tile, drifting a column per row. Never hug the content: a 7×7 tank socket at the hull edge pushes the bbox out with no item tile there (§8, fixed 0.45.0).
+- **A room IS its `Compartment` CO** — `jsonRoom.strID = coRoom.strID`, and `Ship.CreateRooms` re-binds by `GetCOByID` + `RemoveCO`. Fresh room strIDs + kept Compartments = one unbound IsRoom CO per room, i.e. ghost rooms (`Generating new room with old ID` in `Player.log`). Drop the room COs and let the game rebuild them (§8, fixed 0.45.0).
 - **Room certification tests CondOwner conds, not tile conds** — `room.aCos` `aStartingConds`, evaluated by `CondEval`; multiplicity is the spec's `xN` (§8).
 - **A room-less anchor falls back to the `"use"` point** (`Tile.AddToRoom`) — wall-embedded parts (wall bins, sensors, antennas, weapons, coolers) join the room their use point reaches; anchor-only membership silently un-certifies quarters and drops their value. The air pump's use point is its own wall tile, so pumps join no room — $0 room value in-game too (§8, fixed 0.17.0).
 - **The ×3 value bonus needs a FED pump, not a pump** — `TIsAirPump02Installed` + an installed `TIsRTAO2Installed` can with `StatGasMolO2 > 0` at the pump's `GasInput` tile; it's a flag, never per-pump. Export bakes the count as `nO2PumpCount` for the shallow-load broker quote (§8, fixed 0.17.0).

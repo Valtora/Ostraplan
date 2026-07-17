@@ -394,7 +394,9 @@ public static class ShipExport
             ObjSS = new ExportedSitu { VPosx = -0.25, VPosy = -0.35 },
             ARating = [rating.Epoch.Length == 0 ? "0" : rating.Epoch,
                 rating.Condition, rating.RoomCount, rating.Maneuver, rating.Size, rating.Slot5],
-            Dimensions = $"{grid.NCols * MetresPerTile:0.00}m x {grid.NRows * MetresPerTile:0.00}m",
+            // InvariantCulture: the game parses/prints '.' decimals (a comma-decimal locale would emit "3,20m")
+            Dimensions = string.Create(System.Globalization.CultureInfo.InvariantCulture,
+                $"{grid.NCols * MetresPerTile:0.00}m x {grid.NRows * MetresPerTile:0.00}m"),
             ShipCO = ExportedShipCO.Pristine(),
         };
 

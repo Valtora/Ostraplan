@@ -154,22 +154,24 @@ public class ZoneTests
     [Fact]
     public void SaveEdit_rebuilds_zones_from_the_document_not_the_stale_verbatim_copy()
     {
+        // one floor at doc (1,1) in a 3×3 grid: the frame the game rebuilds (bbox + a one-tile margin), so the
+        // inject leaves it alone and the zone index is computed in that same unchanged frame
         var cat = new Fixtures().Floor("Floor").Build();
         var ctx = Context(
-            new JsonArray(Item("a", "Floor", 100, 200)),
+            new JsonArray(Item("a", "Floor", 101, 199)),
             new JsonArray(new JsonObject { ["strID"] = "a", ["strCODef"] = "Floor", ["bAlive"] = true, ["aConds"] = new JsonArray("DEFAULT") }),
-            new() { ["a"] = new OriginPart(0, 0, 0, []) });
-        var doc = Fixtures.Doc(cat, new Placement { DefName = "Floor", X = 0, Y = 0, OriginStrID = "a" });
-        new CreateZoneCommand(new ShipZone { Name = "haul", TileConds = { ShipZone.CondHaul }, Tiles = { (0, 0) } }).Do(doc);
+            new() { ["a"] = new OriginPart(1, 1, 0, []) }, nCols: 3, nRows: 3);
+        var doc = Fixtures.Doc(cat, new Placement { DefName = "Floor", X = 1, Y = 1, OriginStrID = "a" });
+        new CreateZoneCommand(new ShipZone { Name = "haul", TileConds = { ShipZone.CondHaul }, Tiles = { (1, 1) } }).Do(doc);
 
         var (ship, report) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
 
-        Assert.False(report.GridGrew);
+        Assert.False(report.GridReframed);
         var z = Assert.Single(Zones(ship));                       // the doc's one zone, not the stale two-name copy
         Assert.Equal("haul", (string)z!["strName"]!);
         Assert.Equal("H-ABC", (string)z["strRegID"]!);           // stamped to the edited ship
         var tiles = (JsonArray)z["aTiles"]!;
-        Assert.Equal(0, (int)tiles.Single()!);                    // (0,0) in an unchanged 6-wide frame → index 0
+        Assert.Equal(4, (int)tiles.Single()!);                    // (1,1) in an unchanged 3-wide frame → index 4
     }
 
     [Fact]
@@ -187,7 +189,7 @@ public class ZoneTests
 
         var (ship, report) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
 
-        Assert.True(report.GridGrew);
+        Assert.True(report.GridReframed);
         var z = Assert.Single(Zones(ship));
         var idx = (int)((JsonArray)z!["aTiles"]!).Single()!;
         // the zone tile (doc (0,0) = world (100,200)) must decode, in the NEW frame, back to that same world cell —

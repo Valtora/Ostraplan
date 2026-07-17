@@ -27,8 +27,14 @@ public class SaveEditInjectSyntheticTests
         ["strID"] = id, ["strCODef"] = def, ["bAlive"] = true, ["aConds"] = new JsonArray("DEFAULT"),
     };
 
+    /// <summary>
+    /// A synthetic source ship. The default frame (4×3, content at doc (1,1)–(2,1)) is one the GAME could
+    /// actually produce: it rebuilds the tilemap as the part bounding box plus a one-tile margin, so content is
+    /// always inset by exactly 1. Only the tests that assert on <see cref="InjectReport.GridReframed"/> need
+    /// that fidelity — the rest ignore the frame, so their fixtures may sit anywhere and simply get reframed.
+    /// </summary>
     private static SaveShipContext Context(JsonArray items, JsonArray cos, Dictionary<string, OriginPart> origins,
-        int nCols = 6, int nRows = 6, double vx = 100, double vy = 200)
+        int nCols = 4, int nRows = 3, double vx = 100, double vy = 200)
     {
         var ship = new JsonObject
         {
@@ -62,21 +68,24 @@ public class SaveEditInjectSyntheticTests
     [Fact]
     public void A_no_op_edit_keeps_every_part_verbatim_and_fills_atmosphere()
     {
+        // the fixture's frame is the one the game would rebuild (content inset by 1 in a 4×3 grid), so a no-op
+        // edit must leave it alone — see Context
         var cat = new Fixtures().Floor("Floor").Build();
         var ctx = Context(
-            new JsonArray(Item("a", "Floor", 100, 200), Item("b", "Floor", 101, 200)),
+            new JsonArray(Item("a", "Floor", 101, 199), Item("b", "Floor", 102, 199)),
             new JsonArray(Co("a", "Floor"), Co("b", "Floor")),
-            new() { ["a"] = new OriginPart(0, 0, 0, []), ["b"] = new OriginPart(1, 0, 0, []) });
+            new() { ["a"] = new OriginPart(1, 1, 0, []), ["b"] = new OriginPart(2, 1, 0, []) });
         var doc = Fixtures.Doc(cat,
-            new Placement { DefName = "Floor", X = 0, Y = 0, OriginStrID = "a" },
-            new Placement { DefName = "Floor", X = 1, Y = 0, OriginStrID = "b" });
+            new Placement { DefName = "Floor", X = 1, Y = 1, OriginStrID = "a" },
+            new Placement { DefName = "Floor", X = 2, Y = 1, OriginStrID = "b" });
 
         var (ship, report) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
 
         Assert.Equal((2, 0, 0, 0), (report.Kept, report.Moved, report.Added, report.Deleted));
         Assert.Equal(new[] { "a", "b" }, ItemIds(ship).OrderBy(x => x).ToArray());
-        Assert.Equal(101.0, (double)Items(ship).Single(i => (string)i["strID"]! == "b")["fX"]!);   // world coords verbatim
-        Assert.False(report.GridGrew);
+        Assert.Equal(102.0, (double)Items(ship).Single(i => (string)i["strID"]! == "b")["fX"]!);   // world coords verbatim
+        Assert.False(report.GridReframed);
+        Assert.Equal((4, 3), (report.NCols, report.NRows));   // unchanged frame
 
         // the CO-per-item invariant a save load enforces (or the game skips the item)
         Assert.All(ItemIds(ship), id => Assert.Contains(id, CoIds(ship)));
@@ -175,7 +184,7 @@ public class SaveEditInjectSyntheticTests
 
         var (ship, report) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
 
-        Assert.True(report.GridGrew);
+        Assert.True(report.GridReframed);
         Assert.True(report.NCols >= 21 && report.NRows >= 21);
         Assert.Equal(report.NCols, (int)ship["nCols"]!);
         Assert.Equal(report.NRows, (int)ship["nRows"]!);

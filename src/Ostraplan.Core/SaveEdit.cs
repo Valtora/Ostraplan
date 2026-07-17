@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IO;
 using System.IO.Compression;
 using System.Text.Json;
@@ -15,14 +16,15 @@ public sealed record CargoLoss(string ContainerStrID, string ContainerName, IRea
 public sealed record EditCharge(string PlayerCoId, double Amount, double NewBalance);
 
 /// <summary>What an inject did (or would do): the structural change counts, any dropped cargo, soft
-/// placement-law warnings (warn-and-allow), whether the grid had to grow, the final grid size, whether the ship
+/// placement-law warnings (warn-and-allow), whether the grid was reframed (it can grow OR shrink — the frame
+/// tracks the part bounding box plus the game's one-tile margin), the final grid size, whether the ship
 /// was armed to refill its atmosphere on load, and — when the cost was deducted — the amount charged and the
 /// resulting balance.</summary>
 public sealed record InjectReport(
     int Kept, int Moved, int Added, int Deleted,
     IReadOnlyList<CargoLoss> CargoDropped,
     IReadOnlyList<string> Warnings,
-    bool GridGrew, int NCols, int NRows,
+    bool GridReframed, int NCols, int NRows,
     double? Charged = null, double? ResultingBalance = null,
     bool AtmosphereFilled = false, int PowerFixed = 0);
 
@@ -91,6 +93,11 @@ public static class SaveEdit
         var nCols0 = Int(ctx.ShipRecord, "nCols");
         var nRows0 = Int(ctx.ShipRecord, "nRows");
 
+        // The ship's ROOM objects (see RoomCoIds): rooms are regenerated below with fresh strIDs, so every
+        // original room CO must go or it lingers as a ghost room. Held apart from dropSet — these are neither
+        // structural parts nor cargo, so they must not reach the cargo-loss report or the structural CO check.
+        var roomCoIds = RoomCoIds(ctx);
+
         // drop set: deleted structural parts, plus every ORIGINAL contained item that no longer survives — removed
         // from a kept container, or lost with a deleted one (both fall out of keepSet). The cargo-loss REPORT is
         // scoped to deleted containers: an item deliberately removed from a kept container in the editor is an
@@ -131,7 +138,7 @@ public static class SaveEdit
         foreach (var it in Arr(ctx.ShipRecord, "aItems"))
         {
             var id = Str(it, "strID");
-            if (id is not null && dropSet.Contains(id)) continue;
+            if (id is not null && (dropSet.Contains(id) || roomCoIds.Contains(id))) continue;
             var clone = it.DeepClone().AsObject();
             if (id is not null && movedPose.TryGetValue(id, out var mp))
             {
@@ -155,7 +162,7 @@ public static class SaveEdit
         foreach (var co in Arr(ctx.ShipRecord, "aCOs"))
         {
             var id = Str(co, "strID");
-            if (id is not null && dropSet.Contains(id)) continue;
+            if (id is not null && (dropSet.Contains(id) || roomCoIds.Contains(id))) continue;
             var clone = co.DeepClone().AsObject();
             if (Str(clone, "strCODef") is { } cdef && catalog.Lookup(cdef) is { } cpart
                 && BakeTickers(clone, cpart, ctx.Epoch, catalog, onlyPower: true) > 0)
@@ -312,16 +319,28 @@ public static class SaveEdit
             outCOs.Add(headCo);
         }
 
-        // grid frame: never shrink below the original (keeps nDestTile valid); grow to fit new parts
+        // Grid frame: the part bounding box plus a ONE-TILE MARGIN, which is exactly what the game rebuilds on
+        // load and therefore the only frame the tile indices written below may be expressed in. Ship.UpdateTiles
+        // pads the tilemap around every spawned item by (-1,+1) tiles (TileUtils.PadTilemap) and seeds vShipPos
+        // off the first item, so the loaded grid is always bbox±1 regardless of the nCols/vShipPos we write —
+        // those only feed the shallow (unloaded) view, Ship.cs' `LoadState > Loaded.Shallow ? nCols : json.nCols`.
+        // Get this wrong and every aRooms/aZones index decodes against a grid of a different width: rooms bind to
+        // the wrong tiles (ghost rooms) and zones skew, the error compounding by one column per row.
+        // Hugging the content with no margin was the ghost-room bug — an under-floor tank ring reaching the old
+        // edge grew the frame to the footprint exactly. Verified against real saves: bbox±1 reproduces the game's
+        // own frame on all four edges (see SaveEditFrameTests).
         int minC = 0, minR = 0, maxC = nCols0 - 1, maxR = nRows0 - 1;
         if (doc.Bounds() is { } b)
         {
-            minC = Math.Min(minC, b.MinX); minR = Math.Min(minR, b.MinY);
-            maxC = Math.Max(maxC, b.MaxX); maxR = Math.Max(maxR, b.MaxY);
+            minC = b.MinX - 1; minR = b.MinY - 1;
+            maxC = b.MaxX + 1; maxR = b.MaxY + 1;
         }
         var nColsNew = maxC - minC + 1;
         var nRowsNew = maxR - minR + 1;
-        var grew = minC != 0 || minR != 0 || nColsNew != nCols0 || nRowsNew != nRows0;
+        // The frame moved if the origin shifted OR the extent changed — it can now SHRINK (deleting the outermost
+        // parts tightens the game's grid too), so this is a "reframed" test, not the old "grew" one. Every
+        // grid-relative index we do not rewrite (crew nDestTile) is stale whenever this is true.
+        var reframed = minC != 0 || minR != 0 || nColsNew != nCols0 || nRowsNew != nRows0;
         var vxNew = vx0 + minC;
         var vyNew = vy0 - minR;
 
@@ -359,8 +378,8 @@ public static class SaveEdit
             rating.Epoch.Length == 0 ? "0" : rating.Epoch, wornGrade ?? rating.Condition, rating.RoomCount,
             rating.Maneuver, rating.Size, rating.Slot5);
 
-        // if the grid grew, crew nDestTile (a flat index into nCols*nRows) is stale — recompute from world pos
-        if (grew) RecomputeCrewDestTiles(ctx, outCOs, vxNew, vyNew, nColsNew, nRowsNew);
+        // if the grid was reframed, crew nDestTile (a flat index into nCols*nRows) is stale — recompute from world pos
+        if (reframed) RecomputeCrewDestTiles(ctx, outCOs, vxNew, vyNew, nColsNew, nRowsNew);
 
         // assemble: clone every original field verbatim, then overwrite only the structural ones
         var ship = new JsonObject();
@@ -384,7 +403,10 @@ public static class SaveEdit
         ship["nCols"] = nColsNew;
         ship["nRows"] = nRowsNew;
         ship["vShipPos"] = new JsonObject { ["x"] = vxNew, ["y"] = vyNew };
-        ship["dimensions"] = $"{nColsNew * MetresPerTile:0.00}m x {nRowsNew * MetresPerTile:0.00}m";
+        // InvariantCulture: the game parses/prints '.' decimals, so a comma-decimal locale must not leak a
+        // "15,36m x 11,20m" into the save.
+        ship["dimensions"] = string.Create(CultureInfo.InvariantCulture,
+            $"{nColsNew * MetresPerTile:0.00}m x {nRowsNew * MetresPerTile:0.00}m");
 
         // Refill the atmosphere on load: regenerating aRooms orphans the per-room gas containers, so the whole
         // ship comes up in vacuum. bPrefill makes the game run its own PreFillRooms (22 kPa O2 / 80 kPa N2 /
@@ -406,7 +428,7 @@ public static class SaveEdit
 
         var report = new InjectReport(
             diff.KeptCount, diff.MovedCount, diff.NewCount, diff.DeletedCount,
-            cargoLosses, warnings, grew, nColsNew, nRowsNew,
+            cargoLosses, warnings, reframed, nColsNew, nRowsNew,
             charge?.Amount, charge?.NewBalance, atmosphereFilled, powerFixed);
         return (ship, report);
     }
@@ -583,6 +605,44 @@ public static class SaveEdit
         foreach (var id in ctx.Origins.Keys)   // every surviving structural part must keep its condition owner
             if (!dropSet.Contains(id) && !coIds.Contains(id))
                 throw new InvalidDataException($"Structural part '{id}' lost its condition owner — inject aborted.");
+    }
+
+    /// <summary>
+    /// Every ROOM condition-owner in the source ship. A room is not a buildable part: the game backs each one
+    /// with a <c>Compartment</c> CO (<c>Room</c>'s <c>coRoom</c>) and saves the room under <b>that CO's</b>
+    /// strID (<c>Room.GetJSONSave</c>: <c>jsonRoom.strID = coRoom.strID</c>). Compartments never enter the
+    /// document (they aren't parts), so an inject that rebuilds <c>aRooms</c> with fresh strIDs would leave
+    /// every original Compartment behind, referenced by nothing: on load <c>Ship.CreateRooms</c> resolves each
+    /// saved room via <c>GetCOByID(strID)</c>, misses, logs "Generating new room with old ID" and mints a
+    /// replacement, while the originals are never consumed by its <c>RemoveCO</c> and linger as unbound IsRoom
+    /// COs — the ghost rooms. Dropping them lets the game rebuild each room cleanly from the saved strID.
+    ///
+    /// <para>Identified by the source's own <c>aRooms</c> (authoritative — these ARE the room strIDs), widened
+    /// to any CO whose def or conds mark it a room, so a Compartment orphaned by an earlier ghost-room episode
+    /// is swept up too rather than being preserved forever.</para>
+    /// </summary>
+    private static HashSet<string> RoomCoIds(SaveShipContext ctx)
+    {
+        var ids = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var r in Arr(ctx.ShipRecord, "aRooms"))
+            if (Str(r, "strID") is { } id) ids.Add(id);
+        foreach (var co in Arr(ctx.ShipRecord, "aCOs"))
+            if (Str(co, "strID") is { } id
+                && (Str(co, "strCODef") == RoomCoDef || HasCond(co, "IsRoom")))
+                ids.Add(id);
+        return ids;
+    }
+
+    /// <summary>The game's room condowner def (<c>Room</c>: <c>DataHandler.GetCondOwner("Compartment")</c>).</summary>
+    private const string RoomCoDef = "Compartment";
+
+    /// <summary>True when a saved CO's <c>aConds</c> carries <paramref name="cond"/> (entries are
+    /// "<c>Name=valuexcount</c>", so match on the name before '=').</summary>
+    private static bool HasCond(JsonNode? co, string cond)
+    {
+        foreach (var c in Arr(co, "aConds"))
+            if (c is JsonValue v && v.TryGetValue<string>(out var s) && LootDef.CondName(s) == cond) return true;
+        return false;
     }
 
     /// <summary>Recompute each crew member's flat destination-tile index from their world position in the new grid.</summary>

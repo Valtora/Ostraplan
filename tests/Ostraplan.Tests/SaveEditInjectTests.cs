@@ -51,26 +51,53 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         return r.ReadToEnd();
     }
 
+    /// <summary>The source ship's room strIDs — its <c>Compartment</c> COs, which an inject always replaces
+    /// (see <c>SaveEdit.RoomCoIds</c>). Everything else must survive a no-op verbatim.</summary>
+    private static HashSet<string> RoomIds(JsonNode ship) =>
+        ((JsonArray)ship["aRooms"]!).Select(r => (string)r!["strID"]!).ToHashSet(StringComparer.Ordinal);
+
+    private static HashSet<string> IdsOf(JsonNode ship, string prop) =>
+        ((JsonArray)ship[prop]!).Select(n => (string?)n!["strID"]).Where(s => s is not null).ToHashSet(StringComparer.Ordinal)!;
+
+    /// <summary>The source ship's item/CO counts MINUS its room COs — the baseline every inject starts from,
+    /// because rooms are always rebuilt with fresh strIDs and the originals dropped. Tests below express their
+    /// expectations as a delta off this (+1 for an added part, −1 for a deleted one).</summary>
+    private static (int Items, int COs) Baseline(JsonNode rec)
+    {
+        var rooms = RoomIds(rec).Count;
+        return (Count(rec, "aItems") - rooms, Count(rec, "aCOs") - rooms);
+    }
+
     [SkippableFact]
-    public void Noop_inject_preserves_every_item_and_co()
+    public void Noop_inject_preserves_every_item_and_co_except_the_rooms_it_rebuilds()
     {
         var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
 
-        var origItems = Count(r.Context.ShipRecord, "aItems");
-        var origCOs = Count(r.Context.ShipRecord, "aCOs");
+        var rec = r.Context.ShipRecord;
+        var origItems = Count(rec, "aItems");
+        var origCOs = Count(rec, "aCOs");
+        var rooms = RoomIds(rec);
+        Skip.If(rooms.Count == 0, "this save's ship has no rooms to exercise");
 
         var (ship, report) = SaveEdit.BuildInjectedShip(r.Doc, r.Context, g.Catalog, specs);
 
-        Assert.Equal(origItems, Count(ship, "aItems"));   // nothing added or dropped
-        Assert.Equal(origCOs, Count(ship, "aCOs"));
+        // the ONLY entries an inject removes are the room COs: rooms are rebuilt with fresh strIDs, so the
+        // originals must go or they linger as unbound IsRoom COs (ghost rooms)
+        Assert.Equal(origItems - rooms.Count, Count(ship, "aItems"));
+        Assert.Equal(origCOs - rooms.Count, Count(ship, "aCOs"));
+        Assert.Empty(IdsOf(ship, "aItems").Intersect(rooms));
+        Assert.Empty(IdsOf(ship, "aCOs").Intersect(rooms));
+        // every non-room original survives untouched
+        Assert.Empty(IdsOf(rec, "aItems").Except(rooms).Except(IdsOf(ship, "aItems")));
+        Assert.Empty(IdsOf(rec, "aCOs").Except(rooms).Except(IdsOf(ship, "aCOs")));
+
         Assert.Equal(0, report.Added);
         Assert.Equal(0, report.Moved);
         Assert.Equal(0, report.Deleted);
         Assert.Empty(report.CargoDropped);
-        Assert.False(report.GridGrew);
-        _out.WriteLine($"no-op: {report.Kept} kept, {origItems} items, {origCOs} COs, {report.NCols}x{report.NRows}, {report.Warnings.Count} warnings");
+        _out.WriteLine($"no-op: {report.Kept} kept, {origItems} items, {origCOs} COs, {rooms.Count} rooms rebuilt, {report.NCols}x{report.NRows}, reframed={report.GridReframed}, {report.Warnings.Count} warnings");
     }
 
     [SkippableFact]
@@ -81,8 +108,7 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         var specs = RoomCertifier.LoadSpecs(g.Index);
         if (r.Doc.Bounds() is not { } b) return;
 
-        var items0 = Count(r.Context.ShipRecord, "aItems");
-        var cos0 = Count(r.Context.ShipRecord, "aCOs");
+        var (items0, cos0) = Baseline(r.Context.ShipRecord);
         var def = r.Doc.Placements[0].DefName;
         // place inside the existing bounds so the grid doesn't blow up
         new PlaceCommand(new Placement { DefName = def, X = b.MinX, Y = b.MinY }).Do(r.Doc);
@@ -116,7 +142,7 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         var cls = ReplaceOps.CommonClass(r.Doc, [target])!.Value;
         if (ReplaceOps.CompatibleTargets(g.Catalog, cls).FirstOrDefault(d => d.DefName != target.DefName) is not { } other) return;
 
-        var cos0 = Count(r.Context.ShipRecord, "aCOs");
+        var (_, cos0) = Baseline(r.Context.ShipRecord);
         var swap = ReplaceOps.BuildSwap(r.Doc, [target], other.DefName);
         Assert.NotNull(swap);
         swap!.Value.Cmd.Do(r.Doc);
@@ -212,8 +238,7 @@ public class SaveEditInjectTests(ITestOutputHelper output)
             !r.Doc.IsLocked(p) && p.OriginStrID is { } id && r.Context.Origins[id].CargoIds.Count == 0);
         if (target is null) return;
 
-        var items0 = Count(r.Context.ShipRecord, "aItems");
-        var cos0 = Count(r.Context.ShipRecord, "aCOs");
+        var (items0, cos0) = Baseline(r.Context.ShipRecord);
         new RemoveCommand([target]).Do(r.Doc);
 
         var (ship, report) = SaveEdit.BuildInjectedShip(r.Doc, r.Context, g.Catalog, specs);
@@ -513,11 +538,12 @@ public class SaveEditInjectTests(ITestOutputHelper output)
             Assert.True(File.Exists(Path.Combine(outDir, name + ".zip")), "zip renamed to match the folder");
             Assert.Contains(name, File.ReadAllText(Path.Combine(outDir, "saveInfo.json")));
 
-            // its spliced ship record parses and — this was a no-op inject — round-trips every item
+            // its spliced ship record parses and — this was a no-op inject — round-trips every item bar the
+            // room COs it rebuilds
             var injected = ReadShipEntry(Path.Combine(outDir, name + ".zip"), r.Context.Source.RegId);
             var shipNode = ShipTemplate.ParseFile(injected).OrderByDescending(s => s.Items.Count).FirstOrDefault();
             Assert.NotNull(shipNode);
-            Assert.Equal(Count(r.Context.ShipRecord, "aItems"), shipNode!.Items.Count);
+            Assert.Equal(Baseline(r.Context.ShipRecord).Items, shipNode!.Items.Count);
 
             // the ORIGINAL save is byte-for-byte what it was
             Assert.Equal(originalBefore, ReadShipEntry(r.Context.ZipPath, r.Context.Source.RegId));
@@ -536,8 +562,7 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         if (r.Doc.Bounds() is not { } b) return;
         if (g.Catalog.Lookup("ItmStationNav") is not { } consoleDef || !NavConsole.IsConsole(consoleDef)) return;
 
-        var items0 = Count(r.Context.ShipRecord, "aItems");
-        var cos0 = Count(r.Context.ShipRecord, "aCOs");
+        var (items0, cos0) = Baseline(r.Context.ShipRecord);
         var n = NavConsole.StandardModules.Count;
 
         new PlaceCommand(new Placement { DefName = "ItmStationNav", X = b.MinX, Y = b.MinY }).Do(r.Doc);
@@ -602,8 +627,7 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         }
         if (container is null) return;   // no container with room found in this save
 
-        var items0 = Count(r.Context.ShipRecord, "aItems");
-        var cos0 = Count(r.Context.ShipRecord, "aCOs");
+        var (items0, cos0) = Baseline(r.Context.ShipRecord);
         new SetCargoCommand(container, container.Cargo, updated!).Do(r.Doc);
 
         var (ship, report) = SaveEdit.BuildInjectedShip(r.Doc, r.Context, g.Catalog, specs);
@@ -636,8 +660,7 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         var victim = container.Cargo.First(c => !c.IsStack && c.Children.Count == 0 && !c.Slotted);
         if (!r.Context.CosById.ContainsKey(victim.StrID)) return;   // expect the 1:1 CO
 
-        var items0 = Count(r.Context.ShipRecord, "aItems");
-        var cos0 = Count(r.Context.ShipRecord, "aCOs");
+        var (items0, cos0) = Baseline(r.Context.ShipRecord);
         new SetCargoCommand(container, container.Cargo, CargoEdit.RemoveWhole(container.Cargo, victim.StrID)).Do(r.Doc);
 
         var (ship, report) = SaveEdit.BuildInjectedShip(r.Doc, r.Context, g.Catalog, specs);
