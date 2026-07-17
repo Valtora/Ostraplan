@@ -165,6 +165,7 @@ public sealed class ShipCanvas : FrameworkElement
             _zoom = value;
             _staticShip = null;
             _powerGeoDirty = true;   // segment geometries bake tile centres at this zoom
+            _roomGeoDirty = true;    // room fills bake cell rects at this zoom
         }
     }
     private double _zoom = 48;
@@ -178,6 +179,7 @@ public sealed class ShipCanvas : FrameworkElement
     public bool ShowZones { get; private set; }        // zone overlay visibility (toolbar/key toggle)
     public Guid? ActiveZoneId { get; private set; }    // the zone being painted, or null when not in zone-paint mode
     public bool ShowPower { get; private set; }        // PowerViz conduit overlay visibility (toolbar/P toggle)
+    public bool ShowRooms { get; private set; }        // RoomViz compartment overlay visibility (toolbar/C toggle)
 
     /// <summary>When true the canvas is in <b>wire mode</b>: click a signalable device to arm it as the signal
     /// source, then click another to connect them (click a connected one again to disconnect). See
@@ -204,6 +206,14 @@ public sealed class ShipCanvas : FrameworkElement
     private IReadOnlyList<(int X, int Y)> _leakCells = [];      // unsealed tiles of a leaking compartment (from the Ship Rating report)
     private HashSet<(int X, int Y)> _airSelection = [];         // an enclosed "air" region highlighted for a fill (double-click empty space, then arm + Enter)
     private PowerOverlay _powerOverlay = PowerOverlay.Empty;    // the computed power network (doc coords), pushed by the window after each scan
+    private RoomOverlay _roomOverlay = RoomOverlay.Empty;       // the certified compartments (doc coords), pushed by the window after each scan
+    // RoomViz bakes exactly like PowerViz: the per-room tile fills become one frozen Geometry each in pan-zero
+    // space (a station room is hundreds of cells — a DrawRectangle each, every frame, is what made panning crawl),
+    // and the labels' FormattedText is built once per overlay rather than per frame. Both rebuild only when the
+    // overlay data or the zoom changes; panning is then a transform over a handful of baked strokes.
+    private List<(Geometry Geo, Brush Fill)>? _roomGeos;
+    private List<RoomLabel>? _roomLabels;
+    private bool _roomGeoDirty;
     private double _powerPhase;                                 // animated dash offset for the lit conduit flow
     private bool _powerAnimating;                               // whether the per-frame flow tick is hooked
     private TimeSpan _lastPowerTime;                            // last CompositionTarget.Rendering time, to advance the phase by elapsed seconds
@@ -249,6 +259,7 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action<GhostStatus?>? GhostReasonChanged;   // the armed ghost's illegality status, null when legal/disarmed
     public event Action? ShowZonesChanged;              // the zone overlay was toggled (update the toolbar caption)
     public event Action? ShowPowerChanged;              // the PowerViz overlay was toggled (update the toolbar caption + trigger a scan)
+    public event Action? ShowRoomsChanged;              // the RoomViz overlay was toggled (update the toolbar caption + trigger a scan)
     public event Action? WireModeChanged;               // wire mode was toggled (update the hint / menu check)
     public event Action<Placement, Placement>? LinkToggleRequested;   // connect source→target, or disconnect if already linked
     public event Action? ActiveZoneChanged;             // the painted zone changed (sync the zones panel selection)
@@ -415,6 +426,27 @@ public sealed class ShipCanvas : FrameworkElement
         _powerOverlay = overlay ?? PowerOverlay.Empty;
         _powerGeoDirty = true;
         UpdatePowerAnimation();
+        InvalidateVisual();
+    }
+
+    /// <summary>Toggle the RoomViz compartment overlay. Like PowerViz, the partition is only certified off-thread
+    /// while the overlay is on — the window listens on <see cref="ShowRoomsChanged"/> to schedule that scan.</summary>
+    public void ToggleRooms() => SetShowRooms(!ShowRooms);
+
+    public void SetShowRooms(bool on)
+    {
+        if (ShowRooms == on) return;
+        ShowRooms = on;
+        if (!on) { _roomOverlay = RoomOverlay.Empty; _roomGeos = null; _roomLabels = null; }   // drop stale data so it can't flash on re-enable
+        ShowRoomsChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    /// <summary>The freshly certified compartments (document coords), pushed by the window after each scan.</summary>
+    public void SetRoomOverlay(RoomOverlay overlay)
+    {
+        _roomOverlay = overlay ?? RoomOverlay.Empty;
+        _roomGeoDirty = true;
         InvalidateVisual();
     }
 
@@ -678,6 +710,16 @@ public sealed class ShipCanvas : FrameworkElement
         var m = Matrix.Identity;
         m.RotateAt(-ViewRot, RenderSize.Width / 2, RenderSize.Height / 2);
         return m.Transform(s);
+    }
+
+    /// <summary>A pan-space point back to where it actually lands on screen — the inverse of
+    /// <see cref="ScreenToPanSpace"/>, i.e. the view-rotation transform <see cref="OnRender"/> pushes.</summary>
+    private Point PanSpaceToScreen(Point p)
+    {
+        if (ViewRot == 0) return p;
+        var m = Matrix.Identity;
+        m.RotateAt(ViewRot, RenderSize.Width / 2, RenderSize.Height / 2);
+        return m.Transform(p);
     }
 
     private Vector ScreenPanDelta(Vector v)
@@ -1868,6 +1910,7 @@ public sealed class ShipCanvas : FrameworkElement
         DrawIllegalCells(dc);
         DrawLeakCells(dc);
         DrawAirSelection(dc);
+        if (ShowRooms) DrawRoomOverlay(dc);   // under the zones: rooms are the ground truth a zone is drawn onto
         if (ShowZones || ActiveZoneId is not null) DrawZones(dc);
         DrawOutOfBounds(dc, view);
         DrawOriginMarker(dc);
@@ -1997,6 +2040,187 @@ public sealed class ShipCanvas : FrameworkElement
 
     /// <summary>Centre of a document tile in screen space (pre view-rotation transform, like <see cref="CellRect"/>).</summary>
     private Point TileCenter((int X, int Y) t) => new(_pan.X + (t.X + 0.5) * Zoom, _pan.Y + (t.Y + 0.5) * Zoom);
+
+    // ---- RoomViz (the compartment overlay) ----
+
+    private static readonly Brush RoomTextBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xF2, 0xF7, 0xFF)));
+    private static readonly Brush RoomDimTextBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xB4, 0xC0, 0xD0)));
+    private static readonly Brush RoomWarnTextBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xF0, 0xC4, 0x60)));
+    private static readonly Pen RoomEdgePen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x66, 0xFF, 0xFF, 0xFF)), 1));
+
+    /// <summary>Below this zoom a room label would be unreadable clutter, so only the tints draw.</summary>
+    private const double RoomLabelMinZoom = 9.0;
+
+    private const double RoomLabelPad = 5;
+    private const double RoomLabelGap = 1;
+
+    /// <summary>A room's baked label: its text lines and their block size (both zoom-independent), the room's
+    /// centroid in pan-zero space, and how important it is to show (bigger rooms win a collision). Built once per
+    /// overlay in <see cref="EnsureRoomVisuals"/> — <see cref="FormattedText"/> is far too costly to build per frame.</summary>
+    private sealed class RoomLabel
+    {
+        public FormattedText[] Lines = [];
+        public FormattedText[] TitleOnly = [];
+        public double W, H;                 // full block
+        public double TitleW, TitleH;       // fallback block, when the full one won't fit
+        public Point Centre;                // pan-zero
+        public int Weight;                  // tile count: the label a collision should keep
+    }
+
+    private static FormattedText RoomText(string s, double size, Brush brush, bool bold = false) =>
+        new(s, CultureInfo.CurrentCulture, FlowDirection.LeftToRight,
+            new Typeface(new FontFamily("Segoe UI"), FontStyles.Normal,
+                bold ? FontWeights.SemiBold : FontWeights.Normal, FontStretches.Normal),
+            size, brush, 1.0)
+        { TextAlignment = TextAlignment.Center };
+
+    /// <summary>Bake the room fills into frozen pan-zero geometries at the current zoom and the labels into
+    /// ready-made text, so a frame is a few <see cref="DrawingContext.DrawGeometry"/> calls plus some DrawText
+    /// rather than a rectangle per tile and a text layout per room. Rebuilt only when the overlay or zoom changes
+    /// (see <see cref="_roomGeoDirty"/>) — this is what keeps panning smooth with RoomViz on.</summary>
+    private void EnsureRoomVisuals()
+    {
+        if (!_roomGeoDirty) return;
+        _roomGeoDirty = false;
+
+        var geos = new List<(Geometry, Brush)>(_roomOverlay.Rooms.Count);
+        var labels = new List<RoomLabel>(_roomOverlay.Rooms.Count);
+        foreach (var room in _roomOverlay.Rooms)
+        {
+            if (room.Tiles.Count == 0) continue;
+
+            var geo = new StreamGeometry();
+            using (var c = geo.Open())
+                foreach (var (x, y) in room.Tiles)
+                {
+                    // one closed square per cell; the grid lines still show through the translucent fill
+                    var r = new Rect(x * Zoom, y * Zoom, Zoom, Zoom);
+                    c.BeginFigure(r.TopLeft, true, true);
+                    c.PolyLineTo([r.TopRight, r.BottomRight, r.BottomLeft], true, false);
+                }
+            geo.Freeze();
+            geos.Add((geo, room.Void ? RoomOpenFill : RoomPalette[room.Index % RoomPalette.Length]));
+
+            var title = room.Certified ? room.SpecFriendly : room.Void ? "Unsealed" : "Uncertified";
+            var titleFt = RoomText(title, 13, room.Certified ? RoomTextBrush : RoomWarnTextBrush, bold: true);
+            var lines = new List<FormattedText>
+            {
+                titleFt,
+                RoomText($"{room.TileCount} tiles · ${room.Value.ToString("#,##0", CultureInfo.InvariantCulture)}", 11, RoomDimTextBrush),
+            };
+            foreach (var miss in room.NearMisses)
+                lines.Add(RoomText(miss, 11, RoomDimTextBrush));
+
+            double sx = 0, sy = 0;
+            foreach (var (x, y) in room.Tiles) { sx += x + 0.5; sy += y + 0.5; }
+
+            labels.Add(new RoomLabel
+            {
+                Lines = [.. lines],
+                TitleOnly = [titleFt],
+                W = lines.Max(l => l.Width),
+                H = lines.Sum(l => l.Height) + RoomLabelGap * (lines.Count - 1),
+                TitleW = titleFt.Width,
+                TitleH = titleFt.Height,
+                Centre = new Point(sx / room.Tiles.Count * Zoom, sy / room.Tiles.Count * Zoom),
+                Weight = room.TileCount,
+            });
+        }
+        _roomGeos = geos;
+        _roomLabels = labels;
+    }
+
+    /// <summary>
+    /// RoomViz: the compartments the game would flood-fill, each tinted in its own hue so the partition reads at a
+    /// glance, labelled with what it certifies as, its size and its worth. A room that certifies as nothing also
+    /// lists why — what to add, and which member item forbids it — so the classic silent failure (a canister parked
+    /// in an otherwise-valid quarters) is visible on the plan instead of only in the Ship Rating report.
+    /// An unsealed room draws in the same hazard red the rating snapshot uses for open-to-space.
+    /// Drawn live in <see cref="OnRender"/>, never baked into the sprite cache, so edits appear immediately.
+    /// </summary>
+    private void DrawRoomOverlay(DrawingContext dc)
+    {
+        if (_roomOverlay.IsEmpty) return;
+        EnsureRoomVisuals();
+
+        // fills: baked at pan zero, so draw them under the live-pan transform (one DrawGeometry per room)
+        dc.PushTransform(new TranslateTransform(_pan.X, _pan.Y));
+        foreach (var (geo, fill) in _roomGeos!)
+            dc.DrawGeometry(fill, null, geo);
+        dc.Pop();
+
+        if (Zoom >= RoomLabelMinZoom) DrawRoomLabels(dc);
+    }
+
+    /// <summary>
+    /// Lay the room labels out and draw them. Two things the naive version got wrong on a real ship:
+    /// <list type="bullet">
+    /// <item>Labels must stay <b>upright</b>. The whole render pass sits under the view-rotation transform (Q/E),
+    /// so text drawn plainly comes out sideways; each label counter-rotates about its own anchor, the same trick
+    /// the connector badges use.</item>
+    /// <item>Labels must not <b>overlap</b>. Centroids of neighbouring compartments can sit close together (and a
+    /// near-miss line is wide), so labels are placed biggest-room-first and each one takes the first of: its full
+    /// block, a nudge up/down, its title alone, or nothing. Dropping the smallest room's label beats stacking two
+    /// unreadable ones.</item>
+    /// </list>
+    /// Off-screen labels are skipped, so a station costs only what is actually in view.
+    /// </summary>
+    private void DrawRoomLabels(DrawingContext dc)
+    {
+        var screen = new Rect(RenderSize);
+        var taken = new List<Rect>();
+
+        foreach (var label in _roomLabels!.OrderByDescending(l => l.Weight))
+        {
+            var anchor = new Point(_pan.X + label.Centre.X, _pan.Y + label.Centre.Y);   // pan space
+            // Counter-rotating about the anchor makes the label an UPRIGHT box centred where the anchor lands on
+            // screen, and a (0,dy) nudge about the anchor survives the round trip as a (0,dy) screen offset. So
+            // collisions are resolved in screen space while the draw stays in the rotated pass.
+            var at = PanSpaceToScreen(anchor);
+            if (!screen.Contains(at)) continue;   // the room's centre isn't in view — nothing to label
+
+            foreach (var (w, h, dy, lines) in Candidates(label))
+            {
+                var box = LabelBox(at, w, h, dy);
+                if (taken.Any(t => t.IntersectsWith(box))) continue;
+                taken.Add(box);
+                DrawRoomLabelBlock(dc, anchor, LabelBox(anchor, w, h, dy), lines);
+                break;
+            }
+        }
+    }
+
+    private static Rect LabelBox(Point at, double w, double h, double dy) =>
+        new(at.X - w / 2 - RoomLabelPad, at.Y + dy - h / 2 - RoomLabelPad,
+            w + RoomLabelPad * 2, h + RoomLabelPad * 2);
+
+    /// <summary>Where to try putting a label, best first: the full block on the centroid, then nudged clear above
+    /// or below it, then the title on its own. A small room losing its detail (or its label) beats two stacked
+    /// unreadable ones — and the biggest-room-first order means what survives is what matters most.</summary>
+    private static IEnumerable<(double W, double H, double Dy, FormattedText[] Lines)> Candidates(RoomLabel l)
+    {
+        yield return (l.W, l.H, 0, l.Lines);
+        yield return (l.W, l.H, -(l.H / 2 + 10), l.Lines);
+        yield return (l.W, l.H, l.H / 2 + 10, l.Lines);
+        yield return (l.TitleW, l.TitleH, 0, l.TitleOnly);
+    }
+
+    private void DrawRoomLabelBlock(DrawingContext dc, Point anchor, Rect box, FormattedText[] lines)
+    {
+        // the render pass is rotated by ViewRot; counter-rotate about the anchor so the text reads upright
+        var rotate = ViewRot != 0;
+        if (rotate) dc.PushTransform(new RotateTransform(-ViewRot, anchor.X, anchor.Y));
+
+        dc.DrawRoundedRectangle(LabelBg, RoomEdgePen, box, 3, 3);
+        var y = box.Y + RoomLabelPad;
+        foreach (var line in lines)
+        {
+            dc.DrawText(line, new Point(box.X + box.Width / 2, y));
+            y += line.Height + RoomLabelGap;
+        }
+
+        if (rotate) dc.Pop();
+    }
 
     /// <summary>
     /// PowerViz: the ship's conduit network. Orphaned (unpowered) runs draw as dim dashed red; live runs draw as a

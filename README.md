@@ -69,6 +69,10 @@ Please report your bugs here on the repo's Issues tracker.
   mating face is blocked.
 - **Rooms, airtightness & Ship Rating** — flood-fill compartments, room
   certification, and the six-slot rating.
+- **RoomViz** (`C`) — every compartment tinted and labelled with what it certifies
+  as, its size and its value. A room that certifies as nothing says why, including
+  which item sitting in it blocks the spec — the canister in your quarters that
+  quietly costs you the room.
 - **Law report** — every problem in one place, tracing air leaks to the exact
   unsealed tile.
 
@@ -88,7 +92,8 @@ Please report your bugs here on the repo's Issues tracker.
 
 Resolves your `loading_order.json` exactly like the game, so modded parts appear
 in the palette. A design records the mods it needs; open it without them and it
-stays **read-only** until you enable them, so nothing is silently lost.
+stays **read-only** so nothing is silently lost — enable them and the parts come
+back, or say the word and Ostraplan will drop them and carry on.
 
 *Plus PNG snapshots, light/dark theming, and an optional update check.*
 

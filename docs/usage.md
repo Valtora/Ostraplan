@@ -112,6 +112,14 @@ only affects modded content.
 - **Ship Rating** (Analyse): runs the full room / airtightness / certification /
   rating pass and opens the **law report** — uncertifiable rooms with reasons,
   air-leak tracing to the unsealed tile, and the six-slot rating broken down.
+- **RoomViz overlay** — the **Rooms** View-menu entry or **C**. The same
+  certification, live on the canvas: every compartment tinted in its own colour and
+  labelled with what it certifies as, its tile count and its value. An uncertified
+  room also lists what it needs and, importantly, which item **in** it blocks the
+  spec — a gas canister left in a quarters keeps the room Blank and costs you its
+  value, and this is where you see that. Unsealed rooms are red; the exterior isn't
+  tinted, so a compartment open to space simply loses its tint. Like PowerViz it only
+  computes while it's on.
 - **Problems** (inspector): live blocking/warning issues for placement and
   airlock-envelope. Each entry expands for the detail, and a **View** button pans and
   zooms the canvas straight to the offending tiles so it's easy to find on a big ship.
@@ -131,12 +139,17 @@ document notes. It does **not** embed game assets. See
 
 **Sharing a modded design:** the `.oplan` records which mods it needs. If someone
 opens it without those mods, Ostraplan names the missing parts and their mods and
-holds the design **read-only** — a standing "MISSING MODS" warning appears and
-saving is blocked — until the mods are enabled. This is deliberate: it stops the
-missing parts being silently dropped, and stops you building over where they
-belong (which would break the ship in-game). Use
-[Ostrasort](https://github.com/Valtora/Ostrasort) to confirm the required mods are
-subscribed, enabled, and in a working order, then reopen.
+holds the design **read-only** — a standing "MISSING MODS" warning appears. This is
+deliberate: saving rewrites the design as it stands, so it would drop those parts
+for good, and building over where they belong would break the ship in-game.
+
+Two ways out, and it's your call which:
+
+- **You still want the parts:** enable the mods and reopen, and they come back. Use
+  [Ostrasort](https://github.com/Valtora/Ostrasort) to confirm they're subscribed,
+  enabled, and in a working order.
+- **You're done with those mods:** just **Save** and confirm. The parts are dropped,
+  the warning clears, and the design carries on as a normal, complete one.
 
 ## Import & export
 
@@ -197,6 +210,22 @@ identity*, so you can redesign the structure out-of-game and write it back.
 - A save-edit `.oplan` stays **linked** to its save — it references the live state
   rather than embedding it, so keep the save if you want to write back later. For a
   ship detached from any save, **Export** it instead.
+
+### If your ship uses mods you don't have loaded
+
+Ostraplan will say so on import, and it matters more than it sounds. It can't see
+those items at all, but they're still in your save — so it works out your rooms and
+the ship's grid *as if they weren't there*. A missing modded **wall** means a room
+runs straight through it; a missing part at the hull edge throws the grid out. Write
+back like that and you can get ghost rooms and shifted zones in game.
+
+- **Best fix:** cancel, enable the mods (Ostrasort will confirm they're subscribed
+  and enabled), and import again.
+- **Otherwise:** pick a real part to stand in for each missing one. A stand-in
+  **replaces** that item in the save you write back — the modded part isn't kept —
+  so choose something the same size where you can. Delete a stand-in and you're back
+  to leaving the modded item untouched.
+- Leaving them alone is allowed; **Update Ship in Save** warns you once more first.
 
 Editing a ship you don't own (a station, another vessel) is gated behind a stern
 warning — it's unsupported.

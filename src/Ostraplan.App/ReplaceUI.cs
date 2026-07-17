@@ -23,11 +23,14 @@ public sealed class ReplacePickerDialog : Window
 
     public PartDef? Selected { get; private set; }
 
-    public ReplacePickerDialog(IReadOnlyList<PartVM> compatible, string what)
+    /// <summary><paramref name="noteText"/> overrides the default explanation — the missing-mod stand-in picker
+    /// (<see cref="MissingPartsDialog"/>) offers the whole palette rather than same-layer/footprint swaps, so the
+    /// default note would be wrong there.</summary>
+    public ReplacePickerDialog(IReadOnlyList<PartVM> compatible, string what, string? title = null, string? noteText = null)
     {
         _all = compatible;
 
-        Title = "Replace with…";
+        Title = title ?? "Replace with…";
         Width = 460; Height = 620;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = ThemeManager.WindowBg;
@@ -36,7 +39,8 @@ public sealed class ReplacePickerDialog : Window
 
         var note = new TextBlock
         {
-            Text = $"Swap {what} for another part of the same kind — same layer and footprint. Position and rotation are kept.",
+            Text = noteText
+                   ?? $"Swap {what} for another part of the same kind — same layer and footprint. Position and rotation are kept.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
         };
         DockPanel.SetDock(note, Dock.Top);

@@ -13,6 +13,41 @@ each release was verified against is recorded in
 
 ## [0.45.0] 2026-07-17, No more ghost rooms
 
+### Added
+- **RoomViz, a rooms overlay (`C`).** Shows every compartment the way the game will flood-fill it: each one tinted
+  in its own colour, labelled with what it certifies as, how many tiles it has and what it is worth. A room that
+  certifies as nothing tells you **why** right there on the plan — what it still needs, and which item sitting in it
+  **blocks** the spec. That last one is the classic silent failure: a gas canister parked in an otherwise-perfect
+  quarters keeps it Blank and costs you the room's value, with nothing on screen to say so. Unsealed compartments
+  are red. The exterior isn't tinted, so a room that is open to space simply loses its tint.
+
+  It is the same certification the Ship Rating report runs, just live on the canvas, and like PowerViz it only
+  computes while the overlay is on. Also on the View menu.
+
+- **Missing-mod parts are now flagged loudly, and you can stand a real part in for them.** When you import your
+  ship for editing and it uses parts from a mod you don't have loaded, Ostraplan can't see those items at all —
+  but they're still sitting in your save. Everything Ostraplan works out (rooms, the ship's grid, the rating) is
+  based on what it *can* see, so a missing modded **wall** means it runs a room straight through where that wall
+  stands, and a missing part at the hull edge throws the grid out. Either one can hand you the same ghost rooms
+  and shifted zones this release fixes below.
+
+  So instead of a small note after the fact, you now get a proper prompt listing exactly what's missing, with
+  the option to pick a real part to take each one's place. A stand-in **replaces** the item in the save you write
+  back (the modded part isn't kept), which the prompt says plainly — that way what you see on the canvas is
+  exactly what lands in your save. Best fix is still to enable the mod and re-import, and the prompt says so
+  first. If you'd rather leave them alone, you can, and **Update Ship in Save** will warn you once more before
+  writing.
+
+  Stand-ins need no bookkeeping: delete one and you're back to leaving the modded item untouched, move one and it
+  still replaces its original, and both survive saving and reopening the `.oplan`.
+
+- **You can now drop missing-mod parts and get on with it.** Opening a design whose mods aren't loaded still holds
+  it read-only, because saving would rewrite it without those parts and you probably didn't mean that. But if you
+  *did* mean it — you've moved off that mod and want the parts gone — Save now offers exactly that, and confirming
+  drops them, clears the warning, and hands you back a normal design. Previously the only way out was to enable
+  the mods again, even when you never wanted the parts back, which wasn't a decision Ostraplan should have been
+  making for you.
+
 ### Fixed
 - **Editing a save no longer leaves ghost rooms behind, or skews your zones.** Two separate bugs, both of which
   corrupted the ship on load. Thanks to @Maddremor for the report and, crucially, for the two saves (one clean, one

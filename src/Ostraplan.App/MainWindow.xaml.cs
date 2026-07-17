@@ -35,10 +35,11 @@ public partial class MainWindow : Window
     private OplanMeta _meta = new();
     private bool _stateDirty;   // non-command persisted edits (ship identity, view orientation) — their unsaved state
     // Parts an opened .oplan referenced whose defs aren't in the current game + mods data. While this is
-    // non-empty the design is INCOMPLETE and treated as read-only: Save is blocked (writing now would
-    // permanently drop these parts) and the chrome shows a standing warning, because building over — or
-    // moving parts into — the space where they belong can produce a ship that's invalid in-game. Enabling
-    // the mods (verify with Ostrasort) and reopening clears it. See OpenFile / GuardIncompleteSave.
+    // non-empty the design is INCOMPLETE and held read-only: saving would rewrite the file without them, and
+    // building over — or moving parts into — the space where they belong can produce a ship that's invalid
+    // in-game, so the chrome shows a standing warning. Two ways out, both the user's call: enable the mods
+    // (verify with Ostrasort) and reopen to get the parts back, or confirm the drop on Save to let them go for
+    // good — which clears this and lifts the hold. See OpenFile / GuardIncompleteSave.
     private IReadOnlyList<OplanPart> _unresolvedParts = [];
     private bool _syncingPalette;
     private IReadOnlyList<RoomSpecDef>? _roomSpecs;   // lazily loaded once for the Ship Rating analysis
@@ -85,6 +86,7 @@ public partial class MainWindow : Window
         Board.AllowModdedOverrides = _settings.AllowModdedOverrides;
         Board.ZoneStrokeCommitted += OnZoneStrokeCommitted;
         Board.ShowPowerChanged += OnShowPowerChanged;   // (re)compute the overlay off-thread when toggled on
+        Board.ShowRoomsChanged += OnShowRoomsChanged;   // same for the room certification
         Board.WireModeChanged += OnWireModeChanged;     // swap the status hint for the wiring instructions
         Board.LinkToggleRequested += OnLinkToggleRequested;   // connect/disconnect two devices via the command stack
         Board.ActiveZoneChanged += UpdateZones;   // reflect which zone (if any) is being painted
@@ -355,12 +357,16 @@ public partial class MainWindow : Window
         var snapshot = _doc.Snapshot();   // UI thread, cheap; immutable while the scan runs
         var catalog = _catalog;
         var showPower = Board.ShowPower;   // only pay for the power flood when PowerViz is on
+        // RoomViz: only certify while the overlay is on, and only when the data index is up (specs come from it).
+        // Loaded here on the UI thread, then handed to the scan as an immutable list.
+        var roomSpecs = Board.ShowRooms && _index is { } index ? _roomSpecs ??= RoomCertifier.LoadSpecs(index) : null;
 
         List<Problem> problems;
         PowerOverlay power;
+        RoomOverlay rooms;
         try
         {
-            (problems, power) = await Ui.OffThread(() =>
+            (problems, power, rooms) = await Ui.OffThread(() =>
             {
                 var probs = ProblemScan.Scan(snapshot, catalog);
                 var pov = PowerOverlay.Empty;
@@ -369,13 +375,15 @@ public partial class MainWindow : Window
                     var grid = ShipGrid.FromDocument(snapshot, catalog);
                     pov = PowerNetwork.ToOverlay(grid, PowerNetwork.Build(grid, catalog));
                 }
-                return (probs, pov);
+                var rov = roomSpecs is null ? RoomOverlay.Empty : RoomOverlay.Build(snapshot, catalog, roomSpecs);
+                return (probs, pov, rov);
             }, token);
         }
         catch (OperationCanceledException) { return; }
         if (token.IsCancellationRequested || !ReferenceEquals(cts, _scanCts)) return;   // superseded
         UpdateProblems(problems);
         Board.SetPowerOverlay(power);
+        Board.SetRoomOverlay(rooms);
     }
 
     /// <summary>
@@ -623,13 +631,9 @@ public partial class MainWindow : Window
         if (_doc is null || (!_stack.Dirty && !_stateDirty)) return true;
         var name = _doc.FilePath is { } f ? Path.GetFileNameWithoutExtension(f) : _meta.Name;
 
-        // An incomplete design (missing-mod parts) can't be saved — don't offer a Save that will fail;
-        // just confirm the discard.
-        if (_unresolvedParts.Count > 0)
-            return Dlg.Confirm(this, DlgKind.Danger, "Discard your changes?",
-                $"“{name}” is missing mods and can't be saved, so continuing will lose your unsaved changes.",
-                "Discard changes");
-
+        // An incomplete design (missing-mod parts) is saveable too, on confirmation — Save() asks about dropping
+        // them, and Cancel there falls back out through here. So it needs no special case: offering a Save that
+        // silently failed was the reason this branch existed.
         return Dlg.Choose(this, DlgKind.Info, "Save changes?",
             $"“{name}” has unsaved changes.", "Save", "Don't save") switch
         {
@@ -678,19 +682,38 @@ public partial class MainWindow : Window
         return Save();
     }
 
-    /// <summary>Refuse to persist a design that still references parts from mods that aren't loaded: writing now
-    /// would silently drop them for good, and the incomplete canvas invites edits that break the real ship.
-    /// Returns true when it's safe to save. See <see cref="_unresolvedParts"/>.</summary>
+    /// <summary>
+    /// Saving a design whose .oplan referenced parts from mods that aren't loaded <b>drops those parts for good</b>
+    /// — the file is rewritten from what's on the canvas, and they never made it there. That is only ever a
+    /// mistake or a decision, so ask rather than assume either: the design is read-only until the user says which.
+    ///
+    /// <para>Confirming is a real answer, not a bypass. Dropping the parts is exactly right when the mod is one
+    /// the user has deliberately moved off, and refusing outright left them with no way to say so short of hand
+    /// editing the file. So the choice sticks: the parts leave <see cref="_unresolvedParts"/>, the design becomes
+    /// complete as it now stands, and the standing warning clears.</para>
+    ///
+    /// <para>Returns true when it's safe to save. See <see cref="_unresolvedParts"/>.</para>
+    /// </summary>
     private bool GuardIncompleteSave()
     {
         if (_unresolvedParts.Count == 0) return true;
-        Dlg.Warn(this, "Can't save an incomplete design",
-            $"This design still has {_unresolvedParts.Count} part(s) from mods that aren't loaded, so it can't be saved.\n\n" +
-            FormatMissingDefs(_unresolvedParts) +
-            "\n\nSaving now would drop them for good.\n" +
-            "Enable the required mods, and run Ostrasort to confirm they're subscribed and enabled.\n" +
-            "Then reopen this design and it will be complete and saveable again.");
-        return false;
+
+        var dropped = _unresolvedParts;
+        if (!Dlg.Confirm(this, DlgKind.Danger, "Save without the missing-mod parts?",
+                $"{dropped.Count} part(s) in this design come from mods that aren't loaded, so they aren't on the canvas:\n\n" +
+                FormatMissingDefs(dropped) +
+                "\n\nSaving rewrites the design as it stands, which drops them for good.\n\n" +
+                "If you still want them, cancel — enable the mods (run Ostrasort to confirm they're subscribed and " +
+                "enabled) and reopen this design, and they'll come back.\n\n" +
+                "If you're done with those mods, dropping the parts is exactly what you want.",
+                "Save without them"))
+            return false;
+
+        var names = string.Join(", ", dropped.Select(m => m.Def).Where(d => d.Length > 0).Distinct());
+        AuditLog.Add($"Dropped {dropped.Count} missing-mod part(s) from \"{_meta.Name}\" on the user's say-so: {names}");
+        _unresolvedParts = [];   // decided: the design is complete as it now stands, so the read-only hold lifts
+        RefreshChrome();
+        return true;
     }
 
     private void OpenFile()
@@ -748,11 +771,12 @@ public partial class MainWindow : Window
                 FormatMissingDefs(missing) +
                 "\n\nIt depends on these mods.\n\n" +
                 FormatModDeps(file.Mods) +
-                "\n\nInstall or subscribe to those mods and enable them, then reopen this design.\n" +
+                "\n\nTo get them back: install or subscribe to those mods and enable them, then reopen this design.\n" +
                 "Run Ostrasort to confirm they're subscribed, enabled, and in a working load order.\n\n" +
-                "Until then the design is read only, so saving is disabled.\n" +
-                "Saving now would permanently drop the missing parts.\n" +
-                "Building over the space where they belong (or moving parts into it) can produce a ship that's invalid in game.");
+                "Until then the design is held read only — saving would rewrite it without those parts, and building " +
+                "over the space where they belong (or moving parts into it) can produce a ship that's invalid in game.\n\n" +
+                "If you're done with those mods and want the parts gone, Save and confirm: it will drop them and the " +
+                "design becomes editable as it stands.");
     }
 
     /// <summary>
@@ -847,6 +871,15 @@ public partial class MainWindow : Window
     private void OnShowPowerChanged()
     {
         if (Board.ShowPower) ScheduleScan();
+    }
+
+    // ---- rooms (RoomViz) ----
+
+    /// <summary>RoomViz was toggled: when turned on, kick a scan so the compartments certify (the flood fill and
+    /// certification only run while the overlay is on).</summary>
+    private void OnShowRoomsChanged()
+    {
+        if (Board.ShowRooms) ScheduleScan();
     }
 
     private string? _defaultHint;   // the status-bar hint to restore when wire mode turns off
@@ -1723,6 +1756,10 @@ public partial class MainWindow : Window
                 Board.TogglePower();
                 e.Handled = true;
                 break;
+            case Key.C when !ctrl && !e.IsRepeat:   // compartments (the game's own term for rooms)
+                Board.ToggleRooms();
+                e.Handled = true;
+                break;
             case Key.W or Key.A or Key.S or Key.D when !ctrl:
                 Board.SetPanKey(e.Key, true);   // smooth per-frame pan until KeyUp
                 e.Handled = true;
@@ -2213,6 +2250,7 @@ public partial class MainWindow : Window
 
         m.Items.Add(new Separator());
         m.Items.Add(MenuAction("Zones overlay", Board.ToggleZones, check: Board.ShowZones, gesture: "Z"));
+        m.Items.Add(MenuAction("Rooms overlay", Board.ToggleRooms, check: Board.ShowRooms, gesture: "C"));
         m.Items.Add(MenuAction("Power overlay", Board.TogglePower, check: Board.ShowPower, gesture: "P"));
         m.Items.Add(MenuAction("Wire mode (device connections)", Board.ToggleWireMode, check: Board.WireMode));
         m.Items.Add(new Separator());
@@ -2324,8 +2362,48 @@ public partial class MainWindow : Window
         }
         finally { Mouse.OverrideCursor = null; }
 
+        if (!OfferStandIns(edit, chosen.Name)) return;   // cancelled at the missing-mods prompt
         InstallImportedDocument(edit.Import, edit.Context);
         AuditLog.Add($"Imported ship \"{chosen.Name}\" ({chosen.RegId}) for editing from save \"{save.Name}\".");
+    }
+
+    /// <summary>
+    /// The missing-mod prompt: items whose def isn't in the loaded data are invisible to every engine here but
+    /// still sit in the save, so a write-back can corrupt the ship's rooms and grid (see <see cref="Substitution"/>).
+    /// Offer a real part to stand in for each. Returns false when the user cancels the import outright.
+    /// Applied to the imported document before it is installed, so it lands complete and the stand-ins are part of
+    /// the design from the first undo step.
+    /// </summary>
+    private bool OfferStandIns(SaveEditImportResult edit, string shipName)
+    {
+        if (_catalog is null) return true;
+        var outstanding = Substitution.Outstanding(edit.Doc, edit.Context, _catalog);
+        if (outstanding.Count == 0) return true;
+
+        var defs = outstanding
+            .GroupBy(u => u.DefName, StringComparer.Ordinal)
+            .Select(g => new MissingDefVM(g.Key, g.Count()))
+            .OrderByDescending(v => v.Count).ThenBy(v => v.DefName, StringComparer.Ordinal)
+            .ToList();
+
+        var dlg = new MissingPartsDialog(defs, _allParts, shipName) { Owner = this };
+        if (dlg.ShowDialog() != true) return false;
+
+        var choices = dlg.Choices;
+        if (choices.Count == 0) return true;
+
+        var placed = 0;
+        using (edit.Doc.SuspendChanged())
+            foreach (var item in outstanding)
+                if (choices.TryGetValue(item.DefName, out var part))
+                {
+                    new PlaceCommand(Substitution.StandIn(item, part.DefName, _catalog, edit.Context)).Do(edit.Doc);
+                    placed++;
+                }
+
+        AuditLog.Add($"Stood in for {placed} unresolved item(s) on \"{shipName}\": "
+                     + string.Join(", ", choices.Select(kv => $"{kv.Key} → {kv.Value.DefName}")));
+        return true;
     }
 
     /// <summary>Write the edited ship back into a COPY of the save it came from (crew/cargo preserved, original
@@ -2365,6 +2443,8 @@ public partial class MainWindow : Window
             finally { Mouse.OverrideCursor = null; }
             _saveContext = ctx;   // cache for further writes this session
         }
+
+        if (!ConfirmUnresolvedWriteBack(ctx)) return;
 
         _roomSpecs ??= RoomCertifier.LoadSpecs(_index);
         var (doc, catalog, specs, context) = (_doc, _catalog, _roomSpecs, ctx);
@@ -2568,13 +2648,37 @@ public partial class MainWindow : Window
         Board.FitContent();
         OnDocChanged();
         UpdateInspector();
-        ReportImport(result, keptContents: context is not null);
+        ReportImport(result, keptContents: context is not null, skippedHandled: context is not null);
+    }
+
+    /// <summary>
+    /// The last gate before a write-back with items Ostraplan can't see. They stay in the save, but every engine
+    /// here reads the document, so their rooms/grid contribution is simply missing: a modded wall no longer divides
+    /// a room, and a modded part at the hull edge no longer sizes the frame. Either writes a ship the game rebuilds
+    /// differently on load — ghost rooms and skewed zones. The user is told plainly and may still proceed (they may
+    /// know the missing parts are decorative), but never silently. Returns false to abort.
+    /// </summary>
+    private bool ConfirmUnresolvedWriteBack(SaveShipContext ctx)
+    {
+        if (_doc is null || _catalog is null) return true;
+        var defs = Substitution.OutstandingDefs(_doc, ctx, _catalog);
+        if (defs.Count == 0) return true;
+
+        var items = defs.Sum(d => d.Count);
+        var names = string.Join("\n", defs.Take(10).Select(d => d.Count > 1 ? $"   • {d.DefName} (x{d.Count})" : $"   • {d.DefName}"));
+        var more = defs.Count > 10 ? $"\n   …and {defs.Count - 10} more" : "";
+        return Dlg.Confirm(this, DlgKind.Danger, "Missing mods — this can corrupt the ship",
+            $"{items} item(s) on this ship use parts that aren't in your loaded data:\n\n{names}{more}\n\n" +
+            "Ostraplan can't see them, so it works out the ship's rooms and grid as if they weren't there. " +
+            "Writing back now can leave the ship with ghost rooms and shifted zones in game.\n\n" +
+            "Enable the mods and re-import, or stand real parts in for them, and this goes away.",
+            "Write back anyway");
     }
 
     /// <summary>Tell the user about anything the import dropped (contained cargo, unresolved defs). Silent on a
     /// clean import. <paramref name="keptContents"/> is true for a save import FOR EDITING, where contained cargo
     /// is preserved as viewable container contents rather than discarded (a layout-only / template import drops it).</summary>
-    private void ReportImport(ImportResult result, bool keptContents)
+    private void ReportImport(ImportResult result, bool keptContents, bool skippedHandled = false)
     {
         var notes = new List<string>();
         if (result.ContainedDropped > 0)
@@ -2584,7 +2688,10 @@ public partial class MainWindow : Window
                 : $"{result.ContainedDropped} contained item(s) were dropped (cargo, tools, installed modules).\nOstraplan imports the layout only.");
         if (result.SystemDropped > 0)
             notes.Add($"{result.SystemDropped} loot spawner and system object(s) were dropped.\nThey populate the ship at runtime, and aren't buildable structure.");
-        if (result.Skipped.Count > 0)
+        // skippedHandled: the save-edit path already ran the missing-mods stand-in prompt, which says all of this
+        // and more — don't follow it with a second, weaker dialog about the same defs.
+        var reportSkipped = result.Skipped.Count > 0 && !skippedHandled;
+        if (reportSkipped)
         {
             var names = string.Join("\n", result.Skipped.Take(12).Select(s => s.Count > 1 ? $"   • {s.DefName} (x{s.Count})" : $"   • {s.DefName}"));
             var more = result.Skipped.Count > 12 ? $"\n   …and {result.Skipped.Count - 12} more" : "";
@@ -2593,7 +2700,7 @@ public partial class MainWindow : Window
         }
         if (notes.Count == 0) return;   // clean import, the ship now on the canvas is feedback enough
         var report = $"Imported {result.ShipName}, {result.PartCount} parts.\n\n" + string.Join("\n\n", notes);
-        if (result.Skipped.Count > 0) Dlg.Warn(this, "Import", report);
+        if (reportSkipped) Dlg.Warn(this, "Import", report);
         else Dlg.Info(this, "Import", report);
     }
 
@@ -2928,6 +3035,7 @@ public partial class MainWindow : Window
             ("Symmetry", "M", "Cycle Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on. While on, it also drives editing: selecting a part grabs its mirror partner(s), and moving, rotating, or deleting the group keeps it symmetric (the far side tracks in the mirrored direction)."),
             ("Mod overrides", "Toolbar toggle", "Let modded parts place where the core-game rules say they don't fit (ghost turns amber, flagged as a warning — verify in-game). Core parts stay enforced."),
             ("Power overlay", "P", "Show/hide PowerViz: lit conduit runs flow from a live generator/battery, orphaned runs are dim red, and a wired device with no feed gets an amber marker. A powered part also shows its connector badges (blue IN, green OUT) while armed or selected."),
+            ("Rooms overlay", "C", "Show/hide RoomViz: every compartment the game would flood-fill, tinted in its own colour and labelled with what it certifies as, its size and its value. A room that certifies as nothing says why — what to add, and which item in it blocks the spec (a canister parked in a quarters, say). Unsealed compartments are red. The exterior isn't tinted, so a room open to space simply loses its tint."),
             ("Wire mode", "View menu", "Wire signalable devices: click a device to arm it as the signal source, then click another to connect (or a connected one to disconnect). Connectable devices ring violet, wires draw source→target. Esc / right-click cancels."),
             ("Delete", "Del", "Delete the selection."),
             ("Select all", "Ctrl+A", "Select every part in the design."),

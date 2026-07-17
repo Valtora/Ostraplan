@@ -104,6 +104,16 @@ public static class SaveEdit
         // intended edit, not a loss to warn about (so a content edit fires no false "cargo will be deleted").
         var dropSet = new HashSet<string>(StringComparer.Ordinal);
         foreach (var id in deleted) dropSet.Add(id);
+        // Stand-ins (see Substitution): a placement tagged with a source item that is NOT one of the modelled
+        // originals is the user's replacement for a part whose mod isn't loaded. The original (and anything
+        // parented to it) must go, or the ship would carry both it and its stand-in. The diff already classifies
+        // the stand-in itself as New — its origin resolves to nothing — so it lands as a fresh item + CO.
+        var standInDrops = Substitution.StandInDrops(doc, ctx);
+        foreach (var (root, kids) in standInDrops)
+        {
+            dropSet.Add(root);
+            foreach (var kid in kids) dropSet.Add(kid);
+        }
         foreach (var origin in ctx.Origins.Values)
             foreach (var cid in origin.CargoIds)
                 if (!keepSet.Contains(cid)) dropSet.Add(cid);
@@ -115,6 +125,11 @@ public static class SaveEdit
             if (lost.Count > 0)
                 cargoLosses.Add(new CargoLoss(id, ItemName(ctx, id), lost.Select(cid => ItemName(ctx, cid)).ToList()));
         }
+        // a substituted part is replaced outright, so anything it held goes with it — report that like any other
+        // container loss rather than dropping it silently
+        foreach (var (root, kids) in standInDrops)
+            if (kids.Count > 0)
+                cargoLosses.Add(new CargoLoss(root, ItemName(ctx, root), kids.Select(cid => ItemName(ctx, cid)).ToList()));
 
         // moved parts: new world pose + a delta to rigidly shift each part's cargo subtree
         var movedPose = new Dictionary<string, (double fx, double fy, double frot)>(StringComparer.Ordinal);

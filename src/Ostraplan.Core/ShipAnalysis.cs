@@ -151,7 +151,7 @@ public static class ShipAnalysis
     /// requirements are all met but that a member part forbids (the classic silent failure:
     /// a gas canister or RTA parked in an otherwise-valid quarters).
     /// </summary>
-    private static IReadOnlyList<string> NearMisses(RoomModel room, IReadOnlyList<RoomSpecDef> specs, Catalog catalog)
+    public static IReadOnlyList<string> NearMisses(RoomModel room, IReadOnlyList<RoomSpecDef> specs, Catalog catalog)
     {
         return specs.Where(s => !s.IsBlank)
             .Select(s => RoomCertifier.Diagnose(s, room, catalog))
