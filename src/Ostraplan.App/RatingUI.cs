@@ -141,11 +141,15 @@ public sealed class RatingReportWindow : Window
             Foreground = Accent, FontSize = 30, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 2, 0, 10),
         });
 
-        var slots = new UniformGrid { Columns = 4, Margin = new Thickness(0, 0, 0, 4) };
+        // The game's four displayed rating slots in their canonical order (they read out as the rating
+        // string), then the ship's total mass — not a rating slot, but the raw figure behind Maneuver and
+        // the one number people want off this report.
+        var slots = new UniformGrid { Columns = 5, Margin = new Thickness(0, 0, 0, 4) };
         slots.Children.Add(Slot("Condition", report.Rating.Condition));
         slots.Children.Add(Slot("Rooms", report.Rating.RoomCount));
         slots.Children.Add(Slot("Maneuver", report.Rating.Maneuver));
         slots.Children.Add(Slot("Size", report.Rating.Size));
+        slots.Children.Add(Slot("Mass", $"{report.Rating.Mass:#,0} kg"));
         body.Children.Add(slots);
         var rating = report.Rating;
         var maneuverDetail = rating.RcsThrust > 0
@@ -153,11 +157,12 @@ public sealed class RatingReportWindow : Window
               $"{rating.Mass / rating.RcsThrust:#,0.#} (lower is better: <300 A, <500 B, <750 C, <1500 D, else E). " +
               $"Thrust-to-mass ratio: {rating.RcsThrust / rating.Mass:0.####} per kg " +
               $"({rating.RcsThrust * 1000 / rating.Mass:#,0.##} per tonne)."
-            : "Maneuver is O: no RCS thrusters installed" +
-              (rating.Mass > 0 ? $" (ship mass {rating.Mass:#,0} kg)." : ".");
+            : "Maneuver is O: no RCS thrusters installed.";   // mass has its own slot above
         body.Children.Add(new TextBlock
         {
-            Text = "Condition assumes a pristine build (A). Room count is your certified compartments. " + maneuverDetail,
+            Text = "Condition assumes a pristine build (A). Room count is your certified compartments. " +
+                   "Mass sums the installed structure. In game the ship also carries its cargo, so a loaded one " +
+                   "reads heavier there. " + maneuverDetail,
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 12),
         });
 

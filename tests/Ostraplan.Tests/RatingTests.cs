@@ -45,6 +45,42 @@ public class RatingTests(ITestOutputHelper output)
         Assert.Equal("Ultra Large", Rating.SizeClass(3700));
     }
 
+    /// <summary>
+    /// <see cref="ShipRating.Mass"/> is shown as a headline figure on the Ship Rating report, so pin what it
+    /// counts: the summed <c>StatMass</c> of the installed parts. Asserted as a delta per added part rather
+    /// than an absolute total, so it neither hardcodes a data value nor cares what a document is seeded with.
+    /// <para>This is deliberately NOT the game's <c>Ship.Mass</c>, which is
+    /// <c>GetCondAmount("StatMass") + MarketManager.GetCargoMassForShip()</c> — the structure plus the cargo
+    /// aboard. The two agree on a fresh design and diverge once a ship is loaded, which is why the report says
+    /// so and why the maneuver slot isn't asserted against the baked corpus (see below).</para>
+    /// </summary>
+    [SkippableFact]
+    public void Mass_sums_StatMass_over_the_installed_parts()
+    {
+        var g = TestData.RequireGame();
+        var wall = g.Catalog.Parts.FirstOrDefault(p => p.DefName == "ItmWall1x1");
+        Skip.If(wall is null, "ItmWall1x1 not in the palette");
+        var wallMass = wall!.StartingCondValues.GetValueOrDefault("StatMass");
+        Skip.If(wallMass <= 0, "ItmWall1x1 carries no StatMass");
+
+        var doc = new ShipDocument(g.Catalog);
+        double MassNow()
+        {
+            var grid = ShipGrid.FromDocument(doc, g.Catalog);
+            return Rating.Calculate(grid, RoomBuilder.Build(grid), g.Catalog).Mass;
+        }
+
+        var baseline = MassNow();
+        new PlaceCommand(new Placement { DefName = wall.DefName, X = 5, Y = 5 }).Do(doc);
+        var one = MassNow();
+        new PlaceCommand(new Placement { DefName = wall.DefName, X = 7, Y = 5 }).Do(doc);
+        var two = MassNow();
+
+        _out.WriteLine($"wall StatMass={wallMass} kg · baseline={baseline} · +1={one} · +2={two}");
+        Assert.Equal(wallMass, one - baseline, 3);
+        Assert.Equal(wallMass * 2, two - baseline, 3);
+    }
+
     [SkippableFact]
     public void Rating_parity_on_baked_rating_templates()
     {

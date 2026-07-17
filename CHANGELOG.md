@@ -11,7 +11,13 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
-## [0.43.4] 2026-07-17, Secondary airlocks no longer wall off half the map
+## [0.44.0] 2026-07-17, Secondary airlocks no longer wall off half the map
+
+### Added
+- **Total ship mass on the Ship Rating report.** It sits alongside the four rating slots, so you no longer have
+  to read it out of the Maneuver explanation. This is the mass of the structure you have built, which is the
+  same figure the Maneuver grade divides by. In game a ship also carries its cargo, so a loaded one weighs more
+  there than the report says.
 
 ### Fixed
 - **A Secondary Exterior Airlock no longer paints a no-build zone in front of itself.** Placing one used to redden
