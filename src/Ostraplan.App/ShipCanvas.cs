@@ -265,6 +265,7 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action<(int X, int Y)>? ContextMenuRequested;   // right-clicked tile; window builds the layer picker
     public event Action<string>? BrushPicked;   // Alt+LMB eyedropper: arm the def of the part under the cursor
     public event Action<int>? AirSelectionChanged;   // the highlighted air region's tile count changed (0 = cleared)
+    public event Action<(int W, int H)?>? SelectionSizeChanged;   // live WxH (tiles) of a rubber-band box drag; null = no box drag in progress
     public event Action? BandFilterRequested;   // a Shift+drag band select finished; window offers the layer filter chips
     public event Action<IReadOnlyList<(Placement P, int X, int Y, int Rot)>>? PosesRequested;   // a symmetric move: per-part target poses, committed as one SetPosesCommand
     public event Action<(int X, int Y)>? LooseContextMenuRequested;   // right-clicked a loose floor item; window builds its menu
@@ -1257,6 +1258,17 @@ public sealed class ShipCanvas : FrameworkElement
         InvalidateVisual();
     }
 
+    /// <summary>Report the live tile dimensions of a rubber-band box drag (band select, box fill, zone box) so the
+    /// status bar can show "W × H" while you size it — handy for measuring room interiors as you build. Emits null
+    /// for any non-box state, which clears the readout.</summary>
+    private void RaiseSelectionSize()
+    {
+        if (_drag is Drag.Band or Drag.BoxFill or Drag.ZoneBox && _hoverCell is { } end)
+            SelectionSizeChanged?.Invoke((Math.Abs(end.X - _dragStartCell.X) + 1, Math.Abs(end.Y - _dragStartCell.Y) + 1));
+        else
+            SelectionSizeChanged?.Invoke(null);
+    }
+
     protected override void OnMouseMove(MouseEventArgs e)
     {
         var screen = e.GetPosition(this);
@@ -1265,6 +1277,7 @@ public sealed class ShipCanvas : FrameworkElement
         {
             _hoverCell = cell;
             HoverChanged?.Invoke(cell);
+            RaiseSelectionSize();   // update the WxH readout as the box grows/shrinks
             if (_drag == Drag.Paint) PaintAt(cell);
             else if (_drag == Drag.ZonePaint) ApplyZoneCell(cell);
             else if (_drag == Drag.ZoneBox) RebuildZoneBox(cell);
@@ -1359,6 +1372,7 @@ public sealed class ShipCanvas : FrameworkElement
         }
 
         _moveDelta = (0, 0);
+        RaiseSelectionSize();   // _drag is now None → clears the WxH readout
         InvalidateVisual();
     }
 

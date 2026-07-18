@@ -71,6 +71,7 @@ public partial class MainWindow : Window
         Board.SelectionChanged += UpdateInspector;
         Board.LooseSelectionChanged += UpdateInspector;
         Board.HoverChanged += cell => { _hoverCell = cell; TxtCell.Text = cell is { } c ? $"tile {c.X}, {c.Y}" : "—"; };
+        Board.SelectionSizeChanged += size => TxtSel.Text = size is { } s ? $"{s.W} × {s.H} tiles" : "";
         Board.ViewChanged += UpdateZoomText;
         Board.Disarmed += ClearPaletteSelection;
         Board.ContextMenuRequested += OnContextMenuRequested;

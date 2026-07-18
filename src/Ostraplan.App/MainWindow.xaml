@@ -109,6 +109,8 @@
         <StatusBar DockPanel.Dock="Bottom" Background="{DynamicResource PanelBg}" Foreground="{DynamicResource Dim}">
             <StatusBarItem><TextBlock x:Name="TxtCell" Text="—" Width="110"/></StatusBarItem>
             <Separator/>
+            <StatusBarItem><TextBlock x:Name="TxtSel" Text="" Width="90"/></StatusBarItem>
+            <Separator/>
             <StatusBarItem><TextBlock x:Name="TxtZoom" Text="" Width="90"/></StatusBarItem>
             <Separator/>
             <StatusBarItem><TextBlock x:Name="TxtParts" Text=""/></StatusBarItem>

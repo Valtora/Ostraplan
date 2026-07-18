@@ -11,6 +11,11 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **The status bar now shows the size of a box selection (#8).** As you drag out any rubber-band box — a band select,
+  a Shift+drag box fill, or a zone box — the bottom bar reads out its live dimensions as "W × H tiles" next to the
+  tile coordinate. Handy for measuring room interiors as you build them. The readout clears when you release.
+
 ### Fixed
 - **Wire Mode no longer strands the item in your cursor (#7).** While Wire Mode was on, a right-click only cleared the
   armed wire source, so a palette brush picked up beforehand couldn't be put down — left-click wires devices (intended)
