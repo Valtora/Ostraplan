@@ -9,7 +9,7 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **0.15.1.6**).
 
-## [Unreleased]
+## [0.48.0] 2026-07-18, Light Viz by default + smooth zoom
 
 ### Changed
 - **Light Viz is now ON by default.** The plan opens showing the in-game lighting; press `L` (or View ▸ Light
