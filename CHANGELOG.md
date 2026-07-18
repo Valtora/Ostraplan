@@ -9,7 +9,7 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **0.15.1.6**).
 
-## [Unreleased]
+## [0.47.0] 2026-07-18, Light Viz goes pixel-exact
 
 ### Changed
 - **Light Viz is now pixel-exact with the game's renderer.** The whole lighting pipeline was reverse-engineered
