@@ -9,6 +9,15 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **0.15.1.6**).
 
+## [Unreleased]
+
+### Added
+- **Light Viz rotation regression tests + headless diagnostics.** A report of wall-light glows drawn perpendicular
+  to their wall traced back to a stale pre-release binary, not the shipped code; the investigation re-verified the
+  full pipeline against real designs headlessly. The decal/normal rotation contract is now locked by unit tests
+  (`GlowRotationTests`), and env-gated diagnostic dumps (`LightDebugDump`, `LIGHT_DUMP_DIR`/`LIGHT_DUMP_OPLAN`)
+  can render any .oplan's light scene to an image off-app for future per-patch verification.
+
 ## [0.47.0] 2026-07-18, Light Viz goes pixel-exact
 
 ### Changed
