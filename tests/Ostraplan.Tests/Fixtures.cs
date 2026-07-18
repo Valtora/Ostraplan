@@ -20,6 +20,7 @@ public sealed class Fixtures
     private readonly Dictionary<string, string> _installedForms = new(StringComparer.Ordinal);
     private readonly Dictionary<string, LightDef> _lightDefs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ColorDef> _colorTable = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ParallaxDef> _parallaxDefs = new(StringComparer.Ordinal);
 
     /// <summary>Register a named loot (the bundle of conditions a tile socket adds).</summary>
     public Fixtures Loot(string name, params string[] conds)
@@ -64,7 +65,7 @@ public sealed class Fixtures
         double basePrice = 0, bool sheet = false, string origin = "core",
         IReadOnlyDictionary<string, double>? condValues = null,
         IReadOnlyList<(double X, double Y)>? powerInputs = null, (double X, double Y)? powerOutput = null,
-        string[]? lights = null)
+        string[]? lights = null, ShadowBox[]? shadowBoxes = null, bool lightWall = false)
     {
         string[] adds;
         if (tileConds is { Length: > 0 })
@@ -78,6 +79,8 @@ public sealed class Fixtures
         var item = new ItemDef(name, name + ".png", sheet, null, 0, w, adds, reqs ?? [], forbids ?? [])
         {
             Lights = lights ?? [],
+            ShadowBoxes = shadowBoxes ?? [],
+            IsWallForLight = lightWall,
         };
         var values = new Dictionary<string, double>(condValues ?? new Dictionary<string, double>());
         if (basePrice > 0) values["StatBasePrice"] = basePrice;
@@ -100,8 +103,17 @@ public sealed class Fixtures
     /// <summary>A sealed floor tile (IsFloor + IsFloorSealed) — the walkable base rooms flood over.</summary>
     public Fixtures Floor(string name = "Floor") => Part(name, tileConds: ["IsFloor", "IsFloorSealed"], category: "HULL");
 
-    /// <summary>A hull wall (IsWall + IsObstruction) — a room boundary.</summary>
-    public Fixtures Wall(string name = "Wall") => Part(name, tileConds: ["IsWall", "IsObstruction"], startingConds: ["IsWall"], category: "HULL");
+    /// <summary>A hull wall (IsWall + IsObstruction) — a room boundary. Carries the core wall's light-occluder box
+    /// (a full tile, wall-flagged — <c>ItmWall1x1</c>'s <c>aShadowBoxes</c>), so Light Viz shadows behind it.</summary>
+    public Fixtures Wall(string name = "Wall") => Part(name, tileConds: ["IsWall", "IsObstruction"],
+        startingConds: ["IsWall"], category: "HULL",
+        shadowBoxes: [new ShadowBox(0, 0, 0.5, 0.5, false)], lightWall: true);
+
+    /// <summary>A glass window wall (like <c>ItmWallWindow1x1</c>): seals the hull, but its occluder box is glass —
+    /// light passes straight through.</summary>
+    public Fixtures Window(string name = "Window") => Part(name, tileConds: ["IsWall", "IsObstruction"],
+        startingConds: ["IsWall"], category: "HULL",
+        shadowBoxes: [new ShadowBox(0, 0, 0.5, 0.5, true)], lightWall: true);
 
     /// <summary>A door tile (IsWall + IsPortal): seals the hull like a wall, but is a walkable portal.</summary>
     public Fixtures Door(string name = "Door") => Part(name, tileConds: ["IsWall", "IsPortal"], startingConds: ["IsPortal"], category: "HULL");
@@ -116,6 +128,14 @@ public sealed class Fixtures
     public Fixtures Container(string name, int gridW = 4, int gridH = 4, string? filterCt = null) =>
         Part(name, tileConds: ["IsFixture", "IsObstruction", "IsContainer"], startingConds: ["IsContainer"],
             container: (gridW, gridH), containerCT: filterCt, category: "FURN");
+
+    /// <summary>Register a parallax location (data/parallax) with the given sun-light names, for Light Viz's
+    /// exterior daylight.</summary>
+    public Fixtures Parallax(string name, params string[] sunLights)
+    {
+        _parallaxDefs[name] = new ParallaxDef(name, sunLights);
+        return this;
+    }
 
     /// <summary>Record an installed⇄loose form pair (as the game's install/uninstall jobs would), so
     /// <see cref="FormSwap"/> can map between them. Both defs should already be registered as parts.</summary>
@@ -140,6 +160,7 @@ public sealed class Fixtures
         InstalledForms = _installedForms,
         LightDefs = _lightDefs,
         ColorTable = _colorTable,
+        ParallaxDefs = _parallaxDefs,
         Warnings = [],
     };
 

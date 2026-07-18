@@ -76,6 +76,109 @@ public sealed class SpriteCache
         return SheetCell(part, col, row);
     }
 
+    // ---- normal maps (Light Viz) ----
+    //
+    // The game converts each strImgNorm PNG through ShaderSetup.NormalPNGtoDXTnm (x ← png.r, y ← 1−png.g) and the
+    // LoSPass shader decodes n.xy = 2c−1 with z forced to 1. Net, in DOCUMENT convention (+y down): nx = 2·r−1,
+    // ny = 2·g−1 — the raw channels, both flips cancelling. A part drawn rotated has its PIXELS rotated by the
+    // canvas transform, so the embedded VECTORS are pre-rotated here by swizzling channels per 90° step
+    // (rotating (nx, ny) by 90° CW in doc space: (nx, ny) → (−ny, nx) → r' = 255−g, g' = r).
+
+    private readonly Dictionary<(string Path, int Rot), BitmapSource?> _norms = new();
+    private readonly Dictionary<(string Path, int Rot, int Col, int Row), BitmapSource> _normCells = new();
+
+    /// <summary>The part's normal-map sprite with its vectors pre-rotated for <paramref name="rot"/> (the canvas
+    /// rotates the pixels), or null when the item has no normal map on disk (drawn as flat).</summary>
+    public BitmapSource? NormalSprite(PartDef part, int rot) =>
+        part.SpriteNormAbs is null ? null : LoadNorm(part.SpriteNormAbs, GridMath.Norm(rot));
+
+    /// <summary>Sheet-cell crop of the normal map (sheet items never rotate), or null when absent. The cell
+    /// rect comes from the ALBEDO footprint (the game samples _BumpMap with the albedo UVs).</summary>
+    public BitmapSource? NormalSheetCell(PartDef part, int col, int rowFromTop)
+    {
+        if (part.SpriteNormAbs is null) return null;
+        var key = (part.SpriteNormAbs, 0, col, rowFromTop);
+        lock (_gate)
+        {
+            if (_normCells.TryGetValue(key, out var hit)) return hit;
+        }
+        var bmp = LoadNorm(part.SpriteNormAbs, 0);
+        if (bmp is null) return null;
+        var cw = Math.Max(1, part.Item.Width * 16);
+        var ch = Math.Max(1, part.Item.Height * 16);
+        var rect = new Int32Rect(col * cw, rowFromTop * ch, cw, ch);
+        if (rect.X + rect.Width > bmp.PixelWidth || rect.Y + rect.Height > bmp.PixelHeight) return null;
+        var cell = new CroppedBitmap(bmp, rect);
+        cell.Freeze();
+        lock (_gate) { _normCells[key] = cell; }
+        return cell;
+    }
+
+    private BitmapSource? LoadNorm(string absPath, int rot)
+    {
+        lock (_gate)
+        {
+            if (_norms.TryGetValue((absPath, rot), out var hit)) return hit;
+        }
+        BitmapSource? result = null;
+        if (Load(absPath) is { } src)
+        {
+            var bgra = new FormatConvertedBitmap(src, PixelFormats.Bgra32, null, 0);
+            int w = bgra.PixelWidth, h = bgra.PixelHeight;
+            var px = new byte[w * h * 4];
+            bgra.CopyPixels(px, w * 4, 0);
+            for (var i = 0; i < px.Length; i += 4)
+            {
+                byte r = px[i + 2], g = px[i + 1];
+                (px[i + 2], px[i + 1]) = rot switch
+                {
+                    90 => ((byte)(255 - g), r),
+                    180 => ((byte)(255 - r), (byte)(255 - g)),
+                    270 => (g, (byte)(255 - r)),
+                    _ => (r, g),
+                };
+                px[i] = 255;
+            }
+            var wb = new WriteableBitmap(w, h, 96, 96, PixelFormats.Bgra32, null);
+            wb.WritePixels(new Int32Rect(0, 0, w, h), px, w * 4, 0);
+            wb.Freeze();
+            result = wb;
+        }
+        lock (_gate) { _norms[(absPath, rot)] = result; }
+        return result;
+    }
+
+    /// <summary>A glow decal's decoded pixels (plain BGRA32) for the light compositor, rotated CW by
+    /// <paramref name="rot"/> like the game rotates the quad with its parent item (a wall lamp's glow bar lies
+    /// along its wall). Null when the PNG is missing/unreadable.</summary>
+    public (int W, int H, byte[] Bgra)? GlowPixels(string absPath, int rot = 0)
+    {
+        if (Load(absPath) is not { } src) return null;
+        var bgra = new FormatConvertedBitmap(src, PixelFormats.Bgra32, null, 0);
+        int w = bgra.PixelWidth, h = bgra.PixelHeight;
+        var px = new byte[w * h * 4];
+        bgra.CopyPixels(px, w * 4, 0);
+        switch (GridMath.Norm(rot))
+        {
+            case 90:  return (h, w, RotatePixels(px, w, h, (x, y) => (h - 1 - y, x), h));
+            case 180: return (w, h, RotatePixels(px, w, h, (x, y) => (w - 1 - x, h - 1 - y), w));
+            case 270: return (h, w, RotatePixels(px, w, h, (x, y) => (y, w - 1 - x), h));
+            default:  return (w, h, px);
+        }
+    }
+
+    private static byte[] RotatePixels(byte[] src, int w, int h, Func<int, int, (int X, int Y)> map, int dstW)
+    {
+        var dst = new byte[src.Length];
+        for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
+            {
+                var (dx, dy) = map(x, y);
+                Array.Copy(src, (y * w + x) * 4, dst, (dy * dstW + dx) * 4, 4);
+            }
+        return dst;
+    }
+
     private BitmapSource? Load(string absPath)
     {
         lock (_gate)

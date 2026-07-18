@@ -85,8 +85,6 @@ public partial class MainWindow : Window
         Board.AirSelectionChanged += n => TxtGhost.Text = n > 0 ? AirHint(n) : "";
         // restore the "allow modded parts to break the law" toggle (default off)
         Board.AllowModdedOverrides = _settings.AllowModdedOverrides;
-        Board.LightDarkness = _settings.LightDarkness;   // restore the persisted Light Viz "unlit dimming" level
-        Board.LightReveal = _settings.LightReveal;       // and the persisted light-brightness (reveal) level
         Board.ZoneStrokeCommitted += OnZoneStrokeCommitted;
         Board.ShowPowerChanged += OnShowPowerChanged;   // (re)compute the overlay off-thread when toggled on
         Board.ShowRoomsChanged += OnShowRoomsChanged;   // same for the room certification
@@ -366,23 +364,27 @@ public partial class MainWindow : Window
         // Loaded here on the UI thread, then handed to the scan as an immutable list.
         var roomSpecs = Board.ShowRooms && _index is { } index ? _roomSpecs ??= RoomCertifier.LoadSpecs(index) : null;
 
+        // Exterior daylight: the persisted parallax location + sun angle, resolved on the scan thread
+        var sun = showLight && _settings.LightSunParallax is { Length: > 0 } sunName
+            ? new SunSettings(sunName, _settings.LightSunAngle) : null;
+
         List<Problem> problems;
         PowerOverlay power;
         RoomOverlay rooms;
-        LightOverlay light;
+        LightScene light;
         try
         {
             (problems, power, rooms, light) = await Ui.OffThread(() =>
             {
                 var probs = ProblemScan.Scan(snapshot, catalog);
                 var pov = PowerOverlay.Empty;
-                var lov = LightOverlay.Empty;
+                var lov = LightScene.Empty;
                 // Power and light both flood the same grid — build it once when either overlay is on.
                 if (showPower || showLight)
                 {
                     var grid = ShipGrid.FromDocument(snapshot, catalog);
                     if (showPower) pov = PowerNetwork.ToOverlay(grid, PowerNetwork.Build(grid, catalog));
-                    if (showLight) lov = LightNetwork.Build(grid, catalog);
+                    if (showLight) lov = LightNetwork.Build(grid, catalog, sun);
                 }
                 var rov = roomSpecs is null ? RoomOverlay.Empty : RoomOverlay.Build(snapshot, catalog, roomSpecs);
                 return (probs, pov, rov, lov);
@@ -393,7 +395,7 @@ public partial class MainWindow : Window
         UpdateProblems(problems);
         Board.SetPowerOverlay(power);
         Board.SetRoomOverlay(rooms);
-        Board.SetLightOverlay(light);
+        Board.SetLightScene(light);
     }
 
     /// <summary>
@@ -2215,18 +2217,21 @@ public partial class MainWindow : Window
         menu.IsOpen = true;
     }
 
-    /// <summary>The View ▸ "Light Viz dimming" control: a slider for the user-chosen "level of black" applied to
-    /// unlit areas while Light Viz is on (0 = additive glow over the full-bright ship, 1 = the full in-game look),
-    /// plus quick presets. The level persists (<see cref="AppSettings.LightDarkness"/>); the overlay on/off state
-    /// stays session-only like the other viz toggles.</summary>
+    /// <summary>The View ▸ "Light Viz" controls. The overlay itself renders game-exact (no brightness/dimming
+    /// tuners); what's configurable is the <b>exterior daylight</b>: which parallax location's sun lights shine on
+    /// the design (hull-occluded, streaming through windows — glass never blocks light) and the rotation of the
+    /// sun constellation (the game's world rotation of its far sun transform). Both persist.</summary>
     private MenuItem LightDimmingItem()
     {
         var menu = new MenuItem { Header = "Light Viz" };
-        menu.Items.Add(LightSliderRow("Brightness", 0.1, 5.0, Board.LightReveal, "0.0", SetLightReveal));
-        menu.Items.Add(LightSliderRow("Unlit black", 0.0, 1.0, Board.LightDarkness, "0.00", SetLightDarkness));
-        menu.Items.Add(new Separator());
-        menu.Items.Add(MenuAction("Glow only (no dimming)", () => SetLightDarkness(0)));
-        menu.Items.Add(MenuAction("Preview in-game look (max)", () => SetLightDarkness(1)));
+        var current = _settings.LightSunParallax ?? "";
+        var sunMenu = new MenuItem { Header = "Exterior sun" };
+        sunMenu.Items.Add(MenuAction("None", () => SetSunParallax(null), check: current.Length == 0));
+        if (_catalog is { } cat)
+            foreach (var p in cat.ParallaxDefs.Values.Where(p => p.SunLightNames.Length > 0).OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
+                sunMenu.Items.Add(MenuAction(p.Name, () => SetSunParallax(p.Name), check: current == p.Name));
+        menu.Items.Add(sunMenu);
+        menu.Items.Add(LightSliderRow("Sun angle", 0, 360, _settings.LightSunAngle, "0", SetSunAngle));
         return menu;
     }
 
@@ -2272,20 +2277,21 @@ public partial class MainWindow : Window
         return new MenuItem { Header = row, StaysOpenOnClick = true };
     }
 
-    /// <summary>Apply and persist the Light Viz "unlit dimming" level (the user's chosen level of black).</summary>
-    private void SetLightDarkness(double v)
+    /// <summary>Apply and persist the Light Viz exterior-sun location (null = no sun), then rescan so the
+    /// lighting recomputes with the new daylight.</summary>
+    private void SetSunParallax(string? name)
     {
-        Board.LightDarkness = v;
-        _settings.LightDarkness = Board.LightDarkness;   // read back the clamped value
+        _settings.LightSunParallax = name;
         _settings.Save();
+        if (Board.ShowLight) ScheduleScan();
     }
 
-    /// <summary>Apply and persist the Light Viz light-brightness (reveal) level.</summary>
-    private void SetLightReveal(double v)
+    /// <summary>Apply and persist the Light Viz sun-constellation angle (degrees), then rescan.</summary>
+    private void SetSunAngle(double deg)
     {
-        Board.LightReveal = v;
-        _settings.LightReveal = Board.LightReveal;   // read back the clamped value
+        _settings.LightSunAngle = deg;
         _settings.Save();
+        if (Board.ShowLight) ScheduleScan();
     }
 
     /// <summary>The File ▾ dropdown: document lifecycle, import, export, and write-back to a save.</summary>

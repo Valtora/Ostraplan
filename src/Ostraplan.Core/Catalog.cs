@@ -29,6 +29,12 @@ public sealed record PartDef(
     IReadOnlyDictionary<string, double> StartingCondValues,  // name -> magnitude/amount (StatMass kg, StatPower, ...); see LootDef.CondAmount
     IReadOnlyDictionary<string, (double X, double Y)> MapPoints)  // condowner mapPoints (DockA/DockB, RoomA/B, ...)
 {
+    /// <summary>The item's normal-map PNG resolved on disk (<c>strImgNorm</c>), or null when it names none/"blank"
+    /// or the file is missing. Light Viz shades N·L against it, exactly like the game's deferred normal RT.
+    /// Note a cooverlay skin keeps its <b>base</b> item's normal map (the game's <c>JsonCOOverlay</c> overrides
+    /// only <c>strImg</c>).</summary>
+    public string? SpriteNormAbs { get; init; }
+
     /// <summary>Resolved GUI-prop-map declarations — (instance, template) name pairs from the def's
     /// <c>mapGUIPropMaps</c> (base condowner + cooverlay). Drives the <c>aGPMSettings</c> baked onto a
     /// newly-injected device so it wires to power/panels on load (see <see cref="Catalog.GpmSettingsFor"/>).
@@ -194,6 +200,10 @@ public sealed class Catalog
     /// <summary>The RGBA colour table (from <c>data/colors</c>) — a light colour's alpha is its intensity. Used to
     /// resolve a <see cref="LightDef"/>'s colour into a <see cref="PartLight"/>. Empty in synthetic catalogs.</summary>
     public IReadOnlyDictionary<string, ColorDef> ColorTable { get; init; } = new Dictionary<string, ColorDef>();
+
+    /// <summary>Parallax location definitions by name (from <c>data/parallax</c>) — each location's exterior sun
+    /// lights for Light Viz's daylight simulation. Empty in synthetic catalogs.</summary>
+    public IReadOnlyDictionary<string, ParallaxDef> ParallaxDefs { get; init; } = new Dictionary<string, ParallaxDef>();
 
     /// <summary>Loose cargo items — condowners typed <c>"Item"</c> that aren't installed structure (a wall is
     /// also <c>strType "Item"</c> but carries <c>IsInstalled</c>), plus the cooverlay skins of those items (themed
@@ -380,6 +390,7 @@ public sealed class Catalog
         var slots = index.Type("slots").ToDictionary(kv => kv.Key, kv => SlotDef.Parse(kv.Value.El), StringComparer.Ordinal);
         var lightDefs = index.Type("lights").ToDictionary(kv => kv.Key, kv => LightDef.Parse(kv.Value.El), StringComparer.Ordinal);
         var colorTable = index.Type("colors").ToDictionary(kv => kv.Key, kv => ColorDef.Parse(kv.Value.El), StringComparer.Ordinal);
+        var parallaxDefs = index.Type("parallax").ToDictionary(kv => kv.Key, kv => ParallaxDef.Parse(kv.Value.El), StringComparer.Ordinal);
 
         // Loose cargo items for the inventory editor's add-picker: condowners typed "Item" minus installed
         // structure (a wall is strType "Item" too but carries IsInstalled), PLUS the cooverlay skins of those
@@ -508,6 +519,7 @@ public sealed class Catalog
             Slots = slots,
             LightDefs = lightDefs,
             ColorTable = colorTable,
+            ParallaxDefs = parallaxDefs,
             LooseItems = looseItems,
             LooseForms = looseForms,
             InstalledForms = installedForms,
@@ -652,6 +664,7 @@ public sealed class Catalog
             startVals,
             co?.MapPoints ?? new Dictionary<string, (double, double)>())
         {
+            SpriteNormAbs = item.ImgNorm is { Length: > 0 } and not "blank" ? index.ResolveImage(item.ImgNorm) : null,
             Gpm = ResolveGpm(co?.GpmNames, overlay?.GpmNames),
             Desc = co?.Desc,
             TickerNames = co?.TickerNames ?? [],

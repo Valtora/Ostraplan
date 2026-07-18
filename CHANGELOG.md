@@ -11,7 +11,35 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Changed
+- **Light Viz is now pixel-exact with the game's renderer.** The whole lighting pipeline was reverse-engineered
+  from the shipped build — the `Visibility` shadow-mesh geometry from the decompiled DLL, and the actual falloff
+  math from the disassembled `Sprites/LoSPass` GPU shader — and re-implemented as a software renderer at the
+  game's native 16 px/tile. What changed on screen:
+  - **Occlusion is the game's real occluder data (`aShadowBoxes`), not "walls block".** Windows are glass and let
+    light through; thin/aero walls don't block light at all; an open door spills light through the doorway (only
+    its end caps block); and beds, LH/LHe canisters, reactor pods, stabilizers and docking frames DO cast shadows
+    (while being fully lit themselves), exactly as in game.
+  - **Wall faces are lit.** Light penetrates half a tile into a wall face (the game's skirt extrusion), so hull and
+    room walls catch the light of the room facing them.
+  - **The exact falloff curve.** Brightness = `colour × alpha × N·L / (9·(d² + 0.0625) + 0.1)` with `d` the
+    distance over twice the radius — the disassembled shader, not an approximated gradient. Real lamps reach their
+    true radius (18 tiles for ceiling/wall lights).
+  - **Normal-mapped relief.** Every item's `strImgNorm` normal map is baked and shaded per pixel, so walls and
+    fixtures catch light directionally, like in game.
+  - **Soft light stacking.** Overlapping lights accumulate with the game's screen blend (`OneMinusDstColor One`) —
+    they saturate gently toward white instead of blowing out.
+  - **Lamp glow decals.** Each light's additive glow sprite (`strImg`) is drawn over the lit scene, the halo the
+    game shows on lamps, alarms and status LEDs.
+  - **Unlit means black.** In game, the visible ship IS the sum of its lights (ambient is black and the sprite
+    layer isn't even drawn); Light Viz now shows the same truth. The Brightness / Unlit black sliders are gone —
+    the overlay is game-exact, and toggling Light Viz off returns to the plain fully-lit view.
+
 ### Added
+- **Exterior daylight (View ▸ Light Viz).** Pick a parallax location (Deep Space, Venus Atmosphere, …) and the
+  sun angle, and the location's real sun lights (radius-1000 lights from `data/parallax`) shine on the design —
+  occluded by the hull, streaming through glass windows, exactly as the game lights a docked ship. Both settings
+  persist.
 - **The status bar now shows the size of a box selection (#8).** As you drag out any rubber-band box — a band select,
   a Shift+drag box fill, or a zone box — the bottom bar reads out its live dimensions as "W × H tiles" next to the
   tile coordinate. Handy for measuring room interiors as you build them. The readout clears when you release.

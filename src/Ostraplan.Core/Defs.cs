@@ -26,6 +26,22 @@ public sealed record ItemDef(
     /// glow/illumination a lit fixture emits. Empty for a part that emits no light. See <see cref="LightDef"/>.</summary>
     public string[] Lights { get; init; } = [];
 
+    /// <summary>The item's normal-map image (<c>strImgNorm</c>) — every core item names one (<c>&lt;img&gt;n</c>).
+    /// The game bakes it into the deferred normal RT and the light shader shades N·L against it, which is what
+    /// gives walls/fixtures their directional relief under a lamp. Null/"blank" = flat surface.</summary>
+    public string? ImgNorm { get; init; }
+
+    /// <summary>The item's light-occluder boxes (<c>aShadowBoxes</c>) — the <b>only</b> source of light occlusion
+    /// in the game (<c>Item.SetData</c> → <c>Block</c> → <c>Visibility.AddOccludersFromCrewSimBlocks</c>). Walls,
+    /// closed doors, canisters, beds… carry them; thin/aero walls carry none (they don't block light) and windows
+    /// carry glass boxes (light passes). Empty for most fixtures.</summary>
+    public ShadowBox[] ShadowBoxes { get; init; } = [];
+
+    /// <summary>True when this item is a wall for the light engine (<c>Item.SetData</c>: any socket add named
+    /// <c>TILWallAdds</c>). A wall block gets a lit "skirt" — light penetrates <c>max(rx, ry)</c> into its face so
+    /// the wall sprite is lit; a non-wall block casts shadow but its whole sprite is lit when touched.</summary>
+    public bool IsWallForLight { get; init; }
+
     public static ItemDef Parse(JsonElement e) => new(
         Json.Str(e, "strName") ?? "",
         Json.Str(e, "strImg") ?? "",
@@ -38,7 +54,47 @@ public sealed record ItemDef(
         Json.StrArray(e, "aSocketForbids"))
     {
         Lights = Json.StrArray(e, "aLights"),
+        ImgNorm = Json.Str(e, "strImgNorm"),
+        ShadowBoxes = Json.StrArray(e, "aShadowBoxes").Select(ShadowBox.Parse).OfType<ShadowBox>().ToArray(),
+        IsWallForLight = Json.StrArray(e, "aSocketAdds").Contains("TILWallAdds"),
     };
+}
+
+/// <summary>
+/// One light-occluder box from an item's <c>aShadowBoxes</c>: <c>"dx,dy,rx,ry[,glass]"</c> — centre offset from
+/// the item centre in <b>tiles</b> (+y up; the game divides the raw value by the sprite scale and re-multiplies
+/// through the parent transform, so the offsets are world tiles as written), half-extents in tiles, and an
+/// optional glass flag (a glass box never occludes light — windows). Entries with fewer than 4 fields are
+/// dropped, exactly like <c>Item.SetData</c>.
+/// </summary>
+public sealed record ShadowBox(double Dx, double Dy, double Rx, double Ry, bool Glass)
+{
+    public static ShadowBox? Parse(string entry)
+    {
+        var p = entry.Split(',');
+        if (p.Length < 4) return null;
+        var ic = System.Globalization.CultureInfo.InvariantCulture;
+        double dx = 0, dy = 0, rx = 1, ry = 1;
+        double.TryParse(p[0], ic, out dx);
+        double.TryParse(p[1], ic, out dy);
+        double.TryParse(p[2], ic, out rx);
+        double.TryParse(p[3], ic, out ry);
+        var glass = p.Length > 4 && bool.TryParse(p[4], out var g) && g;
+        return new ShadowBox(dx, dy, rx, ry, glass);
+    }
+}
+
+/// <summary>
+/// A parallax background definition (<c>data/parallax</c>, the game's <c>JsonParallax</c>) reduced to what Light
+/// Viz needs: the location name and its <c>aSunLights</c> (names into <c>data/lights</c>). The game instantiates
+/// each sun light under a far "sun" transform whose rotation tracks the world background, so exterior daylight is
+/// ordinary radius-1000 shadow-cast lights ~250-350 tiles out, occluded by the hull and passing through glass.
+/// </summary>
+public sealed record ParallaxDef(string Name, string[] SunLightNames)
+{
+    public static ParallaxDef Parse(JsonElement e) => new(
+        Json.Str(e, "strName") ?? "",
+        Json.StrArray(e, "aSunLights"));
 }
 
 /// <summary>
@@ -47,15 +103,22 @@ public sealed record ItemDef(
 /// is the light's intensity; the sentinel <c>"Blank"</c> means the light casts <b>no</b> real illumination (a glow
 /// decal only). <see cref="Img"/> is that additive glow sprite (optional). <see cref="PosX"/>/<see cref="PosY"/>
 /// are a pixel offset from the item centre (+y up, 16 px = 1 tile), resolved onto the grid exactly like a map
-/// point. <see cref="Radius"/> is the light radius in tiles, defaulting to the game's <c>DEFAULTVISIBILITYRANGE</c>
-/// (6) when the def omits <c>fRadius</c> or sets it ≤ 0 (verified <c>Visibility.Awake</c> / <c>Item</c> light
-/// attach, 0.15.x).
+/// point. <see cref="RawRadius"/> is the light radius in tiles exactly as the def declares it (0 when absent); a
+/// non-positive value falls back per attach site — an <b>item</b> light gets the game's
+/// <c>DEFAULTVISIBILITYRANGE</c> (6, <c>Item.SetData</c>) via <see cref="Radius"/>, a <b>sun</b> light gets 1000
+/// (<c>ParallaxController</c>) via <see cref="SunRadius"/>.
 /// </summary>
-public sealed record LightDef(string Name, string Color, string? Img, double PosX, double PosY, double Radius, bool CanBlink)
+public sealed record LightDef(string Name, string Color, string? Img, double PosX, double PosY, double RawRadius, bool CanBlink)
 {
     /// <summary>The game's default light radius (<c>Visibility.DEFAULTVISIBILITYRANGE</c>) applied when a real
     /// light's def carries no positive <c>fRadius</c>.</summary>
     public const double DefaultRadius = 6.0;
+
+    /// <summary>The radius an <b>item-attached</b> light uses: <c>fRadius</c> when positive, else 6.</summary>
+    public double Radius => RawRadius > 0 ? RawRadius : DefaultRadius;
+
+    /// <summary>The radius a <b>sun</b> light uses: <c>fRadius</c> when positive, else 1000.</summary>
+    public double SunRadius => RawRadius > 0 ? RawRadius : 1000.0;
 
     public static LightDef Parse(JsonElement e)
     {
@@ -65,13 +128,12 @@ public sealed record LightDef(string Name, string Color, string? Img, double Pos
             px = Json.Dbl(pt, "x");
             py = Json.Dbl(pt, "y");
         }
-        var radius = Json.Dbl(e, "fRadius");
         return new(
             Json.Str(e, "strName") ?? "",
             Json.Str(e, "strColor") ?? "Blank",
             Json.Str(e, "strImg"),
             px, py,
-            radius > 0 ? radius : DefaultRadius,
+            Json.Dbl(e, "fRadius"),
             Json.Bool(e, "bCanBlink"));
     }
 }

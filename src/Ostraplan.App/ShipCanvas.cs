@@ -166,7 +166,7 @@ public sealed class ShipCanvas : FrameworkElement
             _staticShip = null;
             _powerGeoDirty = true;   // segment geometries bake tile centres at this zoom
             _roomGeoDirty = true;    // room fills bake cell rects at this zoom
-            _lightGeoDirty = true;   // light dimming + blooms bake cell rects at this zoom
+            // Light Viz is zoom-independent: its composite is a doc-space bitmap scaled at draw time
         }
     }
     private double _zoom = 48;
@@ -216,16 +216,14 @@ public sealed class ShipCanvas : FrameworkElement
     private List<(Geometry Geo, Brush Fill)>? _roomGeos;
     private List<RoomLabel>? _roomLabels;
     private bool _roomGeoDirty;
-    private LightOverlay _lightOverlay = LightOverlay.Empty;    // the computed interior lighting (doc coords), pushed by the window after each scan
-    // Light Viz is multiplicative, like the game (final = sprite x light): the ship is revealed through a brightness
-    // opacity mask over black — bright where a light reaches, fading toward black where none does — with a subtle
-    // colour tint on top. Both rebuild only when the overlay, the zoom or the darkness changes. "Unlit dimming"
-    // (LightDarkness) is the user-controlled floor: 0 = ship stays full-bright (just a glow), 1 = unlit goes black.
-    private Brush? _lightMask;          // opacity mask: ambient floor + per-light radial reveal
-    private DrawingGroup? _lightGlow;   // subtle colour tint drawn over the revealed ship
-    private bool _lightGeoDirty;
-    private double _lightDarkness;
-    private double _lightReveal = 1.5;  // light-brightness (reveal) gain — user-controlled, persisted
+    private LightScene _lightScene = LightScene.Empty;   // the resolved lights/blocks/glows (doc coords), pushed by the window after each scan
+    // Light Viz renders the game's deferred light pass in software at the native 16 px/tile: the ship's albedo and
+    // normal maps are baked to doc-space bitmaps on the UI thread, then a worker runs the exact ported pipeline
+    // (VisibilityMesh geometry + LoSPass shading + screen-blend + glow decals) and hands back one frozen bitmap
+    // OnRender scales like a sprite. Pan/zoom never recompute it; only a new scene (edit/scan) does.
+    private System.Windows.Media.Imaging.BitmapSource? _lightImage;   // the composited lit ship (premultiplied, 16 px/tile), frozen
+    private Rect _lightImageRect;        // the doc-tile rect the composite covers
+    private int _lightJob;               // monotonic token so a stale worker result can't clobber a newer one
     private double _powerPhase;                                 // animated dash offset for the lit conduit flow
     private bool _powerAnimating;                               // whether the per-frame flow tick is hooked
     private TimeSpan _lastPowerTime;                            // last CompositionTarget.Rendering time, to advance the phase by elapsed seconds
@@ -472,48 +470,18 @@ public sealed class ShipCanvas : FrameworkElement
     {
         if (ShowLight == on) return;
         ShowLight = on;
-        if (on) _lightGeoDirty = true;   // build the mask immediately so a darkened view shows even before the first scan lands
-        else { _lightOverlay = LightOverlay.Empty; _lightMask = null; _lightGlow = null; }   // drop stale data so it can't flash on re-enable
+        if (!on) { _lightScene = LightScene.Empty; _lightImage = null; _lightJob++; }   // drop stale data (and orphan any in-flight composite) so it can't flash on re-enable
         ShowLightChanged?.Invoke();
         InvalidateVisual();
     }
 
-    /// <summary>The freshly computed interior lighting (document coords), pushed by the window after each scan.</summary>
-    public void SetLightOverlay(LightOverlay overlay)
+    /// <summary>The freshly resolved light scene (document coords), pushed by the window after each scan while the
+    /// overlay is on. Kicks the composite rebuild (albedo/normal bake on this thread, shading on a worker).</summary>
+    public void SetLightScene(LightScene scene)
     {
-        _lightOverlay = overlay ?? LightOverlay.Empty;
-        _lightGeoDirty = true;
+        _lightScene = scene ?? LightScene.Empty;
+        RebuildLightComposite();
         InvalidateVisual();
-    }
-
-    /// <summary>How far Light Viz darkens unlit areas: 0 = additive glow over the full-bright ship (default),
-    /// 1 = unlit areas to black (the "full sim" look). User-controlled and persisted; the window pushes it here.</summary>
-    public double LightDarkness
-    {
-        get => _lightDarkness;
-        set
-        {
-            var v = Math.Clamp(value, 0, 1);
-            if (Math.Abs(_lightDarkness - v) < 0.001) return;
-            _lightDarkness = v;
-            _lightGeoDirty = true;   // the ambient floor is baked into the mask
-            if (ShowLight) InvalidateVisual();
-        }
-    }
-
-    /// <summary>Light brightness ("reveal gain"): how strongly a light lifts its area toward fully lit. Higher =
-    /// brighter/harder pools, lower = softer. User-controlled and persisted; the window pushes it here.</summary>
-    public double LightReveal
-    {
-        get => _lightReveal;
-        set
-        {
-            var v = Math.Clamp(value, 0.1, 5.0);
-            if (Math.Abs(_lightReveal - v) < 0.001) return;
-            _lightReveal = v;
-            _lightGeoDirty = true;   // the reveal strength is baked into the mask
-            if (ShowLight) InvalidateVisual();
-        }
     }
 
     // Hook the per-frame flow tick only while the overlay is on AND there is something lit to animate.
@@ -1982,30 +1950,20 @@ public sealed class ShipCanvas : FrameworkElement
             // The cache is baked at pan zero, so shift it to the live pan with a transform — panning stays a
             // transform + one blit instead of rebuilding the whole ship each frame.
             dc.PushTransform(new TranslateTransform(_pan.X, _pan.Y));
-            if (ShowLight)
+            if (ShowLight && _lightImage is not null)
             {
-                EnsureLightVisuals();
-                if (_lightMask is not null)
-                {
-                    // Multiplicative Light Viz (final = sprite x light): black behind, reveal the ship through the
-                    // brightness mask, then a subtle colour tint on top. Clipped to the ship so light stays in the
-                    // hull (exterior/sun light is a later slice).
-                    var bounds = StaticShip().Bounds;
-                    dc.PushClip(new RectangleGeometry(bounds));
-                    dc.DrawRectangle(Brushes.Black, null, bounds);
-                    var lit = new DrawingGroup { OpacityMask = _lightMask };
-                    using (var lc = lit.Open()) lc.DrawDrawing(StaticShip());
-                    dc.DrawDrawing(lit);
-                    if (_lightGlow is not null) dc.DrawDrawing(_lightGlow);
-                    dc.Pop();
-                }
-                else dc.DrawDrawing(StaticShip());
+                // Light Viz: the game-exact composite (albedo x accumulated light + glow decals), one doc-space
+                // bitmap at 16 px/tile scaled like a sprite. Unlit hull is a black silhouette, exactly in-game.
+                var r = _lightImageRect;
+                dc.DrawImage(_lightImage, new Rect(r.X * Zoom, r.Y * Zoom, r.Width * Zoom, r.Height * Zoom));
             }
             else dc.DrawDrawing(StaticShip());
             dc.Pop();
         }
 
-        DrawLooseObjects(dc);   // loose floor items sit on top of the deck/fixtures they rest on
+        // loose floor items sit on top of the deck/fixtures they rest on; the lit composite already bakes them
+        var litDrawn = ShowLight && _lightImage is not null && _drag is not (Drag.Move or Drag.Paint);
+        if (!litDrawn) DrawLooseObjects(dc);
 
         DrawIllegalCells(dc);
         DrawLeakCells(dc);
@@ -2253,104 +2211,82 @@ public sealed class ShipCanvas : FrameworkElement
     }
 
     /// <summary>
-    /// Build the Light Viz layers from <see cref="LightNetwork"/>: a brightness <b>opacity mask</b> the ship is
-    /// revealed through — an ambient floor set by <see cref="LightDarkness"/> plus each light's radial reveal,
-    /// clipped to the visibility polygon the walls leave it — and a subtle <b>colour tint</b> drawn over the
-    /// revealed ship. This reproduces the game's multiplicative model (final = sprite x light) rather than washing
-    /// the ship with black, so lit areas show the actual sprite, bright, and only true shadow goes dark. Rebuilt
-    /// only when the overlay, the zoom or the darkness changes (<see cref="_lightGeoDirty"/>); <see cref="OnRender"/>
-    /// applies them.
+    /// Rebuild the Light Viz composite for the current scene: bake the ship's albedo and normal maps to doc-space
+    /// bitmaps at the game's native 16 px/tile (UI thread — WPF renders them), then run the exact ported light
+    /// pipeline on a worker (<see cref="LightComposite"/>: VisibilityMesh shadow geometry, the LoSPass falloff,
+    /// screen-blend accumulation, glow decals) and store one frozen bitmap for <see cref="OnRender"/>. A stale
+    /// worker result is dropped via <see cref="_lightJob"/>.
     /// </summary>
-    private void EnsureLightVisuals()
+    private void RebuildLightComposite()
     {
-        if (!_lightGeoDirty) return;
-        _lightGeoDirty = false;
-        _lightMask = null;
-        _lightGlow = null;
-        if (_lightOverlay.IsEmpty && _lightDarkness <= 0) return;
+        var job = ++_lightJob;
+        _lightImage = null;
+        if (!ShowLight || Doc is null || Sprites is null || Doc.Bounds() is not { } b) return;
 
-        var shipBounds = StaticShip().Bounds;
-        if (shipBounds.IsEmpty || shipBounds.Width <= 0 || shipBounds.Height <= 0) return;
+        const int margin = 6;   // room for glow halos past the hull; lit pixels need albedo, which stays in bounds
+        const int ppt = 16;
+        int minX = b.MinX - margin, minY = b.MinY - margin;
+        int tilesW = b.MaxX - b.MinX + 1 + 2 * margin, tilesH = b.MaxY - b.MinY + 1 + 2 * margin;
+        int w = tilesW * ppt, h = tilesH * ppt;
+        if ((long)w * h > 64_000_000) return;   // a station past ~500x500 tiles: skip rather than exhaust memory
 
-        var ambient = (byte)Math.Round((1.0 - _lightDarkness) * 255);   // how bright unlit areas stay (255 = no dimming)
+        var albedo = BakeDocPixels(minX, minY, tilesW, tilesH, ppt, normalPass: false);
+        var normal = BakeDocPixels(minX, minY, tilesW, tilesH, ppt, normalPass: true);
+        var glows = new List<GlowImage>(_lightScene.Glows.Count);
+        foreach (var g in _lightScene.Glows)
+            if (Sprites.GlowPixels(g.SpriteAbs, g.Rot) is { } gp)
+                glows.Add(new GlowImage(g.DocX, g.DocY, gp.W, gp.H, gp.Bgra));
 
-        // Brightness mask: a white floor at the ambient level, plus each light's radial reveal. Only the alpha is
-        // used (it modulates the ship's brightness through the opacity mask); the colour tint is a separate layer.
-        var mask = new DrawingGroup();
-        using (var c = mask.Open())
+        var scene = _lightScene;
+        Task.Run(() =>
         {
-            if (ambient > 0)
+            var acc = LightComposite.AccumulateLights(scene, w, h, ppt, minX, minY, normal);
+            var outPx = LightComposite.Compose(albedo, acc, w, h, ppt, minX, minY, glows);
+            var bmp = System.Windows.Media.Imaging.BitmapSource.Create(w, h, 96, 96, PixelFormats.Pbgra32, null, outPx, w * 4);
+            bmp.Freeze();
+            Dispatcher.InvokeAsync(() =>
             {
-                var floor = new SolidColorBrush(Color.FromArgb(ambient, 255, 255, 255));
-                floor.Freeze();
-                c.DrawRectangle(floor, null, shipBounds);
-            }
-            foreach (var light in _lightOverlay.Lights)
-                DrawLightShape(c, light, RevealPeak(light), 255, 255, 255);
-        }
-        var maskBrush = new DrawingBrush(mask)
-        {
-            ViewboxUnits = BrushMappingMode.Absolute,
-            Viewbox = shipBounds,
-            Stretch = Stretch.Fill,
-        };
-        maskBrush.Freeze();
-        _lightMask = maskBrush;
-
-        // Subtle colour tint over the revealed sprite (a blue light gives its floor a hint of blue).
-        var glow = new DrawingGroup();
-        using (var c = glow.Open())
-            foreach (var light in _lightOverlay.Lights)
-                DrawLightShape(c, light, TintPeak(light), light.R, light.G, light.B);
-        glow.Freeze();
-        _lightGlow = glow;
+                if (job != _lightJob || !ShowLight) return;
+                _lightImage = bmp;
+                _lightImageRect = new Rect(minX, minY, tilesW, tilesH);
+                InvalidateVisual();
+            });
+        });
     }
 
-    /// <summary>A light's peak reveal alpha (mask): its intensity lifted by the user's <see cref="LightReveal"/>
-    /// gain, clamped to fully lit. No floor — a dim light stays dim (raise the gain to lift everything).</summary>
-    private byte RevealPeak(LightPoly l) => (byte)Math.Clamp(l.Intensity * _lightReveal * 255, 0, 255);
-
-    /// <summary>A light's peak tint alpha (colour glow): kept very low so the tint is a faint hint of the light's
-    /// colour on the revealed sprite, not the strong wash that over-accumulating status LEDs would produce.</summary>
-    private static byte TintPeak(LightPoly l) => (byte)Math.Clamp(l.Intensity * 0.25 * 255, 0, 40);
-
-    /// <summary>Fill a light's visibility polygon with a radial falloff (peak at the centre out to the radius) in
-    /// the given colour, at the current zoom. Shared by the reveal mask (white) and the colour tint.</summary>
-    private void DrawLightShape(DrawingContext c, LightPoly light, byte peak, byte r, byte g, byte b)
+    /// <summary>Render the ship (placements + loose items) into a doc-space pixel buffer at
+    /// <paramref name="ppt"/> px/tile — the albedo pass, or the normal-map pass (each sprite swapped for its
+    /// vector-swizzled normal texture; uncovered pixels keep alpha 0 = flat). Premultiplied BGRA.</summary>
+    private byte[] BakeDocPixels(int minX, int minY, int tilesW, int tilesH, int ppt, bool normalPass)
     {
-        if (light.Polygon.Count < 3 || peak == 0) return;
-
-        var cx = light.CenterX * Zoom;
-        var cy = light.CenterY * Zoom;
-        var rad = light.Radius * Zoom;
-        var brush = new RadialGradientBrush
+        var (savedPan, savedZoom, savedRot) = (_pan, Zoom, ViewRot);
+        Zoom = ppt;
+        _pan = new Vector(-minX * (double)ppt, -minY * (double)ppt);
+        ViewRot = 0;
+        _normalPass = normalPass;
+        try
         {
-            MappingMode = BrushMappingMode.Absolute,
-            Center = new Point(cx, cy),
-            GradientOrigin = new Point(cx, cy),
-            RadiusX = rad,
-            RadiusY = rad,
-            GradientStops =
+            var dv = new DrawingVisual();
+            RenderOptions.SetBitmapScalingMode(dv, BitmapScalingMode.NearestNeighbor);
+            using (var ctx = dv.RenderOpen())
             {
-                new GradientStop(Color.FromArgb(peak, r, g, b), 0.0),
-                new GradientStop(Color.FromArgb((byte)(peak * 0.5), r, g, b), 0.4),
-                new GradientStop(Color.FromArgb((byte)(peak * 0.12), r, g, b), 0.75),
-                new GradientStop(Color.FromArgb(0, r, g, b), 1.0),
-            },
-        };
-        brush.Freeze();
-
-        var geo = new StreamGeometry();
-        using (var gc = geo.Open())
-        {
-            gc.BeginFigure(new Point(light.Polygon[0].X * Zoom, light.Polygon[0].Y * Zoom), true, true);
-            var rest = new Point[light.Polygon.Count - 1];
-            for (var i = 1; i < light.Polygon.Count; i++)
-                rest[i - 1] = new Point(light.Polygon[i].X * Zoom, light.Polygon[i].Y * Zoom);
-            gc.PolyLineTo(rest, true, false);
+                foreach (var p in Doc!.DrawOrder())
+                    DrawPlacement(ctx, p, (0, 0));
+                foreach (var lo in Doc.LooseObjects)
+                    if (Doc.Catalog.Lookup(lo.DefName) is { } part) DrawSprite(ctx, part, lo.X, lo.Y, lo.Rot, ghost: false);
+            }
+            int w = tilesW * ppt, h = tilesH * ppt;
+            var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+            rtb.Render(dv);
+            var px = new byte[w * h * 4];
+            rtb.CopyPixels(px, w * 4, 0);
+            return px;
         }
-        geo.Freeze();
-        c.DrawGeometry(brush, null, geo);
+        finally
+        {
+            _normalPass = false;
+            (_pan, Zoom, ViewRot) = (savedPan, savedZoom, savedRot);
+        }
     }
 
     /// <summary>
@@ -2758,6 +2694,10 @@ public sealed class ShipCanvas : FrameworkElement
         DrawSprite(dc, part, p.X + offset.X, p.Y + offset.Y, p.Rot, ghost: false);
     }
 
+    // While set, DrawSprite draws each part's vector-swizzled NORMAL map instead of its albedo sprite (the Light
+    // Viz normal-pass bake). Parts with no normal map draw nothing — alpha 0 reads as a flat surface downstream.
+    private bool _normalPass;
+
     private void DrawSprite(DrawingContext dc, PartDef part, int gx, int gy, int rot, bool ghost)
     {
         if (part.Item.HasSpriteSheet && part.Item.CtSpriteSheet is { } ct)
@@ -2770,7 +2710,8 @@ public sealed class ShipCanvas : FrameworkElement
                 {
                     var mask = ghost ? 0 : Autotile.MaskAt(Doc!.Conds, ct, gx + c, gy + r);
                     var (col, row) = Autotile.Cell(mask, cols, rows);
-                    dc.DrawImage(Sprites.SheetCell(part, col, row), CellRect(gx + c, gy + r, 1, 1));
+                    var cell = _normalPass ? Sprites.NormalSheetCell(part, col, row) : Sprites.SheetCell(part, col, row);
+                    if (cell is not null) dc.DrawImage(cell, CellRect(gx + c, gy + r, 1, 1));
                 }
             return;
         }
@@ -2781,11 +2722,12 @@ public sealed class ShipCanvas : FrameworkElement
         // footprint whose outer ring is abstracted sub-floor storage, not the tank body.
         var (effW, effH) = GridMath.Size(part.Item.Width, part.Item.Height, rot);
         var (visW, visH) = Sprites!.SpriteTiles(part);
-        var bmp = Sprites.Sprite(part);
+        var norm = GridMath.Norm(rot);
+        var bmp = _normalPass ? Sprites.NormalSprite(part, norm) : Sprites.Sprite(part);
+        if (bmp is null) return;
         var center = new Point(_pan.X + (gx + effW / 2.0) * Zoom, _pan.Y + (gy + effH / 2.0) * Zoom);
         var sprite = new Rect(center.X - visW * Zoom / 2, center.Y - visH * Zoom / 2, visW * Zoom, visH * Zoom);
 
-        var norm = GridMath.Norm(rot);
         if (norm != 0) dc.PushTransform(new RotateTransform(norm, center.X, center.Y));
         dc.DrawImage(bmp, sprite);
         if (norm != 0) dc.Pop();
