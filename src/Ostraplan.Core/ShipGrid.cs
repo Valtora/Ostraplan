@@ -188,4 +188,16 @@ public sealed class ShipGrid
         var row = Rnd(part.TopLeftRow + ty - 0.5);
         return InBounds(col, row) ? Index(col, row) : -1;
     }
+
+    /// <summary>
+    /// The <b>continuous</b> grid position a part's map point lands on (tile units, cell (c,r)'s centre at
+    /// (c+0.5, r+0.5)) — the sub-tile form of <see cref="MapPointTile"/>, which just rounds this to a tile.
+    /// Light Viz places each light here rather than at a tile centre so its occlusion has a facing (a wall light
+    /// offset into its room shadows the far side). Not bounds-checked; a point may sit off-grid.
+    /// </summary>
+    public (double Col, double Row) MapPointPos(PlacedPart part, (double X, double Y) px)
+    {
+        var (tx, ty) = GridMath.MapPoint(px, part.Part.Item.Width, part.Part.Item.Height, part.Rot);
+        return (part.TopLeftCol + tx, part.TopLeftRow + ty);
+    }
 }

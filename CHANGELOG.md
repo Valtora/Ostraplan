@@ -11,6 +11,22 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.46.0] 2026-07-18, Light Viz: see how your ship will be lit before you build
+
+### Added
+- **Light Viz, an interior-lighting overlay (`L`).** Simulates how your ship will be lit in game, so you can place
+  lighting fixtures and judge the result before you build. Each light the game would cast (ceiling and wall lights,
+  floor strips, grow lamps, the TV, and the small coloured status LEDs on devices) is shadow-cast from its exact
+  position and stops at walls, so rooms light smoothly and a doorway throws light into the next space. The ship is
+  rendered **the way the game does it** — multiplicatively (final = sprite × light) — so lit areas show the real
+  sprite, bright, and only genuine shadow goes dark, rather than washing the plan with a flat overlay.
+
+  Two controls on the View ▸ **Light Viz** submenu (drag the slider or type an exact value, both persisted):
+  **Brightness** (how strongly a light lifts its area) and **Unlit black** (how far unlit areas darken — 0 keeps the
+  ship full-bright with just a glow, good for editing; push it up for the true in-game dark look). Computed
+  off-thread only while the overlay is on, exactly like PowerViz and RoomViz. This release covers **interior**
+  lighting; exterior sun/star light through windows and airlocks is a later addition.
+
 ### Fixed
 - **Cargo pods (and other interlocking parts) can be stacked again.** Building a cargo train worked in the game
   but not in Ostraplan: the second pod's ghost lit up green, yet the click placed nothing. Two cargo pods attach
@@ -20,6 +36,8 @@ each release was verified against is recorded in
   same tile and rotation, which is all it was ever meant to catch while dragging), leaving the placement law
   (`CheckFit`) the sole judge of overlaps. Reported as
   [#6](https://github.com/Valtora/Ostraplan/issues/6).
+
+## [0.45.0] 2026-07-17, save edits no longer corrupt the ship, plus RoomViz
 
 ### Added
 - **RoomViz, a rooms overlay (`C`).** Shows every compartment the way the game will flood-fill it: each one tinted

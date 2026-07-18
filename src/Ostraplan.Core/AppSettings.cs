@@ -17,6 +17,13 @@ public sealed class AppSettings
     /// <summary>Let modded parts be placed where Ostraplan's core-game placement law says they don't fit (they are
     /// still flagged as warnings). Core parts stay hard-blocked. Off by default — the Law is authoritative for core.</summary>
     [JsonPropertyName("allowModdedOverrides")] public bool AllowModdedOverrides { get; set; }
+    /// <summary>Light Viz "unlit dimming" level (0..1): how far unlit areas darken while the lighting overlay is on.
+    /// 0 = additive glow over the full-bright ship (default), 1 = unlit areas to black (the in-game look). The
+    /// overlay on/off state is session-only like the other viz toggles; only this preference persists.</summary>
+    [JsonPropertyName("lightDarkness")] public double LightDarkness { get; set; }
+    /// <summary>Light Viz light brightness ("reveal gain"): how strongly a light lifts its area toward fully lit
+    /// (scales the light's own intensity). Higher = brighter, harder pools; lower = softer. Default 1.5.</summary>
+    [JsonPropertyName("lightReveal")] public double LightReveal { get; set; } = 1.5;
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 
     public static string Dir => Path.Combine(

@@ -84,9 +84,12 @@ public partial class MainWindow : Window
         Board.AirSelectionChanged += n => TxtGhost.Text = n > 0 ? AirHint(n) : "";
         // restore the "allow modded parts to break the law" toggle (default off)
         Board.AllowModdedOverrides = _settings.AllowModdedOverrides;
+        Board.LightDarkness = _settings.LightDarkness;   // restore the persisted Light Viz "unlit dimming" level
+        Board.LightReveal = _settings.LightReveal;       // and the persisted light-brightness (reveal) level
         Board.ZoneStrokeCommitted += OnZoneStrokeCommitted;
         Board.ShowPowerChanged += OnShowPowerChanged;   // (re)compute the overlay off-thread when toggled on
         Board.ShowRoomsChanged += OnShowRoomsChanged;   // same for the room certification
+        Board.ShowLightChanged += OnShowLightChanged;   // same for the interior-lighting flood
         Board.WireModeChanged += OnWireModeChanged;     // swap the status hint for the wiring instructions
         Board.LinkToggleRequested += OnLinkToggleRequested;   // connect/disconnect two devices via the command stack
         Board.ActiveZoneChanged += UpdateZones;   // reflect which zone (if any) is being painted
@@ -357,6 +360,7 @@ public partial class MainWindow : Window
         var snapshot = _doc.Snapshot();   // UI thread, cheap; immutable while the scan runs
         var catalog = _catalog;
         var showPower = Board.ShowPower;   // only pay for the power flood when PowerViz is on
+        var showLight = Board.ShowLight;   // and the interior-lighting flood only when Light Viz is on
         // RoomViz: only certify while the overlay is on, and only when the data index is up (specs come from it).
         // Loaded here on the UI thread, then handed to the scan as an immutable list.
         var roomSpecs = Board.ShowRooms && _index is { } index ? _roomSpecs ??= RoomCertifier.LoadSpecs(index) : null;
@@ -364,19 +368,23 @@ public partial class MainWindow : Window
         List<Problem> problems;
         PowerOverlay power;
         RoomOverlay rooms;
+        LightOverlay light;
         try
         {
-            (problems, power, rooms) = await Ui.OffThread(() =>
+            (problems, power, rooms, light) = await Ui.OffThread(() =>
             {
                 var probs = ProblemScan.Scan(snapshot, catalog);
                 var pov = PowerOverlay.Empty;
-                if (showPower)
+                var lov = LightOverlay.Empty;
+                // Power and light both flood the same grid — build it once when either overlay is on.
+                if (showPower || showLight)
                 {
                     var grid = ShipGrid.FromDocument(snapshot, catalog);
-                    pov = PowerNetwork.ToOverlay(grid, PowerNetwork.Build(grid, catalog));
+                    if (showPower) pov = PowerNetwork.ToOverlay(grid, PowerNetwork.Build(grid, catalog));
+                    if (showLight) lov = LightNetwork.Build(grid, catalog);
                 }
                 var rov = roomSpecs is null ? RoomOverlay.Empty : RoomOverlay.Build(snapshot, catalog, roomSpecs);
-                return (probs, pov, rov);
+                return (probs, pov, rov, lov);
             }, token);
         }
         catch (OperationCanceledException) { return; }
@@ -384,6 +392,7 @@ public partial class MainWindow : Window
         UpdateProblems(problems);
         Board.SetPowerOverlay(power);
         Board.SetRoomOverlay(rooms);
+        Board.SetLightOverlay(light);
     }
 
     /// <summary>
@@ -880,6 +889,15 @@ public partial class MainWindow : Window
     private void OnShowRoomsChanged()
     {
         if (Board.ShowRooms) ScheduleScan();
+    }
+
+    // ---- lighting (Light Viz) ----
+
+    /// <summary>Light Viz was toggled: when turned on, kick a scan so the interior lighting computes (the flood only
+    /// runs while the overlay is on).</summary>
+    private void OnShowLightChanged()
+    {
+        if (Board.ShowLight) ScheduleScan();
     }
 
     private string? _defaultHint;   // the status-bar hint to restore when wire mode turns off
@@ -1760,6 +1778,10 @@ public partial class MainWindow : Window
                 Board.ToggleRooms();
                 e.Handled = true;
                 break;
+            case Key.L when !ctrl && !e.IsRepeat:   // Light Viz interior lighting
+                Board.ToggleLight();
+                e.Handled = true;
+                break;
             case Key.W or Key.A or Key.S or Key.D when !ctrl:
                 Board.SetPanKey(e.Key, true);   // smooth per-frame pan until KeyUp
                 e.Handled = true;
@@ -2191,6 +2213,79 @@ public partial class MainWindow : Window
         menu.IsOpen = true;
     }
 
+    /// <summary>The View ▸ "Light Viz dimming" control: a slider for the user-chosen "level of black" applied to
+    /// unlit areas while Light Viz is on (0 = additive glow over the full-bright ship, 1 = the full in-game look),
+    /// plus quick presets. The level persists (<see cref="AppSettings.LightDarkness"/>); the overlay on/off state
+    /// stays session-only like the other viz toggles.</summary>
+    private MenuItem LightDimmingItem()
+    {
+        var menu = new MenuItem { Header = "Light Viz" };
+        menu.Items.Add(LightSliderRow("Brightness", 0.1, 5.0, Board.LightReveal, "0.0", SetLightReveal));
+        menu.Items.Add(LightSliderRow("Unlit black", 0.0, 1.0, Board.LightDarkness, "0.00", SetLightDarkness));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(MenuAction("Glow only (no dimming)", () => SetLightDarkness(0)));
+        menu.Items.Add(MenuAction("Preview in-game look (max)", () => SetLightDarkness(1)));
+        return menu;
+    }
+
+    /// <summary>A labelled slider plus an editable numeric box hosted in a menu (stays open while adjusting): drag
+    /// the slider or type an exact value (committed on Enter or focus loss). Both push through
+    /// <paramref name="onChange"/> live, and the box shows the current value in <paramref name="format"/>.</summary>
+    private static MenuItem LightSliderRow(string label, double min, double max, double value, string format, Action<double> onChange)
+    {
+        var slider = new Slider
+        {
+            Minimum = min, Maximum = max, Value = Math.Clamp(value, min, max), Width = 120,
+            SmallChange = (max - min) / 40, LargeChange = (max - min) / 5,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        var box = new TextBox
+        {
+            Width = 44, VerticalAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Right,
+            Margin = new Thickness(6, 0, 0, 0),
+            Text = slider.Value.ToString(format, System.Globalization.CultureInfo.InvariantCulture),
+        };
+        slider.ValueChanged += (_, e) =>
+        {
+            box.Text = e.NewValue.ToString(format, System.Globalization.CultureInfo.InvariantCulture);
+            onChange(e.NewValue);
+        };
+        void Commit()
+        {
+            if (double.TryParse(box.Text, System.Globalization.NumberStyles.Any,
+                    System.Globalization.CultureInfo.InvariantCulture, out var v))
+                slider.Value = Math.Clamp(v, min, max);   // fires ValueChanged → onChange + refreshes the box
+            else
+                box.Text = slider.Value.ToString(format, System.Globalization.CultureInfo.InvariantCulture);
+        }
+        // A TextBox inside a menu needs the click handled here or the menu swallows it before it can focus.
+        box.PreviewMouseLeftButtonDown += (_, e) => { box.Focus(); box.SelectAll(); e.Handled = true; };
+        box.LostFocus += (_, _) => Commit();
+        box.KeyDown += (_, e) => { if (e.Key == Key.Enter) { Commit(); e.Handled = true; } };
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(8, 2, 8, 2) };
+        row.Children.Add(new TextBlock { Text = label, Width = 72, VerticalAlignment = VerticalAlignment.Center });
+        row.Children.Add(slider);
+        row.Children.Add(box);
+        return new MenuItem { Header = row, StaysOpenOnClick = true };
+    }
+
+    /// <summary>Apply and persist the Light Viz "unlit dimming" level (the user's chosen level of black).</summary>
+    private void SetLightDarkness(double v)
+    {
+        Board.LightDarkness = v;
+        _settings.LightDarkness = Board.LightDarkness;   // read back the clamped value
+        _settings.Save();
+    }
+
+    /// <summary>Apply and persist the Light Viz light-brightness (reveal) level.</summary>
+    private void SetLightReveal(double v)
+    {
+        Board.LightReveal = v;
+        _settings.LightReveal = Board.LightReveal;   // read back the clamped value
+        _settings.Save();
+    }
+
     /// <summary>The File ▾ dropdown: document lifecycle, import, export, and write-back to a save.</summary>
     private void OnFileMenuClick(object sender, RoutedEventArgs e)
     {
@@ -2252,6 +2347,8 @@ public partial class MainWindow : Window
         m.Items.Add(MenuAction("Zones overlay", Board.ToggleZones, check: Board.ShowZones, gesture: "Z"));
         m.Items.Add(MenuAction("Rooms overlay", Board.ToggleRooms, check: Board.ShowRooms, gesture: "C"));
         m.Items.Add(MenuAction("Power overlay", Board.TogglePower, check: Board.ShowPower, gesture: "P"));
+        m.Items.Add(MenuAction("Light overlay", Board.ToggleLight, check: Board.ShowLight, gesture: "L"));
+        m.Items.Add(LightDimmingItem());
         m.Items.Add(MenuAction("Wire mode (device connections)", Board.ToggleWireMode, check: Board.WireMode));
         m.Items.Add(new Separator());
         m.Items.Add(MenuAction("Mod overrides", ToggleModOverrides, check: Board.AllowModdedOverrides));
@@ -3036,6 +3133,7 @@ public partial class MainWindow : Window
             ("Mod overrides", "Toolbar toggle", "Let modded parts place where the core-game rules say they don't fit (ghost turns amber, flagged as a warning — verify in-game). Core parts stay enforced."),
             ("Power overlay", "P", "Show/hide PowerViz: lit conduit runs flow from a live generator/battery, orphaned runs are dim red, and a wired device with no feed gets an amber marker. A powered part also shows its connector badges (blue IN, green OUT) while armed or selected."),
             ("Rooms overlay", "C", "Show/hide RoomViz: every compartment the game would flood-fill, tinted in its own colour and labelled with what it certifies as, its size and its value. A room that certifies as nothing says why — what to add, and which item in it blocks the spec (a canister parked in a quarters, say). Unsealed compartments are red. The exterior isn't tinted, so a room open to space simply loses its tint."),
+            ("Light overlay", "L", "Show/hide Light Viz: interior lighting simulated from every fixture and lit device. Each light floods its compartment (bounded by walls) in its own colour, so dark corners and colour clashes show at a glance. The View menu's Light Viz sliders set the light brightness and how far unlit areas darken (from a glow over the full-bright ship up to the in-game dark look)."),
             ("Wire mode", "View menu", "Wire signalable devices: click a device to arm it as the signal source, then click another to connect (or a connected one to disconnect). Connectable devices ring violet, wires draw source→target. Esc / right-click cancels."),
             ("Delete", "Del", "Delete the selection."),
             ("Select all", "Ctrl+A", "Select every part in the design."),

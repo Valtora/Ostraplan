@@ -18,6 +18,8 @@ public sealed class Fixtures
     private readonly Dictionary<string, CondTriggerDef> _trigs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _looseForms = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _installedForms = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, LightDef> _lightDefs = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, ColorDef> _colorTable = new(StringComparer.Ordinal);
 
     /// <summary>Register a named loot (the bundle of conditions a tile socket adds).</summary>
     public Fixtures Loot(string name, params string[] conds)
@@ -30,6 +32,21 @@ public sealed class Fixtures
     public Fixtures Trig(string name, string[] reqs, string[]? forbids = null)
     {
         _trigs[name] = new CondTriggerDef(name, reqs, forbids ?? [], false);
+        return this;
+    }
+
+    /// <summary>Register a colour (RGBA; a light colour's alpha is its intensity).</summary>
+    public Fixtures Color(string name, byte r, byte g, byte b, byte a)
+    {
+        _colorTable[name] = new ColorDef(name, r, g, b, a);
+        return this;
+    }
+
+    /// <summary>Register a light definition (data/lights): the colour it uses (<c>"Blank"</c> casts no real light),
+    /// its radius in tiles (0 = the game default of 6), and its pixel offset from the item centre.</summary>
+    public Fixtures Light(string name, string color, double radius = 0, double px = 0, double py = 0)
+    {
+        _lightDefs[name] = new LightDef(name, color, null, px, py, radius > 0 ? radius : LightDef.DefaultRadius, false);
         return this;
     }
 
@@ -46,7 +63,8 @@ public sealed class Fixtures
         int stackLimit = 0, IReadOnlyDictionary<string, (double X, double Y)>? mapPoints = null,
         double basePrice = 0, bool sheet = false, string origin = "core",
         IReadOnlyDictionary<string, double>? condValues = null,
-        IReadOnlyList<(double X, double Y)>? powerInputs = null, (double X, double Y)? powerOutput = null)
+        IReadOnlyList<(double X, double Y)>? powerInputs = null, (double X, double Y)? powerOutput = null,
+        string[]? lights = null)
     {
         string[] adds;
         if (tileConds is { Length: > 0 })
@@ -57,7 +75,10 @@ public sealed class Fixtures
         }
         else adds = [.. Enumerable.Repeat("Blank", w * h)];
 
-        var item = new ItemDef(name, name + ".png", sheet, null, 0, w, adds, reqs ?? [], forbids ?? []);
+        var item = new ItemDef(name, name + ".png", sheet, null, 0, w, adds, reqs ?? [], forbids ?? [])
+        {
+            Lights = lights ?? [],
+        };
         var values = new Dictionary<string, double>(condValues ?? new Dictionary<string, double>());
         if (basePrice > 0) values["StatBasePrice"] = basePrice;
         var part = new PartDef(name, name, category, origin, item, null, [], [],
@@ -117,6 +138,8 @@ public sealed class Fixtures
         Triggers = _trigs,
         LooseForms = _looseForms,
         InstalledForms = _installedForms,
+        LightDefs = _lightDefs,
+        ColorTable = _colorTable,
         Warnings = [],
     };
 

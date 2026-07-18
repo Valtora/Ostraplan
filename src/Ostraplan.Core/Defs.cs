@@ -22,6 +22,10 @@ public sealed record ItemDef(
     public int Width => NCols < 1 ? 1 : NCols;
     public int Height => SocketAdds.Length == 0 ? 1 : Math.Max(1, SocketAdds.Length / Width);
 
+    /// <summary>The light definitions this item attaches (<c>aLights</c>, names into <c>data/lights</c>) — the
+    /// glow/illumination a lit fixture emits. Empty for a part that emits no light. See <see cref="LightDef"/>.</summary>
+    public string[] Lights { get; init; } = [];
+
     public static ItemDef Parse(JsonElement e) => new(
         Json.Str(e, "strName") ?? "",
         Json.Str(e, "strImg") ?? "",
@@ -31,7 +35,59 @@ public sealed record ItemDef(
         Json.Int(e, "nCols", 1),
         Json.StrArray(e, "aSocketAdds"),
         Json.StrArray(e, "aSocketReqs"),
-        Json.StrArray(e, "aSocketForbids"));
+        Json.StrArray(e, "aSocketForbids"))
+    {
+        Lights = Json.StrArray(e, "aLights"),
+    };
+}
+
+/// <summary>
+/// A light definition (<c>data/lights</c>, the game's <c>JsonLight</c>): the coloured point light a fixture
+/// attaches through its item def's <c>aLights</c>. <see cref="Color"/> names a <see cref="ColorDef"/> whose alpha
+/// is the light's intensity; the sentinel <c>"Blank"</c> means the light casts <b>no</b> real illumination (a glow
+/// decal only). <see cref="Img"/> is that additive glow sprite (optional). <see cref="PosX"/>/<see cref="PosY"/>
+/// are a pixel offset from the item centre (+y up, 16 px = 1 tile), resolved onto the grid exactly like a map
+/// point. <see cref="Radius"/> is the light radius in tiles, defaulting to the game's <c>DEFAULTVISIBILITYRANGE</c>
+/// (6) when the def omits <c>fRadius</c> or sets it ≤ 0 (verified <c>Visibility.Awake</c> / <c>Item</c> light
+/// attach, 0.15.x).
+/// </summary>
+public sealed record LightDef(string Name, string Color, string? Img, double PosX, double PosY, double Radius, bool CanBlink)
+{
+    /// <summary>The game's default light radius (<c>Visibility.DEFAULTVISIBILITYRANGE</c>) applied when a real
+    /// light's def carries no positive <c>fRadius</c>.</summary>
+    public const double DefaultRadius = 6.0;
+
+    public static LightDef Parse(JsonElement e)
+    {
+        double px = 0, py = 0;
+        if (e.TryGetProperty("ptPos", out var pt) && pt.ValueKind == JsonValueKind.Object)
+        {
+            px = Json.Dbl(pt, "x");
+            py = Json.Dbl(pt, "y");
+        }
+        var radius = Json.Dbl(e, "fRadius");
+        return new(
+            Json.Str(e, "strName") ?? "",
+            Json.Str(e, "strColor") ?? "Blank",
+            Json.Str(e, "strImg"),
+            px, py,
+            radius > 0 ? radius : DefaultRadius,
+            Json.Bool(e, "bCanBlink"));
+    }
+}
+
+/// <summary>
+/// An RGBA colour (<c>data/colors</c>, the game's <c>JsonColor</c>): channels 0-255. For a <b>light</b> colour the
+/// alpha channel encodes intensity (the game multiplies it through to the shader as <c>_LightColor</c>), so
+/// Ostraplan reads <see cref="A"/>/255 as the light's strength. Referenced by name from a <see cref="LightDef"/>.
+/// </summary>
+public sealed record ColorDef(string Name, byte R, byte G, byte B, byte A)
+{
+    public static ColorDef Parse(JsonElement e) => new(
+        Json.Str(e, "strName") ?? "",
+        Chan(e, "nR"), Chan(e, "nG"), Chan(e, "nB"), Chan(e, "nA"));
+
+    private static byte Chan(JsonElement e, string name) => (byte)Math.Clamp(Json.Int(e, name), 0, 255);
 }
 
 /// <summary>

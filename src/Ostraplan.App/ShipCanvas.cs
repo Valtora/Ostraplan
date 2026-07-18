@@ -166,6 +166,7 @@ public sealed class ShipCanvas : FrameworkElement
             _staticShip = null;
             _powerGeoDirty = true;   // segment geometries bake tile centres at this zoom
             _roomGeoDirty = true;    // room fills bake cell rects at this zoom
+            _lightGeoDirty = true;   // light dimming + blooms bake cell rects at this zoom
         }
     }
     private double _zoom = 48;
@@ -180,6 +181,7 @@ public sealed class ShipCanvas : FrameworkElement
     public Guid? ActiveZoneId { get; private set; }    // the zone being painted, or null when not in zone-paint mode
     public bool ShowPower { get; private set; }        // PowerViz conduit overlay visibility (toolbar/P toggle)
     public bool ShowRooms { get; private set; }        // RoomViz compartment overlay visibility (toolbar/C toggle)
+    public bool ShowLight { get; private set; }        // Light Viz interior-lighting overlay visibility (View/L toggle)
 
     /// <summary>When true the canvas is in <b>wire mode</b>: click a signalable device to arm it as the signal
     /// source, then click another to connect them (click a connected one again to disconnect). See
@@ -214,6 +216,16 @@ public sealed class ShipCanvas : FrameworkElement
     private List<(Geometry Geo, Brush Fill)>? _roomGeos;
     private List<RoomLabel>? _roomLabels;
     private bool _roomGeoDirty;
+    private LightOverlay _lightOverlay = LightOverlay.Empty;    // the computed interior lighting (doc coords), pushed by the window after each scan
+    // Light Viz is multiplicative, like the game (final = sprite x light): the ship is revealed through a brightness
+    // opacity mask over black — bright where a light reaches, fading toward black where none does — with a subtle
+    // colour tint on top. Both rebuild only when the overlay, the zoom or the darkness changes. "Unlit dimming"
+    // (LightDarkness) is the user-controlled floor: 0 = ship stays full-bright (just a glow), 1 = unlit goes black.
+    private Brush? _lightMask;          // opacity mask: ambient floor + per-light radial reveal
+    private DrawingGroup? _lightGlow;   // subtle colour tint drawn over the revealed ship
+    private bool _lightGeoDirty;
+    private double _lightDarkness;
+    private double _lightReveal = 1.5;  // light-brightness (reveal) gain — user-controlled, persisted
     private double _powerPhase;                                 // animated dash offset for the lit conduit flow
     private bool _powerAnimating;                               // whether the per-frame flow tick is hooked
     private TimeSpan _lastPowerTime;                            // last CompositionTarget.Rendering time, to advance the phase by elapsed seconds
@@ -260,6 +272,7 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action? ShowZonesChanged;              // the zone overlay was toggled (update the toolbar caption)
     public event Action? ShowPowerChanged;              // the PowerViz overlay was toggled (update the toolbar caption + trigger a scan)
     public event Action? ShowRoomsChanged;              // the RoomViz overlay was toggled (update the toolbar caption + trigger a scan)
+    public event Action? ShowLightChanged;              // the Light Viz overlay was toggled (update the menu check + trigger a scan)
     public event Action? WireModeChanged;               // wire mode was toggled (update the hint / menu check)
     public event Action<Placement, Placement>? LinkToggleRequested;   // connect source→target, or disconnect if already linked
     public event Action? ActiveZoneChanged;             // the painted zone changed (sync the zones panel selection)
@@ -448,6 +461,58 @@ public sealed class ShipCanvas : FrameworkElement
         _roomOverlay = overlay ?? RoomOverlay.Empty;
         _roomGeoDirty = true;
         InvalidateVisual();
+    }
+
+    /// <summary>Toggle the Light Viz interior-lighting overlay. Like PowerViz/RoomViz, lighting is only computed
+    /// off-thread while the overlay is on — the window listens on <see cref="ShowLightChanged"/> to schedule that scan.</summary>
+    public void ToggleLight() => SetShowLight(!ShowLight);
+
+    public void SetShowLight(bool on)
+    {
+        if (ShowLight == on) return;
+        ShowLight = on;
+        if (on) _lightGeoDirty = true;   // build the mask immediately so a darkened view shows even before the first scan lands
+        else { _lightOverlay = LightOverlay.Empty; _lightMask = null; _lightGlow = null; }   // drop stale data so it can't flash on re-enable
+        ShowLightChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    /// <summary>The freshly computed interior lighting (document coords), pushed by the window after each scan.</summary>
+    public void SetLightOverlay(LightOverlay overlay)
+    {
+        _lightOverlay = overlay ?? LightOverlay.Empty;
+        _lightGeoDirty = true;
+        InvalidateVisual();
+    }
+
+    /// <summary>How far Light Viz darkens unlit areas: 0 = additive glow over the full-bright ship (default),
+    /// 1 = unlit areas to black (the "full sim" look). User-controlled and persisted; the window pushes it here.</summary>
+    public double LightDarkness
+    {
+        get => _lightDarkness;
+        set
+        {
+            var v = Math.Clamp(value, 0, 1);
+            if (Math.Abs(_lightDarkness - v) < 0.001) return;
+            _lightDarkness = v;
+            _lightGeoDirty = true;   // the ambient floor is baked into the mask
+            if (ShowLight) InvalidateVisual();
+        }
+    }
+
+    /// <summary>Light brightness ("reveal gain"): how strongly a light lifts its area toward fully lit. Higher =
+    /// brighter/harder pools, lower = softer. User-controlled and persisted; the window pushes it here.</summary>
+    public double LightReveal
+    {
+        get => _lightReveal;
+        set
+        {
+            var v = Math.Clamp(value, 0.1, 5.0);
+            if (Math.Abs(_lightReveal - v) < 0.001) return;
+            _lightReveal = v;
+            _lightGeoDirty = true;   // the reveal strength is baked into the mask
+            if (ShowLight) InvalidateVisual();
+        }
     }
 
     // Hook the per-frame flow tick only while the overlay is on AND there is something lit to animate.
@@ -1902,7 +1967,26 @@ public sealed class ShipCanvas : FrameworkElement
             // The cache is baked at pan zero, so shift it to the live pan with a transform — panning stays a
             // transform + one blit instead of rebuilding the whole ship each frame.
             dc.PushTransform(new TranslateTransform(_pan.X, _pan.Y));
-            dc.DrawDrawing(StaticShip());
+            if (ShowLight)
+            {
+                EnsureLightVisuals();
+                if (_lightMask is not null)
+                {
+                    // Multiplicative Light Viz (final = sprite x light): black behind, reveal the ship through the
+                    // brightness mask, then a subtle colour tint on top. Clipped to the ship so light stays in the
+                    // hull (exterior/sun light is a later slice).
+                    var bounds = StaticShip().Bounds;
+                    dc.PushClip(new RectangleGeometry(bounds));
+                    dc.DrawRectangle(Brushes.Black, null, bounds);
+                    var lit = new DrawingGroup { OpacityMask = _lightMask };
+                    using (var lc = lit.Open()) lc.DrawDrawing(StaticShip());
+                    dc.DrawDrawing(lit);
+                    if (_lightGlow is not null) dc.DrawDrawing(_lightGlow);
+                    dc.Pop();
+                }
+                else dc.DrawDrawing(StaticShip());
+            }
+            else dc.DrawDrawing(StaticShip());
             dc.Pop();
         }
 
@@ -2151,6 +2235,107 @@ public sealed class ShipCanvas : FrameworkElement
         dc.Pop();
 
         if (Zoom >= RoomLabelMinZoom) DrawRoomLabels(dc);
+    }
+
+    /// <summary>
+    /// Build the Light Viz layers from <see cref="LightNetwork"/>: a brightness <b>opacity mask</b> the ship is
+    /// revealed through — an ambient floor set by <see cref="LightDarkness"/> plus each light's radial reveal,
+    /// clipped to the visibility polygon the walls leave it — and a subtle <b>colour tint</b> drawn over the
+    /// revealed ship. This reproduces the game's multiplicative model (final = sprite x light) rather than washing
+    /// the ship with black, so lit areas show the actual sprite, bright, and only true shadow goes dark. Rebuilt
+    /// only when the overlay, the zoom or the darkness changes (<see cref="_lightGeoDirty"/>); <see cref="OnRender"/>
+    /// applies them.
+    /// </summary>
+    private void EnsureLightVisuals()
+    {
+        if (!_lightGeoDirty) return;
+        _lightGeoDirty = false;
+        _lightMask = null;
+        _lightGlow = null;
+        if (_lightOverlay.IsEmpty && _lightDarkness <= 0) return;
+
+        var shipBounds = StaticShip().Bounds;
+        if (shipBounds.IsEmpty || shipBounds.Width <= 0 || shipBounds.Height <= 0) return;
+
+        var ambient = (byte)Math.Round((1.0 - _lightDarkness) * 255);   // how bright unlit areas stay (255 = no dimming)
+
+        // Brightness mask: a white floor at the ambient level, plus each light's radial reveal. Only the alpha is
+        // used (it modulates the ship's brightness through the opacity mask); the colour tint is a separate layer.
+        var mask = new DrawingGroup();
+        using (var c = mask.Open())
+        {
+            if (ambient > 0)
+            {
+                var floor = new SolidColorBrush(Color.FromArgb(ambient, 255, 255, 255));
+                floor.Freeze();
+                c.DrawRectangle(floor, null, shipBounds);
+            }
+            foreach (var light in _lightOverlay.Lights)
+                DrawLightShape(c, light, RevealPeak(light), 255, 255, 255);
+        }
+        var maskBrush = new DrawingBrush(mask)
+        {
+            ViewboxUnits = BrushMappingMode.Absolute,
+            Viewbox = shipBounds,
+            Stretch = Stretch.Fill,
+        };
+        maskBrush.Freeze();
+        _lightMask = maskBrush;
+
+        // Subtle colour tint over the revealed sprite (a blue light gives its floor a hint of blue).
+        var glow = new DrawingGroup();
+        using (var c = glow.Open())
+            foreach (var light in _lightOverlay.Lights)
+                DrawLightShape(c, light, TintPeak(light), light.R, light.G, light.B);
+        glow.Freeze();
+        _lightGlow = glow;
+    }
+
+    /// <summary>A light's peak reveal alpha (mask): its intensity lifted by the user's <see cref="LightReveal"/>
+    /// gain, clamped to fully lit. No floor — a dim light stays dim (raise the gain to lift everything).</summary>
+    private byte RevealPeak(LightPoly l) => (byte)Math.Clamp(l.Intensity * _lightReveal * 255, 0, 255);
+
+    /// <summary>A light's peak tint alpha (colour glow): kept very low so the tint is a faint hint of the light's
+    /// colour on the revealed sprite, not the strong wash that over-accumulating status LEDs would produce.</summary>
+    private static byte TintPeak(LightPoly l) => (byte)Math.Clamp(l.Intensity * 0.25 * 255, 0, 40);
+
+    /// <summary>Fill a light's visibility polygon with a radial falloff (peak at the centre out to the radius) in
+    /// the given colour, at the current zoom. Shared by the reveal mask (white) and the colour tint.</summary>
+    private void DrawLightShape(DrawingContext c, LightPoly light, byte peak, byte r, byte g, byte b)
+    {
+        if (light.Polygon.Count < 3 || peak == 0) return;
+
+        var cx = light.CenterX * Zoom;
+        var cy = light.CenterY * Zoom;
+        var rad = light.Radius * Zoom;
+        var brush = new RadialGradientBrush
+        {
+            MappingMode = BrushMappingMode.Absolute,
+            Center = new Point(cx, cy),
+            GradientOrigin = new Point(cx, cy),
+            RadiusX = rad,
+            RadiusY = rad,
+            GradientStops =
+            {
+                new GradientStop(Color.FromArgb(peak, r, g, b), 0.0),
+                new GradientStop(Color.FromArgb((byte)(peak * 0.5), r, g, b), 0.4),
+                new GradientStop(Color.FromArgb((byte)(peak * 0.12), r, g, b), 0.75),
+                new GradientStop(Color.FromArgb(0, r, g, b), 1.0),
+            },
+        };
+        brush.Freeze();
+
+        var geo = new StreamGeometry();
+        using (var gc = geo.Open())
+        {
+            gc.BeginFigure(new Point(light.Polygon[0].X * Zoom, light.Polygon[0].Y * Zoom), true, true);
+            var rest = new Point[light.Polygon.Count - 1];
+            for (var i = 1; i < light.Polygon.Count; i++)
+                rest[i - 1] = new Point(light.Polygon[i].X * Zoom, light.Polygon[i].Y * Zoom);
+            gc.PolyLineTo(rest, true, false);
+        }
+        geo.Freeze();
+        c.DrawGeometry(brush, null, geo);
     }
 
     /// <summary>

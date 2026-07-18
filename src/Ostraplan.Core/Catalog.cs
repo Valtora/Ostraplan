@@ -3,6 +3,18 @@ using System.Text.Json;
 
 namespace Ostraplan.Core;
 
+/// <summary>
+/// A light a placed part emits, resolved from its item def's <c>aLights</c> through the light + colour tables:
+/// the pixel offset from the item centre (+y up, the game's <c>ptPos</c>, rotated onto the grid via
+/// <see cref="ShipGrid.MapPointTile"/> at sim time like a power input point), the RGB colour and
+/// <see cref="Intensity"/> (colour alpha / 255), the <see cref="Radius"/> in tiles, whether it
+/// <see cref="CastsLight"/> (colour != <c>"Blank"</c>) versus being a glow decal only, the glow-decal sprite
+/// (<see cref="GlowSprite"/>, absolute PNG path or null), and whether it blinks. Feeds <see cref="LightNetwork"/>.
+/// </summary>
+public sealed record PartLight(
+    double OffsetX, double OffsetY, byte R, byte G, byte B,
+    double Intensity, double Radius, bool CastsLight, string? GlowSprite, bool CanBlink);
+
 /// <summary>One palette entry: an installable build job joined to its placed item def.</summary>
 public sealed record PartDef(
     string DefName,          // the installed item / condowner strName (what ships reference)
@@ -175,6 +187,14 @@ public sealed class Catalog
     /// inventory viewer's paper-doll. Empty in synthetic test catalogs.</summary>
     public IReadOnlyDictionary<string, SlotDef> Slots { get; init; } = new Dictionary<string, SlotDef>();
 
+    /// <summary>Light definitions by name (from <c>data/lights</c>) — the <c>ptPos</c>/colour/radius each item's
+    /// <c>aLights</c> entry expands to. Resolved per part by <see cref="LightsFor"/>. Empty in synthetic catalogs.</summary>
+    public IReadOnlyDictionary<string, LightDef> LightDefs { get; init; } = new Dictionary<string, LightDef>();
+
+    /// <summary>The RGBA colour table (from <c>data/colors</c>) — a light colour's alpha is its intensity. Used to
+    /// resolve a <see cref="LightDef"/>'s colour into a <see cref="PartLight"/>. Empty in synthetic catalogs.</summary>
+    public IReadOnlyDictionary<string, ColorDef> ColorTable { get; init; } = new Dictionary<string, ColorDef>();
+
     /// <summary>Loose cargo items — condowners typed <c>"Item"</c> that aren't installed structure (a wall is
     /// also <c>strType "Item"</c> but carries <c>IsInstalled</c>), plus the cooverlay skins of those items (themed
     /// loose walls/floors, and nav-console modules that exist only as cooverlays). This is the universe the
@@ -280,6 +300,34 @@ public sealed class Catalog
         });
     }
 
+    private readonly ConcurrentDictionary<string, IReadOnlyList<PartLight>> _lights = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The lights a part emits: its item def's <c>aLights</c> resolved through the light + colour tables into
+    /// <see cref="PartLight"/>s (pixel offset, RGB + intensity, radius, casts-vs-glow-only, glow sprite). This is
+    /// the data <see cref="LightNetwork"/> floods from; an unresolved light name (a mod removed the def) is
+    /// skipped. Cached by def name; empty for a part with no lights or in a synthetic catalog (no light table).
+    /// </summary>
+    public IReadOnlyList<PartLight> LightsFor(PartDef part) =>
+        _lights.GetOrAdd(part.DefName, _ => ResolveLights(part));
+
+    private IReadOnlyList<PartLight> ResolveLights(PartDef part)
+    {
+        if (part.Item.Lights.Length == 0) return [];
+        var lights = new List<PartLight>(part.Item.Lights.Length);
+        foreach (var name in part.Item.Lights)
+        {
+            if (!LightDefs.TryGetValue(name, out var ld)) continue;
+            byte r = 0, g = 0, b = 0;
+            var intensity = 0.0;
+            if (ColorTable.TryGetValue(ld.Color, out var c))
+                (r, g, b, intensity) = (c.R, c.G, c.B, c.A / 255.0);
+            var glow = !string.IsNullOrEmpty(ld.Img) ? Index?.ResolveImage(ld.Img) : null;
+            lights.Add(new PartLight(ld.PosX, ld.PosY, r, g, b, intensity, ld.Radius, ld.Color != "Blank", glow, ld.CanBlink));
+        }
+        return lights;
+    }
+
     /// <summary>
     /// The open/closed counterpart of a door placement's def, or null if this isn't a
     /// toggleable door (both ends resolve via <see cref="ByDefName"/>). Door state is
@@ -330,6 +378,8 @@ public sealed class Catalog
             .Where(kv => kv.Value.El.ValueKind == JsonValueKind.Object)
             .ToDictionary(kv => kv.Key, kv => kv.Value.El.Clone(), StringComparer.Ordinal);
         var slots = index.Type("slots").ToDictionary(kv => kv.Key, kv => SlotDef.Parse(kv.Value.El), StringComparer.Ordinal);
+        var lightDefs = index.Type("lights").ToDictionary(kv => kv.Key, kv => LightDef.Parse(kv.Value.El), StringComparer.Ordinal);
+        var colorTable = index.Type("colors").ToDictionary(kv => kv.Key, kv => ColorDef.Parse(kv.Value.El), StringComparer.Ordinal);
 
         // Loose cargo items for the inventory editor's add-picker: condowners typed "Item" minus installed
         // structure (a wall is strType "Item" too but carries IsInstalled), PLUS the cooverlay skins of those
@@ -456,6 +506,8 @@ public sealed class Catalog
             GpmTemplates = gpmTemplates,
             TickerTemplates = tickerTemplates,
             Slots = slots,
+            LightDefs = lightDefs,
+            ColorTable = colorTable,
             LooseItems = looseItems,
             LooseForms = looseForms,
             InstalledForms = installedForms,
