@@ -22,9 +22,23 @@ public readonly record struct GhostStatus(string Reason, bool WillPlace);
 /// </summary>
 public sealed class ShipCanvas : FrameworkElement
 {
-    // screen px per tile. 16 == 1x (the 16 px sprite drawn at native size); the sub-16 steps (0.5x/0.25x/0.125x)
-    // zoom out far enough to frame a whole station, and stay clean nearest-neighbor downscales.
-    private static readonly double[] ZoomSteps = [2, 4, 8, 16, 24, 32, 48, 64, 96, 128];
+    // Screen px per tile. 16 == 1x (the 16 px sprite drawn at native size). Zooming moves on a smooth 0.1x
+    // lattice (1.6 px/tile per wheel notch, Shift accelerates 5x to 0.5x/notch) between 0.125x (frames a whole
+    // station) and 8x. Values snap to the lattice so the readout stays clean; NearestNeighbor keeps the pixel art
+    // crisp at every step (non-integer multiples trade a little scaling evenness for the finer control).
+    private const double BaseTilePx = 16.0;      // 1x
+    private const double MinZoomPx = 2.0;        // 0.125x
+    private const double MaxZoomPx = 128.0;      // 8x
+    private const double ZoomNotch = 0.1;        // one wheel notch / keyboard step, in zoom-multiplier units
+    private const double FastZoomFactor = 5.0;   // Shift-zoom accelerator (0.5x per notch)
+
+    /// <summary>Snap a px-per-tile value to the 0.1x zoom lattice, clamped to the zoom range.</summary>
+    private static double SnapZoom(double px) =>
+        Math.Clamp(Math.Round(px / BaseTilePx / ZoomNotch) * ZoomNotch * BaseTilePx, MinZoomPx, MaxZoomPx);
+
+    /// <summary>Largest lattice zoom that still fits <paramref name="px"/> (used by fit/focus framing).</summary>
+    private static double SnapZoomDown(double px) =>
+        Math.Clamp(Math.Floor(px / BaseTilePx / ZoomNotch) * ZoomNotch * BaseTilePx, MinZoomPx, MaxZoomPx);
 
     private static readonly Brush Background = Frozen(new SolidColorBrush(Color.FromRgb(0x14, 0x16, 0x1A)));
     private static readonly Pen GridPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x2A, 0xFF, 0xFF, 0xFF)), 1));
@@ -181,7 +195,7 @@ public sealed class ShipCanvas : FrameworkElement
     public Guid? ActiveZoneId { get; private set; }    // the zone being painted, or null when not in zone-paint mode
     public bool ShowPower { get; private set; }        // PowerViz conduit overlay visibility (toolbar/P toggle)
     public bool ShowRooms { get; private set; }        // RoomViz compartment overlay visibility (toolbar/C toggle)
-    public bool ShowLight { get; private set; }        // Light Viz interior-lighting overlay visibility (View/L toggle)
+    public bool ShowLight { get; private set; } = true;   // Light Viz overlay (View/L toggle) — ON by default: the plan opens showing the in-game lighting
 
     /// <summary>When true the canvas is in <b>wire mode</b>: click a signalable device to arm it as the signal
     /// source, then click another to connect them (click a connected one again to disconnect). See
@@ -841,7 +855,7 @@ public sealed class ShipCanvas : FrameworkElement
         var tilesW = b.MaxX - b.MinX + 3.0;
         var tilesH = b.MaxY - b.MinY + 3.0;
         var fit = Math.Min(RenderSize.Width / tilesW, RenderSize.Height / tilesH);
-        Zoom = ZoomSteps.LastOrDefault(z => z <= fit, ZoomSteps[0]);
+        Zoom = SnapZoomDown(fit);
         var centerX = (b.MinX + b.MaxX + 1) / 2.0;
         var centerY = (b.MinY + b.MaxY + 1) / 2.0;
         _pan = new Vector(RenderSize.Width / 2 - centerX * Zoom, RenderSize.Height / 2 - centerY * Zoom);
@@ -865,7 +879,7 @@ public sealed class ShipCanvas : FrameworkElement
         var tilesW = maxX - minX + 6.0;   // keep a few tiles of context around the region
         var tilesH = maxY - minY + 6.0;
         var fit = Math.Min(RenderSize.Width / tilesW, RenderSize.Height / tilesH);
-        Zoom = ZoomSteps.LastOrDefault(z => z <= Math.Min(fit, 64.0), ZoomSteps[0]);
+        Zoom = SnapZoomDown(Math.Min(fit, 64.0));
         var centerX = (minX + maxX + 1) / 2.0;
         var centerY = (minY + maxY + 1) / 2.0;
         _pan = new Vector(RenderSize.Width / 2 - centerX * Zoom, RenderSize.Height / 2 - centerY * Zoom);
@@ -896,34 +910,43 @@ public sealed class ShipCanvas : FrameworkElement
 
     // ---- input ----
 
+    /// <summary>The next zoom for a step of <paramref name="notches"/> (fractional for precision trackpads):
+    /// 0.1x per notch on the lattice, 0.5x with Shift held. Always moves at least one lattice step for a
+    /// non-zero input, so a slow trackpad tick never gets rounded away.</summary>
+    private double NextZoom(double notches)
+    {
+        var step = notches * ZoomNotch *
+            (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? FastZoomFactor : 1.0);
+        var target = SnapZoom((Zoom / BaseTilePx + step) * BaseTilePx);
+        if (target == Zoom && notches != 0)
+            target = SnapZoom(Zoom + Math.Sign(notches) * ZoomNotch * BaseTilePx);
+        return target;
+    }
+
     protected override void OnMouseWheel(MouseWheelEventArgs e)
     {
-        var idx = Array.IndexOf(ZoomSteps, Zoom);
-        if (idx < 0) idx = 3;
-        var next = Math.Clamp(idx + (e.Delta > 0 ? 1 : -1), 0, ZoomSteps.Length - 1);
-        if (ZoomSteps[next] == Zoom) return;
+        var next = NextZoom(e.Delta / 120.0);
+        if (next == Zoom) return;
 
         // keep the tile under the cursor stationary
         var mouse = ScreenToPanSpace(e.GetPosition(this));
         var world = new Point((mouse.X - _pan.X) / Zoom, (mouse.Y - _pan.Y) / Zoom);
-        Zoom = ZoomSteps[next];
+        Zoom = next;
         _pan = new Vector(mouse.X - world.X * Zoom, mouse.Y - world.Y * Zoom);
         RaiseViewChanged();
         InvalidateVisual();
     }
 
-    /// <summary>Step the zoom one level in (<paramref name="dir"/> &gt; 0) or out, anchored at the viewport centre —
-    /// the keyboard zoom (+/-), mirroring the wheel step but around the middle of the view.</summary>
+    /// <summary>Step the zoom one notch in (<paramref name="dir"/> &gt; 0) or out, anchored at the viewport centre —
+    /// the keyboard zoom (+/-), mirroring the wheel step (Shift accelerates) but around the middle of the view.</summary>
     public void ZoomStep(int dir)
     {
-        var idx = Array.IndexOf(ZoomSteps, Zoom);
-        if (idx < 0) idx = 3;
-        var next = Math.Clamp(idx + Math.Sign(dir), 0, ZoomSteps.Length - 1);
-        if (ZoomSteps[next] == Zoom) return;
+        var next = NextZoom(Math.Sign(dir));
+        if (next == Zoom) return;
 
         var centre = ScreenToPanSpace(new Point(RenderSize.Width / 2, RenderSize.Height / 2));
         var world = new Point((centre.X - _pan.X) / Zoom, (centre.Y - _pan.Y) / Zoom);
-        Zoom = ZoomSteps[next];
+        Zoom = next;
         _pan = new Vector(centre.X - world.X * Zoom, centre.Y - world.Y * Zoom);
         RaiseViewChanged();
         InvalidateVisual();

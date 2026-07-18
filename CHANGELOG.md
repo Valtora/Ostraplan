@@ -11,6 +11,13 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Changed
+- **Light Viz is now ON by default.** The plan opens showing the in-game lighting; press `L` (or View ▸ Light
+  overlay) to switch back to the flat fully-lit view. The toggle stays session-only.
+- **Smooth fine-grained zoom.** The wheel and `+`/`−` now zoom in 0.1× steps (of the 16 px/tile native scale)
+  instead of jumping through a coarse step table, and holding **Shift** accelerates to 0.5× per notch. Range is
+  unchanged (0.125×–8×); fit/focus framing snaps to the same lattice.
+
 ### Added
 - **Light Viz rotation regression tests + headless diagnostics.** A report of wall-light glows drawn perpendicular
   to their wall traced back to a stale pre-release binary, not the shipped code; the investigation re-verified the

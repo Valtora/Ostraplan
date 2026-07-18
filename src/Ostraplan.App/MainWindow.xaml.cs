@@ -3150,7 +3150,7 @@ public partial class MainWindow : Window
             ("Pan", "W A S D", "Pan the view (smooth while held)."),
             ("Pan (mouse)", "MMB / Space + drag", "Pan the view by dragging."),
             ("Rotate view", "Q / E", "Rotate the plan view CCW / CW, like the in-game camera."),
-            ("Zoom", "Mouse wheel / + −", "Wheel zooms at the cursor; + and − zoom at the view centre."),
+            ("Zoom", "Mouse wheel / + −", "Wheel zooms at the cursor in fine 0.1× steps (hold Shift for 0.5×); + and − zoom at the view centre."),
             ("Fit to ship", "F", "Fit the view to the whole ship."),
             ("Undo / redo", "Ctrl+Z / Ctrl+Y", "Undo · redo (Ctrl+Shift+Z also redoes)."),
             ("New / open / save", "Ctrl+N / O / S", "New · open · save (Ctrl+Shift+S = Save As)."),
