@@ -11,6 +11,13 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Fixed
+- **Wire Mode no longer strands the item in your cursor (#7).** While Wire Mode was on, a right-click only cleared the
+  armed wire source, so a palette brush picked up beforehand couldn't be put down — left-click wires devices (intended)
+  and right-click did nothing to the held item. Right-click now discards the held brush first (then the wire source),
+  and Esc drops a held brush before touching the wire source or leaving the mode. Placing is still disabled in Wire
+  Mode by design; only discarding was broken.
+
 ## [0.46.0] 2026-07-18, Light Viz: see how your ship will be lit before you build
 
 ### Added

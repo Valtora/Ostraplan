@@ -977,8 +977,8 @@ public sealed class ShipCanvas : FrameworkElement
 
         // Wire mode: left-click a signalable device to arm it as the signal source, then click another to
         // connect (or click a connected one to disconnect); the source stays armed so you can wire it to several
-        // targets. Right-click (or a click on empty/non-device) clears the armed source. Intercepts before the
-        // normal select/place/zone logic.
+        // targets. Right-click drops what's "in hand" first — a held palette brush, else the armed wire source —
+        // so a cursor item isn't stranded while wiring (#7). Intercepts before the normal select/place/zone logic.
         if (WireMode && Doc is not null)
         {
             var wc = CellAt(screen);
@@ -995,7 +995,8 @@ public sealed class ShipCanvas : FrameworkElement
             }
             if (e.ChangedButton == MouseButton.Right)
             {
-                _wireSource = null;
+                if (ArmedPart is not null) { SetArmed(null); Disarmed?.Invoke(); }   // discard the held brush first
+                else _wireSource = null;                                             // otherwise drop the wire source
                 InvalidateVisual();
                 e.Handled = true;
                 return;

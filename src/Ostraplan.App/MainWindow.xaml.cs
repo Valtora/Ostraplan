@@ -1684,8 +1684,9 @@ public partial class MainWindow : Window
             case Key.Escape:
                 if (Board.WireMode)
                 {
-                    if (Board.WireSourceArmed) Board.ClearWireSource();   // first Esc drops the armed source
-                    else Board.SetWireMode(false);                        // second Esc leaves wire mode
+                    if (Board.ArmedPart is not null) { Board.SetArmed(null); ClearPaletteSelection(); }   // drop a held brush first
+                    else if (Board.WireSourceArmed) Board.ClearWireSource();   // then the armed wire source
+                    else Board.SetWireMode(false);                            // finally leave wire mode
                 }
                 else if (Board.AirSelection.Count > 0)
                 {
