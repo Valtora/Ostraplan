@@ -8,7 +8,7 @@ body:
       value: |
         Thanks for taking the time to report this. Ostraplan is a free, one-person project, so a clear report with exact repro steps is the single biggest thing that gets a bug fixed quickly.
 
-        **Easiest path:** inside Ostraplan, use the **Report a bug** button. It opens a GitHub issue pre-filled with your Ostraplan version, OS, game version, the current design, and your recent actions from the activity log (already scrubbed of usernames and paths). If you came from there, everything below is filled in for you already.
+        **Easiest path:** inside Ostraplan, use the **Report a bug** button. It opens a GitHub issue pre-filled with your Ostraplan version, OS, game version, the current design, and your recent actions from the activity log (already scrubbed of usernames and paths). It also creates a **full diagnostics file** and opens it in Explorer — please **drag that file into the issue** to attach it; it holds your whole session's activity trail and any recent crash traces, which makes the bug far easier to trace. If you came from there, everything below is filled in for you already.
 
         If you're filing from the web instead, please fill in the diagnostics yourself. You'll find your Ostraplan version in the window title (`Ostraplan vX.Y.Z — …`) and the game version on Ostranauts' main menu.
   - type: checkboxes
@@ -91,9 +91,11 @@ body:
   - type: textarea
     id: log
     attributes:
-      label: Activity log (optional)
+      label: Diagnostics / activity log (optional)
       description: |
-        If the in-app button didn't attach it, paste the tail of your activity log here. It lives at `%APPDATA%\Ostraplan\audit.log` and is already free of usernames and paths.
+        Best: drag in the **diagnostics file** the in-app **Report a bug** button generates — it's the newest `.md` under `%APPDATA%\Ostraplan\reports\` and bundles your full session trail, recent crash traces and load warnings (usernames and paths scrubbed).
+
+        No diagnostics file? Paste the tail of your activity log here instead — it lives at `%APPDATA%\Ostraplan\audit.log` and is likewise free of usernames and paths.
       render: text
     validations:
       required: false
