@@ -156,6 +156,38 @@ public class FormSwapTests
     }
 
     [SkippableFact]
+    public void Nav_station_and_transponder_map_installed_to_loose_via_the_install_inverse()
+    {
+        // Issue #9: the Nav Station and Transponder families describe their uninstall drop with strLootOut
+        // pointing at a runtime-only "…LooseEmpty"/"…LooseChance" marker that has no condowner, so neither
+        // aLootCOs nor strLootOut yields a renderable loose form — "Make Loose Item" was silently missing. The
+        // loose form is recovered from the inverse of the (resolvable, round-tripping) install job.
+        var g = TestData.RequireGame();
+        Assert.Equal("ItmStationNavLoose", g.Catalog.LooseForm("ItmStationNav"));       // the reported Nav Console
+        Assert.Equal("ItmStationNav", g.Catalog.InstalledForm("ItmStationNavLoose"));   // and it round-trips
+        Assert.Equal("ItmTransponder01Loose", g.Catalog.LooseForm("ItmTransponder01Off"));
+    }
+
+    [SkippableFact]
+    public void End_to_end_make_loose_on_a_nav_console()
+    {
+        var g = TestData.RequireGame();
+        Skip.IfNot(g.Catalog.ByDefName.ContainsKey("ItmStationNav"), "nav station not buildable in this build");
+
+        var doc = new ShipDocument(g.Catalog);
+        var nav = new Placement { DefName = "ItmStationNav", X = 0, Y = 0 };
+        new PlaceCommand(nav).Do(doc);
+
+        var swap = FormSwap.BuildSwap(doc, FormSwap.Loosenable(doc, [nav]));
+        Assert.NotNull(swap);
+        swap!.Value.Cmd.Do(doc);
+
+        var repl = Assert.Single(swap.Value.New);
+        Assert.Equal("ItmStationNavLoose", repl.DefName);
+        Assert.NotNull(g.Catalog.Lookup(repl.DefName));   // resolves → renders and analyses
+    }
+
+    [SkippableFact]
     public void The_fixed_airlock_has_no_loose_form()
     {
         var g = TestData.RequireGame();

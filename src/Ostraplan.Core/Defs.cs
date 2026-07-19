@@ -356,6 +356,12 @@ public sealed record InstallableDef(
     /// <c>uninstall</c> job's loose/packaged form. Drives the installed⇄loose form map (see <see cref="Catalog"/>).</summary>
     public string[] LootCOs { get; init; } = [];
 
+    /// <summary>The single condowner this job outputs (<c>strLootOut</c>): a handful of fixtures (the Nav Station
+    /// and Transponder families) name their uninstall drop here instead of in <see cref="LootCOs"/>. Often a
+    /// runtime-only "…LooseEmpty"/"…LooseChance" marker with no condowner, so it is used only as a resolvable
+    /// fallback (see <see cref="Catalog"/>). Empty when the job names none.</summary>
+    public string LootOut { get; init; } = "";
+
     public static InstallableDef Parse(JsonElement e) => new(
         Json.Str(e, "strName") ?? "",
         Json.Str(e, "strBuildType") ?? "",
@@ -367,6 +373,7 @@ public sealed record InstallableDef(
     {
         ActionCO = Json.Str(e, "strActionCO") ?? "",
         LootCOs = Json.StrArray(e, "aLootCOs"),
+        LootOut = Json.Str(e, "strLootOut") ?? "",
     };
 }
 

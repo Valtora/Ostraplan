@@ -213,10 +213,12 @@ public sealed class Catalog
     public IReadOnlyList<PartDef> LooseItems { get; init; } = [];
 
     /// <summary>Installed def → its loose/packaged form, from the game's own <c>uninstall</c> jobs (the job's
-    /// <c>strActionCO</c> → <c>aLootCOs</c>). This is what "Make Loose Item" swaps to; only entries whose loose
-    /// form resolves to real geometry are kept, so a swap never lands on an unrenderable def. A def with no
-    /// uninstall job (raw hull, the fixed airlock, scrap-only structure) is simply absent — the action isn't
-    /// offered. Empty in synthetic test catalogs.</summary>
+    /// <c>strActionCO</c> → <c>aLootCOs</c>, or <c>strLootOut</c>, or — when both name only a runtime marker with
+    /// no condowner, as the Nav Station and Transponder families do — the inverse of the matching <c>install</c>
+    /// job). This is what "Make Loose Item" swaps to; only entries whose loose form resolves to real geometry are
+    /// kept, so a swap never lands on an unrenderable def. A def with no uninstall job (raw hull, the fixed
+    /// airlock, scrap-only structure) is simply absent — the action isn't offered. Empty in synthetic test
+    /// catalogs.</summary>
     public IReadOnlyDictionary<string, string> LooseForms { get; init; } = new Dictionary<string, string>(StringComparer.Ordinal);
 
     /// <summary>Loose def → its installed form, from the game's own <c>install</c> jobs (the job's
@@ -425,17 +427,34 @@ public sealed class Catalog
         // whose target resolves to real geometry, so a swap can't land on an unrenderable def.
         var looseForms = new Dictionary<string, string>(StringComparer.Ordinal);
         var installedForms = new Dictionary<string, string>(StringComparer.Ordinal);
+        var uninstallable = new HashSet<string>(StringComparer.Ordinal);   // installed defs the game offers an uninstall job for
         bool Resolvable(string n) => ResolveDef(index, n, "—", "core", [], []) is not null;
+        string? FirstResolvable(IEnumerable<string> names) => names.FirstOrDefault(s => !string.IsNullOrEmpty(s) && Resolvable(s));
         foreach (var (_, (el, _)) in index.Type("installables"))
         {
             var job = InstallableDef.Parse(el);
             if (string.IsNullOrEmpty(job.ActionCO) || !Resolvable(job.ActionCO)) continue;
-            if (job.JobType == "uninstall"
-                && job.LootCOs.FirstOrDefault(s => !string.IsNullOrEmpty(s)) is { } loose && Resolvable(loose))
-                looseForms[job.ActionCO] = loose;
+            if (job.JobType == "uninstall")
+            {
+                uninstallable.Add(job.ActionCO);
+                // Most jobs name their loose drop in aLootCOs; a few (Nav Station, Transponder) use strLootOut.
+                if (FirstResolvable(job.LootCOs.Append(job.LootOut)) is { } loose)
+                    looseForms[job.ActionCO] = loose;
+            }
             else if (job.JobType == "install" && !string.IsNullOrEmpty(job.StartInstall) && Resolvable(job.StartInstall))
                 installedForms[job.ActionCO] = PreferPoweredState(index, job.StartInstall);   // re-install RCS ON too
         }
+
+        // The Nav Station and Transponder families point their uninstall's strLootOut at a runtime-only
+        // "…LooseEmpty"/"…LooseChance" marker that has no condowner, so the loop above left them without a loose
+        // form and "Make Loose Item" was silently unavailable — even though these fixtures ARE uninstallable and
+        // their INSTALL job names the real packaged def (ItmStationNavLoose → ItmStationNav). Recover the loose
+        // form by inverting that install map: it is guaranteed resolvable (every install ActionCO was checked
+        // above) and round-trips with "Install item". Gated on an actual uninstall job existing, so we never
+        // invent an uninstall the game itself doesn't offer, and never override a loot-derived mapping.
+        foreach (var (loose, installed) in installedForms)
+            if (uninstallable.Contains(installed) && !looseForms.ContainsKey(installed))
+                looseForms[installed] = loose;
 
         // Themed walls/floors/conduits are PLACED as cooverlay skins (ItmFloorAERO01), but only the BASE structural
         // condowner (ItmFloorGrate01) carries an uninstall job — so the skin had no loose form and "Make Loose Item"
