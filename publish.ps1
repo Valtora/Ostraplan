@@ -65,5 +65,5 @@ Get-ChildItem $relDir | Sort-Object Name | ForEach-Object {
     "  {0,-36} {1,8:N1} KB" -f $_.Name, ($_.Length / 1KB)
 }
 "`nWPF smoke passed. Publish with:" | Write-Output
-"  vpk upload github --repoUrl https://github.com/Valtora/Ostraplan --publish --releaseName v$ver --tag v$ver --token (gh auth token)" | Write-Output
+"  vpk upload github --outputDir publish\releases --repoUrl https://github.com/Valtora/Ostraplan --publish --releaseName v$ver --tag v$ver --token (gh auth token)" | Write-Output
 exit 0

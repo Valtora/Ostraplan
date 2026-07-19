@@ -144,7 +144,7 @@ self-contained publish, smoke-tests the built exe, then packs the installer
 `publish\releases`. Cut a release by uploading that whole folder:
 
 ```powershell
-vpk upload github --repoUrl https://github.com/Valtora/Ostraplan --publish --releaseName vX.Y.Z --tag vX.Y.Z --token (gh auth token)
+vpk upload github --outputDir publish\releases --repoUrl https://github.com/Valtora/Ostraplan --publish --releaseName vX.Y.Z --tag vX.Y.Z --token (gh auth token)
 ```
 
 Installed and portable copies pick up the new version on their next launch (they compare
