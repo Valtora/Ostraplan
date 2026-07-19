@@ -14,7 +14,7 @@ public static class AuditLog
 {
     private static readonly object Lock = new();
     private static readonly List<string> Mem = [];   // this session's tail, for embedding in a bug report
-    private const int MemCap = 200;
+    private const int MemCap = 2000;                 // generous: the whole session's trail feeds the diagnostics file
     private static string? _lastTool;                // dedupe consecutive identical tool/brush picks
 
     public static string Dir => AppSettings.Dir;
@@ -40,14 +40,24 @@ public static class AuditLog
     /// <summary>A banner marking the start of a run, so the trail is grouped by session.</summary>
     public static void Session(string appVersion) => Add($"──── Ostraplan v{appVersion} started ────");
 
-    /// <summary>Log a command edit (place/move/delete/paint/…) as a Do, Undo or Redo.</summary>
-    public static void Command(CommandAction action, IDocCommand cmd) => Add(Label(action, cmd));
+    /// <summary>Log a command edit (place/move/delete/paint/…) as a Do, Undo or Redo. The optional
+    /// <paramref name="friendlyOf"/> resolver turns a def name into its friendly name so a describable command
+    /// records what/where (e.g. "Place Nav Station @(12,7)") rather than a context-free "Place".</summary>
+    public static void Command(CommandAction action, IDocCommand cmd, Func<string, string?>? friendlyOf = null) =>
+        Add(Label(action, cmd, friendlyOf));
 
-    /// <summary>The audit line for a command, terse (the command's name, minus the "Command" suffix).</summary>
-    public static string Label(CommandAction action, IDocCommand cmd)
+    /// <summary>The audit line for a command: its detailed self-description when it is <see cref="IAuditDescribable"/>
+    /// and a resolver is supplied, otherwise the terse type name (minus the "Command" suffix).</summary>
+    public static string Label(CommandAction action, IDocCommand cmd, Func<string, string?>? friendlyOf = null)
     {
-        var name = cmd.GetType().Name;
-        if (name.EndsWith("Command", StringComparison.Ordinal)) name = name[..^"Command".Length];
+        string name;
+        if (cmd is IAuditDescribable d && friendlyOf is not null)
+            name = d.Describe(friendlyOf);
+        else
+        {
+            name = cmd.GetType().Name;
+            if (name.EndsWith("Command", StringComparison.Ordinal)) name = name[..^"Command".Length];
+        }
         return action switch
         {
             CommandAction.Undo => $"Undo: {name}",
@@ -75,6 +85,12 @@ public static class AuditLog
     public static IReadOnlyList<string> Recent(int max = 25)
     {
         lock (Lock) return Mem.Count <= max ? Mem.ToArray() : Mem.Skip(Mem.Count - max).ToArray();
+    }
+
+    /// <summary>The whole in-memory trail for this session (most-recent-last), for the full diagnostics file.</summary>
+    public static IReadOnlyList<string> SessionTrail()
+    {
+        lock (Lock) return Mem.ToArray();
     }
 
     /// <summary>Empty the activity log — wipe the in-memory tail and truncate the file on disk.</summary>

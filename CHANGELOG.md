@@ -9,6 +9,31 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **0.15.1.6**).
 
+## [0.50.0] 2026-07-19, Traceable bug reports
+
+### Changed
+- **Bug reports capture far more, and the activity log finally says what and where.** Two long-standing
+  weaknesses in **Help ▸ Report a Bug**:
+  - The report carried only the last ~25 activity-log lines (all that fits in a GitHub issue URL). It now
+    also writes a complete diagnostics file to `%APPDATA%\Ostraplan\reports\` and reveals it in Explorer, so
+    you can drag it into the issue to attach it — no size limit. That file bundles the **whole session's
+    activity trail**, the tail of the crash log (`error.log`, previously never included in a report), and any
+    catalog load warnings, all scrubbed of your account name and file paths. A best-effort slice is still
+    folded inline so a report is useful even un-attached.
+  - Activity-log entries were bare command names (`Edit: Place`, `Edit: Rotate`). They now name the part, its
+    tile and rotation, and batch counts — e.g. `Edit: Place Nav Station @(12,7) r90`, `Edit: Remove ×3 (Wall,
+    Nav Station)`, `Edit: Move Wall by (+3,-2)`, and a form swap as `Remove … + Place …`. Unhandled crashes
+    now also drop a `CRASH:` marker into the trail, so a report's timeline shows the crash beside the actions
+    that led to it.
+
+### Fixed
+- **"Make Loose Item" now works on the Nav Station and Transponder** (issue #9). These fixtures describe their
+  uninstall drop with `strLootOut` pointing at a runtime-only marker (`ItmStationNavLooseEmpty`,
+  `ItmTransponder01LooseChance`) that has no condowner, so Ostraplan couldn't resolve a loose form and the
+  right-click **Make Loose Item** action was silently unavailable — even though the game lets you uninstall them.
+  The loose form is now recovered from the inverse of the fixture's own install job (the real packaged def, e.g.
+  `ItmStationNavLoose`), which is guaranteed to render and round-trips with **Install item**.
+
 ## [0.49.0] 2026-07-19, Installer + automatic updates
 
 ### Changed

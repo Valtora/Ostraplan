@@ -339,6 +339,12 @@ drawn for dark space.
 
 - **F1** — the full keybinding table.
 - **Help ▾** (top-right) — that reference, plus **Check for updates** (in the
-  Controls & keybinds window), **Report a Bug** (opens a pre-filled GitHub issue with
-  diagnostics) and the **activity log**: an on-disk record of your actions (**View** /
-  **Open folder** / **Clear**) that helps pin down a problem after it happens.
+  Controls & keybinds window), **Report a Bug** and the **activity log**.
+- **Report a Bug** opens a pre-filled GitHub issue with diagnostics *and* writes a
+  full diagnostics file (`%APPDATA%\Ostraplan\reports\Ostraplan-diagnostics-*.md`),
+  revealing it in Explorer — **drag it into the issue to attach it.** The file holds
+  your whole session's activity trail, any recent crash traces, and load warnings,
+  all with your Windows account name and file paths scrubbed out.
+- The **activity log** is an on-disk record of your actions (**View** / **Open folder**
+  / **Clear**). Each entry now names *what* and *where* — e.g. `Edit: Place Nav Station
+  @(12,7)` — so a problem can be pinned down after it happens.

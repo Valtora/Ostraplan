@@ -95,7 +95,9 @@ public partial class MainWindow : Window
         Board.LinkToggleRequested += OnLinkToggleRequested;   // connect/disconnect two devices via the command stack
         Board.ActiveZoneChanged += UpdateZones;   // reflect which zone (if any) is being painted
         _stack.StateChanged += RefreshChrome;
-        _stack.Applied += (cmd, action) => AuditLog.Command(action, cmd);   // audit every edit/undo/redo
+        // Audit every edit/undo/redo, resolving each part's friendly name so the trail records what/where
+        // ("Place Nav Station @(12,7)") rather than a context-free "Place" — the detail a bug report needs.
+        _stack.Applied += (cmd, action) => AuditLog.Command(action, cmd, DefFriendlyName);
 
         // the whole editing surface goes dead while an engine reads the live document off-thread (FreezeDoc)
         _freeze = new FreezeGate(frozen => Chrome.IsEnabled = !frozen);
@@ -945,9 +947,8 @@ public partial class MainWindow : Window
             PersonSpec = "ZonePlayer",
             TargetPSpec = "ZoneCaptainAndCrew",
         };
-        _stack.Push(_doc, new CreateZoneCommand(zone));
+        _stack.Push(_doc, new CreateZoneCommand(zone));   // self-describes to the audit trail ("Create zone …")
         Board.SetActiveZone(zone.Id);   // arm it so the user can paint straight away
-        AuditLog.Add($"Added zone “{zone.Name}”.");
     }
 
     private string NextZoneName()
@@ -2858,10 +2859,11 @@ public partial class MainWindow : Window
     private const int MaxIssueUrl = 7000;   // GitHub won't accept issue URLs much beyond this
 
     /// <summary>
-    /// Open a pre-filled GitHub issue for Ostraplan in the browser: a short template (what were you
-    /// doing / what went wrong / repro / screenshots) plus auto-diagnostics, and — since the trail is
-    /// already scrubbed of usernames and paths — this session's recent activity-log lines folded into a
-    /// collapsible block. Falls back to the clipboard for the trail if the URL would get too long for GitHub.
+    /// Open a pre-filled GitHub issue for Ostraplan in the browser (a short template plus a diagnostics header),
+    /// and — because a GitHub issue URL is capped near <see cref="MaxIssueUrl"/> chars — write the <b>full</b>
+    /// diagnostics to a scrubbed file the user drags into the issue to attach. That file carries this session's
+    /// entire activity trail, the tail of the crash log (<c>error.log</c>), and any catalog load warnings; a
+    /// best-effort slice of the recent trail is still folded inline so the report is useful even un-attached.
     /// </summary>
     private void ReportBug()
     {
@@ -2875,35 +2877,30 @@ public partial class MainWindow : Window
                 "**Screenshots**\nDrag any screenshots in here.\n\n" +
                 "---\n" +
                 "*Diagnostics (please keep these — they help me reproduce it):*\n" +
-                $"- Ostraplan: v{AppVersion}\n" +
-                $"- OS: {DescribeOs()}\n" +
-                $"- Game: {_env?.InstalledVersion ?? "unknown"}\n" +
-                $"- Design: {DescribeDocument()}\n";
+                DiagnosticsHeader();
 
-            var recent = AuditLog.Recent(25);
-            var body = prompt;
-            var clipboardFallback = false;
-            if (recent.Count > 0)
+            var reportPath = WriteDiagnosticsFile();   // the complete, unabridged record for attachment
+
+            var head = prompt;
+            if (reportPath is not null)
+                head += $"\n> A full diagnostics file (`{Path.GetFileName(reportPath)}`) was generated — " +
+                        "please **drag it into this issue** to attach it.\n";
+
+            OpenUrl(IssueUrl(head + InlineTrailWithinUrlBudget(head)));
+
+            if (reportPath is not null)
             {
-                var trail = "\n<details>\n<summary>Recent actions (from Ostraplan's activity log)</summary>\n\n```\n"
-                            + string.Join("\n", recent) + "\n```\n</details>\n";
-                if (IssueUrl(prompt + trail).Length <= MaxIssueUrl)
-                    body = prompt + trail;
-                else
-                {
-                    Clipboard.SetText(string.Join(Environment.NewLine, recent));
-                    body = prompt + "\n*My recent actions are on the clipboard — paste them below.*\n\n";
-                    clipboardFallback = true;
-                }
-            }
-
-            OpenUrl(IssueUrl(body));
-            AuditLog.Add("Opened a pre-filled GitHub bug report" +
-                         (clipboardFallback ? " (recent actions copied to the clipboard)." : "."));
-            if (clipboardFallback)
+                RevealInExplorer(reportPath);
+                AuditLog.Add($"Opened a pre-filled GitHub bug report; wrote diagnostics to {Path.GetFileName(reportPath)}.");
                 Dlg.Info(this, "Report a bug",
-                    "Your recent actions were too long to pre-fill automatically, so they're on your clipboard.\n\n" +
-                    "In the GitHub issue that just opened, click into the description and paste them (Ctrl+V) under the diagnostics.");
+                    "A GitHub issue has opened in your browser, and a diagnostics file was created and shown in Explorer.\n\n" +
+                    $"Please drag \"{Path.GetFileName(reportPath)}\" into the issue to attach it — it holds your full activity " +
+                    "trail and any recent errors (with your account name and paths scrubbed), which makes the bug far easier to trace.");
+            }
+            else
+            {
+                AuditLog.Add("Opened a pre-filled GitHub bug report (diagnostics file could not be written).");
+            }
         }
         catch (Exception ex)
         {
@@ -2915,6 +2912,80 @@ public partial class MainWindow : Window
         "https://github.com/Valtora/Ostraplan/issues/new?labels=bug"
         + "&title=" + Uri.EscapeDataString("[Bug] ")
         + "&body=" + Uri.EscapeDataString(body);
+
+    /// <summary>The diagnostics header block (version, OS, game, design summary, mod-override state), shared by
+    /// the inline issue body and the attached diagnostics file.</summary>
+    private string DiagnosticsHeader() =>
+        $"- Ostraplan: v{AppVersion}\n" +
+        $"- OS: {DescribeOs()}\n" +
+        $"- Game: {_env?.InstalledVersion ?? "unknown"}\n" +
+        $"- Design: {DescribeDocument()}\n" +
+        $"- Mod overrides: {(Board.AllowModdedOverrides ? "on" : "off")}\n";
+
+    /// <summary>Ostraplan's crash log (unhandled-exception stack traces), beside the activity log.</summary>
+    private static string ErrorLogPath => Path.Combine(AuditLog.Dir, "error.log");
+
+    /// <summary>
+    /// Compose the full diagnostics report — environment, the tail of the crash log, catalog load warnings, and
+    /// this session's <b>entire</b> activity trail — and write it (scrubbed) to
+    /// <c>%APPDATA%\Ostraplan\reports\Ostraplan-diagnostics-&lt;timestamp&gt;.md</c>. Returns the path, or null if it
+    /// couldn't be written (a report must still open without it).
+    /// </summary>
+    private string? WriteDiagnosticsFile()
+    {
+        try
+        {
+            static string Section(string title, IReadOnlyList<string> lines, string empty) =>
+                lines.Count == 0
+                    ? $"## {title}\n\n{empty}\n\n"
+                    : $"## {title}\n\n```\n{string.Join("\n", lines)}\n```\n\n";
+
+            var errors = LogTail.LastLines(ErrorLogPath, 200);
+            var warnings = _catalog?.Warnings ?? [];
+            var trail = AuditLog.SessionTrail();
+
+            var content =
+                "# Ostraplan diagnostics\n\n" +
+                "*Generated by Help ▸ Report a Bug. Your Windows account name and file paths are scrubbed.*\n\n" +
+                "## Environment\n\n" + DiagnosticsHeader() + "\n" +
+                Section("Recent errors (error.log)", errors, "_None recorded this session or last._") +
+                (warnings.Count > 0 ? Section("Catalog load warnings", warnings.Take(200).ToList(), "") : "") +
+                Section("Activity trail (this session, most-recent-last)", trail, "_Nothing logged yet._");
+
+            var dir = Path.Combine(AuditLog.Dir, "reports");
+            Directory.CreateDirectory(dir);
+            var path = Path.Combine(dir, $"Ostraplan-diagnostics-{DateTime.Now:yyyyMMdd-HHmmss}.md");
+            File.WriteAllText(path, content);
+            return path;
+        }
+        catch { return null; }
+    }
+
+    /// <summary>The largest most-recent-last slice of this session's activity trail whose resulting issue URL
+    /// still fits GitHub's limit, as a collapsible block — or "" when even one line won't fit. The full trail is
+    /// always in the attached file; this is the best-effort inline copy.</summary>
+    private string InlineTrailWithinUrlBudget(string head)
+    {
+        var recent = AuditLog.Recent(200);
+        if (recent.Count == 0) return "";
+        for (var take = recent.Count; take > 0; take -= Math.Max(1, take / 8))
+        {
+            var block = "\n<details>\n<summary>Recent actions (from Ostraplan's activity log)</summary>\n\n```\n"
+                        + string.Join("\n", recent.Skip(recent.Count - take)) + "\n```\n</details>\n";
+            if (IssueUrl(head + block).Length <= MaxIssueUrl) return block;
+        }
+        return "";
+    }
+
+    /// <summary>Open Explorer with the file pre-selected, so the user can drag it straight into the GitHub issue.</summary>
+    private static void RevealInExplorer(string path)
+    {
+        try { Process.Start(new ProcessStartInfo("explorer.exe", $"/select,\"{path}\"") { UseShellExecute = true }); }
+        catch { /* revealing is a convenience; never fail the report over it */ }
+    }
+
+    /// <summary>Resolve a def name to its friendly name for the activity trail (null → the raw def is used).</summary>
+    private string? DefFriendlyName(string defName) => _catalog?.Lookup(defName)?.Friendly;
 
     /// <summary>A one-line, path-free summary of the current design for the bug report's diagnostics.</summary>
     private string DescribeDocument()

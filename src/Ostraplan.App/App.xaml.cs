@@ -242,6 +242,9 @@ public partial class App : Application
                 Directory.CreateDirectory(AppSettings.Dir);
                 File.AppendAllText(Path.Combine(AppSettings.Dir, "error.log"),
                     $"[{DateTime.Now:yyyy-MM-dd HH:mm:ss}] {args.Exception}\r\n");
+                // Also drop a marker into the activity trail, so a bug report's timeline shows the crash next to
+                // the actions that led to it. The full stack trace stays in error.log (folded into the report).
+                AuditLog.Add($"CRASH: {args.Exception.GetType().Name}: {args.Exception.Message}");
             }
             catch { /* logging must never take the app down */ }
             Dlg.Show(args.Exception.Message, "Ostraplan - unexpected error",
