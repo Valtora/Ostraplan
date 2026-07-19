@@ -44,10 +44,10 @@ It is a sibling tool to Ostrasort: same stack, same "read the live install as th
 
 ## 4. Platform & tech
 
-- `net10.0-windows`, WPF, `System.Text.Json`, xUnit. Single-file publish reusing the Ostrasort `publish.ps1` pattern (`-p:IncludeNativeLibrariesForSelfExtract=true` + published-exe self-test).
+- `net10.0-windows`, WPF, `System.Text.Json`, xUnit. Distributed with **Velopack** (installer + auto-updater), mirroring Ostrasort: `publish.ps1` does a plain self-contained publish, smoke-tests the published exe, then `vpk pack`s the release artifacts (`-p:IncludeNativeLibrariesForSelfExtract` is no longer needed — Velopack keeps the WPF native DLLs beside the exe).
 - **Theming**: light/dark chrome via WPF's Fluent `ThemeMode` (applied app-level in `App.OnStartup`) plus a `ThemeManager` brush palette pushed into `Application.Resources` as `DynamicResource` keys — mirroring Ostrasort. A "Theme: System / Light / Dark" picker persists to settings (default System). The **ship canvas stays dark always** (sprites are drawn for dark space); only the chrome themes.
 - **Read-only guarantee**: Ostraplan never modifies the game install, saves, or `loading_order.json`. Its only writes are its own documents, exports to user-chosen locations, and (explicit action) staging an exported mod folder into `Ostranauts_Data/Mods/<Name>/` — never the registration file.
-- The only network access is an optional GitHub **releases/latest** update check (on launch, quietly, and on demand from the Help window — mirroring Ostrasort). No telemetry. The download itself stays manual (the prompt opens the release page), but Ostraplan is **self-adopting** (`Updater.cs`, mirroring Ostrasort): running a freshly downloaded newer exe replaces the installed copy at `%LOCALAPPDATA%\Programs\Ostraplan`, refreshes the existing Desktop/Start-Menu shortcuts (`SelfInstall.RefreshShortcuts`), and relaunches from there, so an old shortcut never opens a stale binary. Unlike Ostrasort it never force-kills a running copy (a design can hold unsaved edits) — a locked installed exe prompts a close-and-retry instead.
+- The only network access is the **Velopack** self-update check against GitHub Releases (on launch, quietly, and on demand from the Help window — mirroring Ostrasort). No telemetry. `VeloUpdate` wraps Velopack's `UpdateManager`: a newer release is **downloaded in the background** and the toolbar flips to a **Restart to update to vX** button; the swap happens only when the user clicks it, so an in-progress design with unsaved edits is never disturbed. The installer is per-user (`%LOCALAPPDATA%\Ostraplan`, no admin, Add/Remove Programs entry); Ostraplan's own data (settings, activity log) stays in `%APPDATA%\Ostraplan`, so it survives updates and uninstalls with no migration. A pre-Velopack self-install (`%LOCALAPPDATA%\Programs\Ostraplan` + its shortcuts) is tidied away once by `LegacyInstall` when the managed copy first runs. Not code-signed yet, so the Setup.exe trips a one-time SmartScreen prompt. Velopack's install/update/uninstall hooks are handled by `VelopackApp.Run()` at the top of `Program.Main` (the reason Ostraplan has an explicit entry point rather than WPF's generated one).
 
 ## 5. Data pipeline
 
@@ -357,7 +357,7 @@ Ostraplan.sln
     Files/                   # .oplan, ship-mod export, template/save import
   src/Ostraplan.App/         # WPF: shell, palette, canvas renderer, inspector, law report
   tests/Ostraplan.Tests/     # parity corpus + engine unit tests
-  publish.ps1                # single-file publish + self-test (Ostrasort pattern)
+  publish.ps1                # Velopack pack (publish + smoke self-test + vpk pack); Ostrasort pattern
 ```
 
 - **Renderer**: single-pass `OnRender` painting placements in **z-layer order** — the game leaves `nLayer=0` on every item (it Y-sorts sprites over a floor tile-layer), so Ostraplan ranks each part by the conditions it contributes (floor < wall/door < fixtures < power conduit; `Catalog.RenderLayer` → `ShipDocument.DrawOrder`) and hit-tests topmost-first (`HitTestStack` drives the right-click layer picker). Non-sheet sprites draw at their own `vScale` size centered on the footprint (§6.2); `SpriteCache` holds lazy-loaded, frozen bitmaps (~6k PNGs on disk; only used ones decoded). See [GAME-INTERNALS §6](GAME-INTERNALS.md). The at-rest ship is a **frozen `DrawingGroup` cache** baked **pan- and rotation-independently** (both are applied as `OnRender` transforms) at the current zoom, so a pan/rotate frame is one cached blit and only a **zoom or content** change rebuilds it — panning a station stays smooth (v0.33; earlier the cache was screen-space and every pan frame rebuilt the whole ship).
@@ -405,7 +405,7 @@ Ostraplan.sln
 
 - Repo `Valtora/Ostraplan` — **public**, MIT-licensed, mirroring Ostrasort.
 - Written for a clean public flip: engine code is **our own reimplementation of observed behavior** (no pasted decompiler output); each engine file carries a header noting the game version its behavior was verified against; **zero game assets** in the repo or releases — Ostraplan reads data and sprites from the player's own install at runtime, exactly like Ostrasort. `GAME-INTERNALS.md` documents *observed* behavior and cites game methods by `Type.Method`; it commits **no** decompiler output (regenerate on demand, §GAME-INTERNALS).
-- Distributed as a self-contained `Ostraplan.exe` on GitHub Releases (built by `publish.ps1`), mirroring Ostrasort. MIT `LICENSE`; the README credits Blue Bottle Games and states the fan-tool / asset policy; `docs/usage.md` + `CHANGELOG.md` are the user-facing docs.
+- Distributed with **Velopack** on GitHub Releases (built by `publish.ps1`, uploaded with `vpk upload github`), mirroring Ostrasort: a per-user `Ostraplan-win-Setup.exe` installer + a `Ostraplan-win-Portable.zip`, with background auto-updates. MIT `LICENSE`; the README credits Blue Bottle Games and states the fan-tool / asset policy; `docs/usage.md` + `CHANGELOG.md` are the user-facing docs.
 
 ## 14. Open questions (tracked, none blocking)
 

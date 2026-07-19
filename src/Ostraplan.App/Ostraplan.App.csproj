@@ -5,8 +5,12 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <AssemblyName>Ostraplan</AssemblyName>
     <RootNamespace>Ostraplan.App</RootNamespace>
-    <Version>0.48.0</Version>
+    <Version>0.49.0</Version>
     <UseWPF>true</UseWPF>
+    <!-- Explicit entry point (Program.Main) so Velopack's install/update/uninstall hooks
+         run before any WPF init. App.xaml is compiled as a Page (below) so the SDK does
+         not also generate a Main, which would clash with ours. -->
+    <StartupObject>Ostraplan.App.Program</StartupObject>
     <ApplicationIcon>app.ico</ApplicationIcon>
     <Nullable>enable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
@@ -15,6 +19,19 @@
 
   <ItemGroup>
     <ProjectReference Include="..\Ostraplan.Core\Ostraplan.Core.csproj" />
+  </ItemGroup>
+
+  <!-- Compile App.xaml as a Page (not the default ApplicationDefinition) so no Main is
+       auto-generated; our Program.Main is the entry point. InitializeComponent is still
+       generated for the App partial class. -->
+  <ItemGroup>
+    <ApplicationDefinition Remove="App.xaml" />
+    <Page Include="App.xaml" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- Installer + auto-updater (see VeloUpdate.cs, publish.ps1). Same version as Ostrasort. -->
+    <PackageReference Include="Velopack" Version="1.2.0" />
   </ItemGroup>
 
   <ItemGroup>

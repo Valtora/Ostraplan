@@ -14,6 +14,9 @@ public partial class App : Application
     {
         base.OnStartup(e);
 
+        // Note: Velopack's hooks are handled in Program.Main (the entry point),
+        // which runs before this. Nothing update-related belongs here.
+
         // Theme the chrome before the first window renders (Fluent ThemeMode + the app's own
         // brushes). Read the saved preference; the canvas stays dark regardless (ThemeManager).
         ThemeManager.Apply(AppSettings.Load().Theme);
@@ -169,16 +172,6 @@ public partial class App : Application
             return;
         }
 
-        // Self-adopting update: if the user ran a freshly downloaded newer exe, replace the installed
-        // copy (%LOCALAPPDATA%\Programs\Ostraplan), refresh shortcuts, and relaunch from there — so old
-        // shortcuts never open a stale binary. Handed off ⇒ this process exits. No-op for a dev/installed
-        // launch or when there's nothing newer to adopt.
-        if (Updater.Detect() is { } pending && Updater.PromptAndApply(pending))
-        {
-            Shutdown(0);
-            return;
-        }
-
         // render self-test: render a real ship's room map to SVG, validate it parses as XML, and write it out
         // for eyeballing, then exit. Confirms the SVG serializer (embedded sprite layer + vector annotations)
         // produces well-formed output. Needs the game install.
@@ -255,6 +248,12 @@ public partial class App : Application
                 MessageBoxButton.OK, MessageBoxImage.Error);
             args.Handled = true;
         };
+
+        // Once running as the Velopack-managed install, tidy away the old
+        // pre-Velopack self-install (%LOCALAPPDATA%\Programs\Ostraplan) and its
+        // stale shortcuts so a dead duplicate can't be launched. No-op for a dev
+        // or portable copy, and once-only.
+        LegacyInstall.Cleanup();
 
         new MainWindow().Show();
     }

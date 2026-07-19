@@ -1,6 +1,5 @@
 using System.Diagnostics;
 using System.IO;
-using System.Net.Http;
 using System.Reflection;
 using System.Text.Json;
 using System.Text.Json.Nodes;
@@ -21,8 +20,11 @@ public partial class MainWindow : Window
 {
     private readonly AppSettings _settings = AppSettings.Load();
     private bool _themeInit;   // suppress the theme combo's SelectionChanged during initial sync
-    private const string ReleasesUrl = "https://github.com/Valtora/Ostraplan/releases";
-    private string _updateUrl = ReleasesUrl;
+    // Velopack self-update. Null for a copy the installer doesn't manage (dev / dotnet-run /
+    // bare exe) — the update affordance simply never appears there. A downloaded, ready-to-apply
+    // update is parked in _pendingUpdate until the user clicks Restart (see CheckForUpdateAsync).
+    private readonly VeloUpdate? _updater = VeloUpdate.Create();
+    private Velopack.UpdateInfo? _pendingUpdate;
     private readonly CommandStack _stack = new();
     private GameEnv? _env;
     private DataIndex? _index;
@@ -105,7 +107,6 @@ public partial class MainWindow : Window
         PreviewKeyUp += OnPreviewKeyUp;
         Deactivated += (_, _) => Board.ClearPanKeys();   // a KeyUp we never receive must not leave the view drifting
         Loaded += async (_, _) => await LoadDataAsync();
-        ContentRendered += OnContentRendered;   // one-time first-run offer to install the exe + shortcuts
         Closing += (_, e) =>
         {
             if (!ConfirmDiscardChanges()) e.Cancel = true;
@@ -2843,12 +2844,6 @@ public partial class MainWindow : Window
             menu.Items.Add(item);
         }
         Add("Controls & keybinds (F1)", ShowHelp);
-        if (SelfInstall.CanOfferInstall() || SelfInstall.IsInstalled())
-        {
-            menu.Items.Add(new Separator());
-            Add(SelfInstall.IsInstalled() ? "Create shortcuts…" : "Install Ostraplan / shortcuts…",
-                () => RunInstall(SelfInstall.IsInstalled()));
-        }
         menu.Items.Add(new Separator());
         Add("Report a Bug…", ReportBug);
         menu.Items.Add(new Separator());
@@ -2856,48 +2851,6 @@ public partial class MainWindow : Window
         Add("Open Log Folder", OpenLogFolder);
         Add("Clear Activity Log…", ClearLogs);
         menu.IsOpen = true;
-    }
-
-    // ---- self-install ----
-
-    /// <summary>
-    /// One-time, dismissible first-run offer to install the exe to a fixed per-user location + shortcuts.
-    /// Fires once content has rendered, and only when running from somewhere other than the install
-    /// location (so a dev/dotnet-run build, or the already-installed copy, never prompts). The Help menu
-    /// keeps an "Install / shortcuts" entry for later.
-    /// </summary>
-    private void OnContentRendered(object? sender, EventArgs e)
-    {
-        if (_settings.InstallPromptDismissed || !SelfInstall.CanOfferInstall()) return;
-        _settings.InstallPromptDismissed = true;   // ask once, never nag — the Help-menu entry stays for later
-        _settings.Save();
-        RunInstall(alreadyInstalled: false);
-    }
-
-    /// <summary>Shows the install prompt and performs the chosen install + shortcut creation.</summary>
-    private void RunInstall(bool alreadyInstalled)
-    {
-        if (InstallDialog.Show(this, alreadyInstalled) is not { } c) return;
-        try
-        {
-            var result = SelfInstall.Install(c.Desktop, c.StartMenu);
-            AuditLog.Add(result.Copied
-                ? $"Installed Ostraplan to {result.ExePath}."
-                : $"Ostraplan already installed at {result.ExePath}.");
-            foreach (var s in result.Shortcuts) AuditLog.Add($"Created shortcut: {s}");
-
-            var shortcuts = result.Shortcuts.Count > 0
-                ? "Shortcuts created:\n" + string.Join("\n", result.Shortcuts.Select(s => "• " + s))
-                : "No shortcuts were created.";
-            Dlg.Success(this, "Ostraplan",
-                (result.Copied ? $"Ostraplan was installed to:\n{result.ExePath}\n\n" : $"Using the installed copy at:\n{result.ExePath}\n\n") +
-                shortcuts +
-                "\n\nLaunch Ostraplan from the shortcut or that folder from now on, so updates land in one place.");
-        }
-        catch (Exception ex)
-        {
-            Dlg.Error(this, "Install failed", ex.Message);
-        }
     }
 
     // ---- report a bug ----
@@ -3052,71 +3005,104 @@ public partial class MainWindow : Window
         ThemeManager.Apply(mode);
     }
 
-    // ---- update check (mirrors Ostrasort) ----
-
-    private static readonly HttpClient Http = CreateHttp();
-    private static HttpClient CreateHttp()
-    {
-        var c = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
-        c.DefaultRequestHeaders.UserAgent.ParseAdd("Ostraplan");
-        return c;
-    }
+    // ---- update check (Velopack) ----
 
     /// <summary>This build's version, from the assembly's informational version (git hash stripped).</summary>
     private static string AppVersion =>
         Assembly.GetExecutingAssembly().GetCustomAttribute<AssemblyInformationalVersionAttribute>()
             ?.InformationalVersion.Split('+')[0] ?? "0.0";
 
+    private bool _updateCheckBusy;   // rapid manual clicks must not stack result dialogs
+
     /// <summary>
-    /// Compare this build against the latest GitHub release. Runs on every launch (queried live, so a
-    /// release published after this build is picked up next start) and on demand from the Help window.
-    /// A newer release reveals the toolbar Update button and raises a modal (Dlg.Confirm) offering to
-    /// Download Latest Version or dismiss with Not Now - shown on every launch while behind, not only
-    /// on the manual check; the manual run additionally reports when you are already up to date.
-    /// Ostraplan's repo is private until the public flip, so until then the check finds nothing (the
-    /// failure is swallowed).
+    /// Velopack self-update. Runs on every launch and from the Help window's "Check for updates"
+    /// button. When a newer release exists it is downloaded in the background and the toolbar button
+    /// flips to "Restart to update" - the swap only happens when the user clicks it (see
+    /// <see cref="PromptRestartAndApply"/>), so unsaved edits are never discarded. A launch check never
+    /// pops a modal; a manual check offers the restart right away and reports when already up to date.
+    /// Managed copies only: a dev / portable-unmanaged build (where <see cref="_updater"/> is null) never
+    /// shows the affordance, and every network failure stays quiet unless the user asked.
     /// </summary>
     private async Task CheckForUpdateAsync(bool manual = false)
     {
+        if (_updater is null)
+        {
+            if (manual)
+                Dlg.Info(this, "Ostraplan",
+                    "Automatic updates are delivered to the installed and portable releases.\n\n" +
+                    "This copy isn't managed by the installer, so it won't update itself.\n" +
+                    "Download the latest release from GitHub to get the installer.");
+            return;
+        }
+        if (_updateCheckBusy) return;
+        _updateCheckBusy = true;
         try
         {
-            var json = await Http.GetStringAsync("https://api.github.com/repos/Valtora/Ostraplan/releases/latest");
-            using var doc = JsonDocument.Parse(json);
-            var tag = doc.RootElement.GetProperty("tag_name").GetString() ?? "";
-            var url = doc.RootElement.TryGetProperty("html_url", out var u) ? u.GetString() : null;
-            if (ParseVersion(tag) > ParseVersion(AppVersion))
+            if (_pendingUpdate is not null)   // already downloaded earlier this session
             {
-                _updateUrl = url ?? ReleasesUrl;
-                BtnUpdate.Content = $"⬆  Update: {tag}";
-                BtnUpdate.Visibility = Visibility.Visible;
-                // A newer release always raises the modal (every launch), not only on the manual
-                // check - the toolbar button stays as the persistent affordance after "Not Now".
-                // "Download Latest Version" opens the release page.
-                if (Dlg.Confirm(this, DlgKind.Info, "Update available",
-                        $"{tag} is available to download.\nYou're on v{AppVersion}.",
-                        "Download Latest Version", "Not Now"))
-                    OpenUrl(_updateUrl);
+                if (manual) PromptRestartAndApply();
+                return;
             }
-            else if (manual)
+
+            Velopack.UpdateInfo? info;
+            try
             {
-                Dlg.Info(this, "Ostraplan", $"You're on the latest version (v{AppVersion}).");
+                info = await _updater.CheckAndDownloadAsync();
             }
+            catch (Exception ex)
+            {
+                AuditLog.Add($"Update check failed: {ex.Message}");
+                if (manual)
+                    Dlg.Warn(this, "Ostraplan", "Couldn't check for updates.\n\n" + ex.Message +
+                        "\n\nYou may be offline, or GitHub may be rate limiting.\n" +
+                        "Its anonymous API allows about 60 checks an hour per network.");
+                return;
+            }
+
+            if (info is null)
+            {
+                if (manual) Dlg.Info(this, "Ostraplan", $"You're on the latest version (v{AppVersion}).");
+                return;
+            }
+
+            // Downloaded and ready. Surface the restart affordance; a launch check leaves it at that
+            // (no modal), a manual check offers the restart now.
+            _pendingUpdate = info;
+            var ver = VeloUpdate.VersionOf(info);
+            BtnUpdate.Content = $"⬆  Restart to update to v{ver}";
+            BtnUpdate.ToolTip = $"Ostraplan v{ver} has been downloaded. Click to restart and finish updating.";
+            BtnUpdate.Visibility = Visibility.Visible;
+            AuditLog.Add($"Update v{ver} downloaded and ready (you are on v{AppVersion}). Restart to apply.");
+            if (manual) PromptRestartAndApply();
+        }
+        finally { _updateCheckBusy = false; }
+    }
+
+    /// <summary>Confirms, then applies the downloaded update and restarts (does not return on success).</summary>
+    private void PromptRestartAndApply()
+    {
+        if (_updater is null || _pendingUpdate is null) return;
+        var ver = VeloUpdate.VersionOf(_pendingUpdate);
+        if (!Dlg.Confirm(this, DlgKind.Info, "Restart to finish updating",
+                $"Ostraplan v{ver} has been downloaded.\n\nOstraplan will close, apply the update, and reopen.",
+                "Restart now", "Later"))
+            return;
+        try
+        {
+            AuditLog.Add($"Applying update v{ver} and restarting.");
+            _updater.ApplyAndRestart(_pendingUpdate);   // closes this process and relaunches into the new build
         }
         catch (Exception ex)
         {
-            if (manual)
-                Dlg.Warn(this, "Ostraplan", "Couldn't check for updates.\n\n" + ex.Message +
-                    "\n\nYou may be offline, or GitHub may be rate limiting.\n" +
-                    "Its anonymous API allows about 60 checks an hour per network.");
+            AuditLog.Add($"Update failed to apply: {ex.Message}");
+            Dlg.Error(this, "Update failed", "Ostraplan couldn't apply the update:\n\n" + ex.Message +
+                "\n\nYou can keep using this version, or download the latest release manually.");
         }
     }
 
-    private static Version ParseVersion(string s) =>
-        Version.TryParse(s.TrimStart('v', 'V').Split('+', '-')[0], out var v) ? v : new Version(0, 0);
-
     private static void OpenUrl(string url) => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
 
-    private void OnUpdateClick(object sender, RoutedEventArgs e) => OpenUrl(_updateUrl);
+    private void OnUpdateClick(object sender, RoutedEventArgs e) => PromptRestartAndApply();
 
     // ---- help ----
 

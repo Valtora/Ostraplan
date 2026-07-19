@@ -9,6 +9,20 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **0.15.1.6**).
 
+## [0.49.0] 2026-07-19, Installer + automatic updates
+
+### Changed
+- **New installer and automatic updates (Velopack).** Ostraplan now ships as a proper per-user installer
+  (`Ostraplan-win-Setup.exe`, no admin) plus a portable zip (`Ostraplan-win-Portable.zip`). Once installed,
+  new versions download in the background on launch and the toolbar shows a **Restart to update to vX** button;
+  the update applies only when you click it, so unsaved work is never discarded. Installs into
+  `%LOCALAPPDATA%\Ostraplan` with an Add/Remove Programs entry; your settings and activity log stay in
+  `%APPDATA%\Ostraplan` and survive updates and uninstalls. Not code-signed yet, so the first run of the
+  installer shows a one-time SmartScreen prompt (More info ▸ Run anyway).
+- The old opt-in self-install (a copy into `%LOCALAPPDATA%\Programs\Ostraplan` with hand-made shortcuts) and the
+  browser-download update prompt are gone, replaced by the above. A pre-existing self-install is tidied away
+  automatically the first time the installed copy runs.
+
 ## [0.48.0] 2026-07-18, Light Viz by default + smooth zoom
 
 ### Changed

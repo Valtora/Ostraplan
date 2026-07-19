@@ -116,7 +116,11 @@ Save-editing features want to create a **copy** by default unless **you opt into
 
 ## Quick start
 
-Download the latest `Ostraplan-vX.Y.Z.exe` from the [Releases](https://github.com/Valtora/Ostraplan/releases) page and double-click it. It's a self-contained executable and if you don't trust me you can build it yourself by following the instructions below.
+Download **`Ostraplan-win-Setup.exe`** from the [Releases](https://github.com/Valtora/Ostraplan/releases) page and run it. It installs Ostraplan for your user only (no admin, nothing outside your user profile), adds Start-Menu / Desktop shortcuts and an Add/Remove Programs entry, and opens the app. If you'd rather not install, grab **`Ostraplan-win-Portable.zip`**, unzip it anywhere, and run `Ostraplan.exe`.
+
+It isn't code-signed yet, so the first time you run the installer Windows SmartScreen may say "Windows protected your PC" — click **More info ▸ Run anyway**. (If you don't trust me, build it yourself with the instructions below.)
+
+**Updates are automatic.** When a new version is out, Ostraplan downloads it quietly in the background on launch and shows a **Restart to update** button in the toolbar; the update is applied only when you click it, so you never lose unsaved work. There's also a *Check for updates* button in Help. Your settings and activity log live in `%APPDATA%\Ostraplan` and survive updates and uninstalls.
 
 **Requirements:** Windows, and a **local Ostranauts install**. Ostraplan finds
 the game automatically if its installed and reads its data and sprites at runtime. Without this, Ostraplan just doesn't work.
@@ -131,8 +135,20 @@ Needs the .NET 10 SDK.
 dotnet run --project src\Ostraplan.App     # launch
 .\test.ps1                                 # run the test suite (most tests are game-free)
 .\test.ps1 -Filter Rooms                   # run a subset by name
-.\publish.ps1                              # build publish\Ostraplan.exe (self-contained)
+.\publish.ps1                              # build the Velopack release into publish\releases
 ```
+
+`publish.ps1` needs the Velopack CLI once: `dotnet tool install -g vpk`. It does a
+self-contained publish, smoke-tests the built exe, then packs the installer
+(`Ostraplan-win-Setup.exe`), the portable zip, the update package and the manifest into
+`publish\releases`. Cut a release by uploading that whole folder:
+
+```powershell
+vpk upload github --repoUrl https://github.com/Valtora/Ostraplan --publish --releaseName vX.Y.Z --tag vX.Y.Z --token (gh auth token)
+```
+
+Installed and portable copies pick up the new version on their next launch (they compare
+against `releases.win.json`). Close the running app before publishing — it locks its own exe.
 
 Most tests run without the game; the ones that need a local Ostranauts install report as
 **skipped** (never a false pass) when it's absent. See [docs/TESTING.md](docs/TESTING.md).

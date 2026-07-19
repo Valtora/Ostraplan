@@ -10,18 +10,20 @@ Press **F1** in-app at any time for the full keybinding table.
 1. **Install the game.** Ostraplan reads its data and sprites from a local
    Ostranauts install — it finds a Steam install automatically. If yours is
    elsewhere, point it at the folder when asked (the choice is remembered).
-2. **Launch Ostraplan.** Download `Ostraplan.exe` from
-   [Releases](https://github.com/Valtora/Ostraplan/releases) and run it, or build
-   from source (`dotnet run --project src\Ostraplan.App`).
-3. **Optional: install it.** The first time you run the downloaded exe, Ostraplan
-   offers to copy itself to `%LOCALAPPDATA%\Programs\Ostraplan` and make Desktop /
-   Start Menu shortcuts, so you have one fixed place to keep and launch it. It's
-   entirely optional (pick **Not now** to skip), needs no admin rights, writes
-   nothing outside your user profile, and you can re-run it any time from
-   **Help ▾ ▸ Install Ostraplan / shortcuts**. Deleting that folder uninstalls it.
-   Once installed, updating is one step: download the newer `Ostraplan.exe` and run
-   it — it replaces the installed copy, refreshes your shortcuts, and restarts, so
-   your existing shortcuts always open the latest version.
+2. **Install Ostraplan.** Download `Ostraplan-win-Setup.exe` from
+   [Releases](https://github.com/Valtora/Ostraplan/releases) and run it. It installs
+   for your user only (no admin, nothing outside your user profile), makes Start-Menu /
+   Desktop shortcuts and an Add/Remove Programs entry, and opens the app. It isn't
+   code-signed yet, so Windows SmartScreen may warn once — click **More info ▸ Run
+   anyway**. Prefer not to install? Download `Ostraplan-win-Portable.zip`, unzip it
+   anywhere and run `Ostraplan.exe`. Or build from source
+   (`dotnet run --project src\Ostraplan.App`).
+3. **Updates are automatic.** When a newer version is out, Ostraplan downloads it
+   quietly in the background on launch and shows a **Restart to update to vX** button
+   in the toolbar; it applies only when you click, so you never lose unsaved work.
+   You can also check on demand from **Help ▾ ▸ Controls & keybinds** (the *Check for
+   updates* button). Your settings and activity log live in `%APPDATA%\Ostraplan` and
+   survive updates and uninstalls.
 4. A new design opens with a single **Primary Airlock** at the origin. Every ship
    has exactly one; it's locked (you can't move or delete it), just like in-game.
 
@@ -36,7 +38,7 @@ right, but treat a mismatch as "double-check in-game".
 | **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**. Search by friendly or internal name. Modded parts show a small origin badge. |
 | **Canvas** (centre) | The tile grid. Place, paint, select, pan and zoom here. |
 | **Inspector** (right) | The selected part's details, ship stats, the **Problems** list, and the **Law report**. |
-| **Toolbar** (top) | Grouped **File · Edit · Design · Analyse · View**, with the theme picker and the **Help ▾** menu on the right. When a newer release exists, an update dialog appears on launch (**Download Latest Version** / **Not Now**) and an **Update** button stays in the toolbar. Running the downloaded exe then replaces the installed copy and refreshes your shortcuts automatically. |
+| **Toolbar** (top) | Grouped **File · Edit · Design · Analyse · View**, with the theme picker and the **Help ▾** menu on the right. When a newer release exists it is downloaded quietly in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
 
 ## Placing parts
 
@@ -308,8 +310,7 @@ drawn for dark space.
 ## Help & reporting a bug
 
 - **F1** — the full keybinding table.
-- **Help ▾** (top-right) — that reference, plus **Install Ostraplan / shortcuts**
-  (see [Getting started](#getting-started)), **Report a Bug** (opens a pre-filled
-  GitHub issue with diagnostics) and the **activity log**: an on-disk record of your
-  actions (**View** / **Open folder** / **Clear**) that helps pin down a problem
-  after it happens.
+- **Help ▾** (top-right) — that reference, plus **Check for updates** (in the
+  Controls & keybinds window), **Report a Bug** (opens a pre-filled GitHub issue with
+  diagnostics) and the **activity log**: an on-disk record of your actions (**View** /
+  **Open folder** / **Clear**) that helps pin down a problem after it happens.
