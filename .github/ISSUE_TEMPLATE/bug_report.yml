@@ -1,0 +1,99 @@
+name: Bug report
+description: Something in Ostraplan is broken, crashes, or behaves wrong.
+title: "[Bug] "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report this. Ostraplan is a free, one-person project, so a clear report with exact repro steps is the single biggest thing that gets a bug fixed quickly.
+
+        **Easiest path:** inside Ostraplan, use the **Report a bug** button. It opens a GitHub issue pre-filled with your Ostraplan version, OS, game version, the current design, and your recent actions from the activity log (already scrubbed of usernames and paths). If you came from there, everything below is filled in for you already.
+
+        If you're filing from the web instead, please fill in the diagnostics yourself. You'll find your Ostraplan version in the window title (`Ostraplan vX.Y.Z — …`) and the game version on Ostranauts' main menu.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before you file
+      options:
+        - label: I'm on the [latest release](https://github.com/Valtora/Ostraplan/releases) (or I've noted my version below and it's the newest I can run).
+          required: true
+        - label: I searched [existing issues](https://github.com/Valtora/Ostraplan/issues?q=is%3Aissue) and this isn't already reported.
+          required: true
+        - label: This is a bug in **Ostraplan**, not in the game itself. (Ship won't build the same way in-game? That may be a rule I've ported wrong — file it. Game crashes with Ostraplan closed? That's a game bug.)
+          required: false
+  - type: textarea
+    id: doing
+    attributes:
+      label: What were you trying to do?
+      description: What you were working on when it went wrong.
+      placeholder: e.g. Importing my save ship, then box-filling a wall along the port hull.
+    validations:
+      required: true
+  - type: textarea
+    id: wrong
+    attributes:
+      label: What went wrong?
+      description: What actually happened, and what you expected instead.
+      placeholder: e.g. The app froze for ~10s then the whole hull section disappeared. I expected the wall to fill in.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Exact steps to reproduce
+      description: Numbered steps precise enough that I can make it happen on my machine. This is the part that matters most.
+      value: |
+        1.
+        2.
+        3.
+    validations:
+      required: true
+  - type: input
+    id: ostraplan-version
+    attributes:
+      label: Ostraplan version
+      description: From the window title, e.g. `v0.48.0`.
+      placeholder: v0.48.0
+    validations:
+      required: true
+  - type: input
+    id: game-version
+    attributes:
+      label: Ostranauts (game) version
+      description: From the game's main menu. Put `unknown` if Ostraplan couldn't find your install.
+      placeholder: e.g. 0.16.x.x
+    validations:
+      required: true
+  - type: input
+    id: os
+    attributes:
+      label: OS
+      description: e.g. `Windows 11 Pro 24H2`.
+      placeholder: Windows 11
+    validations:
+      required: false
+  - type: input
+    id: mods
+    attributes:
+      label: Mods loaded (if relevant)
+      description: If the bug involves a specific part or ship, note the mod(s) it came from. "Vanilla only" is a useful answer too.
+      placeholder: e.g. Vanilla only / Minor Fixes Plus + FFU
+    validations:
+      required: false
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: Screenshots
+      description: Drag any screenshots or a screen recording in here. A picture of the failing ghost / Law report is often worth a paragraph.
+    validations:
+      required: false
+  - type: textarea
+    id: log
+    attributes:
+      label: Activity log (optional)
+      description: |
+        If the in-app button didn't attach it, paste the tail of your activity log here. It lives at `%APPDATA%\Ostraplan\audit.log` and is already free of usernames and paths.
+      render: text
+    validations:
+      required: false

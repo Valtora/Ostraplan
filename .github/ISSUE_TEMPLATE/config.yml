@@ -1,0 +1,11 @@
+# Kept true on purpose: the in-app "Report a bug" button opens a deep link with a
+# pre-filled body (auto-diagnostics + scrubbed activity log). Disabling blank issues
+# can make GitHub redirect that link to the chooser and drop the pre-filled body.
+blank_issues_enabled: true
+contact_links:
+  - name: Question, idea, or how-to
+    url: https://github.com/Valtora/Ostraplan/discussions
+    about: "\"How do I…?\", \"Is this possible?\", or half-formed ideas belong in Discussions. The issue tracker is for confirmed bugs and concrete feature requests."
+  - name: Ostranauts itself (the game)
+    url: https://store.steampowered.com/app/1022980/Ostranauts/
+    about: Ostraplan is a fan tool and ships none of the game's data. Bugs, saves, or crashes in Ostranauts with Ostraplan closed are game issues, not Ostraplan ones.

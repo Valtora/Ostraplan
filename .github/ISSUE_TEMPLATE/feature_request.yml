@@ -1,0 +1,51 @@
+name: Feature request
+description: Suggest a new capability or an improvement to an existing one.
+title: "[Feature] "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for the idea! A quick note on scope so we're on the same page:
+
+        Ostraplan validates the **build** — it's a *plan*ner, not a simulator. The [README's "What Ostraplan won't do"](https://github.com/Valtora/Ostraplan#what-ostraplan-wont-do) lists things that are deliberately out of scope (power/gas/thermal sim, economy beyond the bill of materials, multi-ship documents, writing `loading_order.json`, non-Windows). Requests inside that boundary are very welcome; ones outside it I'll probably close with a friendly explanation.
+
+        For open-ended "would it be cool if…" musing, a [Discussion](https://github.com/Valtora/Ostraplan/discussions) is often a better home than an issue.
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: Before you file
+      options:
+        - label: I searched [existing issues](https://github.com/Valtora/Ostraplan/issues?q=is%3Aissue) and this isn't already requested.
+          required: true
+        - label: I've read [What Ostraplan won't do](https://github.com/Valtora/Ostraplan#what-ostraplan-wont-do) and believe this is in scope.
+          required: false
+  - type: textarea
+    id: problem
+    attributes:
+      label: What problem does this solve?
+      description: The situation you hit where Ostraplan couldn't help, or made something harder than it needed to be. Describe the need, not just the fix.
+      placeholder: e.g. When re-skinning a whole ship I can't tell which walls still carry the old skin until I export and count.
+    validations:
+      required: true
+  - type: textarea
+    id: solution
+    attributes:
+      label: What would you like it to do?
+      description: Your proposed behaviour. Sketches, mockups, or "it should work like <this other feature>" are all great.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives or workarounds
+      description: How you handle this today, and anything you considered and rejected.
+    validations:
+      required: false
+  - type: textarea
+    id: context
+    attributes:
+      label: Anything else
+      description: Screenshots, links to the in-game equivalent, or how the game itself does it (Ostraplan tries to match the game's behaviour where it can).
+    validations:
+      required: false
