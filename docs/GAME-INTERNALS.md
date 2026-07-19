@@ -1,77 +1,150 @@
-# Ostraplan — Game Internals Reference
+# Ostranauts — Game Internals Reference
 
-Everything Ostraplan has learned about **how Ostranauts works internally**, gathered from decompiling `Assembly-CSharp.dll` and reading the live game data. Ostraplan's promise ("the Law") is met by *porting* this logic, never by referencing the DLL (its types are MonoBehaviours that round-trip through Unity — see [SPEC §2](SPEC.md)). This file is the durable record of that reverse-engineering: consult it when implementing a new law slice, and re-verify it after every game patch.
+A reference for **how Ostranauts works internally**, reconstructed by decompiling
+`Assembly-CSharp.dll` and reading the live game data. It is the source of truth
+Ostraplan is built against: Ostraplan keeps its promise ("the Law") by *porting*
+this logic, never by referencing the DLL at runtime (its types are
+`MonoBehaviour`s that round-trip through Unity, so calling them off the game gives
+silently wrong answers). Each system below is described as the game implements it,
+with the relevant `Type.Method` citations; a short **Ported in Ostraplan** note
+points to where that system is reimplemented.
 
-**Verified against game `0.15.1.6`** (`GameEnv.VerifiedGameVersion`). Rating cutoffs and other magic numbers are hardcoded in the DLL and invisible to data diffing, so they can silently drift — the version pin exists to warn about exactly that.
+**Verified against game `0.15.1.6`** (`GameEnv.VerifiedGameVersion`). Rating
+cutoffs and other magic numbers are compiled into the DLL and invisible to data
+diffing, so they can drift silently between patches. The version pin exists to
+flag exactly that: re-verify after every game update.
+
+**Contents**
+
+- [1. Working with the decompile](#1-working-with-the-decompile)
+- [2. The data model](#2-the-data-model)
+- [3. Conditions and loots — the tile vocabulary](#3-conditions-and-loots--the-tile-vocabulary)
+- [4. Footprints and sprites — two independent sizes](#4-footprints-and-sprites--two-independent-sizes)
+- [5. The placement law (`Item.CheckFit`)](#5-the-placement-law-itemcheckfit)
+- [6. Docking and airlocks](#6-docking-and-airlocks)
+- [7. The coordinate model](#7-the-coordinate-model)
+- [8. Rooms and airtightness (`Ship.CreateRooms`)](#8-rooms-and-airtightness-shipcreaterooms)
+- [9. Room certification (`RoomSpec.Matches`)](#9-room-certification-roomspecmatches)
+- [10. Ship Rating (`Ship.CalculateRating`)](#10-ship-rating-shipcalculaterating)
+- [11. Ship value (`Ship.GetShipValue`)](#11-ship-value-shipgetshipvalue)
+- [12. Operational vs installed state](#12-operational-vs-installed-state)
+- [13. The power network](#13-the-power-network)
+- [14. Device signal connections (the `Electrical` GPM)](#14-device-signal-connections-the-electrical-gpm)
+- [15. Rendering](#15-rendering)
+- [16. Lighting](#16-lighting)
+- [17. Ship serialization (templates and saves)](#17-ship-serialization-templates-and-saves)
+- [18. Writing a ship back into a save](#18-writing-a-ship-back-into-a-save)
+- [19. Obtaining a ship in-game (brokers, chargen)](#19-obtaining-a-ship-in-game-brokers-chargen)
+- [Appendix A — Quick reference](#appendix-a--quick-reference)
+- [Appendix B — Ported / deferred / excluded](#appendix-b--ported--deferred--excluded)
 
 ---
 
-## 1. Regenerating the decompile
+## 1. Working with the decompile
 
-The decompiled source is **not** committed (IP hygiene — see [SPEC §13](SPEC.md)). Regenerate on demand (~7 s; `ilspycmd` is an installed global dotnet tool):
+The decompiled source is **not** committed (IP hygiene — no decompiler output
+lives in this repo). Regenerate on demand (~7 s; `ilspycmd` is an installed global
+dotnet tool):
 
 ```powershell
 ilspycmd -p -o <scratch-dir> "C:\Program Files (x86)\Steam\steamapps\common\Ostranauts\Ostranauts_Data\Managed\Assembly-CSharp.dll"
 ```
 
-Line numbers below are approximate (they shift when the game updates) — cite by **`Type.Method`**, which is stable. Key files and members:
+Cite by **`Type.Method`**, which is stable; line numbers shift when the game
+updates. The members that matter most:
 
-| File | Members that matter |
+| File | Members |
 |---|---|
-| `Item.cs` | `CheckFit` (placement law), `SetData` (footprint + sprite scale plumbing), `RotateCW`, `SetSpriteSheetIndex` (autotile) |
-| `CondTrigger.cs` | `Triggered` (the trigger evaluator — full semantics; CheckFit only reaches a subset) |
+| `Item.cs` | `CheckFit` (placement law), `SetData` (footprint + sprite scale), `RotateCW`, `SetSpriteSheetIndex` (autotile) |
+| `CondTrigger.cs` | `Triggered` (the trigger evaluator; full semantics) |
 | `Loot.cs` | `GetLootNames` (how a socket loot resolves to condition names) |
-| `TileUtils.cs` | `RotateTilesCW`, `GetSurroundingTiles`, `PadTilemap`/`TrimTiles`, `GetAirlockBounds` |
-| `Ship.cs` | `UpdateTiles` (tile-condition accumulation), `CreateRooms`, `CalculateRating`, `GetTileIndexAtWorldCoords`, `GetRoomSpecs` (all ported — §8) |
-| `Room.cs` / `RoomSpec.cs` | `CreateRoomSpecs`, `Matches` (certification — §8) |
-| `CondOwner.cs` | `TLTileCoords` (item centre → top-left tile — §8) |
+| `TileUtils.cs` | `RotateTilesCW`, `GetSurroundingTiles`, `PadTilemap` / `TrimTiles`, `GetAirlockBounds`, `GetPoweredTiles` |
+| `Ship.cs` | `UpdateTiles`, `CreateRooms`, `CalculateRating`, `GetShipValue`, `GetTileIndexAtWorldCoords`, `AddCO` / `AddICO` |
+| `Room.cs` / `RoomSpec.cs` | `CreateRoomSpecs`, `Matches`, `CalculateRoomValue` |
+| `CondOwner.cs` | `TLTileCoords` (item centre → top-left tile), `GetBasePrice`, `BreakIn` |
+| `Visibility.cs` | `LateUpdate` (the light shadow-mesh geometry) |
 
-### After a game patch — re-verification checklist
-1. Re-decompile; diff `CheckFit`, `SetData`, `RotateCW`, `CalculateRating` (cutoffs), `CreateRooms`, `RoomSpec.Matches` for logic changes.
-2. Re-run the test suite — the `GameDataTests` + `ParityTests` (rooms 188/192, certification, rating) assert the real-data facts this file documents; a drift shows up as a parity regression.
+**Re-verification checklist after a game patch:**
+1. Re-decompile; diff `CheckFit`, `SetData`, `RotateCW`, `CalculateRating`
+   (cutoffs), `CreateRooms`, `RoomSpec.Matches`, `GetBasePrice` for logic changes.
+2. Re-run the parity corpus (`ParityTests`, `GameDataTests`) — it asserts the
+   real-data facts this file documents, so drift surfaces as a parity regression.
 3. Bump `GameEnv.VerifiedGameVersion` once green.
 
 ---
 
 ## 2. The data model
 
-Game data lives under `…/StreamingAssets/data/<type>/` as JSON arrays of objects keyed by `strName`. Ostraplan resolves the effective data exactly like the game — later-loaded mod object with the same `(type, strName)` replaces the earlier, whole-object (see [SPEC §5.2](SPEC.md)). Field names use Hungarian prefixes (`str`, `n`, `b`, `a`=array, `map`, `json`).
+Game data lives under `…/StreamingAssets/data/<type>/` as JSON arrays of objects,
+each keyed by **`strName`**. The game loads every folder listed in
+`loading_order.json` in order; a later-loaded object with the same `(type,
+strName)` **replaces** the earlier one, **whole-object** (no field merge). `core`
+loads first. Field names use Hungarian prefixes: `str` string, `n` number, `b`
+bool, `a` array, `map` key/value list, `json` nested object.
 
-### The palette join (how a build-menu entry becomes a placeable part)
+> **Ported in Ostraplan:** `DataIndex` (effective-data resolution, adapted from
+> Ostrasort), `Catalog`.
 
-`Installables.dictJobBuildOptions` / `GUIPDA.ShowJobOptions`, mirrored in `Catalog.Build`:
+### The palette join
+
+A build-menu entry becomes a placeable part by a chain of lookups
+(`Installables.dictJobBuildOptions` / `GUIPDA.ShowJobOptions`):
 
 ```
-data/installables  (strJobType == "install", strBuildType ∈ HULL HVAC POWR SENS CTRL FURN APPS MISC)
+data/installables   (strJobType == "install", strBuildType ∈ HULL HVAC POWR SENS CTRL FURN APPS MISC)
         │  strStartInstall
         ▼
-data/condowners  ── or via ──▶  data/cooverlays (strCOBase → the real condowner; overlay swaps sprite + friendly name)
-        │  strItemDef                                     (~half of the ~330 menu entries are cooverlay skins)
+data/condowners  ── or via ──▶  data/cooverlays  (strCOBase → the real condowner; the overlay swaps sprite + friendly name)
+        │  strItemDef
         ▼
-data/items  ── geometry: nCols, aSocketAdds/Reqs/Forbids, strImg, bHasSpriteSheet, ctSpriteSheet
+data/items   ── geometry: nCols, aSocketAdds / Reqs / Forbids, strImg, bHasSpriteSheet, ctSpriteSheet
 ```
 
-- `strStartInstall` names the **condowner** to place, resolved directly or through a cooverlay whose `strCOBase` is the real one (`DataHandler.LoadCO`'s fallback).
-- State variants are separate menu entries: doors install as `…Open`, beds/appliances as `…Off`.
-- A naive `items[strStartInstall]` finds only ~157 of ~330 — you must follow the condowner/cooverlay hop.
+- `strStartInstall` names the **condowner** to place, resolved directly or through
+  a cooverlay whose `strCOBase` is the real condowner (`DataHandler.LoadCO`'s
+  fallback). Roughly **half** of the ~330 build-menu entries are cooverlay skins.
+- State variants are separate menu entries: doors install as `…Open`, beds and
+  appliances as `…Off`.
+- A naive `items[strStartInstall]` lookup finds only ~157 of ~330 parts — the
+  condowner/cooverlay hop is mandatory.
+
+> **Ported in Ostraplan:** `Catalog.Build` (palette), `Catalog.Lookup` /
+> `Catalog.ResolveDef` (on-demand resolution of any placed def, including the
+> ~half of a real ship that is not in the buildable palette: raw hull,
+> `Compartment`, RCS clusters, sensors).
 
 ---
 
-## 3. Loots & conditions — the tile vocabulary
+## 3. Conditions and loots — the tile vocabulary
 
-Everything about placement and rooms is written in **conditions** accumulated on tiles, produced by **loots**.
+Everything about placement and rooms is written in **conditions** accumulated on
+tiles, and conditions are produced by **loots**.
 
 ### Loot mechanics (`Loot.cs`)
-- A loot carries `aCOs` (its own payload: `"IsWall=1.0x1"` strings → condition **names**) and `aLoots` (nested loot names).
-- `GetLootNames()` flattens `aCOs` cond-names **plus** the recursive expansion of `aLoots`. Socket masks use deterministic single-unit loots (`chance 1.0`, `count 1`), so this is a plain set-union with no randomness. Ostraplan mirrors it in `Catalog.LootConds` (used by `TileConds` accumulation and `CheckFit`).
-- `"Blank"` (and any unresolved name) → empty → an **unconstrained** cell.
 
-### Tile-condition accumulation (`Ship.UpdateTiles`, ported as `TileConds`)
-Each tile holds a condition multiset (`Tile.coProps`). On place/remove, **every overlapping part** adds/subtracts its per-cell `aSocketAdds` loot's conditions (±1). Presence means "count > 0". State variants (door Open vs Closed) are *different item defs with different adds* — Ostraplan places the `strStartInstall` def, exactly as the game's installer does.
+- A loot carries `aCOs` (its own payload: strings like `"IsWall=1.0x1"` that name
+  condition **names**) and `aLoots` (nested loot names).
+- `GetLootNames()` flattens the `aCOs` cond-names **plus** the recursive expansion
+  of `aLoots`. Socket masks use deterministic single-unit loots (`chance 1.0`,
+  `count 1`), so this is a plain set-union with no randomness.
+- `"Blank"` (and any unresolved name) resolves to empty — an **unconstrained**
+  cell.
 
-### The `TIL*` loot table (verified from `data/loot`)
+> **Ported in Ostraplan:** `Catalog.LootConds`.
 
-Adds loots (what a part contributes to its own footprint tiles):
+### Tile-condition accumulation (`Ship.UpdateTiles`)
+
+Each tile holds a condition multiset (`Tile.coProps`). On place or remove,
+**every overlapping part** adds or subtracts its per-cell `aSocketAdds` loot's
+conditions (±1). Presence means "count > 0". State variants (door Open vs Closed)
+are *different item defs with different adds*; the installer places the
+`strStartInstall` def.
+
+> **Ported in Ostraplan:** `TileConds`.
+
+### The `TIL*` loot table (from `data/loot`)
+
+**Adds** — what a part contributes to its own footprint tiles:
 
 | Loot | Expands to |
 |---|---|
@@ -79,12 +152,13 @@ Adds loots (what a part contributes to its own footprint tiles):
 | `TILWallAdds` | `IsObstruction`, `IsWall` |
 | `TILFixtureAdds` | `IsFixture`, `IsObstruction` |
 | `TILExtFixtureAdds` | `IsFixture`, `IsFixtureExt`, `IsObstruction`, `IsWallDeco` |
-| `TILSubfloorAdds` | `IsSubTile` *(walkable sub-floor — under-floor storage, no solid body)* |
-| `TIL2DeckAdds` | `IsFixture`, `IsSubTile`, `IsObstruction` *(the visible tank body — above-floor)* |
+| `TILSubfloorAdds` | `IsSubTile` *(walkable sub-floor: under-floor storage, no solid body)* |
+| `TIL2DeckAdds` | `IsFixture`, `IsSubTile`, `IsObstruction` *(the visible tank body, above-floor)* |
 | `TILPowerConduit` | `IsPowerConduit`, `IsPowerPath` |
 | `TILPowerFixtureAdds` | `IsFixture`, `IsObstruction`, `IsPowerPath` |
+| `TILFloorFixture` | `IsFloorSealed`, `IsFixture` *(buildable floor fixture — see §5)* |
 
-Req/forbid loots (what a cell tests for) — same expansion, different intent:
+**Req / forbid** — what a cell tests for (same expansion, different intent):
 
 | Loot | Expands to | Used as |
 |---|---|---|
@@ -94,287 +168,921 @@ Req/forbid loots (what a cell tests for) — same expansion, different intent:
 | `TILSubfloorForbids` | `IsSubTile` | **forbid** |
 | `TIL2DeckForbids` | `IsFixture`, `IsSubTile`, `IsObstruction`, `IsItemTile`, `IsWallDeco`, `IsFloorFlex` | **forbid** |
 
-Condition vocabulary that drives Ostraplan's own logic: `IsFloor`/`IsFloorSealed`/`IsFloorFlex` (floor), `IsWall`/`IsPortal` (walls & doors), `IsObstruction` (solid/blocking), `IsFixture` (furniture/appliances), `IsSubTile` (sub-floor), `IsPowerConduit` (thin power runs), `IsDockSys`/`IsInstalled` (docking ports).
+The condition vocabulary that drives structural logic: `IsFloor` /
+`IsFloorSealed` / `IsFloorFlex` (floor), `IsWall` / `IsPortal` (walls and doors),
+`IsObstruction` (solid/blocking), `IsFixture` (furniture/appliances), `IsSubTile`
+(sub-floor), `IsPowerConduit` / `IsPowerPath` (power runs), `IsDockSys` /
+`IsInstalled` (docking ports).
 
 ---
 
-## 4. Footprints vs sprites — **two different sizes** (a core gotcha)
+## 4. Footprints and sprites — two independent sizes
 
-The game keeps two independent sizes for an item, and Ostraplan must not conflate them:
+The game keeps two independent sizes for an item, and they must not be conflated:
 
 | Size | Formula | Source | Used for |
 |---|---|---|---|
-| **Socket / placement grid** | `nWidthInTiles × nHeightInTiles` = `nCols × (aSocketAdds.Count / nCols)` | `Item.SetData` (≈L424-425) | CheckFit, ghost/selection extent, tile accumulation |
-| **Visual sprite size** | `vScale = round(texturePx / 16)` tiles, min 1 | `Item.SetData` (≈L438-439) | how big the sprite is drawn (centered on the footprint) |
+| **Socket / placement grid** | `nWidthInTiles × nHeightInTiles` = `nCols × (aSocketAdds.Count / nCols)` | `Item.SetData` | CheckFit, ghost/selection extent, tile accumulation |
+| **Visual sprite size** | `vScale = round(texturePx / 16)` tiles, min 1 | `Item.SetData` | how large the sprite draws, centred on the footprint |
 
-For most parts these are equal (a 1×1 wall = 16×16 px; a 3×5 bed = 48×80 px). **The large fuel tanks are where they diverge** and it's not a data error:
+For most parts these are equal (a 1×1 wall is 16×16 px; a 3×5 bed is 48×80 px).
+**The large fuel tanks are where they diverge, and it is not a data error:**
 
-- `ItmCanisterLH02` (D2O), `ItmCanisterLHe01/02` (He3): `nCols = 7`, 49 adds → **7×7 socket grid**, but a **48×48 px = 3×3 sprite**.
-- The socket grid is an **abstraction of sub-floor storage**: the outer ring adds `TILSubfloorAdds` (walkable sub-floor), only the **center 3×3** adds `TIL2DeckAdds` (the solid, visible tank). `aSocketReqs` is `TILFloor` across the whole inner 7×7 — the game genuinely needs a **7×7 sealed-floor pad** to place one.
+- `ItmCanisterLH02` (D2O), `ItmCanisterLHe01` / `ItmCanisterLHe02` (He3): `nCols =
+  7`, 49 adds, so a **7×7 socket grid** but a **48×48 px = 3×3 sprite**.
+- The socket grid is an **abstraction of sub-floor storage**: the outer ring adds
+  `TILSubfloorAdds` (walkable sub-floor); only the **centre 3×3** adds
+  `TIL2DeckAdds` (the solid, visible tank). `aSocketReqs` is `TILFloor` across the
+  whole inner 7×7, so the game genuinely requires a **7×7 sealed-floor pad** to
+  place one.
 
-**Ostraplan's rule:** render the sprite at its own `vScale` size, centered on the footprint (`SpriteCache.SpriteTiles` + `ShipCanvas.DrawSprite`); **keep the footprint at the 7×7 socket grid** for CheckFit/selection. Shrinking the footprint to 3×3 would let Ostraplan place a tank in a gap the game refuses — a **Law false positive**, the cardinal sin. So a tank *looks* 3×3 but still reserves its true 7×7 pad, matching the game's own 7×7 build grid.
+The correct rule: render the sprite at `vScale` centred on the footprint, but keep
+the **footprint at the socket grid** for placement. Shrinking the footprint to 3×3
+would allow placement in a gap the game refuses — a false positive.
 
-The build ghost distinguishes the two footprints (`Catalog.IsUnderFloorLoot`: a cell is **under-floor** when its adds mark `IsSubTile` **without** `IsObstruction`): the sub-floor ring is shaded apart with a dashed reservation outline, and the solid green/red validity outline hugs the above-floor body. Once *placed*, the game just shows the 3×3 tank on plain (walkable) floor, so Ostraplan does too.
+A cell is **under-floor** when its adds mark `IsSubTile` **without**
+`IsObstruction`.
+
+> **Ported in Ostraplan:** `Defs.ItemDef` (footprint), `SpriteCache.SpriteTiles`
+> (sprite), `Catalog.IsUnderFloorLoot`.
 
 ---
 
-## 5. Placement law — `Item.CheckFit` (P1, ported)
+## 5. The placement law (`Item.CheckFit`)
 
-Ported to `Ostraplan.Core/CheckFit.cs`. For a candidate `(part, anchor, rotation)`:
+For a candidate `(part, anchor, rotation)`:
 
-1. **Ring grid.** `aSocketReqs` / `aSocketForbids` are per-cell loot names over the **(W+2)×(H+2) ring** (footprint + 1-tile border), row-major, border included. `aSocketAdds` covers only the W×H footprint. Ring cell `(r,c)` → world tile `(anchorX-1+c, anchorY-1+r)`.
-2. **Cell test — PRESENCE ONLY.** CheckFit builds a *throwaway* `CondTrigger { aReqs = reqLoot.GetLootNames(), aForbids = forbidLoot.GetLootNames() }` (default `bAND = true`) and calls `Triggered`. Because these are trivial triggers of condition names, only the presence path runs: **every req condition present (count > 0), no forbid condition present**. The full `CondTrigger.Triggered` machinery — count multiplicity, nested `aTriggers`, `bAND = false` OR-logic, `strHigherCond`/`aLowerConds`, `fChance` — is **unreachable from placement** and is deferred to P2 (room certification). Ostraplan does *not* route through a general trigger evaluator here; it expands the loots and checks presence directly, leaving autotile's presence-only `TileConds.Triggered` untouched.
-3. **Off-ship rule.** A ring cell with no accumulated conditions (empty space) **passes iff it has no requirement** — this is how "must attach to structure / needs floor beneath" is encoded. (An existing-but-empty tile behaves identically, so Ostraplan treats "no conds" uniformly.)
-4. **Rotation.** 90° steps rotate the req/forbid ring masks and the adds mask. `GridMath.Rotate(cells, W+2, H+2, rot)` reproduces `TileUtils.RotateTilesCW(cells, W+2)` **exactly** (verified). **Sheet items (walls/floors, `bHasSpriteSheet`) never rotate** — `Item.RotateCW` returns early for them.
-5. **Airlock envelope.** `DockA→DockB` defines a mating face; **no ring cell may fall beyond it**. The game derives the envelope **once, from `aDocksys.FirstOrDefault()` alone** (Item.cs, before the ring loop) — *not* per port. Because `Ship.AddCO` files non-TypeB ports with `Insert(0, …)` and TypeB ports with `Add(…)`, that first port is **always the Primary** when one exists, so a **Secondary never bounds construction** (§7). Ostraplan matches this: `ProblemScan.BoundingPort` resolves the one bounding port and `CheckFit` hoists the face out of the ring loop. Face math is `ProblemScan.TryGetFace` (see §7). **Ostraplan bounded all ports until v0.44.0** (issue #5) — a deliberate "stricter is safe" call that was wrong: it forbade internal docking bays, and since every doc is seeded with a Primary while the only *buildable* port is the Secondary, the deviation fired the moment a user placed the one airlock they can build.
-6. **Self-exclusion (re-validation).** When re-checking an *already-placed* part, its own tile contribution must be subtracted first — walls/fixtures add `IsObstruction` **and** forbid `TILObstruction` on their own footprint, so they fail against themselves otherwise. `CheckFit.Check` takes an optional `self` placement for this; the flagging scan (`ProblemScan`) uses it, live placement checks don't (the candidate isn't applied yet).
-7. **Excluded by design** (in-game-only predicates that cannot exist in a planner): crew proximity/LOS (`GUIInventory.instance.Selected` + `Visibility.IsCondOwnerLOSVisible`), docked-ship `TileUtils.WouldConnectShips`, and station-*build* zone permission (whether a tile is buildable on a station). Note this is the placement-law exclusion only — ship **zones as data** (`JsonZone`/`aZones`) are modelled and round-tripped (`ShipZone`/`ZoneGeometry`; see SPEC §6.10), just not treated as a build constraint.
+1. **Ring grid.** `aSocketReqs` / `aSocketForbids` are per-cell loot names over the
+   **(W+2)×(H+2) ring** (footprint plus a 1-tile border), row-major, border
+   included. `aSocketAdds` covers only the W×H footprint. Ring cell `(r,c)` maps to
+   world tile `(anchorX − 1 + c, anchorY − 1 + r)`.
+2. **Cell test — presence only.** CheckFit builds a *throwaway* `CondTrigger {
+   aReqs = reqLoot.GetLootNames(), aForbids = forbidLoot.GetLootNames() }` (default
+   `bAND = true`) and calls `Triggered`. Because these are trivial triggers of
+   condition names, only the presence path runs: **every req condition present
+   (count > 0), no forbid condition present**. The full `CondTrigger.Triggered`
+   machinery — count multiplicity, nested `aTriggers`, `bAND = false` OR-logic,
+   `strHigherCond` / `aLowerConds`, `fChance` — is **unreachable from placement**
+   (it is reached from room certification, §9).
+3. **Off-ship rule.** A ring cell with no accumulated conditions (empty space)
+   **passes iff it has no requirement**. This is how "must attach to structure" /
+   "needs floor beneath" is encoded. An existing-but-empty tile behaves identically.
+4. **Rotation.** 90° steps rotate the req/forbid ring masks and the adds mask.
+   `TileUtils.RotateTilesCW(cells, W+2)` is a plain clockwise tile rotation.
+   **Sheet items (walls/floors, `bHasSpriteSheet`) never rotate** — `Item.RotateCW`
+   returns early for them.
+5. **Airlock envelope.** No ring cell may fall beyond the mating face of the
+   **primary** docking port. The game derives the envelope **once, from
+   `aDocksys.FirstOrDefault()` alone** (before the ring loop), not per port — see
+   §6 for why that first port is always the Primary when one exists.
+6. **Self-exclusion.** When re-checking an *already-placed* part, its own tile
+   contribution must be subtracted first — walls and fixtures add `IsObstruction`
+   **and** forbid `TILObstruction` on their own footprint, so they fail against
+   themselves otherwise.
+7. **Excluded predicates.** Several in-game-only tests are part of `CheckFit` but
+   cannot exist in a planner: crew proximity / line-of-sight
+   (`GUIInventory.instance.Selected` + `Visibility.IsCondOwnerLOSVisible`),
+   docked-ship connection (`TileUtils.WouldConnectShips`), and station **build-zone**
+   permission (whether a tile may be built on when it belongs to a station). This
+   is distinct from ship **zones as data**, which are modelled (§17).
 
-> **Floor fixtures are buildable surfaces.** The common `TILObstruction` forbid mask expands to `IsFixture` + `IsFixtureExt` + `IsObstruction` + `IsItemTile` + `IsFloorFlex`. But an under-floor storage bin / rack (`ItmRackUnder01`, `ItmStorageBinFloor…`) tags its walkable tiles `IsFloorSealed` + `IsFixture` (via `TILFloorFixture`) and **never** `IsObstruction`, and the game lets you build on — and reach an adjacent fixture across — that floor. So `CheckFit.CellPasses` does **not** let `IsFixture` trip the forbid on a tile that carries `IsFloorSealed`; a genuine `IsObstruction` still blocks. (Ground-truthed against in-game placement — the raw mask alone over-flags a rack whose access tile sits on a floor bin.)
+> **Floor fixtures are buildable surfaces.** The common `TILObstruction` forbid
+> mask expands to include `IsFixture`. But an under-floor storage bin or rack
+> (`ItmRackUnder01`, `ItmStorageBinFloor…`) tags its walkable tiles `IsFloorSealed`
+> + `IsFixture` (via `TILFloorFixture`) and **never** `IsObstruction`, and the game
+> lets you build on — and reach an adjacent fixture across — that floor. So the cell
+> test does **not** let `IsFixture` trip the forbid on a tile that also carries
+> `IsFloorSealed`; a genuine `IsObstruction` still blocks.
 
-### Enforcement & flagging (Ostraplan's P1 UX decisions)
-- **New placement is hard-blocked** at the single choke point `ShipCanvas.TryPlacePose` (covers click, drag-paint, box/hollow fill, symmetry mirrors — each mirror judged independently). Illegal cells are silently skipped.
-- **Moves / rotations / duplicates into an illegal spot are allowed but flagged** (deletes always allowed + flagged). `ProblemScan` re-checks every placed part (self-excluded), groups blocking problems by reason, and hazard-tints the offending tiles; the ghost shows green/red with per-cell failures and a reason in the status bar.
-- **Constructibility pass** (warn-only): re-simulate a canonical floors→walls→rest build order with incremental CheckFit; warn naming the first part that never becomes placeable. Runs only when the finished design is otherwise legal (locked ship-givens seeded first).
+> **Ported in Ostraplan:** `CheckFit`, `ProblemScan`, enforced at the single
+> placement choke point `ShipCanvas.TryPlacePose`. `GridMath.Rotate` reproduces
+> `RotateTilesCW` exactly.
 
-### Worked examples (real data, asserted in `GameDataTests`)
-- **`ItmWall1x1`** — 1×1, `aSocketReqs` all Blank (free-standing, like the game), center forbid `TILObstruction` (won't stack on an obstruction). Sheet item (`ctSpriteSheet = TIsWall`).
-- **`ItmBed01Off`** — 3×5. Reqs: `TILFloor` across the footprint + `TILWall` down the **right** border (the headboard). Forbids: `TILObstruction` on the footprint **and** the left border. Adds `TILFixtureAdds` (so it forbids the obstruction it will itself add — see self-exclusion).
+### Worked examples (real data)
+
+- **`ItmWall1x1`** — 1×1, `aSocketReqs` all Blank (free-standing, like the game),
+  centre forbid `TILObstruction` (won't stack on an obstruction). Sheet item
+  (`ctSpriteSheet = TIsWall`).
+- **`ItmBed01Off`** — 3×5. Reqs: `TILFloor` across the footprint + `TILWall` down
+  the **right** border (the headboard). Forbids: `TILObstruction` on the footprint
+  and the left border. Adds `TILFixtureAdds` (so it forbids the obstruction it will
+  itself add — hence self-exclusion).
 - **`ItmCanisterLH02`** — 7×7 socket grid, 3×3 sprite (§4).
-- **`ItmDockSys03Closed`** — the buildable "Secondary Exterior Airlock", 7×2, free-standing (all-Blank reqs).
+- **`ItmDockSys03Closed`** — the buildable "Secondary Exterior Airlock", 7×2,
+  free-standing (all-Blank reqs).
+
+### Construction is order-dependent; existing hull is never re-validated
+
+The game validates each placement against the ship's *current* state during
+construction, so in-game legality is order-dependent (floors, then walls, then
+fixtures). It **never re-validates existing structure**. A real ship legally
+contains structure that a from-scratch build order would refuse — for example hull
+baked beyond where a later-added airlock's face falls, or a fixture stacked on a
+floor whose own forbid mask a final-state re-check would trip. The game does not
+care, because the structure was already there.
+
+Consequently, imported structure must not be re-validated against the placement
+law; only genuinely new construction (a newly placed or moved part) is.
+
+> **Ported in Ostraplan:** imported parts are marked **given** (`Placement.IsGiven`)
+> and skipped by `ProblemScan`; moving or rotating a given part clears the flag.
+> A **constructibility pass** re-simulates a canonical floors→walls→rest build
+> order with incremental CheckFit and warns (only) if some part never becomes
+> placeable.
 
 ---
 
-## 6. Rendering
+## 6. Docking and airlocks
 
-- **Z-order.** `nLayer` is `0` for **every** item in the data — the game does not layer items by `nLayer`; it Y-sorts sprites over a separate floor tile-layer. Ostraplan's single-pass renderer instead ranks each part by the conditions it contributes (`Catalog.RenderLayer`, memoized): **floor** (`IsFloor`/`IsFloorSealed`/`IsFloorFlex`) < **wall/door** (`IsWall`/`IsPortal`, checked first — a door also seals floor) < **fixtures & the rest** < **power conduit** (`IsPowerConduit`, thin runs on top). `ShipDocument.DrawOrder` sorts by rank, then `nLayer`, then Y, then insertion. Hit-testing returns the topmost layer; `HitTestStack` (reverse draw order) drives the right-click layer picker for reaching buried parts.
-- **Sprite draw.** Non-sheet sprites draw at `vScale` size centered on the footprint (§4). Sheet items draw per-tile.
-- **Autotiling** (`Item.SetSpriteSheetIndex`, ported in `Autotile.cs`). Sheet items (`bHasSpriteSheet` + `ctSpriteSheet`) pick a sheet cell from the 4 cardinal neighbours whose tile conds trigger `ctSpriteSheet`: mask bits **N=8, W=4, E=2, S=1** → the fixed 16-entry `Item.SpriteSheetIndices` table → a cell index whose **rows count from the texture bottom** (Unity UV origin; WPF flips the row). Core wall sheet is 64×64 = a 4×4 grid of 16 px tiles. These constants are exact ports — do not "fix" them.
+- A ship needs **≥1 installed docksys** or it can never hard-dock (`Ship.aDocksys`
+  collects COs that trigger `TIsDockSysInstalled`). 42 core templates have none —
+  no crash, just unmateable.
+- `TIsDockSysInstalled` reqs are `[IsDockSys, IsInstalled]` and **all** must match.
+  Matching *any* (for example via `IsInstalled` alone) would flag every installed
+  part.
+- **No rule ties an airlock to the origin `(0,0)`.** Zero of 147 core templates
+  with a port place one there, and the Babak has two. The "primary"
+  (`Ship.PrimaryDockingPortID`, persisted `strPrimaryDockingPortID`) is a
+  runtime-cyclable selection that defaults to the first port.
+- The special **Primary** airlock is `ItmDockSys02Closed` (`strNameShort` literally
+  "Primary Airlock"): `IsIndestructable`, `IsShipSpecialItem`, and **no install
+  job**, so players can neither build nor remove one. The buildable port is the
+  **Secondary**, `ItmDockSys03Closed`.
 
-### Lighting — Light Viz (pixel-exact port: `VisibilityMesh` + `LightComposite`, decompiled DLL + disassembled shaders, 0.34.x)
+### The one real positional rule: no construction beyond the primary's mating face
 
-The whole pipeline was reverse-engineered: C# from the decompiled `Visibility`/`Occluder`/`Block`/`Item`/`GameRenderer`, and the per-pixel math from the **disassembled GPU shaders** in `resources.assets` (`Sprites/LoSPass`, `Sprites/DefaultAdditive`, the combine passes — extracted with UnityPy, DXBC disassembled via `d3dcompiler_47`). Corrections to the previous (v2) understanding are **bold**.
+A port's face comes from its `DockA → DockB` arrow (condowner `mapPoints`, pixels
+around the item centre, **+y up**; `DockA` at the door, `DockB` outside the hull).
+The face lies at `DockA ± |arrow| / 2`. It sets **exactly one** bound component in
+the direction it faces (`DockB.y > 0.5 → max.y`, `< −0.5 → min.y`, `x > 0.5 →
+max.x`, `< −0.5 → min.x`), leaving the other three at ±∞. So one port is a
+**half-plane**: bounded on its facing axis, unbounded perpendicular. A blocked face
+is also why a port can never mate with a station collar.
 
-- **The visible ship IS the light accumulation.** In normal play the main camera **does not draw the sprite layer at all** (`CrewSim.ToggleAmbientLight` masks the Default layer off; the in-game ship editor's "ambient light" checkbox turns it back on). Each light's `Visibility` mesh samples the deferred albedo RT and writes `albedo × light` into the frame; ambient (`GameRenderer.clrAmbient`) is black and never set anywhere. Unlit hull = not drawn = black.
-- **Occluders are the item defs' `aShadowBoxes` — NOT `IsWall`.** Format `"dx,dy,rx,ry[,glass]"` (tiles from item centre, +y up; half-extents swap on 90° rotations via `Block.RotateCW`); `bIsWall` = the item's `aSocketAdds` contains `TILWallAdds`. Consequences: **windows (`ItmWallWindow1x1`) are glass → light passes**; **thin/aero walls have no boxes → no occlusion**; **open doors block only their 2 end caps** (closed = all 5); **beds, LH/LHe canisters (3×3), reactor IC pods, stabilizers, aero parts and docksys frames DO occlude** (91 core items carry boxes). The old "only IsWall blocks, fixtures never do" model was wrong on all counts.
-- **Mesh geometry (`Visibility.LateUpdate`, ported float-exact in `VisibilityMesh`).** Angular occluder-merge (sorted segments, split/overwrite, same-block neighbour merge) against all non-glass blocks in range; a **64-segment rim at `Radius − 0.5`**; then a second pass that starts from a **0.5 minimum ring** and merges in the **skirt**: each boundary face extruded outward by its thickness — `max(rx,ry)` (0.5) for wall blocks, 0.5 for the rim, 0 for non-walls — with mitred joins, so **light penetrates half a tile into wall faces** (lit walls) and the rim reaches the full radius. Touched **non-wall** blocks get their whole footprint quad added fully lit (`IlluminateBlock`): a canister is lit but shadows what's behind it.
-- **Shading (`Sprites/LoSPass` fragment, disassembled).** With `u = (pixel − centre)/(2R)`, `F = _LightFalloff = 3`, `Z = _LightZ = 0.25`: `L = normalize(−u.x·F, −u.y·F, F·Z)`, `atten = 1/(F²(|u|²+Z²) + 0.1)`, `diffuse = max(0, N·L)` where N comes from the **normal RT** (`strImgNorm` through `ShaderSetup.NormalPNGtoDXTnm`: `nx = 2·png.r − 1`, `ny(doc) = 2·png.g − 1`, z forced 1, unnormalised). Contribution = `albedo × colour.rgb × colour.a × cookie.a × diffuse × atten`, clamped 8-bit per light. `fLightZ`/`nLightFalloff` are **not cosmetic** — they are the falloff. Item lights never carry cookies (only crew LOS/VFX do).
-- **Accumulation is the screen blend.** The pass blends `OneMinusDstColor One` (`acc' = src(1−acc) + acc` per channel): overlapping lights saturate softly toward white, never blow out. Glow decals (`strImg` on **every** `aLights` entry, casting or not) draw after lighting with `Sprites/DefaultAdditive`: `+ tex.rgb × tex.a²` at native size, centred at `ptPos/16` from the item centre. Flicker is damage/power-driven (`Powered`) — a pristine design never flickers. AO (`Hidden/AOPass`), crew fog-of-war (`Sprites/StencilCombinePass`, multiplies by the crew's LOS stencil) and CRT post are cosmetic layers a planner correctly omits.
-- **Radii from data:** default 6 only when `fRadius ≤ 0` — but **real lamps are radius 18** (`Ceiling1x1*`/`Wall1x0*`), TV 16, planter 3, terminal 0.2. Intensity = colour alpha/255 (`WhiteLightCeiling` a=100 → 0.392).
-- **Exterior daylight:** each parallax location's `aSunLights` are ordinary `Visibility` lights, **radius 1000**, at their raw `ptPos` (world tiles, ~±250) parented to a sun transform whose z-rotation tracks the world background (`ParallaxController`). Hull-occluded; **streams through glass windows**. Ostraplan anchors the constellation at the grid centre with a user angle dial (the game's anchor is a world transform; at 250+ tiles the difference across a ship is invisible).
-- **Ostraplan implementation.** `LightNetwork.Build` resolves the scene (lights sub-tile via `ShipGrid.MapPointPos`, blocks in game coords — the geometry runs y-up so windings/skirt normals stay sign-exact); `LightComposite` rasterizes each light's fan+quads (scanline, half-open pixel-centre rule = the GPU's watertight fill) and shades per pixel at the native 16 px/tile; `ShipCanvas.RebuildLightComposite` bakes doc-space albedo + normal bitmaps (normal sprites channel-swizzled per 90° rotation so the *vectors* rotate with the pixels), runs the compositor off-thread, and draws one frozen bitmap. No brightness/dimming tuners — the output is game-exact. Lighting still gates nothing in-game (no darkness stat): a faithful preview, not a Law port. **Re-verify per patch:** ambient black, colour ≠ Blank casts, F=3 / Z=0.25 / +0.1 in the shader, radius defaults (6 item / 1000 sun), `aShadowBoxes` semantics, blend modes.
+> **Ported in Ostraplan:** `ProblemScan.TryGetFace` (face math), enforced as a
+> CheckFit bound (§5.5) and drawn as red hazard stripes. The game is y-up,
+> Ostraplan documents are y-down; conversion happens at the boundary
+> (`ProblemScan.Transform`).
+
+### Only one port bounds construction, and `IsTypeB` decides which
+
+`Item.CheckFit` reads `aDocksys.FirstOrDefault()`. `Ship.AddCO` files a
+**non-TypeB** port with `aDocksys.Insert(0, …)` and a **TypeB** port with
+`aDocksys.Add(…)`, so any non-TypeB port outranks every TypeB one regardless of
+item order. In core data the only *installed* non-TypeB ports are
+`ItmDockSys02Closed` / `02Open` (the **Primary**); every **Secondary**
+(`ItmDockSys03*`) carries `IsTypeB = 1.0x1`, and `MooringPort` is non-TypeB but not
+`IsInstalled`, so it never registers.
+
+⇒ The Primary bounds; a Secondary never does while a Primary exists. That is what
+makes an *internal docking bay* (a Secondary facing into the hull) legal in game. A
+design with *only* Secondaries has one at `aDocksys[0]`, and it then does bound.
+
+Do **not** confuse `TileUtils.GetAirlockBounds` with the construction rule. It runs
+the same face math but over **all** `aDocksys`, and the game only ever calls it from
+`Ship.SpawnMeat` / `Meat.cs` — it decides where a **meat blob** may spawn and
+spread. (`GUIInventoryItem` also bounds by all ports, for hand-dropping a loose item
+from inventory.) The construction authority is `Item.CheckFit`, which uses the
+single primary port.
+
+### Buying a ship docks it at purchase time — it must expose its ports while shallow
+
+Both broker paths spawn the for-sale ship `Ship.Loaded.Shallow` at the template's
+baked `objSS`, hidden and undocked (`Trader.AddNewShips` for the regular list,
+`GUIShipBroker.AddSpecialOfferShip` for the Special Offer). On Buy,
+`GUIShipBroker.OnPurchaseConfirm` transfers ownership and then docks the ship to the
+broker's station:
+
+- `CrewSim.DockShip` when the station is deep-loaded (re-spawns the ship `Full`, so
+  `Ship.AddCO` rebuilds `aDockingPorts` from the items); but
+- `shipByRegID.Dock(station)` on the **shallow** branch (`station.LoadState <=
+  Shallow`), which docks the still-shallow ship without a full re-spawn.
+
+A shallow ship reads its ports **only** from `json.aDockingPorts` (the `Ship` load
+sets `aDockingPorts = json.aDockingPorts`; only the `>= Edit` path `Clear()`s and
+rebuilds them from items). If a dock fails (no mate found, or the shallow ship
+exposes no ports) the game does **not** reposition the ship: it is left at its
+`objSS`, and a ship far from the ATC also drops out of the P.A.S.S. ferry list
+(`GUIPDAFerry.ShowRequest` distance filter).
+
+**Therefore a spawnable `data/ships` export must bake `aDockingPorts` (installed
+docksys item strIDs, primary / non-TypeB first, TypeB last) and
+`strPrimaryDockingPortID`.** Core templates carry them.
+
+> **Ported in Ostraplan:** `ShipExport` bakes both. `ItmDockSys02Closed` is the
+> non-TypeB primary, `ItmDockSys03Closed` is TypeB.
+
+### A boarded ship needs `Boarding` / `NotBoarding` spawn points
+
+A person delivered to a ship — off the P.A.S.S. ferry, or via a skywalk — is placed
+at the ship's `Boarding` person-spawner, and an NPC already assigned to the ship at
+its `NotBoarding` one. Both are **`SysLootSpawner`** objects (an `IsSystem` def) in
+the template's **`aShallowPSpecs`** array (a *different* array from `aItems`),
+distinguished by their `aGPMSettings` prop map: `strType: "Pspec"`, `strLoot:
+"Boarding"` / `"NotBoarding"`, `strRange: "1"`. `Boarding` / `NotBoarding` are
+**personspecs** (`strCT: TIsBoarding` / `TIsNotBoarding`). **150 of 192 core
+templates carry `aShallowPSpecs`** (the 42 without are stations, buoys, and rocks).
+
+Without these spawners, arrivals land at a fallback tile (frequently outside the
+hull). A spawnable export must bake both on pressurized (non-void) interior tiles.
+
+> **Ported in Ostraplan:** `ShipExport.BuildBoardingSpawners` (Boarding on the
+> interior tile nearest the primary airlock, NotBoarding nearest the interior
+> centroid). The save-edit path preserves the original `aShallowPSpecs` verbatim.
 
 ---
 
-## 7. Docking & airlocks
+## 7. The coordinate model
 
-- A ship needs **≥1 installed docksys** or it can never hard-dock (`Ship.aDocksys` collects COs that trigger `TIsDockSysInstalled`; 42 core templates have none — no crash, just unmateable). Ostraplan surfaces a standing "no docking port" problem.
-- `TIsDockSysInstalled` reqs are `[IsDockSys, IsInstalled]` and **all** must match. Matching *any* (via `IsInstalled`) flags every installed part — a real bug that shipped once; `ProblemScan.IsDocksys` requires all reqs and is regression-tested.
-- **No rule ties an airlock to (0,0)** — 0 of 147 core templates place one at the origin, and the Babak has two. The "primary" (`Ship.PrimaryDockingPortID`) is a runtime-cyclable selection defaulting to the first port. Ostraplan's **Primary Airlock convention** is a UI simplification: `ItmDockSys02Closed` (`IsIndestructable`, `IsShipSpecialItem`, no install job) resolves for documents but stays out of the palette; every doc owns exactly one, seeded at the origin and locked (`ShipDocument.IsLocked`). The buildable one is the **Secondary** (`ItmDockSys03Closed`).
-- **The one real positional rule: no construction beyond the PRIMARY airlock's mating face.** A port's face comes from its `DockA→DockB` arrow (condowner `mapPoints`, px around the item centre, **+y up**; `DockA` at the door, `DockB` outside the hull), face at `DockA ± |arrow|/2`. It sets **exactly one** bound component in the direction it faces (`DockB.y>0.5 → max.y`, `<−0.5 → min.y`, `x>0.5 → max.x`, `<−0.5 → min.x`), leaving the other three at ±∞ — so one port is a **half-plane** (facing axis bounded, perpendicular axis unbounded). Ported in `ProblemScan.TryGetFace` (verified: the face lands on the port's footprint edge); rendered as red hazard stripes and enforced as a CheckFit bound (§5.5). **Coordinate note:** game is y-up, Ostraplan docs y-down; conversions handled at the boundary (`ProblemScan.Transform`).
-- **Only ONE port bounds construction, and `IsTypeB` decides which.** `Item.CheckFit` reads `aDocksys.FirstOrDefault()`. `Ship.AddCO` files a **non-TypeB** port with `aDocksys.Insert(0, …)` and a **TypeB** port with `aDocksys.Add(…)`, so any non-TypeB port outranks every TypeB one regardless of item order. In core data the only *installed* non-TypeB ports are `ItmDockSys02Closed`/`02Open` (**Primary** Exterior Airlock); every **Secondary** (`ItmDockSys03*`) carries `IsTypeB=1.0x1`, and `MooringPort` is non-TypeB but not `IsInstalled` so it never registers. **⇒ The Primary bounds; a Secondary never does while a Primary exists** — which is what makes an *internal docking bay* (a Secondary facing into the hull) legal in game. A design with *only* Secondaries has one at `aDocksys[0]`, and then it **does** bound. Ostraplan mirrors this in `ProblemScan.BoundingPort` (ties: last non-TypeB registered wins via `Insert(0)`, first TypeB via `Add`; both unreachable in practice at one Primary per ship).
-- **Don't confuse `TileUtils.GetAirlockBounds` with the construction rule.** It runs the *same* face math but over **all** `aDocksys`, and the game only ever calls it from `Ship.SpawnMeat` / `Meat.cs` — it decides where a **meat blob** may spawn and spread, nothing else. (`GUIInventoryItem` also bounds by all ports, for hand-dropping a loose item from inventory.) Ostraplan models **construction**, so `Item.CheckFit` is the authority. Porting the all-ports variant to the build law was the cause of issue #5.
-- **The bound (like all of CheckFit) applies to NEW construction only — the game never re-validates existing hull.** A real ship legally has structure that a from-scratch build order + these bounds would refuse (e.g. hull baked beyond where a later-added airlock's face falls); the game doesn't care because it was already there. So Ostraplan must **not** re-validate *imported* structure against the placement law — imported parts are marked **given** (`Placement.IsGiven`) and skipped by `ProblemScan` (legality re-check, envelope, constructibility base). Moving/rotating a given part clears the flag (an edit is new construction). Found when the valid Charon flagged 84+ false positives on import.
+An `aItems` entry's `(fX, fY)` is its footprint **centre** (`CondOwner.TLTileCoords`):
 
-- **Buying a ship at a broker docks it AT PURCHASE TIME, and the ship must expose its ports while SHALLOW.** Both broker paths spawn the for-sale ship `Ship.Loaded.Shallow` at the template's baked `objSS`, hidden and undocked (`Trader.AddNewShips` for the regular list, `GUIShipBroker.AddSpecialOfferShip` for the Special Offer). On Buy, `GUIShipBroker.OnPurchaseConfirm` transfers ownership then docks it to the broker's station: `CrewSim.DockShip` when the station is deep-loaded (re-spawns the ship `Full`, so `Ship.AddCO` rebuilds `aDockingPorts` from the items), but `shipByRegID.Dock(station)` on the **shallow** branch (`station.LoadState <= Shallow`) — which docks the still-shallow ship without a full re-spawn. A shallow ship reads its ports **only** from `json.aDockingPorts` (`Ship` load sets `aDockingPorts = json.aDockingPorts`; only the `>= Edit` path `Clear()`s and rebuilds them from items). If a dock fails for any reason (`GetAvailableDockingPorts` finds no mate, or the shallow ship exposes no ports) the game does **not** reposition the ship — it is left at its `objSS`, and a ship far from the ATC also drops out of the P.A.S.S. ferry list (`GUIPDAFerry.ShowRequest` distance filter). **So a `data/ships` export must bake `aDockingPorts` (installed docksys item strIDs, primary/non-TypeB first, TypeB last) + `strPrimaryDockingPortID`** — core templates carry them; omitting them stranded a purchased Ostraplan ship at ~1.85 AU, undocked and un-ferriable. `ItmDockSys02Closed`/`ItmDockSys03Closed` both carry `IsDockSys`+`IsInstalled`+`IsShipSpecialItem` (so both register); `02` is non-TypeB (the primary), `03` is TypeB.
+- top-left tile world = `(fX − (W/2 − 0.5), fY + (H/2 − 0.5))` using the **rotated**
+  W×H;
+- tile `(col, row)` with `col = round(worldX − vShipPos.x)`, `row = −round(worldY −
+  vShipPos.y)`;
+- index `col + row·nCols`.
 
-- **A boarded ship needs a `Boarding` spawn point, or arrivals land nowhere sensible.** A person delivered to a ship — off the **P.A.S.S. ferry**, or a skywalk — is placed at the ship's `Boarding` person-spawner, and an NPC already assigned to the ship at its `NotBoarding` one. Both are **`SysLootSpawner`** objects (an `IsSystem` def) in the template's **`aShallowPSpecs`** array (a *different* array from `aItems`), distinguished only by their `aGPMSettings` prop map: `strType: "Pspec"`, `strLoot: "Boarding"`/`"NotBoarding"`, `strRange: "1"`. `Boarding`/`NotBoarding` are **personspecs** (`strCT: TIsBoarding`/`TIsNotBoarding`). A third flavour — `strType: "Loot"`, `strLoot: "ItmNavStationModsAtmo"` — sits in `aItems` and populates a nav console's modules at runtime (Ostraplan doesn't use it; it force-bakes the modules instead, §8). **150 of 192 core templates carry `aShallowPSpecs`** (the 42 without are stations / buoys / rocks). Ostraplan **drops all `IsSystem` objects on import** (§8) and never modeled `aShallowPSpecs`, so exports carried none — a purchased/spawned design dumped PASS/skywalk arrivals at a fallback tile (the map origin, frequently *outside* the hull; the exact "I skywalk to my ship and end up somewhere random" symptom). **So a `data/ships` export must bake a `Boarding` + `NotBoarding` spawner** on pressurized (non-void) interior tiles — `ShipExport.BuildBoardingSpawners`: Boarding on the interior tile nearest the primary airlock (the dock entry), NotBoarding nearest the interior centroid. A 1×1 spawner's stored centre is its tile, so `fX = col`, `fY = -row` (the same inverse the placed parts use with `vShipPos=(0,0)`). The **save-edit path is unaffected** — it copies every field it doesn't rebuild verbatim, and `aShallowPSpecs` isn't in that rebuild list, so an edited live ship keeps its original boarding point.
+`fRotation` is **CCW** (Unity Z-euler); a CW tile rotation must negate it, or the
+asymmetric 90°/270° socket patterns are misplaced. Only top-level `aItems` are
+placed on the grid; contained or slotted items (`strParentID` /
+`strSlotParentID`) are not (they carry no wall/floor conds).
+
+The **inverse** (writing a grid part back to an item centre), with `vShipPos =
+(0,0)` so the offset terms vanish, for a part at top-left `(col, row)` with rotated
+footprint `(wr, hr)` and rotation `Rot`:
+
+- `fX = col + (wr/2 − 0.5)`, `fY = −(row + (hr/2 − 0.5))`, `fRotation = Norm(−Rot)`.
+
+> **Ported in Ostraplan:** `ShipGrid.ToRot` (negation), `ShipGrid.TemplateTile`
+> (shared forward/inverse mapping), `ShipExport` (write). Verified 622/622 walls on
+> the Babak.
 
 ---
 
-## 8. P2 · P3 subsystems — **ported (rooms · certification · rating · interop)**
+## 8. Rooms and airtightness (`Ship.CreateRooms`)
 
-Ported to `Ostraplan.Core` (`ShipGrid`, `ShipTemplate`, `PartResolver`, `Rooms`, `CondEval`, `RoomSpecs`, `Rating`, `ShipAnalysis`) and validated parity-first against the game's baked `aRooms`/`aRating` (`ParityTests`).
+A BFS flood fill with **4-connectivity** (N/W/E/S). **`IsWall` is the only flood
+boundary.** Portals never seed.
 
-### Coordinate model (the loader, verified 622/622 walls on the Babak)
-An `aItems` entry's `(fX,fY)` is its footprint **centre** (`CondOwner.TLTileCoords`): top-left tile world = `(fX − (W/2 − 0.5), fY + (H/2 − 0.5))` using the **rotated** W×H; tile `(col,row)` with `col = round(worldX − vShipPos.x)`, `row = −round(worldY − vShipPos.y)`; index `col + row·nCols`. **`fRotation` is CCW** (Unity Z-euler); `GridMath.Rotate` is CW, so the loader **negates** (`ShipGrid.ToRot`) — CW misplaces the asymmetric 90/270 socket patterns. Only top-level `aItems` are placed on the grid; contained/slotted items (`strParentID`/`strSlotParentID`) are not (they carry no wall/floor conds, so they never corrupt the fill).
+A **door** is a 5×1 item — `[wall, wall, portal, wall, wall]` — whose four side
+cells are always `IsWall` (they seal the doorway into the wall line, open *or*
+closed). Only its **centre** cell differs by state:
 
-### Rooms & airtightness — `Ship.CreateRooms` (`RoomBuilder.Build`)
-BFS flood fill, **4-connectivity** (N/W/E/S). **`IsWall` is the only flood boundary.** Portals never seed. A **door** is a 5×1 item — `[wall, wall, portal, wall, wall]` — whose four side cells are always `IsWall` (they seal the doorway into the wall line, open *or* closed); only its **centre** cell differs by state: **open** (`TILPortalOpen` → `IsPortal`, no `IsWall`) is a walkable portal that flood-*sinks* into the first room reaching it and never expands, while **closed** (`TILPortalClosedStuck` → `IsPortal`+`IsWall`) is a hard fill boundary. Either way the door splits the hull into the **same two rooms** with the **same** airtightness — door state is cosmetic to the room/rating law. The centre tile is then filed into a compartment: an open one is already claimed by the fill; a closed one is assigned by `AssignPortals` to a **non-void cardinal-neighbour room** (never the exterior — a floored doorway must not read as a hull breach). A room is **Void** if any member tile lacks `IsFloorSealed` **or** a cardinal neighbour is off-grid (also **Outside**/`bOuter`); Void is fixed during the fill, so a door tile added afterward never voids a sealed room. Volume `0.25599998 × tileCount`.
-- **`AssignPortals` is geometry-based, not map-point.** The game files a door across its `RoomA`/`RoomB` face; for a straight door those are just the two cardinal neighbours perpendicular to it, so a non-void-neighbour assignment reproduces it **without the door's world centre** — which a live document doesn't carry (`FromDocument` parts sit at CX/CY 0, so the old world-point lookup dumped a closed door into the exterior and raised a false open-to-space breach). Since a door tile's filing changes no compartment, certification, or rating, the parity comparison still excludes portal tiles.
-- **Exterior rooming is asymmetric/trim-dependent** (the game leaves the far empty margin around a small ship unroomed — bounded by `TrimTiles`, not a clean bbox; the recomputed Void/Outside room over-claims it). Harmless: the Outside room is Blank and never counts toward the rating. Parity is lenient on exterior-void over-claim; interior compartments must match exactly.
+- **Open** (`TILPortalOpen` → `IsPortal`, no `IsWall`): a walkable portal that
+  flood-*sinks* into the first room reaching it and never expands.
+- **Closed** (`TILPortalClosedStuck` → `IsPortal` + `IsWall`): a hard fill boundary.
 
-### Room certification — `RoomSpec.Matches` (`RoomCertifier`, `CondEval`)
-Certifies as the highest-`nPriority` spec that matches, else `Blank`. Matches iff `bAllowVoid == room.Void`, tile count in `[nMinTileSize, nMaxTileSize]` (−1 = unbounded), no member fires any `aForbids`, every `aReqs` satisfied **with multiplicity** (`"TIsChairInstalled=1.0x4"` → 4; each match consumes `StackCount`, always 1 for a planner). Floor-grate members (`IsFloorGrate`) skipped; only installed parts count, each joining the room at its **anchor (centre) tile**. Reqs/forbids are **condtrigger names** evaluated against the part's `aStartingConds` set by the ported `CondTrigger.Triggered` — the bAND path (reqs/forbids/nested `aTriggers`) and the `bAND=false` OR path (`aTriggersForbid`, then any req / `aTrigger`; e.g. `TIsRoomCargo` = OR of storage-bin/rack). `fChance`/`strHigherCond` are unreachable from room specs → deterministic safe-pass + logged note.
+Either way the door splits the hull into the **same two rooms** with the **same**
+airtightness — door state is cosmetic to the room and rating law. The centre tile is
+then filed into a compartment: an open one is already claimed by the fill; a closed
+one is assigned by `AssignPortals` to a **non-void cardinal-neighbour room** (never
+the exterior — a floored doorway must not read as a hull breach). `AssignPortals` is
+geometry-based: for a straight door, `RoomA` / `RoomB` are just the two cardinal
+neighbours perpendicular to it, so the assignment needs no world-point lookup.
 
-**Room membership has a `"use"`-point fallback (`Tile.AddToRoom`, fixed 0.17.0).** A part joins the room at its anchor tile — but when that tile is a ship tile with **no** room, the game retries at the part's `"use"` map point and joins *that* room. This is how every **wall-embedded** part participates in certification and room value: wall storage bins (`ItmStorageBin1x1/2x1/3x1/2x2C…` — anchor lands on the wall cell at south/east mounts), sensors and antennas (1×3/2×4 poking through the hull, centre = the wall cell), coolers, ship weapons, cargo pods, cladding — ~87 core defs. Anchor-only membership silently dropped them (the Discord "bins present but quarters won't certify" report). Both lookups pass `TIsShipTileOrSub` (an OR of `IsFloor/IsFixture/IsObstruction/IsPortal/IsWall/IsSubTile`), so a use point facing **empty space** (outward-rotated wall part) rescues nothing. The air pump's use point is `0,0` — its own wall tile — so a wall-embedded pump joins **no room and contributes $0 to ship value, in-game too**. Ported in `RoomBuilder.AssignParts` + `ShipGrid.MapPointTile` (map-point px rotated via `GridMath.MapPoint`, world coord rounded away-from-zero exactly like `MathUtils.RoundToInt`).
+A room is **Void** if any member tile lacks `IsFloorSealed`, **or** a cardinal
+neighbour is off-grid (which also marks it **Outside** / `bOuter`). Void is fixed
+during the fill, so a door tile filed afterward never voids a sealed room. Volume =
+`0.25599998 × tileCount`.
 
-**Certification diagnostics (`RoomCertifier.Diagnose`).** `Matches` returns only the *first* failure, which hides "every requirement met but a forbidden item is present" — the diagnosis that actually answers "why isn't my Luxury Quarters recognized?" (LuxuryQuarters forbids `TIsCanister` — an OR that includes installed RTAs — plus batteries, hatches, toilets, reactor cores; parking an O2/N2 RTA or a battery in the bedroom silently blanks it). `Diagnose` assesses reqs and forbids independently; the law report ranks the closest specs (fewest missing units, most satisfied, then priority) and names the blocking parts.
+**Exterior rooming is asymmetric and trim-dependent.** The game leaves the far empty
+margin around a small ship unroomed, bounded by `TrimTiles` rather than a clean
+bounding box. The Outside room is Blank and never counts toward the rating.
 
-### Ship Rating — `Ship.CalculateRating` (`Rating`)
-Six slots, cutoffs hardcoded in the DLL (unit-pinned): **condition** A–E (pristine planner ⇒ A); **non-Blank room count**; **maneuver** `mass/fRCSCount` (fRCSCount = Σ `StatThrustStrength` over installed RCS clusters via `TIsRCSClusterAudioEmitter`; mass = Σ `StatMass`; 0 RCS → O); **size class** by `nCols·nRows`.
+> **Ported in Ostraplan:** `ShipGrid`, `RoomBuilder.Build` (+ `AssignPortals`).
+> Parity is lenient on exterior-void over-claim (harmless); interior compartments
+> must match exactly.
 
-### Ship value — `Ship.GetShipValue` (`ShipValue`, fixed 0.17.0/0.19.0/0.20.0)
-`GetShipValue` = Σ room `RoomValue` (× **3** when the ship has a registered O2 pump). `Room.CalculateRoomValue` = Σ member `GetBasePrice() × fValueModifier`. Room membership is the §above `AddToRoom` chain — a part in no room (a wall-embedded **air pump**, use point `0,0`) is worth **$0 in-game too**. **Void rooms count**: neither `CalculateRoomValue` nor `GetShipValue` filters `bVoid` — 192 baked core void rooms carry non-zero `roomValue` (the AirRacer's unsealed space is worth $343k: its engines) — so engines and exterior-mounted gear are valued at the void room's modifier (Blank ×1.0 / CargoRoomExterior ×1.05). There is **no wall- or atmosphere-specific per-item multiplier**: the ×3 is one global flag over the whole sum, which is why single-item experiments "show" ×3 on whatever part was just added.
+---
 
-**`GetBasePrice` decomposed (0.20.0, field-verified against a live sale):**
-- `StatBasePrice` (falling back to `StatMass` when 0), damage-scaled on damaged parts (planner: pristine-condition).
-- **+ gas/fuel contents** (`GasContainer.GetTotalGasValue`): each `StatGasMol<gas>` × molar mass (hardcoded kg/mol switch in `GetGasMass`; a gas absent from it — notably He3 — weighs 0) × the **data-driven price/kg** from the `GasPrices` loot (`O2=13.2`, `N2=4.10`, `He3=7.73`, `H2=2.43`/kg …), plus `StatLiqD2O × price("H2")` and `StatSolidHe3 × price("He3")`. An O2 RTA spawns full — 13,373 mol ≈ **$5,648 of O2** on a $410 shell — so ignoring contents visibly undercounts canister builds. Ported as `ShipValue.PartValue` + `Catalog.GasPrices`.
-- **× 1.25 only when the CO carries `IsPristine` — which a designed ship's parts NEVER have (verified 0.24.0, exhaustive).** There are exactly **three** `IsPristine` write-sites in the whole DLL and **zero** condowner defs carry it in `aStartingConds`. **Added** by `Ship.BreakIn` (first Edit-load of `Derelict`/`Damaged`/`Used` ships: `AddCondAmount("IsPristine", 1)` per part that is `!IsDamaged && IsSolid`, on a `Random.Range(0,1) ≤ 0.025` roll — 2.5%, or 0.25/25% with the player's `IsDueBonusDerelict` flag) and `Trader.AddNewItems` (kiosk stock **items**, `!IsDamaged && !IsFood`). **Removed** by `DestCheck` (`AddCondAmount("IsPristine", -1)` the moment a part takes `StatDamage`) — the only removal path. **Install never grants it:** the placeholder (`DataHandler.GetCOPlaceholder`) copies only the source item's damage conds, and the finished part is spawned fresh from `strStartInstall`'s def (`CrewSim.InstallFinish`/`PaintOrder` → `GetCondOwner`), so installing a pristine kit yields a non-pristine part. A ship you **build or export** is not a used/derelict spawn, so it earns no roll either. Net: a design's installed parts are uniformly markup-free. Ostraplan applied a flat ×1.25 before 0.20.0 (overshot resale ~25%, whipsawed exports), then a "pristine bonus" margin (0.20.0–0.24.0); both are **removed in 0.25.0** — the margin implied a ceiling a built ship can't reach.
+## 9. Room certification (`RoomSpec.Matches`)
 
-**Broker factors are data, not folklore:** a non-derelict sale is exactly `GetShipValue × DiscountBuy` and a vendor listing `× DiscountSell` (`GUIShipBroker.GetQuotedPrice` — the `1.1 − fBreakInMultiplier` haircut applies **only** to derelicts). Core ship-broker kiosks carry `DiscountBuy = 0.8`, `DiscountSell = 1.2` (loot.json `CONDTraderDiscount*ShipBroker*`). Field check (realtime's minimax build): estimate sell $2.14m vs actual in-game sale $2.3m; the ~$157k (7%) residual is **not** pristine (impossible on installed parts) but content the plan lacks — a live ship's tanks topped past their default fill, or modded parts not in the design (gas contents *are* priced since 0.20.0, cargo is excluded exactly as the game excludes it). Estimate buy $3.21m vs observed "3m or so".
+A room certifies as the highest-`nPriority` spec that matches, else `Blank`. A spec
+matches iff:
 
-**The ×3 "atmo bonus" is NOT "has a pump".** `Ship.AddICO` registers a pump into `aO2AirPumps` only when `ctAirPump` (`TIsAirPump02Installed` = IsAirPump+IsInstalled) fires **and** `ShipStatus.GetO2UnderPump` finds an installed O2 RTA (`TIsRTAO2Installed` = IsVesselO2+IsRTA+IsInstalled) whose `StatGasMolO2 > 0` at one of the pump's `GasInput` map-point tiles (`ItmRTAO2` starts full at 13373 mol; only the running `ItmAirPump02OnG` even *has* a GasInput point — the Off pump can never register). The bonus is a **flag** (`aO2AirPumps.Count > 0` / shallow `nO2PumpCount > 0`): a second fed pump adds nothing. Ported as `ShipValue.CountO2Pumps`; the export bakes it as `nO2PumpCount` (a shallow-loaded spawn never re-derives it, same class of bug as `aDockingPorts`).
+- `bAllowVoid == room.Void`;
+- tile count within `[nMinTileSize, nMaxTileSize]` (−1 = unbounded);
+- no member fires any `aForbids`;
+- every `aReqs` is satisfied **with multiplicity** (`"TIsChairInstalled=1.0x4"`
+  needs 4; each match consumes `StackCount`, always 1 for a planner).
 
-**Operational-state build default (`Catalog.PreferPoweredState`).** The game installs most powered devices in their **Off** state (`strStartInstall` = `Itm…Off`, carrying `IsOff`) — the state a rating never counts (rating triggers forbid `IsOff`; `TIsRCSClusterAudioEmitter` is one) and that a player switches on after loading. Ostraplan builds the **operational counterpart** instead so a design's rating is meaningful and an export spawns working. The game's on-state naming isn't uniform, so the counterpart is found by trying `…On` (cooler, switch), `…OnG` (the green/normal state pumps and most alarms use), then dropping `Off` (RCS, heater, bed), accepting only a candidate that **resolves to a real condowner** (non-empty `StartingConds`), isn't itself `IsOff`, and shares the footprint. ~58 of ~63 install-Off palette devices pair cleanly; the rest (colour/alert alarms, transponder, the reactor's startup `Ignition`, open/closed vents) are ambiguous and left as installed.
+Floor-grate members (`IsFloorGrate`) are skipped; only installed parts count. Reqs
+and forbids are **condtrigger names** evaluated against each part's `aStartingConds`
+by `CondTrigger.Triggered`: the `bAND` path (reqs / forbids / nested `aTriggers`)
+and the `bAND = false` OR path (`aTriggersForbid`, then any req / `aTrigger`; e.g.
+`TIsRoomCargo` is an OR of storage-bin / rack). `fChance` / `strHigherCond` are
+unreachable from room specs and safe-pass.
 
-> **The condowner requirement is load-bearing (fixed 0.15.0).** Some devices ship a bare **item** for a glow/animation state with **no condowner** — notably `ItmFusionReactorCore01On`: identical 5×5 sockets to the Off form, but no CO, so it resolves with an internal-name label, `StatMass`/`StatBasePrice` = 0, and none of its `IsFusionReactorCore` conds. The game never *installs* such an orphan (it only ever installs condowners). Without the non-empty-`StartingConds` guard, `PreferPoweredState` handed the reactor core to that orphan: placement still worked (identical sockets, which is exactly why it hid), but the core counted as **weightless** in the maneuver rating, contributed nothing to room value / bill of materials, and exported broken. Requiring a real condowner leaves the reactor core as the installable `ItmFusionReactorCore01Off` while the genuine operational counterparts (RCS, coolers, field coils, laser array, pumps, pellet feeder) — all real condowners — still swap. The reactor build chain (2 field coils + 4 reactor segments = one core placement, then components on the core's inputs) is otherwise enforced entirely through socket loots and needs no special-casing: the coils' centre cell forbids `TILFloorFixtureForbids` (must be **vacuum-exposed** — no floor), the core's centre-plus requires the coils' `TILFusionFieldCoilsFixtureAdds`, and each component's attach cell requires the core's `TILFusionReactorCoreFixtureAdds`. All are covered by `ReactorTests`.
+> **Certification tests CondOwner conds, not tile conds.** A room's requirements are
+> evaluated against the member parts' `aStartingConds`, with multiplicity from the
+> spec's `xN`.
 
-### Power network & connectors — `TileUtils.GetPoweredTiles` (`PowerNetwork`, verified 0.15.1.6)
-Connectivity visualisation only (no draw/generation balance — a non-goal). **Sources** = installed COs firing `IsPowerGen` **or** `IsPowerStorage` **or** `IsRechargingContainer` (all with `IsInstalled`, not `IsOverrideOff`) that carry a **`PowerOutput`** map point — in core, the batteries (`ItmBattery02*`) and reactor cores (`Itm…Ignition`), all 7 confirmed `IsInstalled`. From each source's `PowerOutput` tile, a **4-cardinal BFS** spreads over tiles with **`IsPowerPath`** (contributed by conduits via `TILPowerConduit` and powered fixtures via `TILPowerFixtureAdds`); a tile only propagates if it *itself* has `IsPowerPath`, so the seed lights only if wired. Reached tiles are **powered** (`aPwrTiles` = the walked segment pairs); leftover `IsPowerPath` tiles the flood never touches are **orphaned** runs (`aPwrTilesOff`). A wired device is **connected** when one of its input-plug tiles lands on the powered set (its own footprint carries `IsPowerPath`, so "on the live set" = "fed"). Callers: `Ship.UpdateTiles`/`UpdatePower` re-run it after edits — Ostraplan recomputes it in the debounced scan while PowerViz is on.
+> **Ported in Ostraplan:** `RoomSpecs` (`RoomCertifier`), `CondEval` (the reachable
+> `CondTrigger.Triggered` branches).
 
-**Connector points** (the build-cursor nubs). A device names a `JsonPowerInfo` via its condowner's **`jsonPI`** field (`data/powerinfos`, `DataHandler.dictPowerInfo`); that power-info's **`aInputPts`** are the map-point names where it draws power (`PowerSource`/`PowerA`/`PowerB`/…). The game's `CanvasManager` draws a `GetPowerInputGridSprite` at each `aInputPts` point (unless the CO has `IsPowerInputIgnore`) and a `GetPowerOutputGridSprite` at `PowerOutput`. Ostraplan resolves these into `PartDef.PowerInputPoints` / `PowerOutputPoint` (offsets → tiles via `GridMath.MapPoint`) and draws the same nubs on the armed ghost and selected parts. **Key link:** `jsonPI` is a condowner field whose value is a *power-info* name, **not** the condowner's own `strName` (0/126 overlap) — resolve through `dictPowerInfo`, never by CO name.
+### Room membership and the `"use"`-point fallback (`Tile.AddToRoom`)
 
-### Device signal connections — the `Electrical` GPM (**ported v0.38** — model + on-canvas wiring + export)
+A part joins a room at its **anchor (centre) tile**. But when that tile is a ship
+tile with **no** room, the game retries at the part's **`"use"` map point** and joins
+*that* room. This is how every **wall-embedded** part participates in certification
+and value: wall storage bins, sensors and antennas (poking through the hull, centre
+on the wall cell), coolers, ship weapons, cargo pods, cladding — roughly 87 core
+defs. Anchor-only membership silently drops them.
 
-The game's **signal-wiring** system (sensor → alarm/pump/light, controllers, logic gates) is distinct from the power
-network above. It is driven by an **`Electrical`** GPM component (`strGPMKey = "Electrical"`) attached to every
-condowner whose `aStartingConds` carry **`IsSignalable`** (alarms `ItmAlarm*`, air pumps `ItmAirPump*`, sensors,
-switches, lights, …). Observed against 0.15.1.6:
+Both lookups pass `TIsShipTileOrSub` (an OR of `IsFloor` / `IsFixture` /
+`IsObstruction` / `IsPortal` / `IsWall` / `IsSubTile`), so a use point facing
+**empty space** (an outward-rotated wall part) rescues nothing. The air pump's use
+point is `0,0` — its own wall tile — so a wall-embedded pump joins **no room and
+contributes $0 to ship value, in-game too**.
 
-- **The model is directional and ID-based, not geometric.** `Electrical` holds `outputConnections` and
-  `inputConnections`, each a `Dictionary<string, ElectricalConnection>` **keyed by the connected item's `strID`**.
-  `Electrical.SetUpConnection(co)` adds `co.strID` to *this* device's **`outputConnections`** (so this device
-  **drives** `co`) and queues `SignalType.Connect` + `SignalType.On`; `RemoveConnection` queues `SignalType.Disconnect`.
-  So **A→B means A's `outputConnections` lists B and B's `inputConnections` lists A.** There is **no distance /
-  adjacency / conduit requirement** in the persisted model — a connection is a pair of `strID` references. (In game
-  the wiring is *created* with a rewire tool — `IsToolWireCutter`, conds `Rewire`/`CTAddConnection`/`CTRemoveConnection` —
-  whose interaction has its own proximity rules, but the *stored* connection is pure ID.)
-- **Runtime semantics** (already visible in the condtrig vocabulary). A wired sink gains **`IsConnected`** (via
-  `TUpConnected`) and **`IsSignalledOn`** (via `TUpSignalled`); **`TIsConnctedSignalledOff`** = `IsConnected` ∧ ¬`IsSignalledOn`
-  fires the device's power-info **`strShutDownCT`**, i.e. **a connected device is held off until its source signals it on.**
-  `gate` (a `GateMode`), `positives`, and the threshold slider (`sliderPercent`/`sliderMax`) are per-device *logic*
-  (AND/OR/threshold over inputs), not connection legality.
-- **Persist / export shape (confirmed).** The wiring rides on each item's **`aGPMSettings`** entry
-  `{ "strName": "Electrical", "dictGUIPropMap": [ …flat key/value… ] }` (the same order-sensitive flat-array shape
-  `ShipExport.ExportedGpmSetting` already emits for a spawner). Relevant keys: `status`, `inputConnections`,
-  `outputConnections`, `gate`, `positives`. A connections value is a **comma-joined list of
-  `<targetStrID>#<signalType>#<status>#<name>`** entries (e.g. `…#0#true#N2 Pressure Alarm`) — verified non-empty on
-  the Babak Refit (a controller with ~28 output entries; every core template ships the keys, mostly empty).
-- **Legality (what "valid" means for Ostraplan).** Both endpoints must be **installed** parts carrying `IsSignalable`
-  (i.e. own an `Electrical` GPM), on the same ship; a device should not connect to itself, and duplicate links collapse.
-  That is the whole rule — there is no geometric constraint to enforce, unlike `CheckFit`.
+> **Ported in Ostraplan:** `RoomBuilder.AssignParts` + `ShipGrid.MapPointTile`
+> (map-point px rotated via `GridMath.MapPoint`, world coord rounded away-from-zero
+> like `MathUtils.RoundToInt`).
 
-**Ostraplan port (v0.38).** `DeviceLink` (a directed `Placement.Id` pair), `DeviceLinks` (the validity rules above),
-persisted in the `.oplan` as (source, target) index pairs (`OplanLink`, dangling pairs pruned), and baked on export
-into each wired item's `Electrical` GPM (`ShipExport.WireDeviceLinks`, entries `<strID>#0#true#`). Authored on the
-canvas in **wire mode** (`ShipCanvas`): click a device to arm it as the source, click another to connect/disconnect.
-Gate/threshold logic is intentionally out of scope — that is the in-game signal box's job; Ostraplan authors only the
-plain connection. In-game E2E (spawn a wired export, confirm the devices actually signal) remains owner-driven.
+### Diagnostics
 
-### The parity gate — the ground-truth reality
-The corpus is **192 core ship objects** (files are top-level arrays; the ship is an element with `nCols`+`aItems`; ~a dozen files are non-ship). **All 192 carry baked `aRooms`** (roomSpec + bVoid + tile sets) → a 192-ship rooms **and** certification gate. **Only Babak / Babak Refit carry `aRating`** (both damaged derelicts; the Refit's rating is a verbatim stale copy of the base ship, from before it grew) → rating is size-slot parity on the base Babak + unit-tested cutoffs.
-- **Rooms parity: 188/192** (4 named exclusions: malformed Coffin, two aero slant-wall hulls, one interceptor airlock).
-- **Certification: 2124/2148 rooms exact, 0 over-certifications of a real compartment.** The 24 diffs are two documented corpus-only artifacts: **contained/slotted cargo** the top-level `aItems` loader can't count (the game reaches it via `GetCOs bSubObjects` → under-certification; 1 room), and the exterior over-claim (CargoRoomExterior on the unbounded Outside room; 23 rooms). Neither reaches an Ostraplan-authored design (no sub-objects, bounded interior). *(Was 2109/2148 before 0.17.0 — the `"use"`-point membership fallback recovered 15 rooms whose wall-embedded bins/sensors the anchor-only pass had dropped.)*
-- **The Babaks' baked `aRating` room slot is stale.** Both carry `aRating[2] = "18"` while their **current** baked `aRooms` certify **20** non-Blank rooms (the same staleness as the Refit's size slot) — rating parity bounds the recomputed count against `aRooms`, not the `aRating` string.
+`Matches` returns only the *first* failure, which hides the common case "every
+requirement met but a forbidden item is present". For example, `LuxuryQuarters`
+forbids `TIsCanister` (an OR that includes installed RTAs) plus batteries, hatches,
+toilets, and reactor cores; parking an O2/N2 RTA or a battery in the bedroom
+silently blanks it. A useful diagnosis assesses reqs and forbids independently and
+names the blocking part.
 
-### P3 interop — export & import (`ShipExport`, `TemplateImport`, `SaveImport`)
+> **Ported in Ostraplan:** `RoomCertifier.Diagnose` + `ShipAnalysis.NearMisses`.
+> Note: "add a reactor core" satisfies the Reactor spec (≥4 sealed tiles +
+> `TIsReactorIC`) for nearly every room, so suggestions whose only missing req
+> includes `TIsReactorIC` are suppressed as noise.
 
-**The `data/ships` file (`JsonShip`).** A ship file is a **top-level array** of ship objects. The game (de)serializes with **Newtonsoft** — proven by `Dictionary<string,string>` fields (`aDocked`, `aMarketConfigs`) that Unity's `JsonUtility` can't handle — so **missing fields default and unknown fields are ignored**. Export therefore writes a *strict superset* of a real template that loads cleanly. The "well-formed" set = the **54 top-level fields present on all 192 core templates** (surveyed) + `aRating`; unlisted DTO fields are safely omitted. Values are pristine/neutral (all wear/mass/physics caches 0 — the game recomputes on full load), `origin`/`publicName` = `"$TEMPLATE"`, `nConstructionProgress` 100. `strRegID` must be non-empty (the loader indexes `strRegID[0]`), but the game **regenerates it** and **re-derives `origin`** from a loot table when `origin == "$TEMPLATE"` (`Ship` load), and null-guards `aCrew`/`aCOs` — so a template needs no crew/cargo. `shipCO` is a minimal `ShipCO` with `aConds` = the three `Stat*ProgressMax=1.0x1000` + `DEFAULT`.
+---
 
-**`aItems` entry** = `strName`, `fX`, `fY`, `fRotation`, `strID` for authored parts. Extras appear for: `strParentID`/`strSlotParentID` (contained/slotted sub-objects), `aGPMSettings` (device settings), `aCondOverrides` (per-instance conds), `bForceLoad`. Export writes fresh `Guid` `strID`s and omits `aGPMSettings` (devices default from their def).
+## 10. Ship Rating (`Ship.CalculateRating`)
 
-**Contained cargo is exported the way a SAVE stores it** (the only way a template keeps it faithfully). A `data/ships` file spawns as a template (`bTemplateOnly`), and decompiled `Ship.SpawnItems` / `Container` / `CondOwner.PostGameLoad` show:
-- A parented item is **dropped** unless it has `aCondOverrides` (which also flags its **root container** so `bLoot` is cleared and the container is *not* refilled from its default loot) **or** `bForceLoad` (which keeps the item's `strID` instead of assigning a fresh one). Without this a template comes back empty (racks/bays) or with only the def's loadout (a weapon's default ammo, "not all" the authored rounds).
-- A **stack** is rebuilt only from the stack-head CO's `aStack` (a `string[]` of member `strID`s) in `PostGameLoad` — templates carry no `aCOs`, so core templates re-roll ammo from default loot and their baked lead+members chain is vestigial. A bare lead+members chain in an export orphaned the members (a member parents a non-container lead, so it hits neither the slot nor container branch of `SpawnItems`) and collapsed the stack toward a single.
+Six slots; the cutoffs are hardcoded in the DLL (unit-pinned, version-sensitive):
 
-So export gives every contained/slotted item **both** `bForceLoad: true` (keep `strID`) **and** an `aCondOverrides` marker (survive + suppress the container's default loot — a benign `StatDamage=0`, Amount 0 = undamaged, which is also the non-null array the pre-pass tests), **and** bakes a save-style **`aCOs`** entry per contained item (`aConds:["DEFAULT"]` repopulates the def's pristine conds; `inventoryX/Y` from the grid cell). A stack head's CO carries `aStack` = its member `strID`s (the head adds itself in `PostGameLoad`, so `aStack` lists members only). Top-level parts need none of this (the loader keeps them unconditionally, and they get no CO — matching a core template). Nav-console modules Ostraplan injects into an empty console are baked the same way. `aCOs` is omitted entirely when a design has no cargo.
+| Slot | Meaning | Rule |
+|---|---|---|
+| 0 | Epoch | Timestamp at rating time |
+| 1 | Condition A–E | Mean of `clamp01(1 − StatDamage/StatDamageMax)` over installed parts. Cutoffs: ≤0.5 E, ≤0.8 D, ≤0.95 C, ≤0.99 B, else A. A pristine ship grades **A** |
+| 2 | Room count | Number of rooms whose matched spec ≠ `Blank` |
+| 3 | Maneuver | `mass / fRCSCount`, where `fRCSCount = Σ StatThrustStrength` over installed RCS clusters (`TIsRCSClusterAudioEmitter`) and `mass = Σ StatMass`. 0 RCS → `O`; else `<300 A, <500 B, <750 C, <1500 D, else E` |
+| 4 | Size class | Grid area `nCols·nRows`: `<250 Small, <900 Medium, <1600 Lunamax, <2300 Ceresmax, <3000 Titanmax, <3700 Very Large, else Ultra Large` |
+| 5 | Unused | Pass-through |
 
-**The coordinate inverse (export) / forward (import).** With export `vShipPos = (0,0)` the two offset terms of the loader math (§8 coordinate model) vanish, so for a grid part at top-left `(col,row)` with rotated footprint `(wr,hr)` and Ostraplan rotation `Rot`: `fX = col + (wr/2 − 0.5)`, `fY = −(row + (hr/2 − 0.5))`, `fRotation = Norm(−Rot)` (back to CCW; only 90↔270 differ). Import applies the same mapping forward via the shared `ShipGrid.TemplateTile`. A round-trip (`doc → export → parse → FromTemplate`) reproduces the same tiles/rooms/rating exactly, so the game's full-load recompute matches the baked `aRooms`/`aRating` (no visible rating change on load). `aRooms` = each room's tile indices (`col + row·nCols`, same 0-based grid) + `bVoid` + `roomSpec` + `roomValue` (the **parts** value `Room.CalculateRoomValue` sums — `Σ GetBasePrice()×fValueModifier`, i.e. `Σ base×1.25(pristine)×roomModifier`, which `GetShipValue` reads on a shallow load — **not** the physical `Volume`).
+> **Ported in Ostraplan:** `Rating`.
 
-**Non-buildable defs.** ~half of a real ship's distinct top-level defs are **not** in the buildable palette (raw hull, `Compartment`, RCS clusters, sensors) but all resolve to geometry via the condowner→`strItemDef` hop. `Catalog.Lookup` resolves *any* placed def on demand (shared `ResolveDef` with the palette build, so overlay-skin sprite + friendly name are correct), category "—", out of the palette but rendered/analysed. Empirically every placed def across sampled ships resolves to an existing sprite (no magenta-"Missing" clutter).
+---
 
-**Save games.** A save is a **folder** with `<name>.zip` + `saveInfo.json` (+ portrait/screenshot). Inside the zip: `ships/<RegID>.json` (one per ship in the loaded neighbourhood — dozens to ~140), a `<playerName>.json` character record, and copies of `saveInfo`/portrait/screenshot. The **player's ship** is `strShip` on that character record (a RegID). Do **not** match `saveInfo.shipName` — it's a renamed **display** name (`publicName`, e.g. "Charon") that matches no ship's `strName` (which is the RegID or stock model name). Save ships are the same `JsonShip` schema (a superset of a template), so import reads only the top-level layout and drops all runtime state for free.
+## 11. Ship value (`Ship.GetShipValue`)
 
-### Save edit — the inject (`SaveEdit`, fixed 0.45.0)
+`GetShipValue` = Σ room `RoomValue`, multiplied by **3** when the ship has a
+registered O2 pump (see below). `Room.CalculateRoomValue` = Σ member `GetBasePrice()
+× fValueModifier`. Membership is the `AddToRoom` chain of §9, so a part in no room (a
+wall-embedded air pump, use point `0,0`) is worth **$0 in-game too**.
 
-Writing an edited layout **back into a save** is not the export inverse: the record is live, and two of its fields are re-derived by the loader rather than trusted. Both got this wrong and corrupted ships ("ghost rooms skewing my zones").
+**Void rooms count.** Neither `CalculateRoomValue` nor `GetShipValue` filters
+`bVoid`; the 192 baked core void rooms carry non-zero `roomValue` (an unsealed engine
+bay can be worth hundreds of thousands — its engines). There is **no** wall- or
+atmosphere-specific per-item multiplier: the ×3 is one global flag over the whole
+sum, which is why single-item experiments appear to "show" ×3 on whatever part was
+just added.
 
-**The grid frame is rebuilt on load — the saved one is not authoritative.** A full load does **not** trust `nCols`/`vShipPos`; they feed only the *shallow* (unloaded) view, which is exactly what `Ship`'s `x = (LoadState > Loaded.Shallow) ? nCols : json.nCols` says. `Ship.UpdateTiles` re-derives the tilemap as each item spawns: it seeds `vShipPos` off the first item's `TLTileCoords`, then `TileUtils.PadTilemap`s a **one-tile margin** around every subsequent item (`Vector2 vector = new Vector2(-1f, 1f)`; `IsRoom` COs get `Vector2.zero` and pad nothing). So the loaded grid is always:
+### `GetBasePrice` decomposed
+
+- `StatBasePrice` (falling back to `StatMass` when 0), damage-scaled on damaged
+  parts.
+- **+ gas/fuel contents** (`GasContainer.GetTotalGasValue`): each `StatGasMol<gas>` ×
+  molar mass (a hardcoded kg/mol switch in `GetGasMass`; a gas absent from it —
+  notably He3 — weighs 0) × the **data-driven price/kg** from the `GasPrices` loot
+  (`O2 = 13.2`, `N2 = 4.10`, `He3 = 7.73`, `H2 = 2.43`/kg …), plus `StatLiqD2O ×
+  price("H2")` and `StatSolidHe3 × price("He3")`. An O2 RTA spawns full — 13,373 mol
+  ≈ **$5,648 of O2** on a $410 shell — so ignoring contents visibly undercounts
+  canister builds.
+- **× 1.25 only when the CO carries `IsPristine`**, which a designed ship's parts
+  **never** have. There are exactly three `IsPristine` write-sites in the DLL and
+  zero condowner defs carry it in `aStartingConds`. It is **added** by `Ship.BreakIn`
+  (first Edit-load of Derelict/Damaged/Used ships, a 2.5% roll per solid undamaged
+  part — 25% with the player's `IsDueBonusDerelict` flag) and `Trader.AddNewItems`
+  (kiosk stock **items**); **removed** by `DestCheck` the moment a part takes
+  `StatDamage`. Install never grants it: the finished part is spawned fresh from
+  `strStartInstall`'s def. A built or exported ship therefore has uniformly
+  markup-free parts.
+
+### Broker factors
+
+A non-derelict sale is exactly `GetShipValue × DiscountBuy` and a vendor listing `×
+DiscountSell` (`GUIShipBroker.GetQuotedPrice`; the `1.1 − fBreakInMultiplier` haircut
+applies **only** to derelicts). Core ship-broker kiosks carry `DiscountBuy = 0.8`,
+`DiscountSell = 1.2` (`loot.json` `CONDTraderDiscount*ShipBroker*`).
+
+### The ×3 "atmo bonus" is a fed pump, not merely a pump
+
+`Ship.AddICO` registers a pump into `aO2AirPumps` only when `ctAirPump`
+(`TIsAirPump02Installed` = `IsAirPump` + `IsInstalled`) fires **and**
+`ShipStatus.GetO2UnderPump` finds an installed O2 RTA (`TIsRTAO2Installed` =
+`IsVesselO2` + `IsRTA` + `IsInstalled`) with `StatGasMolO2 > 0` at one of the pump's
+`GasInput` map-point tiles. (`ItmRTAO2` starts full at 13,373 mol; only the running
+`ItmAirPump02OnG` even *has* a GasInput point — the Off pump can never register.) The
+bonus is a **flag** (`aO2AirPumps.Count > 0`, shallow `nO2PumpCount > 0`): a second
+fed pump adds nothing.
+
+> **Ported in Ostraplan:** `ShipValue` (`PartValue`, `CountO2Pumps`), `Catalog.GasPrices`.
+> A shallow-loaded spawn never re-derives the pump count, so an export bakes it as
+> `nO2PumpCount`.
+
+---
+
+## 12. Operational vs installed state
+
+The game installs most powered devices in their **Off** state (`strStartInstall =
+Itm…Off`, carrying `IsOff`) — the state a rating never counts (rating triggers forbid
+`IsOff`; `TIsRCSClusterAudioEmitter` is one) and that a player switches on after
+loading. A design meant to be rated (and to spawn working) should use the
+**operational counterpart** instead.
+
+The on-state naming is not uniform, so the counterpart is found by trying `…On`
+(cooler, switch), then `…OnG` (the green/normal state pumps and most alarms use),
+then dropping `Off` (RCS, heater, bed) — accepting only a candidate that resolves to
+a **real condowner** (non-empty `StartingConds`), is not itself `IsOff`, and shares
+the footprint. About 58 of 63 install-Off palette devices pair cleanly; the rest
+(colour/alert alarms, transponder, the reactor's `Ignition`, open/closed vents) are
+ambiguous and left installed.
+
+> **The condowner requirement is load-bearing.** Some devices ship a bare **item**
+> for a glow/animation state with **no condowner** — notably
+> `ItmFusionReactorCore01On`: identical 5×5 sockets to the Off form, but no CO, so it
+> resolves with an internal-name label, `StatMass` / `StatBasePrice` = 0, and none of
+> its `IsFusionReactorCore` conds. The game never *installs* such an orphan. Handing
+> the reactor core to it would let placement succeed (identical sockets) while the
+> core counts as **weightless** in the maneuver rating and contributes nothing to
+> value. Requiring a real condowner leaves the reactor core as the installable
+> `ItmFusionReactorCore01Off`.
+
+The reactor build chain (2 field coils + 4 reactor segments make one core placement,
+then components attach to the core's inputs) is enforced entirely through socket
+loots: the coils' centre cell forbids `TILFloorFixtureForbids` (must be
+vacuum-exposed, no floor), the core's centre requires the coils'
+`TILFusionFieldCoilsFixtureAdds`, and each component's attach cell requires the
+core's `TILFusionReactorCoreFixtureAdds`.
+
+> **Ported in Ostraplan:** `Catalog.PreferPoweredState`.
+
+---
+
+## 13. The power network
+
+`TileUtils.GetPoweredTiles` is a connectivity graph (no draw/generation balance — the
+game authors no per-device draw, so a budget is not derivable).
+
+- **Sources** = installed COs firing `IsPowerGen` **or** `IsPowerStorage` **or**
+  `IsRechargingContainer` (all with `IsInstalled`, not `IsOverrideOff`) that carry a
+  **`PowerOutput`** map point — in core, the batteries (`ItmBattery02*`) and reactor
+  cores (`Itm…Ignition`).
+- From each source's `PowerOutput` tile, a **4-cardinal BFS** spreads over tiles with
+  **`IsPowerPath`** (contributed by conduits via `TILPowerConduit` and powered
+  fixtures via `TILPowerFixtureAdds`). A tile only propagates if it *itself* has
+  `IsPowerPath`, so the seed lights only if wired.
+- Reached tiles are **powered**; leftover `IsPowerPath` tiles the flood never touches
+  are **orphaned** runs. A wired device is **connected** when one of its input-plug
+  tiles lands on the powered set (its own footprint carries `IsPowerPath`).
+
+### Connector points (the build-cursor nubs)
+
+A device names a `JsonPowerInfo` via its condowner's **`jsonPI`** field
+(`data/powerinfos`, `DataHandler.dictPowerInfo`); that power-info's **`aInputPts`**
+are the map-point names where it draws power (`PowerSource` / `PowerA` / `PowerB` /
+…). The game draws a `GetPowerInputGridSprite` at each `aInputPts` point (unless the
+CO has `IsPowerInputIgnore`) and a `GetPowerOutputGridSprite` at `PowerOutput`.
+
+**Key link:** `jsonPI` is a condowner field whose value is a *power-info* name, **not**
+the condowner's own `strName` (0 of 126 overlap) — resolve through `dictPowerInfo`,
+never by CO name. The connector map points are cursor cosmetics, not what carries
+power.
+
+> **Ported in Ostraplan:** `PowerNetwork`; connectors on `PartDef.PowerInputPoints` /
+> `PowerOutputPoint`.
+
+---
+
+## 14. Device signal connections (the `Electrical` GPM)
+
+The game's **signal-wiring** system (sensor → alarm/pump/light, controllers, logic
+gates) is distinct from the power network. It is driven by an **`Electrical`** GPM
+component (`strGPMKey = "Electrical"`) attached to every condowner whose
+`aStartingConds` carry **`IsSignalable`** (alarms, air pumps, sensors, switches,
+lights, …).
+
+- **The model is directional and ID-based, not geometric.** `Electrical` holds
+  `outputConnections` and `inputConnections`, each a `Dictionary<string,
+  ElectricalConnection>` **keyed by the connected item's `strID`**.
+  `Electrical.SetUpConnection(co)` adds `co.strID` to *this* device's
+  **`outputConnections`** (so this device **drives** `co`). So **A→B means A's
+  `outputConnections` lists B and B's `inputConnections` lists A.** There is **no**
+  distance / adjacency / conduit requirement in the persisted model — a connection is
+  a pair of `strID` references. (In game it is *created* with a rewire tool
+  (`IsToolWireCutter`), whose interaction has its own proximity rules, but the stored
+  connection is pure ID.)
+- **Runtime semantics.** A wired sink gains **`IsConnected`** (via `TUpConnected`) and
+  **`IsSignalledOn`** (via `TUpSignalled`); **`TIsConnctedSignalledOff`** =
+  `IsConnected` ∧ ¬`IsSignalledOn` fires the device's power-info `strShutDownCT`, i.e.
+  a connected device is held off until its source signals it on. `gate` (a
+  `GateMode`), `positives`, and the threshold slider are per-device *logic* (AND / OR
+  / threshold over inputs), not connection legality.
+- **Persist shape.** The wiring rides on each item's **`aGPMSettings`** entry `{
+  "strName": "Electrical", "dictGUIPropMap": [ …flat key/value… ] }`. A connections
+  value is a **comma-joined list of `<targetStrID>#<signalType>#<status>#<name>`**
+  entries (e.g. `…#0#true#N2 Pressure Alarm`).
+- **Legality.** Both endpoints must be **installed** parts carrying `IsSignalable`, on
+  the same ship; a device may not connect to itself, and duplicate links collapse.
+  That is the whole rule — there is no geometric constraint.
+
+> **Ported in Ostraplan:** `DeviceLink` (a directed part-id pair), `DeviceLinks`
+> (validity), baked on export into each wired item's `Electrical` GPM
+> (`ShipExport.WireDeviceLinks`). Gate/threshold logic is out of scope — that is the
+> in-game signal box's job.
+
+---
+
+## 15. Rendering
+
+- **Z-order.** `nLayer` is `0` for **every** item in the data; the game does not layer
+  items by `nLayer`, it Y-sorts sprites over a separate floor tile-layer. A single-pass
+  renderer instead ranks each part by the conditions it contributes: **floor** (`IsFloor`
+  / `IsFloorSealed` / `IsFloorFlex`) < **wall/door** (`IsWall` / `IsPortal`, checked
+  first — a door also seals floor) < **fixtures & the rest** < **power conduit**
+  (`IsPowerConduit`, thin runs on top). Hit-testing returns the topmost layer.
+- **Sprite draw.** Non-sheet sprites draw at `vScale` size centred on the footprint
+  (§4). Sheet items draw per tile.
+
+> **Ported in Ostraplan:** `Catalog.RenderLayer` → `ShipDocument.DrawOrder`;
+> `HitTestStack` drives the right-click layer picker.
+
+### Autotiling (`Item.SetSpriteSheetIndex`)
+
+Sheet items (`bHasSpriteSheet` + `ctSpriteSheet`) pick a sheet cell from the 4 cardinal
+neighbours whose tile conds trigger `ctSpriteSheet`:
+
+- mask bits **N = 8, W = 4, E = 2, S = 1** →
+- the fixed 16-entry `Item.SpriteSheetIndices` table →
+- a cell index whose **rows count from the texture bottom** (Unity UV origin; a WPF
+  renderer flips the row).
+
+The core wall sheet is 64×64 = a 4×4 grid of 16 px tiles. These constants are exact —
+do not "fix" them.
+
+Autotile connectivity honours `bAND`: `TIsWall` is one AND req (`IsWall`), but
+`TIsConduitSprite` is `bAND = false`, an **OR** of `IsPowerConduit` / `IsPowerSwitch`
+/ `IsPowerJack` — a conduit connects to *any* of them.
+
+> **Ported in Ostraplan:** `Autotile` (+ `TileConds.Triggered` for the presence-only
+> path; nested sheet triggers defer to `CondEval`).
+
+---
+
+## 16. Lighting
+
+The game's lighting is a **deferred light pass**, reconstructed from the decompiled
+`Visibility` / `Occluder` / `Block` / `Item` / `GameRenderer` and the disassembled GPU
+shaders in `resources.assets` (`Sprites/LoSPass`, `Sprites/DefaultAdditive`, and the
+combine passes; extracted with UnityPy, DXBC disassembled via `d3dcompiler_47`).
+
+- **The visible ship IS the light accumulation.** In normal play the main camera **does
+  not draw the sprite layer at all** (`CrewSim.ToggleAmbientLight` masks the Default
+  layer off; the in-game ship editor's "ambient light" checkbox turns it back on). Each
+  light's `Visibility` mesh samples the deferred albedo RT and writes `albedo × light`
+  into the frame; ambient (`GameRenderer.clrAmbient`) is black and never set. Unlit hull
+  = not drawn = black.
+- **Occluders are the item defs' `aShadowBoxes`, not `IsWall`.** Format
+  `"dx,dy,rx,ry[,glass]"` (tiles from item centre, +y up; half-extents swap on 90°
+  rotations via `Block.RotateCW`); `bIsWall` = the item's `aSocketAdds` contains
+  `TILWallAdds`. Consequences: **windows (`ItmWallWindow1x1`) are glass, light passes**;
+  **thin/aero walls have no boxes, no occlusion**; **open doors block only their 2 end
+  caps** (closed = all 5); **beds, LH/LHe canisters (3×3), reactor IC pods, stabilizers,
+  aero parts and docksys frames DO occlude** (91 core items carry boxes).
+- **Mesh geometry (`Visibility.LateUpdate`).** An angular occluder-merge (sorted
+  segments, split/overwrite, same-block neighbour merge) against all non-glass blocks in
+  range; a **64-segment rim at `Radius − 0.5`**; then a second pass from a **0.5 minimum
+  ring** that merges in the **skirt**: each boundary face extruded outward by its
+  thickness — `max(rx, ry)` for wall blocks, 0.5 for the rim, 0 for non-walls — with
+  mitred joins, so **light penetrates half a tile into wall faces** (lit walls) and the
+  rim reaches the full radius. Touched **non-wall** blocks get their whole footprint quad
+  added fully lit (`IlluminateBlock`): a canister is lit but shadows what is behind it.
+- **Shading (`Sprites/LoSPass` fragment).** With `u = (pixel − centre)/(2R)`, `F =
+  _LightFalloff = 3`, `Z = _LightZ = 0.25`: `L = normalize(−u.x·F, −u.y·F, F·Z)`, `atten
+  = 1/(F²(|u|² + Z²) + 0.1)`, `diffuse = max(0, N·L)` where N comes from the **normal
+  RT** (`strImgNorm` through `ShaderSetup.NormalPNGtoDXTnm`: `nx = 2·png.r − 1`, `ny =
+  2·png.g − 1`, z forced 1, unnormalised). Contribution = `albedo × colour.rgb × colour.a
+  × cookie.a × diffuse × atten`, clamped 8-bit per light. `fLightZ` / `nLightFalloff` are
+  **not** cosmetic — they are the falloff. Item lights never carry cookies (only crew LOS
+  / VFX do).
+- **Accumulation is the screen blend.** The pass blends `OneMinusDstColor One` (`acc' =
+  src(1 − acc) + acc` per channel): overlapping lights saturate softly toward white,
+  never blow out. Glow decals (`strImg` on **every** `aLights` entry, casting or not) draw
+  after lighting with `Sprites/DefaultAdditive`: `+ tex.rgb × tex.a²` at native size,
+  centred at `ptPos/16` from the item centre. Flicker is damage/power-driven
+  (`Powered`), so a pristine design never flickers. AO (`Hidden/AOPass`), crew
+  fog-of-war (`Sprites/StencilCombinePass`) and CRT post are cosmetic layers a planner
+  omits.
+- **Radii from data:** default 6 only when `fRadius ≤ 0`; real lamps are radius 18
+  (`Ceiling1x1*` / `Wall1x0*`), TV 16, planter 3, terminal 0.2. Intensity = colour
+  alpha/255 (`WhiteLightCeiling` a = 100 → 0.392).
+- **Exterior daylight:** each parallax location's `aSunLights` are ordinary `Visibility`
+  lights, **radius 1000**, at their raw `ptPos` (world tiles, ~±250) parented to a sun
+  transform whose z-rotation tracks the world background (`ParallaxController`).
+  Hull-occluded; streams through glass windows.
+
+Lighting gates nothing in-game (there is no darkness stat) — it is a faithful preview,
+not a Law constraint.
+
+> **Ported in Ostraplan:** `LightNetwork.Build` (scene resolution), `VisibilityMesh`
+> (float-exact geometry, run y-up so windings and skirt normals stay sign-exact),
+> `LightComposite` (per-pixel shading at 16 px/tile). **Re-verify per patch:** ambient
+> black, colour ≠ Blank casts, F = 3 / Z = 0.25 / +0.1, radius defaults (6 item / 1000
+> sun), `aShadowBoxes` semantics, blend modes.
+
+---
+
+## 17. Ship serialization (templates and saves)
+
+### The `data/ships` file (`JsonShip`)
+
+A ship file is a **top-level array** of ship objects (the ship element carries `nCols`
++ `aItems`; roughly a dozen files in core are non-ship). The game (de)serializes with
+**Newtonsoft** — proven by `Dictionary<string,string>` fields (`aDocked`,
+`aMarketConfigs`) that Unity's `JsonUtility` cannot handle — so **missing fields default
+and unknown fields are ignored**. A well-formed template is the **54 top-level fields
+present on all 192 core templates** plus `aRating`; unlisted fields are safely omitted.
+
+- Values are pristine/neutral (wear/mass/physics caches 0 — the game recomputes on full
+  load), `origin` / `publicName` = `"$TEMPLATE"`, `nConstructionProgress` 100.
+- `strRegID` must be non-empty (the loader indexes `strRegID[0]`), but the game
+  **regenerates** it and **re-derives `origin`** from a loot table when `origin ==
+  "$TEMPLATE"`, and null-guards `aCrew` / `aCOs`, so a template needs no crew or cargo.
+- `shipCO` is a minimal `ShipCO` (`aConds` = the three `Stat*ProgressMax=1.0x1000` +
+  `DEFAULT`).
+
+**`aItems` entry** = `strName`, `fX`, `fY`, `fRotation`, `strID`. Extras appear for
+`strParentID` / `strSlotParentID` (contained/slotted sub-objects), `aGPMSettings`
+(device settings), `aCondOverrides` (per-instance conds), `bForceLoad`.
+
+**`aRooms`** = each room's tile indices (`col + row·nCols`) + `bVoid` + `roomSpec` +
+`roomValue` (the **parts** value `Room.CalculateRoomValue` sums, which `GetShipValue`
+reads on a shallow load — **not** the physical `Volume`).
+
+### Contained cargo is stored the SAVE way
+
+A `data/ships` file spawns as a template (`bTemplateOnly`); `Ship.SpawnItems` /
+`Container` / `CondOwner.PostGameLoad` show:
+
+- A parented item is **dropped** unless it has `aCondOverrides` (which also flags its
+  **root container** so `bLoot` is cleared and the container is not refilled from its
+  default loot) **or** `bForceLoad` (which keeps the item's `strID`). Without this a
+  template comes back empty, or with only the def's default loadout.
+- A **stack** is rebuilt only from the stack-head CO's `aStack` (a `string[]` of member
+  `strID`s) in `PostGameLoad`.
+
+So a faithful export gives every contained/slotted item **both** `bForceLoad: true` and
+an `aCondOverrides` marker (a benign `StatDamage=0`, which is the non-null array the
+pre-pass tests), **and** bakes a save-style **`aCOs`** entry per contained item
+(`aConds:["DEFAULT"]` repopulates the def's pristine conds; `inventoryX/Y` from the grid
+cell). A stack head's CO carries `aStack` = its member `strID`s. Top-level parts need
+none of this. `aCOs` is omitted entirely when a design has no cargo.
+
+> **Ported in Ostraplan:** `ShipExport` (write), `ShipTemplate` / `TemplateImport`
+> (read). A round-trip (`doc → export → parse → import`) reproduces the same tiles /
+> rooms / rating exactly.
+
+### Ship identity on spawn
+
+- `publicName` is re-rolled to a random `DataHandler.GetShipName()` **only** when the
+  on-disk value is `null` / `""` / `"$TEMPLATE"`; any other string survives and is the
+  name shown at the transponder / comms / broker / rating UI. So a real name must be
+  written through (not `"$TEMPLATE"`).
+- `strRegID` is **never read** from the file — `StarSystem.SpawnShip` overwrites it with
+  a caller-minted ID before `InitShip` runs, unconditionally (RegIDs must be unique). A
+  custom callsign cannot be baked in.
+- `objSS` must be **small-nonzero**, never exact `(0,0)`: the loot-spawn path
+  (kiosk/Special-Offer/starting-ship) does not reposition a template, and `(0,0)` around
+  "Sol" is the star's own origin (the "spawns inside the sun" bug).
+
+### Save games
+
+A save is a **folder** with `<name>.zip` + `saveInfo.json` (+ portrait/screenshot).
+Inside the zip: `ships/<RegID>.json` (one per ship in the loaded neighbourhood), a
+`<playerName>.json` character record, and copies of `saveInfo`/portrait/screenshot. Save
+ships use the same `JsonShip` schema (a superset of a template), so reading a save reads
+only the top-level layout and drops all runtime state for free.
+
+**The player's ship is `strShip` on the character record** (a RegID). Do **not** match
+`saveInfo.shipName` — it is a renamed **display** name (`publicName`, e.g. "Charon") that
+matches no ship's `strName`.
+
+> **Ported in Ostraplan:** `SaveImport` (player-ship identification + layout strip).
+
+### Non-buildable and unresolvable defs
+
+About half of a real ship's distinct top-level defs are not in the buildable palette
+(raw hull, `Compartment`, RCS clusters, sensors) but all resolve to geometry via the
+condowner → `strItemDef` hop. Loot spawners, fire, and explosions carry `IsSystem` and
+resolve to geometry but are **runtime effects, not structure** (`Ship.UpdateTiles`
+early-returns on a CO with no `Item`), so a layout read should drop them.
+
+An item whose def **won't resolve** (a modded part whose mod is not loaded) is invisible
+to a layout read but **still real in the save**: a missing modded wall stops dividing a
+room, and a missing part at the hull edge under-sizes the frame the game rebuilds (§18).
+Never treat "not in the catalog" as "not there".
+
+> **Ported in Ostraplan:** `Catalog.Lookup` (resolve any placed def), import drops
+> `IsSystem` and contained sub-objects; unresolved defs are reported, and `Substitution`
+> lets a real part stand in for a missing one.
+
+---
+
+## 18. Writing a ship back into a save
+
+Writing an edited layout **back into a save** is not the export inverse: the record is
+live, and two of its fields are re-derived by the loader rather than trusted.
+
+### The grid frame is rebuilt on load
+
+A full load does **not** trust `nCols` / `vShipPos`; they feed only the *shallow*
+(unloaded) view (`x = (LoadState > Loaded.Shallow) ? nCols : json.nCols`).
+`Ship.UpdateTiles` re-derives the tilemap as each item spawns: it seeds `vShipPos` off
+the first item's `TLTileCoords`, then `TileUtils.PadTilemap`s a **one-tile margin**
+around every subsequent item (`Vector2(-1f, 1f)`; `IsRoom` COs get `Vector2.zero` and pad
+nothing). So the loaded grid is always:
 
 > **frame = bounding box of all item footprints, plus a one-tile margin on every edge.**
 
-Confirmed on real saves: the game's own baked frames inset their content by exactly 1 on all four edges (`SaveEditFrameTests` asserts this over every local save). Every `aRooms`/`aZones` entry is a flat `col + row·nCols` index, so a frame of a different **width or origin** makes each index decode to the wrong tile, the error compounding by one column per row. A stale trailing **row** is inert by the same arithmetic.
+Every `aRooms` / `aZones` entry is a flat `col + row·nCols` index, so a frame of a
+different **width or origin** decodes each index to the wrong tile, the error compounding
+by one column per row (a stale trailing **row** is inert by the same arithmetic). Two
+consequences:
 
-Two consequences worth internalising:
-- **Pad by the margin, don't hug the content.** Ostraplan grew the frame to the bounding box *exactly* whenever an edit pushed a part outside the old grid. The trigger in the wild was a big tank: its **socket** footprint is 7×7 (the under-floor ring — §4) while its body is 3×3, so sliding one to the hull edge put the bounding box a column past the origin with no item tile out there and nothing visibly wrong in `aItems`.
-- **The frame may legitimately SHRINK.** `PadTilemap` only ever grows, so deconstructing an outermost part in play leaves a stale empty rank in the live grid; a reload rebuilds it tight. The inject must track the content, not preserve the saved frame (and recompute crew `nDestTile` whenever the frame moves at all).
+- **Pad by the margin, do not hug the content.** A part's **socket** footprint drives the
+  bbox: a 7×7 tank socket (its body is only 3×3) at the hull edge pushes the bbox out with
+  no visible item tile there.
+- **The frame may legitimately shrink.** `PadTilemap` only ever grows, so deconstructing
+  an outermost part leaves a stale empty rank in the live grid; a reload rebuilds it tight.
 
-**A room's strID is its `Compartment` CO's strID.** Rooms are not parts; each is backed by a `Compartment` condowner (`Room`'s `coRoom`, from `DataHandler.GetCondOwner("Compartment")`) and `Room.GetJSONSave` writes `jsonRoom.strID = coRoom.strID`. On load, `Ship.CreateRooms` maps **tile index → JsonRoom**, and for each room resolves `GetCOByID(strID)`: a hit becomes `new Room(co)` and is consumed by `RemoveCO`; a miss logs `Generating new room with old ID: <guid> for Tile: <n>` and mints a replacement. So regenerating `aRooms` with fresh strIDs while keeping the original Compartments leaves **every original unbound** — an IsRoom CO no room claims, which is precisely a ghost room. Ostraplan drops every room CO on inject (`SaveEdit.RoomCoIds` — by the source's own `aRooms`, widened to any `Compartment`/`IsRoom` CO so a previously orphaned one is swept up) and lets the game rebuild each room from the saved strID. Room atmosphere is regenerated anyway (`bPrefill`), so nothing of value is lost.
+### A room's strID is its `Compartment` CO's strID
 
-**`dimensions` is display-only but locale-sensitive.** The game writes it with `((float)nCols * 0.32f).ToString("#.00")`; format it with `InvariantCulture` or a comma-decimal machine emits `"15,36m x 11,20m"` into the save.
+Rooms are not parts; each is backed by a `Compartment` condowner (`Room.coRoom`), and
+`Room.GetJSONSave` writes `jsonRoom.strID = coRoom.strID`. On load, `Ship.CreateRooms`
+maps tile index → `JsonRoom`, and for each room resolves `GetCOByID(strID)`: a hit becomes
+`new Room(co)` and is consumed by `RemoveCO`; a miss logs `Generating new room with old
+ID: <guid>` and mints a replacement. So regenerating `aRooms` with fresh strIDs while
+keeping the original Compartments leaves **every original unbound** — an `IsRoom` CO no
+room claims, i.e. a ghost room. The fix is to drop every room CO and let the game rebuild
+each from the saved strID (room atmosphere is regenerated anyway via `bPrefill`).
+
+### `dimensions` is display-only but locale-sensitive
+
+The game writes it with `((float)nCols * 0.32f).ToString("#.00")`; formatting with a
+comma-decimal locale emits `"15,36m x 11,20m"` into the save. Use `InvariantCulture`.
+
+> **Ported in Ostraplan:** `SaveEdit` (inject), `SaveEditImport` (context). The frame is
+> written as `bbox(item footprints) ± one-tile margin`; crew `nDestTile` is recomputed on
+> any reframe; room COs are dropped (`SaveEdit.RoomCoIds`). Asserted against every local
+> save (`SaveEditFrameTests`).
 
 ---
 
-## 9. Gotcha index (quick reference)
+## 19. Obtaining a ship in-game (brokers, chargen)
 
-- **`nLayer` is always 0** — never layer by it; rank by contributed conditions (§6).
-- **Footprint ≠ sprite** — socket grid vs `vScale`; the tanks are 7×7 footprint / 3×3 sprite (§4). Keep the footprint for the Law.
-- **CheckFit is presence-only** — don't over-build the trigger evaluator for P1 (§5.2).
-- **Self-exclusion** — re-validating a placed part must lift its own conds first (§5.6).
-- **Envelope uses `aDocksys[0]` in-game** — Ostraplan uses all ports (safe over-approximation) (§5.5).
-- **`TIsDockSysInstalled` needs ALL reqs** — an any-match flags every installed part (§7).
+The game merges loot/chargen data by `strName`, so a mod makes a ship reachable by
+overriding or appending to the relevant pools:
+
+- **Broker kiosks** (`RandomShipBroker{OKLG,BCER,BCRS,Venus,VORB}`): a pool's `aCOs` is a
+  **single** element that is a `|`-delimited `Name=WeightxCount` set from which the game
+  picks **one**. Add a ship by appending `|Name=Wx1` to that string (`LootList.Append`),
+  never a second array element (which rolls a second ship). Regular vendor ships show
+  `GetShipValue × priceModifier` live in the list.
+- **Special Offer** (`RandomShipBrokerSpecialOffer{,VENC,VNCA,VORB}`): one pinned
+  `Name=1.0x1`. Note a Special Offer entry **always lists at "$0"** in the list
+  (`UsedShipListEntry.SetSpecialOfferData` hardcodes it); the DTO still carries the real
+  price, so the Confirm Transaction dialog shows and charges it. A real *list* price needs
+  a regular broker pool, not the special-offer slot.
+- **Starting ship** (Shipbreaker career): the `CGEncShipbreakerShipEvents` roll is an
+  `…Intro`/`…Take` lifeevent+interaction pair (modeled on core `CGEncShipSalvagePod*`)
+  plus a `…Reward` ship loot. Vanilla has **no** true chargen ship-picker — it is
+  weighted-random; "Take" grants the ship via `strShipRewards` and starting gear via
+  `aLootItms:["addus,ItmShipbreakerLoadout"]`.
+
+`fLastQuotedPrice` is a red herring for buy pricing: neither buy path reads it (only the
+sell/derelict `GetQuotedPrice` cache does), and it is reset to 0 on a non-derelict
+Edit-load.
+
+> **Ported in Ostraplan:** `KioskExport` (`AppendShipToPool`, `PinShipToPool`),
+> `StartingShipExport`. Where another ship mod overrides the same pool, whole-object load
+> semantics would drop one side; the resolution is Ostrasort's per-item-union `--patch`.
+
+---
+
+## Appendix A — Quick reference
+
+- **`nLayer` is always 0** — rank by contributed conditions (§15).
+- **Footprint ≠ sprite** — socket grid vs `vScale`; the big tanks are 7×7 footprint / 3×3
+  sprite (§4). Keep the footprint for the Law.
+- **CheckFit is presence-only** — count multiplicity / nested triggers / `bAND=false` are
+  unreachable from placement (§5).
+- **Self-exclusion** — re-validating a placed part must lift its own conds first (§5).
+- **Only one port bounds construction, and `IsTypeB` decides which** — `aDocksys[0]`; the
+  Primary bounds, a Secondary never does while a Primary exists (§6).
+- **`TIsDockSysInstalled` needs ALL reqs** (§6).
 - **Loot payload is `aCOs`, not `aLoots`** — `aLoots` nests further loots (§3).
-- **Palette join hops through condowner/cooverlay** — `items[strStartInstall]` alone misses ~half (§2).
-- **Autotile rows count from the texture bottom** — WPF flips them; the mask is N8/W4/E2/S1 (§6).
-- **Autotile connectivity honours `bAND`** — `TIsWall` is one AND req (`IsWall`), but `TIsConduitSprite` is `bAND=false`, an **OR** of `IsPowerConduit`/`IsPowerSwitch`/`IsPowerJack`; a conduit connects to *any* of them. `TileConds.Triggered` must respect `bAND` (AND-only made every conduit render as an isolated junction). Nested sheet triggers defer to `CondEval` (§6).
-- **`loading_order.json` is fragile** — top-level array only; Ostraplan reads it, never writes it (registration stays with ModTools/Ostrasort).
-- **Game is y-up, Ostraplan docs are y-down** — convert at the boundary (§7).
-- **`fRotation` is CCW; `GridMath.Rotate` is CW** — the template loader negates (§8). Only 90/270 items differ.
-- **Item `(fX,fY)` is the footprint CENTRE, not a corner** — top-left via `TLTileCoords = (x−(W/2−0.5), y+(H/2−0.5))` (§8).
-- **Only `IsWall` bounds the room fill** — a door's side cells are always `IsWall`; its centre is a walkable portal when open (flood-sinks) and an `IsWall` boundary when closed. Same two rooms either way — door state is cosmetic to the rooms/rating; a closed door's centre is filed by `AssignPortals` to a non-void neighbour, never the exterior (§8).
-- **Ship files are top-level arrays** — the ship is an element with `nCols`+`aItems`; skip non-ship files. Only ~2 carry `aRating`; all carry `aRooms` (§8).
-- **A loading ship rebuilds its own grid — saved `nCols`/`vShipPos` are only the shallow view** — the frame is always `bbox(item footprints) ± a one-tile margin` (`Ship.UpdateTiles` → `PadTilemap`). Write a room/zone index in any other frame and it decodes to the wrong tile, drifting a column per row. Never hug the content: a 7×7 tank socket at the hull edge pushes the bbox out with no item tile there (§8, fixed 0.45.0).
-- **A room IS its `Compartment` CO** — `jsonRoom.strID = coRoom.strID`, and `Ship.CreateRooms` re-binds by `GetCOByID` + `RemoveCO`. Fresh room strIDs + kept Compartments = one unbound IsRoom CO per room, i.e. ghost rooms (`Generating new room with old ID` in `Player.log`). Drop the room COs and let the game rebuild them (§8, fixed 0.45.0).
-- **An item whose def won't resolve is invisible here but REAL in the save** — the import skips it (no def ⇒ no footprint/conds) and the write-back preserves it, so the engines model a ship that doesn't exist: a missing modded wall stops dividing a room, and a missing part at the hull edge under-sizes the frame the game rebuilds. Never treat "not in the catalog" as "not there"; offer a stand-in or refuse to reason about it (`Substitution`, v0.45). A CO with **no `Item`** (loot spawners) genuinely contributes nothing — `Ship.UpdateTiles` early-returns on it — so those are safe to ignore (§8).
-- **Room certification tests CondOwner conds, not tile conds** — `room.aCos` `aStartingConds`, evaluated by `CondEval`; multiplicity is the spec's `xN` (§8).
-- **A room-less anchor falls back to the `"use"` point** (`Tile.AddToRoom`) — wall-embedded parts (wall bins, sensors, antennas, weapons, coolers) join the room their use point reaches; anchor-only membership silently un-certifies quarters and drops their value. The air pump's use point is its own wall tile, so pumps join no room — $0 room value in-game too (§8, fixed 0.17.0).
-- **The ×3 value bonus needs a FED pump, not a pump** — `TIsAirPump02Installed` + an installed `TIsRTAO2Installed` can with `StatGasMolO2 > 0` at the pump's `GasInput` tile; it's a flag, never per-pump. Export bakes the count as `nO2PumpCount` for the shallow-load broker quote (§8, fixed 0.17.0).
-- **Void rooms have value; the ×3 is never per-item** — `GetShipValue`/`CalculateRoomValue` never filter `bVoid` (192 baked void rooms carry real `roomValue` — engines, exterior gear), and there is no wall/atmo per-item multiplier; the ×3 O2 flag scales the whole sum (§8, fixed 0.19.0 — Ostraplan used to zero void rooms).
-- **Installed parts are (almost) never Pristine — value them markup-free** — `IsPristine` is granted only by `BreakIn` (2.5% roll per solid undamaged part on Derelict/Damaged/Used ships at first load) and to trader stock **items**; installing spawns a fresh CO, so even a shop-bought kit installs non-pristine. A flat ×1.25 overshoots resale ~25% and whipsaws exported ships between the baked buy price and the live recompute (§8, fixed 0.20.0; install-path verified 0.22.0). The +25% is shown as a margin ceiling, never in the base number.
-- **A part's value includes the gas its def starts with** — `GetBasePrice` adds `GetTotalGasValue` (mols × hardcoded molar mass × the `GasPrices` loot's price/kg) + the D2O/He3 fuel lines; a full O2 RTA is ~$5.6k of gas on a $410 shell (§8, fixed 0.20.0). He3 GAS is worth 0 (no molar-mass case); solid He3 pellets are priced.
-- **Broker rates: sell = value × `DiscountBuy` (0.8), buy = × `DiscountSell` (1.2)** — kiosk conds in loot.json; the `1.1 − fBreakInMultiplier` haircut is derelict-only (§8, fixed 0.20.0 — the buy factor was 1.25).
-- **Never advise building a reactor core** — the Reactor spec is "≥4 sealed tiles + TIsReactorIC", so "add a reactor core" qualifies for nearly every room and spams the report; hint engines exempt suggestions whose missing reqs include `TIsReactorIC` (rooms that HAVE a core still certify/show) (§8, 0.20.0).
-- **Luxury/Basic Quarters are killed by forbids more often than by missing reqs** — `TIsCanister` (an OR including installed RTAs), batteries, hatches, toilets, reactor cores; an O2/N2 RTA in the bedroom blanks it in-game exactly as in Ostraplan. The law report's `Diagnose` lines name the blocking part (§8).
-- **Contained/slotted cargo isn't counted** — top-level `aItems` only; the game reaches sub-objects via `bSubObjects`, so cargo-laden templates under-certify (corpus-only) (§8). Import **drops** these (`strParentID`/`strSlotParentID`) — layout only.
-- **Contained cargo is exported save-style** — a template keeps parented items only with `aCondOverrides` (survive + clear the root container's `bLoot`) **and** `bForceLoad` (keep `strID`), and rebuilds a stack only from the head CO's `aStack`; so export bakes both flags + an `aCOs` block, with `aStack` (member ids) on stack heads (§8).
-- **A save's player ship is `strShip`, not `saveInfo.shipName`** — the latter is the renamed `publicName` and matches no `strName`; read the character record's `strShip` RegID (§8).
-- **`JsonShip` is Newtonsoft, tolerant** — export writes a superset of the 54 universal template fields; missing default, unknown ignored. Export anchors at `vShipPos (0,0)` so the coordinate inverse drops its offset terms (§8).
-- **Import must resolve non-buildable defs** — the palette is buildable-only, but ~half a real ship isn't; go through `Catalog.Lookup`, never `ByDefName` alone, for any placed def (§8).
-- **The placement law is construction-time only** — the game never re-validates existing structure, so don't flag *imported* parts (`IsGiven`); a valid real ship stacks parts (fixtures on floors, thrusters through walls) whose mutual forbids a final-state re-check trips. Only user edits (new/moved parts) are validated (§7).
-- **Filter `IsSystem` on import** — loot spawners, fire, explosions carry `IsSystem` and resolve to geometry but are runtime effects, not buildable structure (no `Sys*` def is installable); drop them (75 on the Charon) or they import as phantom parts and export into templates (§8). *Asymmetry:* export **re-bakes** the ship's `Boarding`/`NotBoarding` person-spawners regardless (next bullet) — those live in `aShallowPSpecs`, a different array, and are required for PASS/skywalk arrivals.
-- **`publicName` sticks, `strRegID` doesn't, and `objSS (0,0)` is inside the sun** (`Ship.InitShip` / `StarSystem.SpawnShip`, decompile-verified). On a template spawn: `publicName` is re-rolled to a random `DataHandler.GetShipName()` **only** when the on-disk value is `null`/`""`/`"$TEMPLATE"` — any other string survives and is the name shown at the transponder/comms/broker/rating UI, so export writes a real name (not `"$TEMPLATE"`). `strRegID` is **never read** from the file — `StarSystem.SpawnShip` overwrites `jsonShip.strRegID` with a caller-minted ID before `InitShip` runs, unconditionally (RegIDs must be unique in `dictShips`), so a "custom callsign" can't be baked in. `origin=="$TEMPLATE"` (literal check) triggers a `TXTShipOrigin*` loot re-roll; anything else is kept. And `objSS` must be **small-nonzero**, never exact `(0,0)`: the loot-spawn path (kiosk/Special-Offer/starting-ship) doesn't reposition a template like import does, and `(0,0)` around "Sol" is the star's own origin.
-- **Bake `aDockingPorts` + `strPrimaryDockingPortID` or a bought ship never docks** (§7, decompile-verified). Buying at a broker docks the ship at purchase time (`GUIShipBroker.OnPurchaseConfirm` → `CrewSim.DockShip`/`Ship.Dock`), but on the shallow-station branch the ship is docked while still `Shallow`-loaded, and a shallow ship's open ports come **only** from `json.aDockingPorts` (the game rebuilds them from items only on a `>= Edit` load, which `Clear()`s then re-registers via `Ship.AddCO`). Omitting them left a purchased export with zero open ports → `Dock` fails → the ship is never repositioned and sits at its `objSS` (~1.85 AU away, undocked, and dropped from the P.A.S.S. ferry list by the `GUIPDAFerry` distance filter). Export bakes the installed docksys item strIDs (primary/non-TypeB first, TypeB last; `ItmDockSys02Closed` is the non-TypeB primary, `ItmDockSys03Closed` is TypeB) and points `strPrimaryDockingPortID` at the primary. Fixed in 0.14.2.
-- **Bake `Boarding`/`NotBoarding` person-spawners into `aShallowPSpecs` or PASS/skywalk arrivals land outside the hull** (§7). A person delivered to the ship (P.A.S.S. ferry, skywalk) spawns at the `Boarding` `SysLootSpawner`; an already-assigned NPC at `NotBoarding`. Both are `IsSystem` objects Ostraplan drops on import and never modeled, so exports had none. `ShipExport.BuildBoardingSpawners` bakes both on non-void interior tiles (Boarding nearest the primary airlock, NotBoarding nearest the interior centroid). Save-edit is unaffected — it preserves the original `aShallowPSpecs`. Fixed in 0.16.0.
-- **A Special Offer ship always lists at "$0" — by game design, not a pricing bug** (`UsedShipListEntry.SetSpecialOfferData` hardcodes `txtPrice.text = "$ 0"`, the only hardcoded-zero price in the broker code). The DTO still carries the real `Ship.GetShipValue() × priceModifier`, so the **Confirm Transaction** dialog (`ConfirmBuyShipPopup`) shows the true price and the sale charges it. Regular vendor ships (`GUIShipBroker.AddPurchasableShip`) instead show `GetShipValue() × priceModifier` live in the list. So a freshly-spawned export in the `RandomShipBrokerSpecialOffer` slot reads "$0" in the list with a correct confirm price — a real list price needs a **regular broker kiosk** pool, not the special-offer slot. `fLastQuotedPrice` is a red herring: neither buy path reads it (only the SELL/DERELICTS `GetQuotedPrice` cache does), and it's reset to 0 on a non-derelict Edit-load — baking it changes nothing. The correct confirm price also **proves export's baked `aRooms[].roomValue` is right** (a Shallow load reads it via `Ship.GetShipValue` → `Σ jsonRoom.roomValue`, `×3` if `nO2PumpCount > 0`).
-- **Power connectivity is a tile-flood, and `jsonPI` is a *power-info* name not a CO name** (§8). `GetPoweredTiles` floods `IsPowerPath` tiles 4-cardinally from installed sources' (`IsPowerGen`/`IsPowerStorage`/`IsRechargingContainer` + `IsInstalled`, not `IsOverrideOff`) `PowerOutput` tile — the connector *map points* (`aInputPts`/`PowerOutput`) are cursor cosmetics, not what carries power; a device is fed when its `IsPowerPath` footprint is on the live set. The device→plug link runs condowner **`jsonPI`** → `dictPowerInfo` → `aInputPts` (0/126 of powerinfo names are condowner names, so never resolve by CO `strName`). Ported in `PowerNetwork`; connectors on `PartDef.PowerInputPoints`/`PowerOutputPoint`.
-- **A ship broker's `aCOs` is one weighted string, not a list** — `RandomShipBroker*`/`CGEncShipbreakerShipEvents` pools carry a **single** `aCOs` element that is a `|`-delimited `Name=WeightxCount` set from which the game picks **one**. Add a ship by appending `|Name=Wx1` to that string (`LootList.Append`), never a second array element (which rolls a second ship). Special-Offer pools are one pinned `Name=1.0x1`. A starting ship reuses the `CGEncShipSalvagePod*` chain: career `aEventsShip` → the loot pool → an `…Intro` that is **both** a lifeevent (`strInteraction`=itself, `strShipRewards`→a ship-type loot) **and** an interaction (`aInverse` choices); "Take" grants the ship via `strShipRewards` and starting gear via `aLootItms:["addus,ItmShipbreakerLoadout"]`. Vanilla has **no** true chargen ship-picker — it's weighted-random.
+- **Palette join hops through condowner/cooverlay** — `items[strStartInstall]` alone
+  misses ~half (§2).
+- **Autotile rows count from the texture bottom**; the mask is N8/W4/E2/S1; connectivity
+  honours `bAND` (§15).
+- **Item `(fX,fY)` is the footprint CENTRE**, and `fRotation` is CCW while a CW tile
+  rotation must negate it (§7).
+- **Only `IsWall` bounds the room fill** — a door's side cells are always `IsWall`; its
+  centre is a walkable portal when open (flood-sinks) and an `IsWall` boundary when closed.
+  Same two rooms either way (§8).
+- **Room certification tests CondOwner conds, not tile conds** (§9).
+- **A room-less anchor falls back to the `"use"` point** — wall-embedded parts join the
+  room their use point reaches; the air pump's use point is its own wall tile, so it joins
+  no room and is worth $0 (§9, §11).
+- **Void rooms have value; the ×3 O2 bonus is a global flag, never per-item** (§11).
+- **Installed parts are never Pristine** — value them markup-free; the ×1.25 needs
+  `IsPristine`, which install never grants (§11).
+- **A part's value includes the gas its def starts with** — a full O2 RTA is ~$5.6k of gas
+  on a $410 shell; He3 *gas* is worth 0 (§11).
+- **Broker rates: sell = value × 0.8, buy = value × 1.2**; the derelict haircut is separate
+  (§11).
+- **The ×3 atmo bonus needs a FED pump** (`TIsAirPump02Installed` + a fed installed O2 RTA)
+  (§11).
+- **Ship files are top-level arrays** — the ship is an element with `nCols` + `aItems`;
+  skip non-ship files. All 192 carry `aRooms`; only 2 carry `aRating` (§17).
+- **A loading ship rebuilds its own grid** — the frame is `bbox(item footprints) ± a
+  one-tile margin`; write a room/zone index in any other frame and it decodes wrong,
+  drifting a column per row (§18).
+- **A room IS its `Compartment` CO** — fresh room strIDs + kept Compartments = ghost rooms;
+  drop the room COs and let the game rebuild them (§18).
+- **The placement law is construction-time only** — the game never re-validates existing
+  structure, so imported parts must be exempt (§5).
+- **Filter `IsSystem` on read; an unresolvable def is invisible but REAL** — never treat
+  "not in the catalog" as "not there" (§17).
+- **A save's player ship is `strShip`, not `saveInfo.shipName`** (§17).
+- **Bake `aDockingPorts` + `strPrimaryDockingPortID` or a bought ship never docks** (§6).
+- **Bake `Boarding`/`NotBoarding` spawners into `aShallowPSpecs` or arrivals land outside
+  the hull** (§6).
+
+### The parity corpus (ground truth)
+
+The corpus is **192 core ship objects** that carry baked `aRooms` (roomSpec + bVoid + tile
+sets), giving a 192-ship rooms **and** certification gate. Only **Babak / Babak Refit**
+(both damaged derelicts) carry baked `aRating`. Notes:
+
+- The Babaks' baked `aRating` room slot is **stale** (`aRating[2] = "18"` while their
+  current `aRooms` certify 20 non-Blank rooms), so a rating check bounds the recomputed
+  count against `aRooms`, not the `aRating` string.
+- A faithful room partition reproduces the baked `aRooms` for **188/192** (4 exotic
+  exclusions: a malformed Coffin, two aero slant-wall hulls, one interceptor airlock);
+  portal-tile filing and exterior-void over-claim are compared leniently because neither
+  affects the Law.
+- Certification reproduces the baked `roomSpec` with **zero over-certifications** of a real
+  compartment. The residual diffs are two documented corpus-only artifacts:
+  contained/slotted cargo the top-level loader cannot count (under-certification), and the
+  exterior over-claim (`CargoRoomExterior` on the unbounded Outside room). Neither reaches
+  a from-scratch authored design.
+
+> **Ported in Ostraplan:** `ParityTests` (rooms + certification across the corpus),
+> `RatingTests` (size-slot parity + unit-pinned cutoffs).
 
 ---
 
-## 10. Ported / deferred / excluded
+## Appendix B — Ported / deferred / excluded
 
 | Game logic | Status | Ostraplan home |
 |---|---|---|
-| Palette join, mod/load-order resolution | **ported** | `DataIndex`, `Catalog` |
-| Tile-condition accumulation (`UpdateTiles`) | **ported** | `TileConds` |
-| Placement law (`Item.CheckFit`) | **ported (P1)** | `CheckFit`, `ProblemScan`, `ShipCanvas` |
-| Airlock envelope (`GetAirlockBounds`) | **ported** | `ProblemScan.TryGetFace` |
-| Footprint + sprite scale (`SetData`) | **ported** | `Defs.ItemDef`, `SpriteCache.SpriteTiles` |
-| Autotile (`SetSpriteSheetIndex`) | **ported** | `Autotile` |
-| Mask rotation (`RotateTilesCW`) | **ported** | `GridMath.Rotate` |
-| CondTrigger.Triggered — reachable branches (bAND, OR, nested, forbids) | **ported (P2)** | `CondEval` (CO-level); presence path stays in `TileConds` |
-| Rooms/airtightness (`CreateRooms`) | **ported (P2)** | `ShipGrid`, `RoomBuilder` |
-| Room certification (`RoomSpec.Matches`) | **ported (P2)** | `RoomSpecs` (`RoomCertifier`) |
-| Ship rating (`CalculateRating`) | **ported (P2)** | `Rating` |
-| JsonShip (de)serialization — the export/template schema | **ported (P3)** | `ShipExport` (write), `ShipTemplate` (read) |
-| Coordinate/rotation inverse (grid top-left → centre/CCW) | **ported (P3)** | `ShipGrid.TemplateTile` + `ShipExport` |
-| On-demand resolution of any placed (non-buildable) def | **ported (P3)** | `Catalog.Lookup` / `Catalog.ResolveDef` |
-| Save player-ship identification (`strShip`) + layout strip | **ported (P3)** | `SaveImport` |
-| Contained/slotted sub-objects, exterior-margin trim bound | **not modelled** (corpus-only; see §8; import **drops** contained sub-objects) | — |
-| Crew LOS/proximity, docked-ship, station-*build* zone permission, damage state | **excluded** (in-game only) | never ported |
-| Ship **zones** (`aZones`) as authored data — preserve, draw, edit | **modelled** (import/export/save-edit/`.oplan`) | `ShipZone` / `ZoneGeometry` / `SetZoneData`↔`GetJSON` |
+| Palette join, mod/load-order resolution | ported | `DataIndex`, `Catalog` |
+| Tile-condition accumulation (`UpdateTiles`) | ported | `TileConds` |
+| Placement law (`Item.CheckFit`) | ported | `CheckFit`, `ProblemScan`, `ShipCanvas` |
+| Airlock envelope (mating face) | ported | `ProblemScan.TryGetFace` |
+| Footprint + sprite scale (`SetData`) | ported | `Defs.ItemDef`, `SpriteCache.SpriteTiles` |
+| Autotile (`SetSpriteSheetIndex`) | ported | `Autotile` |
+| Mask rotation (`RotateTilesCW`) | ported | `GridMath.Rotate` |
+| `CondTrigger.Triggered` — reachable branches (bAND, OR, nested, forbids) | ported | `CondEval` (CO-level); presence path in `TileConds` |
+| Rooms / airtightness (`CreateRooms`) | ported | `ShipGrid`, `RoomBuilder` |
+| Room certification (`RoomSpec.Matches`) | ported | `RoomSpecs` (`RoomCertifier`) |
+| Ship Rating (`CalculateRating`) | ported | `Rating` |
+| Ship value (`GetShipValue` / `GetBasePrice`) | ported | `ShipValue`, `Catalog.GasPrices` |
+| Power connectivity (`GetPoweredTiles`) | ported | `PowerNetwork` |
+| Device signal connections (`Electrical` GPM) | ported | `DeviceLink` / `DeviceLinks`, `ShipExport.WireDeviceLinks` |
+| Deferred lighting (`Visibility` + `LoSPass`) | ported (preview only) | `LightNetwork`, `VisibilityMesh`, `LightComposite` |
+| `JsonShip` (de)serialization — export/template/save schema | ported | `ShipExport` (write), `ShipTemplate` (read) |
+| Coordinate/rotation mapping (centre ↔ top-left, CCW) | ported | `ShipGrid.TemplateTile` + `ShipExport` |
+| On-demand resolution of any placed (non-buildable) def | ported | `Catalog.Lookup` / `Catalog.ResolveDef` |
+| Save player-ship identification (`strShip`) + layout strip | ported | `SaveImport` |
+| Save write-back (frame rebuild, room-CO drop, dimensions) | ported | `SaveEdit`, `SaveEditImport` |
+| Ship zones (`aZones`) as authored data | modelled (preserve/draw/edit, not validated) | `ShipZone` / `ZoneGeometry` |
+| Wear/damage (`BreakIn` / `DamageAllCOs`) | ported (optional) | `WearModel` |
+| Obtainability (brokers, chargen) | ported | `KioskExport`, `StartingShipExport` |
+| Contained/slotted sub-objects on read; exterior-margin trim | not modelled (corpus-only; import drops sub-objects) | — |
+| Crew LOS/proximity, docked-ship, station build-zone permission | excluded (in-game only) | never ported |
 
 ---
 
-*See also: [SPEC.md](SPEC.md) (design, scope, roadmap, normative algorithms) and [README.md](../README.md) (status, build).*
+*Companion documents: [usage.md](usage.md) (how to use Ostraplan) and
+[README.md](../README.md) (overview, install, build).*

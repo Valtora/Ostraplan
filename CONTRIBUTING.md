@@ -45,7 +45,7 @@ You need the **.NET 10 SDK**. Windows only (the app is WPF).
 dotnet run --project src\Ostraplan.App     # launch the app
 .\test.ps1                                 # run the xUnit suite (Debug)
 .\test.ps1 -Filter Rooms                   # run a subset by name
-.\publish.ps1                              # build a self-contained publish\Ostraplan.exe
+.\publish.ps1                              # build the Velopack release into publish\releases
 ```
 
 Most tests are **game-free** and run anywhere. Tests that need a local Ostranauts

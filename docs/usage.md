@@ -1,7 +1,8 @@
 # Using Ostraplan
 
-A practical walkthrough. For the design rationale and file format see
-[SPEC.md](SPEC.md); for what shipped when see [CHANGELOG.md](../CHANGELOG.md).
+A practical walkthrough. For how the game works internally (and what Ostraplan
+ports) see [GAME-INTERNALS.md](GAME-INTERNALS.md); for what shipped when see
+[CHANGELOG.md](../CHANGELOG.md).
 
 Press **F1** in-app at any time for the full keybinding table.
 
@@ -35,7 +36,7 @@ right, but treat a mismatch as "double-check in-game".
 
 | Region | What's there |
 |---|---|
-| **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**. Search by friendly or internal name. Modded parts show a small origin badge. |
+| **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**, and an **ITEMS** tab for loose floor cargo. Search by friendly or internal name. Modded parts show a small origin badge. |
 | **Canvas** (centre) | The tile grid. Place, paint, select, pan and zoom here. |
 | **Inspector** (right) | The selected part's details, ship stats, the **Problems** list, and the **Law report**. |
 | **Toolbar** (top) | Grouped **File · Edit · Design · Analyse · View**, with the theme picker and the **Help ▾** menu on the right. When a newer release exists it is downloaded quietly in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
@@ -122,6 +123,14 @@ only affects modded content.
   value, and this is where you see that. Unsealed rooms are red; the exterior isn't
   tinted, so a compartment open to space simply loses its tint. Like PowerViz it only
   computes while it's on.
+- **Light Viz overlay** — the **Light overlay** View-menu entry or **L**, **on by
+  default**. The game's own lighting reproduced pixel-exact on the plan: real
+  occluders (glass windows pass light, open doors spill it, beds and canisters cast
+  shadows while staying lit), lit wall faces, normal-mapped relief, and soft light
+  stacking. Press **L** to toggle back to the flat, fully-lit view. Under **View ▸
+  Light Viz** you can also switch on **exterior daylight** for a parallax location and
+  sun angle, hull-occluded and streaming through glass. It is a faithful preview, not
+  a validation step (Ostranauts has no darkness gameplay).
 - **Problems** (inspector): live blocking/warning issues for placement and
   airlock-envelope. Each entry expands for the detail, and a **View** button pans and
   zooms the canvas straight to the offending tiles so it's easy to find on a big ship.
@@ -137,7 +146,7 @@ only affects modded content.
 Ostraplan's native format is **`.oplan`** — a small, shareable JSON file. It
 stores your parts (def, position, rotation), the mods the design depends on, and
 document notes. It does **not** embed game assets. See
-[SPEC §8.1](SPEC.md) for the exact shape.
+[OPLAN-FORMAT.md](OPLAN-FORMAT.md) for the exact shape.
 
 **Sharing a modded design:** the `.oplan` records which mods it needs. If someone
 opens it without those mods, Ostraplan names the missing parts and their mods and
@@ -260,6 +269,19 @@ This shows *connectivity* — what's wired to a live source — not a power budg
 Ostranauts doesn't publish per-device draw, so a generation-vs-load balance isn't
 something Ostraplan can honestly compute.
 
+### Wiring devices together
+
+Signalable devices (a sensor and an alarm, a switch and a pump) can be wired the way
+the in-game rewire tool does it. Turn on **Wire mode** (View menu), click a signalable
+installed device to arm it as the signal **source**, then click another to **connect**
+(or a connected one to **disconnect**). The source stays armed so you can wire it to
+several targets; **Esc** or right-click cancels. Connectable devices ring violet, and
+each link draws as a violet line from source to target. The connection is directional
+(source drives target) and has no distance requirement, so the only rule is "two
+distinct installed signalable parts". The wiring is baked into an **exported** ship, so
+it spawns already connected. Gate and threshold logic stays with the in-game signal
+box — Ostraplan authors plain connections only.
+
 ## Zones
 
 Zones are the painted crew/trade areas the game lets you draw on a ship — **Haul**
@@ -298,8 +320,14 @@ tile, rotation and any contents, and is one undo step. A loose fixture no longer
 certifies its room, and an item that ships full — a gas canister comes charged
 with its gas — keeps that charge across the swap. Re-installing into a spot that
 no longer fits isn't blocked, just flagged in **Problems** (like a move into an
-illegal tile). Placing *arbitrary* loose inventory — tools, food, consumables — is
-a separate flow that isn't in this build yet.
+illegal tile).
+
+Placing *arbitrary* loose inventory — tools, food, consumables — is the separate
+**ITEMS** palette tab: arm one and click to drop it onto a floor tile, or into a
+container under the cursor if one accepts it. Right-click a placed loose item for
+**Change Quantity** (stackable items, up to the item's stack limit) and **Delete**.
+Loose cargo carries no structure, so it takes no part in the Law; it just renders and
+travels with the ship through **Export** and save write-back.
 
 ## Theming
 

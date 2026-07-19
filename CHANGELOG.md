@@ -755,7 +755,7 @@ from hiding again.
   Ostrasort" and the export hands off to Ostrasort headlessly — it registers the mod in
   `loading_order.json` (`--apply`) and, if the export touched any kiosk loot, merges conflicts with other
   ship mods (`--patch`). Ostraplan finds Ostrasort automatically (or asks once and remembers the path),
-  and still never writes `loading_order.json` itself. Resolves SPEC §14 open question #5.
+  and still never writes `loading_order.json` itself.
 
 ### Fixed
 - **Exported ships no longer spawn inside the sun.** The exported orbital position defaulted to Sol's
@@ -971,9 +971,10 @@ container/cargo viewer and editor — plus in-app bug reporting and an activity 
 ### Docs
 - Public-facing README, a usage guide ([docs/usage.md](docs/usage.md)), and this
   changelog.
-- SPEC reconciled with the code — notably the `.oplan` format
-  ([SPEC §8.1](docs/SPEC.md)) and a new save-edit round-trip section
-  ([SPEC §8.5](docs/SPEC.md)); dropped/again-planned items corrected.
+- Spec reconciled with the code — notably the `.oplan` format and a new save-edit
+  round-trip section; dropped/again-planned items corrected. (The standalone spec
+  document was later retired; the game-behaviour reference now lives in
+  [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md).)
 
 ### Known limitations
 - **Ship Zones aren't drawn yet.** Any ship you import or export will lose or move
