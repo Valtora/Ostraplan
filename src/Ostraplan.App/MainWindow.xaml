@@ -35,6 +35,7 @@
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="46"/>
                     <ColumnDefinition/>
+                    <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <Border Width="42" Height="42" Background="#33808080" CornerRadius="3">
                     <Image Source="{Binding Thumb}" Stretch="Uniform" Margin="3"
@@ -44,6 +45,25 @@
                     <TextBlock Text="{Binding Friendly}" FontWeight="SemiBold" TextTrimming="CharacterEllipsis"/>
                     <TextBlock Text="{Binding Sub}" FontSize="11" Opacity="0.6" TextTrimming="CharacterEllipsis"/>
                 </StackPanel>
+                <!-- Favorite toggle. PreviewMouseLeftButtonDown handles it and marks the event handled, so clicking
+                     the star pins/unpins without also arming the row's brush. -->
+                <TextBlock Grid.Column="2" Text="{Binding FavGlyph}" FontSize="15" Cursor="Hand"
+                           VerticalAlignment="Center" Margin="4,0,2,0"
+                           PreviewMouseLeftButtonDown="OnFavStarClick"
+                           ToolTip="Pin to Favorites">
+                    <TextBlock.Style>
+                        <Style TargetType="TextBlock">
+                            <Setter Property="Foreground" Value="{DynamicResource Dim}"/>
+                            <Setter Property="Opacity" Value="0.4"/>
+                            <Style.Triggers>
+                                <DataTrigger Binding="{Binding IsFavorite}" Value="True">
+                                    <Setter Property="Foreground" Value="#FFF2B01E"/>
+                                    <Setter Property="Opacity" Value="1"/>
+                                </DataTrigger>
+                            </Style.Triggers>
+                        </Style>
+                    </TextBlock.Style>
+                </TextBlock>
             </Grid>
         </DataTemplate>
     </Window.Resources>

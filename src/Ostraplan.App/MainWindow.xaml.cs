@@ -32,6 +32,10 @@ public partial class MainWindow : Window
     private SpriteCache? _sprites;   // shared with the canvas; also feeds the inventory viewer
     private List<PartVM> _allParts = [];
     private readonly List<ListBox> _paletteLists = [];
+    // The ★ quick-access tab: Favorites (top) + Recent (below), each its own list wired into _paletteLists so
+    // selection-sync and arming treat them like any other palette list. Headers/empty-state toggle in RefreshQuickLists.
+    private ListBox? _favList, _recentList;
+    private TextBlock? _favHeader, _recentHeader, _quickEmpty;
     private ShipDocument? _doc;
     private SaveShipContext? _saveContext;   // set when a design was imported from a save FOR EDITING — enables writing it back
     private OplanMeta _meta = new();
@@ -169,7 +173,7 @@ public partial class MainWindow : Window
                 // category never leaks into placement/export. Skip defs with no sprite on disk (can't be drawn/ghosted).
                 vms.AddRange(cat.LooseItems
                     .Where(p => p.SpriteAbs is not null)
-                    .Select(p => new PartVM(p with { Category = ItemsCategory }, spr.Thumb(p))));
+                    .Select(p => new PartVM(p with { Category = ItemsCategory }, spr.Thumb(p), isLoose: true)));
                 return (idx, cat, spr, vms);
             });
         }
@@ -220,25 +224,92 @@ public partial class MainWindow : Window
     {
         Tabs.Items.Clear();
         _paletteLists.Clear();
+
+        // ★ Favorites / Recent, always the first tab (see BuildQuickTab).
+        Tabs.Items.Add(BuildQuickTab());
+
         foreach (var category in new[] { "All" }.Concat(Catalog.Categories).Append(ItemsCategory))
         {
-            var list = new ListBox
-            {
-                ItemTemplate = (DataTemplate)FindResource("PartTemplate"),
-                BorderThickness = new Thickness(0),
-                Tag = category == "All" ? null : category,
-                HorizontalContentAlignment = HorizontalAlignment.Stretch,
-                // typeahead runs on TextInput, which fires even when the window
-                // handles PreviewKeyDown - pressing R would silently jump the
-                // palette to an R-part instead of rotating
-                IsTextSearchEnabled = false,
-            };
-            ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
-            list.SelectionChanged += OnPaletteSelection;
+            var list = NewPaletteList(category == "All" ? null : category);
             _paletteLists.Add(list);
             Tabs.Items.Add(new TabItem { Header = category, Content = list });
         }
+
+        ApplyFavoriteFlags();
         RefreshPalette();
+
+        // Returning users with pins land on ★ (its whole point is the shortcut); first-timers land on the catalog
+        // (All) so an empty ★ tab never hides the parts. Index 1 is All (0 is ★).
+        Tabs.SelectedIndex = _settings.Favorites.Count > 0 || _settings.RecentParts.Count > 0 ? 0 : 1;
+    }
+
+    /// <summary>One palette ListBox. <paramref name="category"/> null = the buildable "All" set; a category name =
+    /// that tab; the two ★ lists also pass null and are told apart by reference (see RefreshPalette).</summary>
+    private ListBox NewPaletteList(string? category)
+    {
+        var list = new ListBox
+        {
+            ItemTemplate = (DataTemplate)FindResource("PartTemplate"),
+            BorderThickness = new Thickness(0),
+            Background = Brushes.Transparent,
+            Tag = category,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            // typeahead runs on TextInput, which fires even when the window
+            // handles PreviewKeyDown - pressing R would silently jump the
+            // palette to an R-part instead of rotating
+            IsTextSearchEnabled = false,
+        };
+        ScrollViewer.SetHorizontalScrollBarVisibility(list, ScrollBarVisibility.Disabled);
+        list.SelectionChanged += OnPaletteSelection;
+        return list;
+    }
+
+    /// <summary>The ★ tab: a FAVORITES group over a RECENT group, in one scroll region. Each group's own vertical
+    /// scrollbar is disabled so both size to their content and the outer ScrollViewer does the scrolling. Both lists
+    /// join <see cref="_paletteLists"/> so arming and cross-tab selection-clearing treat them like any other list.</summary>
+    private TabItem BuildQuickTab()
+    {
+        _favList = NewPaletteList(null);
+        _recentList = NewPaletteList(null);
+        ScrollViewer.SetVerticalScrollBarVisibility(_favList, ScrollBarVisibility.Disabled);
+        ScrollViewer.SetVerticalScrollBarVisibility(_recentList, ScrollBarVisibility.Disabled);
+        _paletteLists.Add(_favList);
+        _paletteLists.Add(_recentList);
+
+        TextBlock Header(string text)
+        {
+            var tb = new TextBlock
+            {
+                Text = text, FontSize = 11, FontWeight = FontWeights.Bold,
+                Margin = new Thickness(2, 10, 0, 4),
+            };
+            tb.SetResourceReference(TextBlock.ForegroundProperty, "Dim");   // stays dim across theme switches
+            return tb;
+        }
+
+        _favHeader = Header("FAVORITES");
+        _recentHeader = Header("RECENT");
+        _quickEmpty = new TextBlock
+        {
+            Text = "Nothing pinned yet.\n\nClick the ☆ on any part to pin it here for quick reuse. "
+                 + "Parts you place on the ship show up under Recent automatically.",
+            TextWrapping = TextWrapping.Wrap, Opacity = 0.6, FontSize = 12, Margin = new Thickness(2, 12, 6, 0),
+        };
+
+        var stack = new StackPanel();
+        stack.Children.Add(_quickEmpty);
+        stack.Children.Add(_favHeader);
+        stack.Children.Add(_favList);
+        stack.Children.Add(_recentHeader);
+        stack.Children.Add(_recentList);
+
+        var scroll = new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+            Content = stack,
+        };
+        return new TabItem { Header = "FAV/REC", Content = scroll };
     }
 
     private void RefreshPalette()
@@ -247,6 +318,7 @@ public partial class MainWindow : Window
         _syncingPalette = true;
         foreach (var list in _paletteLists)
         {
+            if (ReferenceEquals(list, _favList) || ReferenceEquals(list, _recentList)) continue;   // ★ lists handled below
             var category = (string?)list.Tag;
             // The "All" tab (null Tag) is the buildable palette only — the huge loose universe stays in its own
             // Items tab, so it doesn't drown the structure parts.
@@ -254,7 +326,84 @@ public partial class MainWindow : Window
                 .Where(vm => (category is null ? vm.Part.Category != ItemsCategory : vm.Part.Category == category) && vm.Matches(search))
                 .ToList();
         }
+        RefreshQuickLists(search);
         _syncingPalette = false;
+    }
+
+    /// <summary>Resolve a saved Favorites/Recent reference back to its single palette-row instance, or null when the
+    /// def is no longer present (a mod that defined it was disabled).</summary>
+    private PartVM? FindPart(PartRef r) =>
+        _allParts.FirstOrDefault(vm => vm.IsLoose == r.Loose && vm.Part.DefName == r.Def);
+
+    /// <summary>Seed each row's star from the saved favorites (called once after the palette is built).</summary>
+    private void ApplyFavoriteFlags()
+    {
+        foreach (var vm in _allParts)
+            vm.IsFavorite = _settings.IsFavorite(vm.Part.DefName, vm.IsLoose);
+    }
+
+    /// <summary>Repopulate the ★ tab's two groups from the saved lists (order preserved), applying the current
+    /// search filter, and hide any empty group's header — showing the onboarding hint only when both are empty.</summary>
+    private void RefreshQuickLists(string search)
+    {
+        if (_favList is null || _recentList is null) return;
+
+        var favs = _settings.Favorites.Select(FindPart).OfType<PartVM>().Where(vm => vm.Matches(search)).ToList();
+        // A favorited part already sits (pinned) in the Favorites group, so drop it from Recent to avoid the
+        // duplicate — Recent is for the not-yet-pinned things you just used. Unpinning brings it back here.
+        var recents = _settings.RecentParts.Select(FindPart).OfType<PartVM>()
+            .Where(vm => vm.Matches(search) && !vm.IsFavorite).ToList();
+
+        var wasSync = _syncingPalette;
+        _syncingPalette = true;   // reassigning ItemsSource clears selection — don't let that ripple through the sync
+        _favList.ItemsSource = favs;
+        _recentList.ItemsSource = recents;
+        _syncingPalette = wasSync;
+
+        var hasFav = favs.Count > 0;
+        var hasRecent = recents.Count > 0;
+        _favHeader!.Visibility = _favList.Visibility = hasFav ? Visibility.Visible : Visibility.Collapsed;
+        _recentHeader!.Visibility = _recentList.Visibility = hasRecent ? Visibility.Visible : Visibility.Collapsed;
+        _quickEmpty!.Visibility = hasFav || hasRecent ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    // ---- favorites / recent ----
+
+    /// <summary>The star on a palette row was clicked: pin/unpin, and swallow the click so the row isn't armed.</summary>
+    private void OnFavStarClick(object sender, MouseButtonEventArgs e)
+    {
+        if (sender is not FrameworkElement { DataContext: PartVM vm }) return;
+        e.Handled = true;
+        ToggleFavorite(vm);
+    }
+
+    /// <summary>Toggle a palette row's favorite state, persist, and refresh the ★ tab.</summary>
+    private void ToggleFavorite(PartVM vm)
+    {
+        vm.IsFavorite = _settings.ToggleFavorite(vm.Part.DefName, vm.IsLoose);
+        _settings.Save();
+        AuditLog.Add((vm.IsFavorite ? "Favorited " : "Unfavorited ") + vm.Part.Friendly);
+        RefreshQuickLists(TxtSearch.Text.Trim());
+    }
+
+    /// <summary>Toggle a favorite by def reference (the right-click-menu route from a placed tile / loose item). Updates
+    /// the palette row's star when the part is in the palette; otherwise toggles the saved list directly.</summary>
+    private void ToggleFavoriteByRef(string def, bool loose)
+    {
+        if (FindPart(new PartRef(def, loose)) is { } vm) { ToggleFavorite(vm); return; }
+        _settings.ToggleFavorite(def, loose);
+        _settings.Save();
+        RefreshQuickLists(TxtSearch.Text.Trim());
+    }
+
+    /// <summary>A placement just committed: record the armed part as most-recently-used and refresh Recent. A repeat
+    /// of the current front is a no-op (PushRecent returns false), so a paint stroke doesn't thrash the settings file.</summary>
+    private void RecordRecentUse()
+    {
+        if (Board.ArmedPart is not { } p) return;
+        if (!_settings.PushRecent(p.DefName, Board.ArmedLoose)) return;
+        _settings.Save();
+        RefreshQuickLists(TxtSearch.Text.Trim());
     }
 
     private void OnSearchChanged(object sender, TextChangedEventArgs e)
@@ -845,6 +994,7 @@ public partial class MainWindow : Window
         // the canvas already executed these live during the drag; record as ONE undo step
         if (_doc is null || stroke.Count == 0) return;
         _stack.PushExecuted(stroke.Count == 1 ? stroke[0] : new CompositeCommand(stroke.ToList()));
+        RecordRecentUse();   // the armed brush just landed at least one part — it's now "recently used"
     }
 
     private void OnMoveRequested(IReadOnlyList<Placement> placements, int dx, int dy)
@@ -1508,7 +1658,11 @@ public partial class MainWindow : Window
 
         menu.Items.Add(new Separator());
         if (brushDef is not null)
+        {
             menu.Items.Add(Item("Use as brush", "Alt+Click", (_, _) => OnArmFromTile(brushDef)));
+            menu.Items.Add(Item(_settings.IsFavorite(brushDef, false) ? "Remove from Favorites" : "Add to Favorites",
+                "", (_, _) => ToggleFavoriteByRef(brushDef, false)));
+        }
         if (canReplace)
             menu.Items.Add(Item("Replace with…" + suffix, "Ctrl+R", (_, _) => ReplaceSelection()));
         if (canFindReplace)
@@ -1551,6 +1705,9 @@ public partial class MainWindow : Window
         var stackable = part.StackLimit > 1;
         menu.Items.Add(Item(stackable ? "Change Quantity…" : "Change Quantity (not stackable)", "",
             (_, _) => ChangeLooseQuantity(lo, part), stackable));
+        menu.Items.Add(new Separator());
+        menu.Items.Add(Item(_settings.IsFavorite(lo.DefName, true) ? "Remove from Favorites" : "Add to Favorites",
+            "", (_, _) => ToggleFavoriteByRef(lo.DefName, true)));
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("Delete", "Del", (_, _) => DeleteSelection()));
         menu.IsOpen = true;

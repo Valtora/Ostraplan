@@ -9,6 +9,19 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **0.15.1.6**).
 
+## [0.51.0] 2026-07-20, Favorites and Recent
+
+### Added
+- **Pin the parts you use most, and grab the ones you just placed** (issue #10). The part palette gains a new
+  **FAV/REC** tab at the front with two groups:
+  - **Favorites** — click the ☆ on any palette row (or right-click a placed tile / loose item ▸ **Add to
+    Favorites**) to pin it. The star fills gold, and the part is one click away from any tab, forever.
+  - **Recent** — every part you place is recorded here automatically, newest first (the last 8), so re-using
+    something you just built no longer means searching for it again. Favorited parts are left out of Recent
+    (they already have a home in Favorites), and reappear there if you unpin them.
+  Both lists persist across sessions, honour the search box, and — for returning users with pins — the palette
+  opens straight to the FAV/REC tab. First-timers still land on the full catalogue.
+
 ## [0.50.0] 2026-07-19, Traceable bug reports
 
 ### Changed
