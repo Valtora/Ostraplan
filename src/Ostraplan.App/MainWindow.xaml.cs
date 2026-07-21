@@ -92,10 +92,12 @@ public partial class MainWindow : Window
         // restore the "allow modded parts to break the law" toggle (default off)
         Board.AllowModdedOverrides = _settings.AllowModdedOverrides;
         Board.ZoneStrokeCommitted += OnZoneStrokeCommitted;
+        Board.ShowZonesChanged += OnShowZonesChanged;   // refresh the toolbar toggle highlight
         Board.ShowPowerChanged += OnShowPowerChanged;   // (re)compute the overlay off-thread when toggled on
         Board.ShowRoomsChanged += OnShowRoomsChanged;   // same for the room certification
         Board.ShowLightChanged += OnShowLightChanged;   // same for the interior-lighting flood
         Board.WireModeChanged += OnWireModeChanged;     // swap the status hint for the wiring instructions
+        SyncViewToggles();                              // seed the toolbar highlights from the initial overlay state
         Board.LinkToggleRequested += OnLinkToggleRequested;   // connect/disconnect two devices via the command stack
         Board.ActiveZoneChanged += UpdateZones;   // reflect which zone (if any) is being painted
         _stack.StateChanged += RefreshChrome;
@@ -1031,10 +1033,15 @@ public partial class MainWindow : Window
 
     // ---- power (PowerViz) ----
 
+    /// <summary>The zone overlay was toggled: just refresh the toolbar highlight (zones are painted data, nothing to
+    /// recompute).</summary>
+    private void OnShowZonesChanged() => SyncViewToggles();
+
     /// <summary>PowerViz was toggled: when turned on, kick a scan so the overlay computes (the network flood only
     /// runs while the overlay is on).</summary>
     private void OnShowPowerChanged()
     {
+        SyncViewToggles();
         if (Board.ShowPower) ScheduleScan();
     }
 
@@ -1044,6 +1051,7 @@ public partial class MainWindow : Window
     /// certification only run while the overlay is on).</summary>
     private void OnShowRoomsChanged()
     {
+        SyncViewToggles();
         if (Board.ShowRooms) ScheduleScan();
     }
 
@@ -1053,6 +1061,7 @@ public partial class MainWindow : Window
     /// runs while the overlay is on).</summary>
     private void OnShowLightChanged()
     {
+        SyncViewToggles();
         if (Board.ShowLight) ScheduleScan();
     }
 
@@ -1061,6 +1070,7 @@ public partial class MainWindow : Window
     /// <summary>Wire mode toggled: swap the status-bar hint for the wiring instructions (and back).</summary>
     private void OnWireModeChanged()
     {
+        SyncViewToggles();
         _defaultHint ??= TxtHint.Text;
         TxtHint.Text = Board.WireMode
             ? "WIRE MODE · click a device, then another to connect · click a connected one to disconnect · right-click/Esc to cancel"
@@ -2493,8 +2503,9 @@ public partial class MainWindow : Window
         OpenMenuUnder(m, BtnDesignMenu);
     }
 
-    /// <summary>The View ▾ dropdown: fit, symmetry, and the zone / power / mod-override overlays. State is read
-    /// live when the menu opens (checkmarks / the active symmetry mode) rather than shown on the toolbar.</summary>
+    /// <summary>The View ▾ dropdown: fit, symmetry, Light Viz dimming, and the mod-override toggle. The overlay
+    /// toggles (Zones / Rooms / Power / Light / Wire) now live on the toolbar as highlighted buttons, so they are no
+    /// longer duplicated here. State is read live when the menu opens (the active symmetry mode / the checkmark).</summary>
     private void OnViewMenuClick(object sender, RoutedEventArgs e)
     {
         var m = new ContextMenu();
@@ -2511,15 +2522,30 @@ public partial class MainWindow : Window
         m.Items.Add(sym);
 
         m.Items.Add(new Separator());
-        m.Items.Add(MenuAction("Zones overlay", Board.ToggleZones, check: Board.ShowZones, gesture: "Z"));
-        m.Items.Add(MenuAction("Rooms overlay", Board.ToggleRooms, check: Board.ShowRooms, gesture: "C"));
-        m.Items.Add(MenuAction("Power overlay", Board.TogglePower, check: Board.ShowPower, gesture: "P"));
-        m.Items.Add(MenuAction("Light overlay", Board.ToggleLight, check: Board.ShowLight, gesture: "L"));
         m.Items.Add(LightDimmingItem());
-        m.Items.Add(MenuAction("Wire mode (device connections)", Board.ToggleWireMode, check: Board.WireMode));
-        m.Items.Add(new Separator());
         m.Items.Add(MenuAction("Mod overrides", ToggleModOverrides, check: Board.AllowModdedOverrides));
         OpenMenuUnder(m, BtnViewMenu);
+    }
+
+    // ---- toolbar view toggles (promoted from the View menu) ----
+
+    private void OnZonesToggleClick(object sender, RoutedEventArgs e) => Board.ToggleZones();
+    private void OnRoomsToggleClick(object sender, RoutedEventArgs e) => Board.ToggleRooms();
+    private void OnPowerToggleClick(object sender, RoutedEventArgs e) => Board.TogglePower();
+    private void OnLightToggleClick(object sender, RoutedEventArgs e) => Board.ToggleLight();
+    private void OnWireToggleClick(object sender, RoutedEventArgs e) => Board.ToggleWireMode();
+
+    /// <summary>Reflect the live overlay state onto the toolbar toggle buttons' IsChecked, so the Fluent theme paints
+    /// the active view with its own (theme-aware, correct-contrast) checked accent. Called at startup and from every
+    /// ...Changed handler, so the highlight stays in step whether the toggle came from a button, a keyboard gesture,
+    /// or code. Assigning IsChecked raises Checked/Unchecked but never Click, so this cannot re-enter the toggles.</summary>
+    private void SyncViewToggles()
+    {
+        BtnZones.IsChecked = Board.ShowZones;
+        BtnRooms.IsChecked = Board.ShowRooms;
+        BtnPower.IsChecked = Board.ShowPower;
+        BtnLight.IsChecked = Board.ShowLight;
+        BtnWire.IsChecked = Board.WireMode;
     }
 
     /// <summary>Pick a save and import the player's ship from it — layout only, behind an explicit confirmation.</summary>
@@ -3356,7 +3382,7 @@ public partial class MainWindow : Window
             ("Power overlay", "P", "Show/hide PowerViz: lit conduit runs flow from a live generator/battery, orphaned runs are dim red, and a wired device with no feed gets an amber marker. A powered part also shows its connector badges (blue IN, green OUT) while armed or selected."),
             ("Rooms overlay", "C", "Show/hide RoomViz: every compartment the game would flood-fill, tinted in its own colour and labelled with what it certifies as, its size and its value. A room that certifies as nothing says why — what to add, and which item in it blocks the spec (a canister parked in a quarters, say). Unsealed compartments are red. The exterior isn't tinted, so a room open to space simply loses its tint."),
             ("Light overlay", "L", "Show/hide Light Viz: interior lighting simulated from every fixture and lit device. Each light floods its compartment (bounded by walls) in its own colour, so dark corners and colour clashes show at a glance. The View menu's Light Viz sliders set the light brightness and how far unlit areas darken (from a glow over the full-bright ship up to the in-game dark look)."),
-            ("Wire mode", "View menu", "Wire signalable devices: click a device to arm it as the signal source, then click another to connect (or a connected one to disconnect). Connectable devices ring violet, wires draw source→target. Esc / right-click cancels."),
+            ("Wire mode", "Toolbar toggle", "Wire signalable devices: click a device to arm it as the signal source, then click another to connect (or a connected one to disconnect). Connectable devices ring violet, wires draw source→target. Esc / right-click cancels."),
             ("Delete", "Del", "Delete the selection."),
             ("Select all", "Ctrl+A", "Select every part in the design."),
             ("Copy / paste / duplicate", "Ctrl+C / V / D", "Copy · paste at the cursor · duplicate the selection."),

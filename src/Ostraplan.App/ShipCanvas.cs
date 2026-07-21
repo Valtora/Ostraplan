@@ -195,7 +195,7 @@ public sealed class ShipCanvas : FrameworkElement
     public Guid? ActiveZoneId { get; private set; }    // the zone being painted, or null when not in zone-paint mode
     public bool ShowPower { get; private set; }        // PowerViz conduit overlay visibility (toolbar/P toggle)
     public bool ShowRooms { get; private set; }        // RoomViz compartment overlay visibility (toolbar/C toggle)
-    public bool ShowLight { get; private set; } = true;   // Light Viz overlay (View/L toggle) — ON by default: the plan opens showing the in-game lighting
+    public bool ShowLight { get; private set; }        // Light Viz overlay (toolbar/L toggle) — OFF by default: the plan opens on the plain sprite ship, not the in-game dark (an unlit airlock reads as black)
 
     /// <summary>When true the canvas is in <b>wire mode</b>: click a signalable device to arm it as the signal
     /// source, then click another to connect them (click a connected one again to disconnect). See
@@ -1956,12 +1956,17 @@ public sealed class ShipCanvas : FrameworkElement
 
         DrawGrid(dc, view);
 
-        // The placement sprites: a Move drags selected parts (offset per frame) and a Paint adds
-        // parts live, so both draw straight through; every other state (idle, band-select, box-fill
-        // preview) leaves the ship untouched, so reuse the cached drawing and skip the whole
-        // DrawOrder + autotile pass each frame — the win on a big ship during a band/fill drag.
-        if (_drag is Drag.Move or Drag.Paint)
+        // The placement sprites. When Light Viz is on we always show the lit composite as the ship body — even
+        // mid-drag — so the ship never "un-lights" while you manipulate it (the old drag path drew flat sprites,
+        // which read as a flicker against the lit look). The composite is a snapshot from stroke start, so the only
+        // parts that differ from it are the in-flux ones (the moving selection, the live paint stroke); those draw
+        // live on top via DrawInFluxParts. A moving part therefore shows twice for the duration of the drag: lit at
+        // its origin (baked in the composite) and live at the cursor — the expected drag-preview double.
+        var lit = ShowLight && _lightImage is not null;
+        if (_drag is Drag.Move or Drag.Paint && !lit)
         {
+            // No composite to lean on (Light Viz off, or not yet baked): a Move drags selected parts (offset per
+            // frame) and a Paint adds parts live, so both draw straight through, bypassing the cached drawing.
             foreach (var p in Doc.DrawOrder())
             {
                 var offset = _drag == Drag.Move && SelectedIds.Contains(p.Id) && !Doc.IsLocked(p) ? MoveDeltaFor(p) : (0, 0);
@@ -1970,10 +1975,11 @@ public sealed class ShipCanvas : FrameworkElement
         }
         else
         {
-            // The cache is baked at pan zero, so shift it to the live pan with a transform — panning stays a
-            // transform + one blit instead of rebuilding the whole ship each frame.
+            // The cache/composite is baked at pan zero, so shift it to the live pan with a transform — panning stays
+            // a transform + one blit instead of rebuilding the whole ship each frame. Every non-drag state (idle,
+            // band-select, box-fill preview) reuses this too, so it skips the DrawOrder + autotile pass each frame.
             dc.PushTransform(new TranslateTransform(_pan.X, _pan.Y));
-            if (ShowLight && _lightImage is not null)
+            if (lit)
             {
                 // Light Viz: the game-exact composite (albedo x accumulated light + glow decals), one doc-space
                 // bitmap at 16 px/tile scaled like a sprite. Unlit hull is a black silhouette, exactly in-game.
@@ -1982,10 +1988,12 @@ public sealed class ShipCanvas : FrameworkElement
             }
             else dc.DrawDrawing(StaticShip());
             dc.Pop();
+            if (_drag is Drag.Move or Drag.Paint) DrawInFluxParts(dc);   // the moving selection / live paint stroke, over the lit backdrop
         }
 
-        // loose floor items sit on top of the deck/fixtures they rest on; the lit composite already bakes them
-        var litDrawn = ShowLight && _lightImage is not null && _drag is not (Drag.Move or Drag.Paint);
+        // loose floor items sit on top of the deck/fixtures they rest on; the lit composite already bakes them (any
+        // just-painted loose item is drawn by DrawInFluxParts, so only the unlit path draws the loose layer itself)
+        var litDrawn = lit;
         if (!litDrawn) DrawLooseObjects(dc);
 
         DrawIllegalCells(dc);
@@ -2243,15 +2251,18 @@ public sealed class ShipCanvas : FrameworkElement
     private void RebuildLightComposite()
     {
         var job = ++_lightJob;
-        _lightImage = null;
-        if (!ShowLight || Doc is null || Sprites is null || Doc.Bounds() is not { } b) return;
+        // Keep the CURRENT composite on screen while the new one bakes off-thread — nulling it here made every edit
+        // flash the unlit StaticShip() fallback for a frame or two ("lit -> black -> lit") until the worker returned.
+        // The retained frame is at most one edit stale; the worker swaps it in place (guarded by _lightJob). Only the
+        // paths below that genuinely have nothing to show clear it.
+        if (!ShowLight || Doc is null || Sprites is null || Doc.Bounds() is not { } b) { _lightImage = null; return; }
 
         const int margin = 6;   // room for glow halos past the hull; lit pixels need albedo, which stays in bounds
         const int ppt = 16;
         int minX = b.MinX - margin, minY = b.MinY - margin;
         int tilesW = b.MaxX - b.MinX + 1 + 2 * margin, tilesH = b.MaxY - b.MinY + 1 + 2 * margin;
         int w = tilesW * ppt, h = tilesH * ppt;
-        if ((long)w * h > 64_000_000) return;   // a station past ~500x500 tiles: skip rather than exhaust memory
+        if ((long)w * h > 64_000_000) { _lightImage = null; return; }   // a station past ~500x500 tiles: skip rather than exhaust memory
 
         var albedo = BakeDocPixels(minX, minY, tilesW, tilesH, ppt, normalPass: false);
         var normal = BakeDocPixels(minX, minY, tilesW, tilesH, ppt, normalPass: true);
@@ -2671,6 +2682,32 @@ public sealed class ShipCanvas : FrameworkElement
             return _staticShip = dg;
         }
         finally { _pan = savedPan; }
+    }
+
+    /// <summary>Draw only the parts in flux during a Move/Paint drag, live, over the retained lit composite: the
+    /// moving selection (each at its per-frame offset) for a Move, or the parts placed so far this stroke for a
+    /// Paint (which the composite, baked at stroke start, doesn't yet contain). Everything static comes from the
+    /// composite, so this keeps the ship lit while an edit is in progress. Autotiling of the moving parts is
+    /// computed from the still-unmutated document exactly as the flat drag path did, then translated.</summary>
+    private void DrawInFluxParts(DrawingContext dc)
+    {
+        if (Doc is null) return;
+        if (_drag == Drag.Move)
+        {
+            foreach (var p in Doc.DrawOrder())
+                if (SelectedIds.Contains(p.Id) && !Doc.IsLocked(p))
+                    DrawPlacement(dc, p, MoveDeltaFor(p));
+        }
+        else if (_drag == Drag.Paint)
+        {
+            foreach (var cmd in _stroke)
+            {
+                if (cmd is PlaceCommand pc) DrawPlacement(dc, pc.Placement, (0, 0));
+                else if (cmd is PlaceLooseCommand lc && Doc.Catalog.Lookup(lc.Obj.DefName) is { } part)
+                    DrawSprite(dc, part, lc.Obj.X, lc.Obj.Y, lc.Obj.Rot, ghost: false);
+                // a SetCargoCommand (loose dropped into a container) has no on-grid sprite — nothing to draw
+            }
+        }
     }
 
     /// <summary>Draw every loose floor item at its tile (resolved to its sprite), plus a select outline on the

@@ -30,6 +30,14 @@
             <Setter Property="Margin" Value="7,3"/>
             <Setter Property="Background" Value="{DynamicResource PanelBorder}"/>
         </Style>
+        <!-- Toolbar overlay toggle (Zones / Rooms / Power / Light / Wire). A ToggleButton based on the Fluent theme
+             style, so inactive it matches the other toolbar buttons exactly and active it wears the theme's own
+             checked accent — theme-aware with correct contrast in every state (hover/pressed, light/dark). The
+             IsChecked state is driven from the live overlay flags in MainWindow.SyncViewToggles. -->
+        <Style x:Key="OverlayToggle" TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
+            <Setter Property="Padding" Value="10,3"/>
+            <Setter Property="Margin" Value="0,0,3,0"/>
+        </Style>
         <DataTemplate x:Key="PartTemplate">
             <Grid Margin="2">
                 <Grid.ColumnDefinitions>
@@ -99,8 +107,24 @@
 
                     <Border Style="{StaticResource ToolSep}"/>
 
+                    <!-- View overlays (promoted from the View menu — the Fluent checked state highlights while active).
+                         The keyboard gestures still toggle these; SyncViewToggles keeps IsChecked in step whichever
+                         path fires. Click drives the canvas; the code-set IsChecked never re-enters Click. -->
+                    <ToggleButton x:Name="BtnZones" Content="Zones" Style="{StaticResource OverlayToggle}" Click="OnZonesToggleClick"
+                            ToolTip="Zones overlay (Z): show the crew-assignable zone paint"/>
+                    <ToggleButton x:Name="BtnRooms" Content="Rooms" Style="{StaticResource OverlayToggle}" Click="OnRoomsToggleClick"
+                            ToolTip="Rooms overlay (C): show the compartments the game would flood-fill"/>
+                    <ToggleButton x:Name="BtnPower" Content="Power" Style="{StaticResource OverlayToggle}" Click="OnPowerToggleClick"
+                            ToolTip="Power overlay (P): show the conduit network and orphaned runs"/>
+                    <ToggleButton x:Name="BtnLight" Content="Light" Style="{StaticResource OverlayToggle}" Click="OnLightToggleClick"
+                            ToolTip="Light Viz (L): simulate the in-game interior lighting"/>
+                    <ToggleButton x:Name="BtnWire" Content="Wire" Style="{StaticResource OverlayToggle}" Click="OnWireToggleClick"
+                            ToolTip="Wire mode: click a device, then another, to connect their signals"/>
+
+                    <Border Style="{StaticResource ToolSep}"/>
+
                     <Button x:Name="BtnViewMenu" Content="View ▾" Padding="10,3" Margin="0,0,3,0" Click="OnViewMenuClick"
-                            ToolTip="Fit, symmetry, and the zone / power / mod-override overlays"/>
+                            ToolTip="Fit, symmetry, Light Viz dimming, and the mod-override toggle"/>
                 </StackPanel>
 
                 <!-- Right side (added right-to-left) -->

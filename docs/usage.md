@@ -39,7 +39,7 @@ right, but treat a mismatch as "double-check in-game".
 | **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**, and an **ITEMS** tab for loose floor cargo. Search by friendly or internal name. Modded parts show a small origin badge. |
 | **Canvas** (centre) | The tile grid. Place, paint, select, pan and zoom here. |
 | **Inspector** (right) | The selected part's details, ship stats, the **Problems** list, and the **Law report**. |
-| **Toolbar** (top) | Grouped **File · Edit · Design · Analyse · View**, with the theme picker and the **Help ▾** menu on the right. When a newer release exists it is downloaded quietly in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
+| **Toolbar** (top) | Grouped **File · Edit · Design · Analyse**, then the view overlay toggles **Zones · Rooms · Power · Light · Wire** (each highlights in the accent colour while active) and the **View ▾** menu (fit, symmetry, Light Viz dimming, mod overrides), with the theme picker and the **Help ▾** menu on the right. When a newer release exists it is downloaded quietly in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
 
 ## Placing parts
 
@@ -115,7 +115,7 @@ only affects modded content.
 - **Ship Rating** (Analyse): runs the full room / airtightness / certification /
   rating pass and opens the **law report** — uncertifiable rooms with reasons,
   air-leak tracing to the unsealed tile, and the six-slot rating broken down.
-- **RoomViz overlay** — the **Rooms** View-menu entry or **C**. The same
+- **RoomViz overlay** — the **Rooms** toolbar button or **C**. The same
   certification, live on the canvas: every compartment tinted in its own colour and
   labelled with what it certifies as, its tile count and its value. An uncertified
   room also lists what it needs and, importantly, which item **in** it blocks the
@@ -123,14 +123,17 @@ only affects modded content.
   value, and this is where you see that. Unsealed rooms are red; the exterior isn't
   tinted, so a compartment open to space simply loses its tint. Like PowerViz it only
   computes while it's on.
-- **Light Viz overlay** — the **Light overlay** View-menu entry or **L**, **on by
-  default**. The game's own lighting reproduced pixel-exact on the plan: real
-  occluders (glass windows pass light, open doors spill it, beds and canisters cast
-  shadows while staying lit), lit wall faces, normal-mapped relief, and soft light
-  stacking. Press **L** to toggle back to the flat, fully-lit view. Under **View ▸
-  Light Viz** you can also switch on **exterior daylight** for a parallax location and
-  sun angle, hull-occluded and streaming through glass. It is a faithful preview, not
-  a validation step (Ostranauts has no darkness gameplay).
+- **Light Viz overlay** — the **Light** toolbar button or **L**, **off by
+  default** (the plan opens on the flat sprite view). The game's own lighting
+  reproduced pixel-exact on the plan: real occluders (glass windows pass light, open
+  doors spill it, beds and canisters cast shadows while staying lit), lit wall faces,
+  normal-mapped relief, and soft light stacking. Press **L** to toggle it on, and
+  again for the flat, fully-lit view. Under **View ▸ Light Viz** you can also switch on
+  **exterior daylight** for a parallax location and sun angle, hull-occluded and
+  streaming through glass. Manipulating parts with the overlay on stays smooth: the ship
+  keeps its lit look while you drag, and the composite refreshes in place without a
+  flash. It is a faithful preview, not a validation step (Ostranauts has no darkness
+  gameplay).
 - **Problems** (inspector): live blocking/warning issues for placement and
   airlock-envelope. Each entry expands for the detail, and a **View** button pans and
   zooms the canvas straight to the offending tiles so it's easy to find on a big ship.
@@ -272,7 +275,7 @@ something Ostraplan can honestly compute.
 ### Wiring devices together
 
 Signalable devices (a sensor and an alarm, a switch and a pump) can be wired the way
-the in-game rewire tool does it. Turn on **Wire mode** (View menu), click a signalable
+the in-game rewire tool does it. Turn on **Wire mode** (the **Wire** toolbar button), click a signalable
 installed device to arm it as the signal **source**, then click another to **connect**
 (or a connected one to **disconnect**). The source stays armed so you can wire it to
 several targets; **Esc** or right-click cancels. Connectable devices ring violet, and

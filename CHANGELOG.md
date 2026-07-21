@@ -9,6 +9,28 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **0.15.1.6**).
 
+## [0.52.0] 2026-07-21, Smoother Light Viz and toolbar view toggles
+
+### Added
+- **View overlays are now toolbar buttons, and they highlight while active.** The overlay toggles that used to
+  hide inside the **View ▾** menu (**Zones · Rooms · Power · Light · Wire mode**) are promoted to buttons on the
+  main toolbar, each lighting up in the accent colour while its view is on, so what you're looking at reads at a
+  glance without opening a menu. Their keyboard gestures (Z / C / P / L) are unchanged, and the highlight stays in
+  step however you toggle. The **View ▾** menu keeps the non-overlay items (fit, symmetry, Light Viz dimming, mod
+  overrides).
+
+### Changed
+- **Light Viz now starts off.** The plan opens on the flat sprite view instead of the in-game lighting, so a new
+  or freshly opened design no longer greets you with a black, unlit airlock. Turn it on with the **Light** button
+  or **L** whenever you want the lighting preview.
+
+### Fixed
+- **Light Viz no longer flickers while you edit.** Manipulating parts with the overlay on used to flash the ship
+  unlit: it dropped to flat sprites for the duration of a drag, and every edit briefly cleared the lit image to a
+  black silhouette while the new one recomputed off-thread. The ship now keeps its lit look throughout a
+  move/paint drag (the in-flux part draws live over the retained lit backdrop), and the composite is held on
+  screen and swapped in place when the recompute finishes, so there is no unlit flash between edits.
+
 ## [0.51.0] 2026-07-20, Favorites and Recent
 
 ### Added
