@@ -1,0 +1,6 @@
+#!/bin/sh
+# Auto-export this repo's Claude memory into .claude/memory before each commit.
+root="$(git rev-parse --show-toplevel)"
+powershell -NoProfile -ExecutionPolicy Bypass -File "$root/.claude/sync-memory.ps1" -Mode Export >/dev/null 2>&1
+git add "$root/.claude/memory" >/dev/null 2>&1
+exit 0
