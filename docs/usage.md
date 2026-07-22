@@ -77,6 +77,14 @@ in the toolbar: the ghost turns **amber** (placing against the rules, flagged) a
 the part lands, flagged in Problems. **Core parts are always enforced** — the toggle
 only affects modded content.
 
+**Overhead lights and power conduits.** Overhead ceiling lights are the one part the
+game's *interactive* builder only lets a crew hang on a power conduit — but every
+in-game ship drops them freely and powers them through the electrical network, so
+Ostraplan lets you place them anywhere. A light with no conduit on its anchor tile
+places with an **amber** ghost ("places, but no power conduit adjacent") and a
+dismissible **Problems** warning pointing at that tile; run a **POWR** conduit onto
+the adjoining tile (or rotate the light to face an existing one) and the flag clears.
+
 ## Selecting & editing
 
 - **Select:** left-click a part. **Box-select:** drag over empty space.

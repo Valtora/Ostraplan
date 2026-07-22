@@ -46,6 +46,42 @@ public class GameDataTests
         Assert.False(doc.IsLocked(new Placement { DefName = "ItmDockSys03Closed" }));
     }
 
+    /// <summary>
+    /// Issue #11. The overhead ceiling lights (<c>ItmLitCeiling1x1*</c>) are the only buildable parts whose
+    /// <c>aSocketReqs</c> demand a power conduit (<c>IsPowerConduit</c>) on an adjacent tile. The game's
+    /// interactive builder enforces that, but dev-authored / spawned ships hang them freely — so a planner
+    /// (which produces spawn-placed ships) treats the missing conduit as a soft advisory, not a hard block:
+    /// the light PLACES, flagged, and the advisory clears once a real conduit is put on its anchor tile.
+    /// </summary>
+    [SkippableFact]
+    public void Overhead_light_places_with_a_conduit_advisory_and_clears_when_wired()
+    {
+        var g = TestData.RequireGame();
+
+        var light = g.Catalog.Parts.FirstOrDefault(p =>
+            p.Item.SocketReqs.SelectMany(g.Catalog.LootConds).Contains("IsPowerConduit"));
+        Skip.If(light is null, "no conduit-anchored light in this install");
+        Assert.Contains("Overhead Light", light!.Friendly);
+
+        var doc = new ShipDocument(g.Catalog);
+
+        // No conduit: the light places (this is the issue-#11 fix — it used to be hard-blocked) but is flagged.
+        var bare = CheckFit.Check(doc, light, 0, 0, 0, includeEnvelope: false);
+        Assert.True(bare.Ok);
+        Assert.Equal("no power conduit adjacent", bare.Advisory);
+        Assert.Empty(bare.FailedCells);
+        var anchor = Assert.Single(bare.AdvisoryCells!);   // the one ring cell wanting a conduit
+
+        // Put a real power conduit on that anchor tile; the advisory clears — fully-legal, unflagged.
+        var conduit = g.Catalog.Parts.First(p =>
+            p.Item.SocketAdds.SelectMany(g.Catalog.LootConds).Contains("IsPowerConduit"));
+        new PlaceCommand(new Placement { DefName = conduit.DefName, X = anchor.X, Y = anchor.Y }).Do(doc);
+
+        var wired = CheckFit.Check(doc, light, 0, 0, 0, includeEnvelope: false);
+        Assert.True(wired.Ok);
+        Assert.Null(wired.Advisory);
+    }
+
     [SkippableFact]
     public void Parts_expose_raw_mass_and_health_figures()
     {

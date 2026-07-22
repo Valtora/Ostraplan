@@ -11,8 +11,10 @@ namespace Ostraplan.App;
 public enum SymmetryMode { Off, Vertical, Horizontal, Both }
 
 /// <summary>The armed ghost's illegality status. <see cref="WillPlace"/> is true when the pose fails the core-only
-/// placement law but a modded-override lets it place anyway (amber ghost) — false when it is hard-blocked (red).</summary>
-public readonly record struct GhostStatus(string Reason, bool WillPlace);
+/// placement law but a modded-override lets it place anyway (amber ghost) — false when it is hard-blocked (red).
+/// <paramref name="Advisory"/> is a third state: the pose is fully legal but an unmet soft requirement (e.g. an
+/// overhead light with no adjacent power conduit) is worth noting — a gentler "places, but …" than an override.</summary>
+public readonly record struct GhostStatus(string Reason, bool WillPlace, bool Advisory = false);
 
 /// <summary>
 /// The tile grid: renders the document's sprites (16 px art scaled with
@@ -596,9 +598,9 @@ public sealed class ShipCanvas : FrameworkElement
         return maxX < minX ? (gx, gy, w, h) : (minX, minY, maxX - minX + 1, maxY - minY + 1);
     }
 
-    private void RaiseGhostReason(string? reason, bool willPlace = false)
+    private void RaiseGhostReason(string? reason, bool willPlace = false, bool advisory = false)
     {
-        GhostStatus? status = reason is null ? null : new GhostStatus(reason, willPlace);
+        GhostStatus? status = reason is null ? null : new GhostStatus(reason, willPlace, advisory);
         if (status.Equals(_lastGhostReason)) return;
         _lastGhostReason = status;
         GhostReasonChanged?.Invoke(status);
@@ -2046,6 +2048,7 @@ public sealed class ShipCanvas : FrameworkElement
                 else if (modded) RaiseGhostReason(why + " — modded; turn on \"Mod overrides\" to place it anyway");
                 else RaiseGhostReason(why);
             }
+            else if (cursor is { Advisory: { } adv }) RaiseGhostReason(adv, advisory: true);   // legal, but a soft req is unmet
             else RaiseGhostReason(null);
         }
         else
@@ -2533,8 +2536,11 @@ public sealed class ShipCanvas : FrameworkElement
 
         // a modded part that fails the core-only law but WILL place via the override draws amber ("flagged, not
         // blocked") rather than red — so the ghost distinguishes "can't" from "against the rules but allowed".
+        // A legal-but-advisory pose (a soft req unmet, e.g. an overhead light with no adjacent conduit) draws the
+        // same amber: it places, and the amber outline + tinted advisory cell say "noted" without saying "can't".
         var overriding = !fit.Ok && AllowModdedOverrides && part.IsModded;
-        var outlinePen = fit.Ok ? GhostOkPen : overriding ? GhostOverridePen : GhostBadPen;
+        var advisory = fit.Ok && fit.Advisory is not null;
+        var outlinePen = fit.Ok ? (advisory ? GhostOverridePen : GhostOkPen) : overriding ? GhostOverridePen : GhostBadPen;
         var cellFill = overriding ? OverrideFill : HazardFill;
 
         var under = UnderFloorCells(part, gx, gy, rot).ToList();
@@ -2547,6 +2553,10 @@ public sealed class ShipCanvas : FrameworkElement
 
         foreach (var (cx, cy) in fit.FailedCells)   // failing cells override the sub-floor shade
             dc.DrawRectangle(cellFill, null, CellRect(cx, cy, 1, 1));
+
+        if (advisory)   // tint the tile the soft req points at (e.g. where a power conduit is wanted)
+            foreach (var (cx, cy) in fit.AdvisoryCells ?? [])
+                dc.DrawRectangle(OverrideFill, null, CellRect(cx, cy, 1, 1));
 
         if (under.Count > 0)
         {

@@ -85,7 +85,7 @@ public partial class MainWindow : Window
         Board.LooseContextMenuRequested += OnLooseContextMenuRequested;
         Board.BandFilterRequested += OnBandFilterRequested;
         Board.GhostReasonChanged += status => TxtGhost.Text =
-            status is { } s ? (s.WillPlace ? "⚠ placing against the rules — " : "⛔ can't place here — ") + s.Reason
+            status is { } s ? (s.Advisory ? "⚠ places, but " : s.WillPlace ? "⚠ placing against the rules — " : "⛔ can't place here — ") + s.Reason
             : Board.AirSelection.Count > 0 ? AirHint(Board.AirSelection.Count)
             : "";
         Board.AirSelectionChanged += n => TxtGhost.Text = n > 0 ? AirHint(n) : "";

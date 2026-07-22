@@ -3,8 +3,14 @@ namespace Ostraplan.Core;
 /// <summary>
 /// Outcome of a placement legality test: whether the pose fits, the world tiles
 /// that failed (for the red ghost / hazard tint), and a one-line human reason.
+///
+/// <para><see cref="Advisory"/>/<see cref="AdvisoryCells"/> carry a <b>soft</b> outcome: the pose is
+/// legal (<see cref="Ok"/> stays true) but an unmet soft requirement is worth flagging — the amber
+/// "places, but …" ghost and a dismissible ProblemScan warning. See <see cref="CheckFit.SoftReqs"/>.</para>
 /// </summary>
-public sealed record FitResult(bool Ok, IReadOnlyList<(int X, int Y)> FailedCells, string? Reason)
+public sealed record FitResult(
+    bool Ok, IReadOnlyList<(int X, int Y)> FailedCells, string? Reason,
+    string? Advisory = null, IReadOnlyList<(int X, int Y)>? AdvisoryCells = null)
 {
     public static readonly FitResult Legal = new(true, [], null);
 }
@@ -65,7 +71,9 @@ public static class CheckFit
         try
         {
             var failed = new List<(int, int)>();
+            var advisoryCells = new List<(int, int)>();   // legal, but a soft req (e.g. a light's power conduit) is unmet
             string? reason = null;
+            string? advisory = null;
             var reasonRank = int.MaxValue;   // staged-build reasons outrank generic ones (see CellPasses)
 
             for (var r = 0; r < rh; r++)
@@ -87,14 +95,21 @@ public static class CheckFit
                     var forbidConds = idx < forbids.Length ? doc.Catalog.LootConds(forbids[idx]) : [];
                     if (reqConds.Count == 0 && forbidConds.Count == 0) continue;   // unconstrained
 
-                    if (!CellPasses(doc.Conds, reqConds, forbidConds, wx, wy, out var why, out var rank))
+                    if (!CellPasses(doc.Conds, reqConds, forbidConds, wx, wy, out var why, out var rank, out var softWhy))
                     {
                         failed.Add((wx, wy));
                         if (rank < reasonRank) { reason = why; reasonRank = rank; }
                     }
+                    else if (softWhy is not null)   // cell is legal, but a soft req is missing — record an advisory
+                    {
+                        advisoryCells.Add((wx, wy));
+                        advisory ??= softWhy;
+                    }
                 }
 
-            return failed.Count == 0 ? FitResult.Legal : new FitResult(false, failed, reason);
+            if (failed.Count == 0)
+                return advisory is null ? FitResult.Legal : new FitResult(true, [], null, advisory, advisoryCells);
+            return new FitResult(false, failed, reason, advisory, advisoryCells.Count > 0 ? advisoryCells : null);
         }
         finally
         {
@@ -112,17 +127,34 @@ public static class CheckFit
         "IsFusionFieldCoilsFixture", "IsFusionReactorCoreFixture",
     };
 
-    /// <summary>Every req condition present, no forbid condition present (CondTrigger.Triggered, bAND path).</summary>
+    /// <summary>
+    /// Required conditions that record an <b>advisory</b> when unmet instead of blocking the pose.
+    /// <c>IsPowerConduit</c> is the only one: among all 331 buildable parts it is required (in
+    /// <c>aSocketReqs</c>) exclusively by the overhead ceiling lights (<c>ItmLitCeiling1x1*</c>).
+    /// The game's <b>interactive</b> builder (<c>Item.CheckFit</c>, which reads <c>GUIInventory.Selected</c>
+    /// and crew line-of-sight) only lets a crew hang a ceiling light on a power conduit — but every
+    /// dev-authored / spawned ship (e.g. the core Baleen: 31 ceiling lights, 0 adjacent conduits) drops
+    /// them freely and wires them through the electrical (GPM) graph, bypassing CheckFit entirely. A planner
+    /// produces spawn-placed ships, so we mirror the spawn path: the light places and the missing conduit is
+    /// surfaced as a soft advisory rather than a hard failure. See issue #11.
+    /// </summary>
+    private static readonly HashSet<string> SoftReqs = new(StringComparer.Ordinal) { "IsPowerConduit" };
+
+    /// <summary>Every req condition present, no forbid condition present (CondTrigger.Triggered, bAND path).
+    /// A missing <see cref="SoftReqs"/> condition does not fail the cell; it reports via <paramref name="softWhy"/>.</summary>
     private static bool CellPasses(TileConds conds, IReadOnlyList<string> reqConds, IReadOnlyList<string> forbidConds,
-        int x, int y, out string? why, out int rank)
+        int x, int y, out string? why, out int rank, out string? softWhy)
     {
         why = null;
         rank = GenericRank;
+        softWhy = null;
         var at = conds.At(x, y);   // null == off-ship / empty tile (empty entries are pruned, never a non-null empty dict)
         string? missingReq = null;
         foreach (var rc in reqConds)
             if (at is null || !at.ContainsKey(rc))
             {
+                // A soft req (e.g. a light's power conduit) is advisory-only: note it, but don't fail the cell.
+                if (SoftReqs.Contains(rc)) { softWhy ??= ReasonForReq(rc); continue; }
                 // A staged-build cond names the missing prerequisite part; the loots that carry one
                 // list generic conds (IsFixture, IsFloor, …) first, so first-missing would hide it.
                 if (StagedConds.Contains(rc))
@@ -186,6 +218,7 @@ public static class CheckFit
         "IsWall" => "needs a wall alongside",
         "IsHull" => "needs hull structure",
         "IsPortal" => "needs a doorway",
+        "IsPowerConduit" => "no power conduit adjacent",   // soft advisory (see SoftReqs) — overhead lights mount on a POWR conduit
         "IsFusionFieldCoilsFixture" =>
             "needs installed Fusion Field Coils beneath — build the Field Coils first (their centre tile must stay open to space)",
         "IsFusionReactorCoreFixture" =>

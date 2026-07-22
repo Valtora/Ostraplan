@@ -20,6 +20,7 @@ public class CheckFitTests
         new("FloorAdds", ["IsFloor", "IsFloorSealed"], []),
         new("WallAdds", ["IsWall", "IsObstruction"], []),      // like TILWallAdds: seals the tile as obstruction
         new("FixtureAdds", ["IsFixture", "IsObstruction"], []),
+        new("Conduit", ["IsPowerConduit"], []),                // a SOFT req/add: what an overhead light wants adjacent
     ];
 
     // 1x1 sealed floor: no requirements, no forbids -> lays anywhere. Adds sealed floor.
@@ -37,6 +38,17 @@ public class CheckFitTests
     private static readonly PartDef Fixture = Part("Fixture", 1, ["FixtureAdds"],
         [B, B, B, B, "Floor", "Wall", B, B, B],
         [B, B, B, B, "Obstruction", B, B, B, B]);
+
+    // 1x1 conduit: free-standing, adds a power conduit to its own tile (like ItmConduit00).
+    private static readonly PartDef Conduit = Part("Conduit", 1, ["Conduit"],
+        [B, B, B, B, B, B, B, B, B],
+        [B, B, B, B, B, B, B, B, B]);
+
+    // 1x1 overhead light: SOFT-requires a power conduit to the NORTH (idx 1) — the ItmLitCeiling1x1 shape.
+    // A soft req records an advisory when unmet but never blocks the pose (CheckFit.SoftReqs / issue #11).
+    private static readonly PartDef Light = Part("Light", 1, ["FixtureAdds"],
+        [B, "Conduit", B, B, B, B, B, B, B],
+        [B, B, B, B, B, B, B, B, B]);
 
     private static PartDef Part(string name, int w, string[] adds, string[] reqs, string[] forbids) => new(
         name, name, "HULL", "core",
@@ -127,6 +139,38 @@ public class CheckFitTests
         Assert.True(CheckFit.Check(doc, Fixture, 0, 0, 0, self: fixture, includeEnvelope: false).Ok);
         // and the exclusion is fully restored afterwards
         Assert.True(doc.Conds.At(0, 0)!.ContainsKey("IsObstruction"));
+    }
+
+    [Fact]
+    public void A_soft_requirement_places_with_an_advisory_instead_of_blocking()
+    {
+        var doc = Doc(Cat(Floor, Wall, Fixture, Conduit, Light));
+
+        // No conduit anywhere: the light still PLACES (Ok), but carries an advisory naming the unmet soft req
+        // and points at the north cell where a conduit is wanted — no cell is a hard failure.
+        var noConduit = CheckFit.Check(doc, Light, 0, 0, 0, includeEnvelope: false);
+        Assert.True(noConduit.Ok);
+        Assert.Equal("no power conduit adjacent", noConduit.Advisory);
+        Assert.Contains((0, -1), noConduit.AdvisoryCells!);   // idx 1 -> north of (0,0)
+        Assert.Empty(noConduit.FailedCells);
+
+        // Drop a conduit on that north tile and the advisory clears — a fully-legal, unflagged placement.
+        new PlaceCommand(new Placement { DefName = "Conduit", X = 0, Y = -1 }).Do(doc);
+        var wired = CheckFit.Check(doc, Light, 0, 0, 0, includeEnvelope: false);
+        Assert.True(wired.Ok);
+        Assert.Null(wired.Advisory);
+    }
+
+    [Fact]
+    public void A_soft_requirement_advisory_rotates_with_the_part()
+    {
+        // The conduit sits SOUTH of the light; a 180° turn carries the north req (idx 1) to the south, clearing
+        // the advisory. Unrotated the req still faces north (empty), so the light places but stays flagged.
+        var doc = Doc(Cat(Floor, Wall, Fixture, Conduit, Light),
+            new Placement { DefName = "Conduit", X = 0, Y = 1 });   // south of (0,0), y is down
+
+        Assert.Null(CheckFit.Check(doc, Light, 0, 0, 180, includeEnvelope: false).Advisory);   // rotated: req faces south, satisfied
+        Assert.NotNull(CheckFit.Check(doc, Light, 0, 0, 0, includeEnvelope: false).Advisory);   // unrotated: req faces north, unmet
     }
 
     [Fact]

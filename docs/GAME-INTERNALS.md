@@ -254,6 +254,17 @@ For a candidate `(part, anchor, rotation)`:
 > test does **not** let `IsFixture` trip the forbid on a tile that also carries
 > `IsFloorSealed`; a genuine `IsObstruction` still blocks.
 
+> **Soft requirement — the overhead-light conduit (deliberate deviation, issue #11).**
+> `IsPowerConduit` is the one req condition Ostraplan does **not** hard-enforce. Among all
+> ~331 buildable parts it is required (via `TILPowerConduitOff`, an adjacent `aSocketReqs`
+> cell) **only** by the overhead ceiling lights (`ItmLitCeiling1x1*`). The game's *interactive*
+> builder blocks a light with no adjacent conduit — but that gate is player-build-only, and every
+> dev-authored / spawned ship hangs ceiling lights freely (the core **Baleen**: 31 ceiling lights,
+> **0** adjacent conduits), wiring them through the electrical (GPM) graph. Since a planner emits
+> spawn-placed ships, `CheckFit.SoftReqs` treats a missing `IsPowerConduit` as an **advisory**:
+> the pose stays `Ok`, but `FitResult.Advisory` / `AdvisoryCells` carry it → an amber "places, but"
+> ghost and a dismissible `ProblemScan` warning. Everything else in `aSocketReqs` remains a hard block.
+
 > **Ported in Ostraplan:** `CheckFit`, `ProblemScan`, enforced at the single
 > placement choke point `ShipCanvas.TryPlacePose`. `GridMath.Rotate` reproduces
 > `RotateTilesCW` exactly.

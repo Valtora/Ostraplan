@@ -116,6 +116,7 @@ public static class ProblemScan
 
         var lastFail = new Dictionary<Guid, FitResult>();
         var moddedFails = new List<(Placement P, FitResult Res)>();
+        var advisories = new List<(Placement P, FitResult Res)>();   // placed legally, but a soft req is unmet (see CheckFit.SoftReqs)
         while (pending.Count > 0)
         {
             var placed = false;
@@ -127,6 +128,7 @@ public static class ProblemScan
                 {
                     scratch.Add(Clone(p));
                     placed = true;
+                    if (res.Advisory is not null) advisories.Add((p, res));
                 }
                 else { lastFail[p.Id] = res; still.Add(p); }
             }
@@ -183,7 +185,33 @@ public static class ProblemScan
                 "verify them in-game (highlighted tiles show where the core rules disagree).",
                 g.Cells));
         }
+
+        // Soft-requirement advisories (e.g. an overhead light with no adjacent power conduit): the part is placed —
+        // the game's own spawned ships do the same — but the interactive builder's rule is unmet, so it is a single
+        // dismissible Warning rather than a block. See CheckFit.SoftReqs / issue #11.
+        var advisoryGroups = new Dictionary<string, (List<(int, int)> Cells, List<string> Parts)>(StringComparer.Ordinal);
+        foreach (var (p, res) in advisories)
+        {
+            var reason = res.Advisory!;
+            if (!advisoryGroups.TryGetValue(reason, out var g)) advisoryGroups[reason] = g = ([], []);
+            if (res.AdvisoryCells is not null) g.Cells.AddRange(res.AdvisoryCells);
+            g.Parts.Add(doc.Part(p)!.Friendly);
+        }
+        foreach (var (reason, g) in advisoryGroups)
+        {
+            var distinct = g.Parts.Distinct().ToList();
+            var names = string.Join(", ", distinct.Take(6)) + (distinct.Count > 6 ? ", …" : "");
+            problems.Add(new Problem(ProblemSeverity.Warning,
+                $"{reason} — {g.Parts.Count} part{(g.Parts.Count == 1 ? "" : "s")}",
+                $"These place and spawn just as the game's own ships do, but the in-game interactive builder wouldn't " +
+                $"let a crew build them there: {names}. Run a POWR conduit onto the adjoining tile to satisfy the " +
+                "builder, or Dismiss if you are exporting a spawned design (highlighted tiles show where a conduit is wanted).",
+                g.Cells, DismissKey: SoftReqAlertKey));
+        }
     }
+
+    /// <summary>The dismiss key for soft-requirement advisories (e.g. an overhead light with no adjacent conduit).</summary>
+    public const string SoftReqAlertKey = "soft-requirement-advisory";
 
 
     /// <summary>Canonical build phase from what a part contributes to its own tiles.</summary>

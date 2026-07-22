@@ -9,6 +9,20 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **0.15.1.6**).
 
+## [Unreleased]
+
+### Fixed
+- **Overhead lights are placeable again** (issue #11). The ceiling lights (`ItmLitCeiling1x1` family) are the only
+  buildable parts whose socket rules demand a power conduit on an adjacent tile, and the planner was hard-blocking
+  every one with the cryptic reason *"needs IsPowerConduit"* — so with no conduit in the design, no light could go
+  down anywhere and the tool never said why. That conduit rule is real, but only the game's *interactive* builder
+  enforces it: every dev-authored / spawned ship (the core Baleen carries 31 ceiling lights and **zero** adjacent
+  conduits) hangs them freely and wires them through the electrical graph. Since a planner produces spawn-placed
+  ships, an overhead light now **places** where a conduit is missing and is flagged with a gentle, dismissible
+  advisory — an amber ghost reading *"⚠ places, but no power conduit adjacent"* plus a Problems-panel warning that
+  points at the anchor tile — instead of a hard, unexplained block. Drop a POWR conduit on the adjoining tile (or
+  rotate the light to face an existing one) and the flag clears.
+
 ## [0.52.0] 2026-07-21, Smoother Light Viz and toolbar view toggles
 
 ### Added
