@@ -18,7 +18,7 @@ public sealed class DestinationStep : WizardStep
     private sealed record Tile(ExportDriver Driver, RadioButton Button, TextBlock Reason);
 
     private readonly List<Tile> _tiles = [];
-    private readonly Action<ExportDestination> _picked;
+    private readonly Func<ExportDestination, Task<string?>> _picked;
     private readonly TextBlock _problem;
 
     private WizardSession? _session;
@@ -30,7 +30,7 @@ public sealed class DestinationStep : WizardStep
 
     public override bool CanAdvance => !_preparing;
 
-    public DestinationStep(IEnumerable<ExportDriver> drivers, Action<ExportDestination> picked)
+    public DestinationStep(IEnumerable<ExportDriver> drivers, Func<ExportDestination, Task<string?>> picked)
     {
         _picked = picked;
 
@@ -99,6 +99,14 @@ public sealed class DestinationStep : WizardStep
         ShowProblem(_problem, _prepareFailure);
     }
 
+    /// <summary>Seed the reason a destination prepared elsewhere failed (the shell prepares whatever destination
+    /// the wizard opens on), so it shows here and blocks Next like any other.</summary>
+    public void SetBlocker(string? reason)
+    {
+        _prepareFailure = reason;
+        ShowProblem(_problem, reason);
+    }
+
     public override string? Validate()
     {
         var chosen = _tiles.FirstOrDefault(t => t.Button.IsChecked == true);
@@ -111,25 +119,21 @@ public sealed class DestinationStep : WizardStep
     {
         if (_syncing) return;
 
+        // Selecting a destination can be slow: the update path re-locates its save context rather than finding out
+        // at commit that the save has moved. A failure blocks Next, with the reason on this step.
         _prepareFailure = null;
         ShowProblem(_problem, null);
-        _picked(destination);
-
-        if (_session is not { } session) return;
-
-        // Selecting a destination can be slow: the update path re-locates its save context here rather than
-        // finding out at commit that the save has moved. A failure blocks Next, with the reason on this step.
         _preparing = true;
         Mouse.OverrideCursor = Cursors.Wait;
         try
         {
-            _prepareFailure = await session.Driver.PrepareAsync(session);
-            ShowProblem(_problem, _prepareFailure);
+            _prepareFailure = await _picked(destination);
         }
         finally
         {
             _preparing = false;
             Mouse.OverrideCursor = null;
         }
+        ShowProblem(_problem, _prepareFailure);
     }
 }

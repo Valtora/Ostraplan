@@ -34,6 +34,17 @@ each release was verified against is recorded in
     reopens on Review and is one click. Every step is revalidated first: if the save was deleted or the output
     folder is gone, it opens on the step that can say so. These live in Ostraplan's settings, never in the
     `.oplan`, so a shared design carries no local paths, save names or credit amounts.
+  - **Updating a ship in a save is now the wizard's third destination.** `Analyse ▸ Update Ship in Save…` survives
+    and opens the same wizard with it preselected, so the muscle memory still works. It has no save picker, because
+    the design already names the save and the ship: selecting the destination re-locates that ship, and a save that
+    has moved or been deleted says so there rather than after the build. Identity is read-only on this path and
+    shown greyed with the reason, because a save edit rewrites the ship's structure and not who it is.
+  - **Missing parts is its own step**, update-only and only while something is unresolved. A stand-in is a real
+    edit to the design rather than an export setting, so cancelling the wizard afterwards asks whether to keep it.
+    Leaving parts unresolved is still allowed, and now shows as an acknowledgement on Review instead of a separate
+    warning dialog. Dropped cargo works the same way.
+  - **The in-place overwrite keeps its confirmation.** It is irreversible, and it is the only step that can
+    usefully check whether the game is running, which Review cannot do minutes earlier.
 - **The mod folder's overwrite check now looks at the folder the export will really write**, resolved through the
   mod name rather than assumed from the ship name. A customised mod name previously had its warning checked against
   a folder the export was not going to touch.

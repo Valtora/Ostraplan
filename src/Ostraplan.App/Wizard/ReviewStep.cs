@@ -152,4 +152,12 @@ public sealed class ReviewStep : WizardStep
         _status.Text = "Nothing was written.";
         ShowProblem(_problem, message);
     }
+
+    /// <summary>The user backed out of a destination's own last confirmation. Not a failure, so it reads as a plain
+    /// statement rather than a problem.</summary>
+    public void ShowCancelled()
+    {
+        _status.Text = "Nothing was written. This is what will happen when you're ready.";
+        ShowProblem(_problem, null);
+    }
 }

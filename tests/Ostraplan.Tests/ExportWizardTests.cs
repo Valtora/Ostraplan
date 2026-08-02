@@ -20,12 +20,13 @@ public class ExportWizardTests
 {
     private static WizardSession Session((GameEnv Env, DataIndex Index, Catalog Catalog) g,
         ExportDestination destination = ExportDestination.Mod, string shipName = "Test Ship",
-        IReadOnlyList<SaveEntry>? saves = null)
+        IReadOnlyList<SaveEntry>? saves = null, SaveSourceRef? sourceSave = null)
     {
-        var doc = new ShipDocument(g.Catalog);
+        var doc = new ShipDocument(g.Catalog) { SourceSave = sourceSave };
         new PlaceCommand(new Placement { DefName = "ItmWall1x1", X = 0, Y = 0 }).Do(doc);
         return new WizardSession
         {
+            SourceSave = sourceSave,
             Plan = new ExportPlan { Destination = destination, ShipName = shipName },
             Doc = doc,
             Catalog = g.Catalog,
@@ -379,6 +380,94 @@ public class ExportWizardTests
         {
             Directory.Delete(dir, recursive: true);
         }
+    }
+
+    // ---- the update destination ----
+
+    [SkippableFact]
+    public void The_update_destination_needs_a_design_that_came_from_a_save()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var driver = new UpdateDriver();
+
+            var reason = driver.Unavailable(Session(g));
+
+            Assert.NotNull(reason);
+            Assert.Contains("imported from a save", reason);
+        });
+    }
+
+    [SkippableFact]
+    public void The_update_destination_is_available_for_a_save_linked_design()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var session = Session(g, ExportDestination.UpdateShipInSave,
+                sourceSave: new SaveSourceRef("Some Save", "H-ABC"));
+
+            Assert.Null(new UpdateDriver().Unavailable(session));
+        });
+    }
+
+    [SkippableFact]
+    public void A_source_save_that_has_gone_blocks_with_the_reason_rather_than_failing_at_the_write()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var session = Session(g, ExportDestination.UpdateShipInSave,
+                sourceSave: new SaveSourceRef("A Save That Is Not There", "H-ABC"));
+            var driver = new UpdateDriver();
+            session.Driver = driver;
+
+            var reason = driver.PrepareAsync(session).GetAwaiter().GetResult();
+
+            Assert.NotNull(reason);
+            Assert.Contains("no longer in your Saves folder", reason);
+            Assert.Null(driver.Context);
+        });
+    }
+
+    [SkippableFact]
+    public void The_update_rail_carries_a_missing_parts_step_only_when_there_is_something_to_resolve()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var session = Session(g, ExportDestination.UpdateShipInSave,
+                sourceSave: new SaveSourceRef("Some Save", "H-ABC"));
+
+            // no save context located, so nothing is known to be unresolved
+            var wizard = new ExportWizard(session, ExportDestination.UpdateShipInSave);
+
+            Assert.Equal(
+                ["Destination", "The ship", "Write target & cost", "Review", "Done"],
+                Rail(wizard));
+        });
+    }
+
+    [SkippableFact]
+    public void A_preselected_destination_still_prepares_before_the_user_can_leave_step_one()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            // Analyse > Update Ship in Save... preselects rather than clicks, so nothing raises the tile's Checked
+            // handler. Without the shell preparing on open, Next would advance with no located save context.
+            var session = Session(g, ExportDestination.UpdateShipInSave,
+                sourceSave: new SaveSourceRef("A Save That Is Not There", "H-ABC"));
+            var wizard = new ExportWizard(session, ExportDestination.UpdateShipInSave);
+
+            wizard.OpenedAsync().GetAwaiter().GetResult();
+
+            var step = (DestinationStep)Pane(wizard)!;
+            var reason = step.Validate();
+            Assert.NotNull(reason);
+            Assert.Contains("no longer in your Saves folder", reason);
+        });
     }
 
     // ---- the capture guard ----

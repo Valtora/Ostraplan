@@ -18,6 +18,77 @@ public sealed class MissingDefVM(string defName, int count)
 }
 
 /// <summary>
+/// A row per unresolved def: its name and use count, and a button that opens the part picker to choose what should
+/// stand in for it. Shared by the import prompt (<see cref="MissingPartsDialog"/>) and the export wizard's
+/// missing-parts step, which ask the same question at different moments.
+/// </summary>
+public sealed class MissingPartsPanel : StackPanel
+{
+    private static Brush Ink => ThemeManager.Ink;
+
+    private readonly IReadOnlyList<MissingDefVM> _defs;
+
+    /// <summary>The chosen stand-ins by def name; empty when the user leaves everything in place.</summary>
+    public IReadOnlyDictionary<string, PartDef> Choices =>
+        _defs.Where(d => d.StandIn is not null).ToDictionary(d => d.DefName, d => d.StandIn!, StringComparer.Ordinal);
+
+    /// <summary>Raised when a stand-in was picked or cleared.</summary>
+    public event Action? ChoiceChanged;
+
+    /// <summary>Built imperatively (rather than as a DataTemplate) because each row's button needs to mutate its
+    /// own view model and refresh its caption.</summary>
+    public MissingPartsPanel(IReadOnlyList<MissingDefVM> defs, IReadOnlyList<PartVM> palette)
+    {
+        _defs = defs;
+
+        foreach (var def in defs)
+        {
+            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
+
+            var choice = new Button { Padding = new Thickness(10, 3, 10, 3), MinWidth = 190, Content = def.ChoiceText };
+            var clear = new Button
+            {
+                Padding = new Thickness(8, 3, 8, 3), Margin = new Thickness(6, 0, 0, 0), Content = "Clear",
+                IsEnabled = def.StandIn is not null,
+            };
+            choice.Click += (_, _) =>
+            {
+                var dlg = new ReplacePickerDialog(
+                    palette, def.DefName,
+                    title: $"Stand in for {def.DefName}",
+                    noteText: $"Pick a part to take the place of {def.DefName} (×{def.Count}). It will REPLACE those "
+                              + "items in the save you write back — the modded part is not kept. Prefer one with the "
+                              + "same footprint, or the ship's rooms and grid will shift.")
+                { Owner = Window.GetWindow(this) };
+                if (dlg.ShowDialog() != true || dlg.Selected is not { } part) return;
+                def.StandIn = part;
+                choice.Content = def.ChoiceText;
+                clear.IsEnabled = true;
+                ChoiceChanged?.Invoke();
+            };
+            clear.Click += (_, _) =>
+            {
+                def.StandIn = null;
+                choice.Content = def.ChoiceText;
+                clear.IsEnabled = false;
+                ChoiceChanged?.Invoke();
+            };
+
+            DockPanel.SetDock(clear, Dock.Right);
+            DockPanel.SetDock(choice, Dock.Right);
+            row.Children.Add(clear);
+            row.Children.Add(choice);
+            row.Children.Add(new TextBlock
+            {
+                Text = def.Heading, Foreground = Ink, FontWeight = FontWeights.SemiBold,
+                VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
+            });
+            Children.Add(row);
+        }
+    }
+}
+
+/// <summary>
 /// The missing-mod stand-in prompt for a ship imported from a save.
 ///
 /// <para>Loud by design. An item whose def isn't in the loaded data is <b>invisible</b> to Ostraplan yet still
@@ -33,16 +104,15 @@ public sealed class MissingPartsDialog : Window
     private static Brush Dim => ThemeManager.Dim;
 
     private readonly IReadOnlyList<MissingDefVM> _defs;
-    private readonly IReadOnlyList<PartVM> _palette;
+    private readonly MissingPartsPanel _rows;
 
     /// <summary>The chosen stand-ins by def name — empty when the user leaves everything in place.</summary>
-    public IReadOnlyDictionary<string, PartDef> Choices =>
-        _defs.Where(d => d.StandIn is not null).ToDictionary(d => d.DefName, d => d.StandIn!, StringComparer.Ordinal);
+    public IReadOnlyDictionary<string, PartDef> Choices => _rows.Choices;
 
     public MissingPartsDialog(IReadOnlyList<MissingDefVM> defs, IReadOnlyList<PartVM> palette, string shipName)
     {
         _defs = defs;
-        _palette = palette;
+        _rows = new MissingPartsPanel(defs, palette);
 
         Title = "Missing mods";
         Width = 620; Height = 560;
@@ -90,56 +160,9 @@ public sealed class MissingPartsDialog : Window
         DockPanel.SetDock(buttons, Dock.Bottom);
         root.Children.Add(buttons);
 
-        var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = BuildRows() };
+        var scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = _rows };
         root.Children.Add(scroll);
 
         Content = root;
-    }
-
-    /// <summary>A row per unresolved def: its name and use count, and a button that opens the part picker.
-    /// Built imperatively (rather than as a DataTemplate) because each row's button needs to mutate its own VM
-    /// and refresh its caption.</summary>
-    private StackPanel BuildRows()
-    {
-        var panel = new StackPanel();
-        foreach (var def in _defs)
-        {
-            var row = new DockPanel { Margin = new Thickness(0, 0, 0, 8) };
-
-            var choice = new Button { Padding = new Thickness(10, 3, 10, 3), MinWidth = 190, Content = def.ChoiceText };
-            var clear = new Button { Padding = new Thickness(8, 3, 8, 3), Margin = new Thickness(6, 0, 0, 0), Content = "Clear", IsEnabled = def.StandIn is not null };
-            choice.Click += (_, _) =>
-            {
-                var dlg = new ReplacePickerDialog(
-                    _palette, def.DefName,
-                    title: $"Stand in for {def.DefName}",
-                    noteText: $"Pick a part to take the place of {def.DefName} (×{def.Count}). It will REPLACE those "
-                              + "items in the save you write back — the modded part is not kept. Prefer one with the "
-                              + "same footprint, or the ship's rooms and grid will shift.")
-                { Owner = this };
-                if (dlg.ShowDialog() != true || dlg.Selected is not { } part) return;
-                def.StandIn = part;
-                choice.Content = def.ChoiceText;
-                clear.IsEnabled = true;
-            };
-            clear.Click += (_, _) =>
-            {
-                def.StandIn = null;
-                choice.Content = def.ChoiceText;
-                clear.IsEnabled = false;
-            };
-
-            DockPanel.SetDock(clear, Dock.Right);
-            DockPanel.SetDock(choice, Dock.Right);
-            row.Children.Add(clear);
-            row.Children.Add(choice);
-            row.Children.Add(new TextBlock
-            {
-                Text = def.Heading, Foreground = Ink, FontWeight = FontWeights.SemiBold,
-                VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
-            });
-            panel.Children.Add(row);
-        }
-        return panel;
     }
 }

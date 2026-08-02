@@ -2218,7 +2218,11 @@ public partial class MainWindow : Window
     /// destination's own steps, the Review that builds before anything is written, and the Done pane that reports
     /// what happened.
     /// </summary>
-    private void OnExportClick(object sender, RoutedEventArgs e)
+    private void OnExportClick(object sender, RoutedEventArgs e) => OpenExportWizard(null);
+
+    /// <summary>Build the wizard's session from the live document and show it. <paramref name="preselect"/> picks a
+    /// destination up front, which is what <c>Analyse ▸ Update Ship in Save…</c> does.</summary>
+    private void OpenExportWizard(ExportDestination? preselect)
     {
         if (_doc is null || _catalog is null || _index is null || _env is null) return;
         if (_doc.Placements.Count == 0)
@@ -2243,6 +2247,7 @@ public partial class MainWindow : Window
             Saves = SaveImport.ListSaves(_env),
             SourceSave = _doc.SourceSave,
             SaveContext = _saveContext,
+            Palette = _allParts,
             BuyEstimate = ShipValue.Estimate(_doc, _catalog, _roomSpecs).BuyEstimate,
             OstrasortKnown = OstrasortLauncher.Detect(_settings) is not null,
         };
@@ -2250,7 +2255,10 @@ public partial class MainWindow : Window
         // The wizard reads the live document off-thread while it builds, so the editing surface goes dead for its
         // whole run rather than only around each engine call.
         using (FreezeDoc())
-            new ExportWizard(session) { Owner = this }.ShowDialog();
+            new ExportWizard(session, preselect) { Owner = this }.ShowDialog();
+
+        // the update destination relocates the save context on demand; keep it for the rest of the session
+        _saveContext ??= session.SaveContext;
 
         // Identity edited in the wizard flows back onto the design's saved metadata, so the two never drift.
         ApplyExportedIdentity(session.Plan.Identity);
@@ -2666,148 +2674,20 @@ public partial class MainWindow : Window
         return true;
     }
 
-    /// <summary>Write the edited ship back into a COPY of the save it came from (crew/cargo preserved, original
-    /// untouched). Enabled only for a save-derived design; re-locates the context on demand for a reopened .oplan.</summary>
-    private async void OnUpdateSaveClick(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Open the export wizard with the update destination preselected. The menu item survives because people have
+    /// muscle memory for it; it is now one of three ways into the same wizard rather than its own flow.
+    /// </summary>
+    private void OnUpdateSaveClick(object sender, RoutedEventArgs e)
     {
-        if (_doc is null || _catalog is null || _index is null || _env is null) return;
-        if (_doc.SourceSave is not { } src)
+        if (_doc?.SourceSave is null)
         {
-            Dlg.Show(this, "This design wasn't imported from a save. Use Import ▸ \"Your ship, for editing\" first.",
+            Dlg.Show(this, "This design wasn't imported from a save. Use Import > \"Your ship, for editing\" first.",
                 "Update ship in save", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-
-        // resolve the context: the in-session one, or re-locate it from the source save (a reopened .oplan)
-        var ctx = _saveContext;
-        if (ctx is null)
-        {
-            var match = SaveImport.ListSaves(_env).FirstOrDefault(s => string.Equals(s.Name, src.SaveName, StringComparison.Ordinal));
-            if (match is null)
-            {
-                Dlg.Show(this,
-                    $"The source save \"{src.SaveName}\" is no longer in your Saves folder, so this design can't be " +
-                    "written back. You can still Export it as a spawnable mod.",
-                    "Update ship in save", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-            var (catalog0, zip0, name0, reg0) = (_catalog, match.ZipPath, match.Name, src.RegId);
-            Mouse.OverrideCursor = Cursors.Wait;
-            try { ctx = await Ui.OffThread(() => SaveEditImport.RelocateContext(zip0, name0, reg0, catalog0)); }
-            catch (Exception ex)
-            {
-                Dlg.Show(this, "Couldn't re-locate the ship in that save:\n\n" + ex.Message +
-                    "\n\nYou can still Export it as a mod.", "Update ship in save", MessageBoxButton.OK, MessageBoxImage.Warning);
-                return;
-            }
-            finally { Mouse.OverrideCursor = null; }
-            _saveContext = ctx;   // cache for further writes this session
-        }
-
-        if (!ConfirmUnresolvedWriteBack(ctx)) return;
-
-        _roomSpecs ??= RoomCertifier.LoadSpecs(_index);
-        var (doc, catalog, specs, context) = (_doc, _catalog, _roomSpecs, ctx);
-
-        // options: write target (copy vs in place) + opt-in cost deduction. The diff (counts + base cost) is
-        // cheap; the current balance comes from the player CO on this ship (null -> deduction unavailable).
-        var diff = ShipDiff.Compute(doc, context);
-        var baseCost = EditCost.Compute(diff, catalog, 1.0);
-        var balance = SaveEdit.CurrentBalance(context);
-        var opts = new UpdateSaveDialog(src.SaveName, diff.KeptCount, diff.MovedCount, diff.NewCount, diff.DeletedCount,
-            baseCost, balance) { Owner = this };
-        if (opts.ShowDialog() != true) return;
-
-        var charge = opts.Deduct && context.PlayerCoId is { } coId && opts.ResultingBalance is { } newBal
-            ? new EditCharge(coId, opts.Cost, newBal)
-            : null;
-        var wear = opts.Wear;   // read the dialog's controls here — off-thread it throws (WPF thread affinity)
-
-        // Build the injected ship off-thread (runs the room/rating engine) against the live document, frozen for the
-        // duration. A hard integrity failure (InvalidDataException) is a real, explainable "this ship can't be
-        // written back"; anything else is a bug in us, so let it through to the crash handler rather than dress it
-        // up as a save problem — a thread-affinity throw hid here as "the edit can't be written back" once already.
-        JsonObject shipObj;
-        InjectReport report;
-        Mouse.OverrideCursor = Cursors.Wait;
-        using (FreezeDoc())
-        {
-            try { (shipObj, report) = await Ui.OffThread(() => SaveEdit.BuildInjectedShip(doc, context, catalog, specs, charge, wear)); }
-            catch (Exception ex) when (ex is InvalidDataException or IOException)
-            {
-                Dlg.Error(this, "Update ship in save", "The edit can't be written back.\n\n" + ex.Message);
-                return;
-            }
-            finally { Mouse.OverrideCursor = null; }
-        }
-
-        // loud cargo-loss warning: deleting a container that still holds cargo drops it
-        if (report.CargoDropped.Count > 0 && !ConfirmCargoLoss(report.CargoDropped)) return;
-
-        var summary = $"{report.Kept} kept, {report.Moved} moved, {report.Added} added, {report.Deleted} deleted.";
-        var costNote = report.Charged is { } c
-            ? $"\n\n{Money(c)} was deducted. Your balance is now {Money(report.ResultingBalance ?? 0)}."
-            : "";
-        var atmoNote = "\n\nThe ship refills with breathable atmosphere when you load it (about 22 kPa O₂ and 80 kPa N₂).";
-        var wearNote = wear.Enabled
-            ? $"\n\nEvery installed part was worn to ~{wear.TargetCondition * 100:0}% average condition (parts vary, none below 10%), replacing any existing damage."
-            : "";
-        var powerNote = report.PowerFixed > 0
-            ? $"\n\nRearmed {report.PowerFixed} powered device(s) that had lost their power ticker."
-            : "";
-        var warn = report.Warnings.Count > 0
-            ? $"\n\n{report.Warnings.Count} placement law warning(s). The ship is still written, so load it to check.\n\n" +
-              string.Join("\n", report.Warnings.Take(6).Select(w => "   • " + w))
-            : "";
-
-        string writtenName;
-        string? backupName = null;
-        try
-        {
-            if (opts.InPlace)
-            {
-                if (!ConfirmInPlace(src.SaveName, opts.Backup)) return;
-                var backupPath = SaveEdit.WriteInPlace(context, shipObj, report.ResultingBalance, opts.Backup);
-                backupName = backupPath is null ? null : Path.GetFileName(backupPath);
-                writtenName = src.SaveName;
-            }
-            else
-            {
-                var outDir = SaveEdit.SuggestCopyDir(context);
-                if (!Dlg.Confirm(this, DlgKind.Warning, $"Write a copy of \"{src.SaveName}\"?",
-                        $"{summary}{costNote}{atmoNote}{wearNote}{powerNote}{warn}\n\n" +
-                        $"The copy will be named {Path.GetFileName(outDir)}.\n\n" +
-                        "Your original save is not touched.",
-                        "Write copy"))
-                    return;
-                SaveEdit.WriteCopy(context, shipObj, outDir, overwrite: false, report.ResultingBalance);
-                writtenName = Path.GetFileName(outDir);
-            }
-        }
-        catch (Exception ex)
-        {
-            Dlg.Error(this, "Update ship in save", "Writing the save failed.\n\n" + ex.Message);
-            return;
-        }
-        AuditLog.Add($"Updated ship in save — wrote \"{writtenName}\".");
-
-        var backup = opts.InPlace
-            ? (backupName is not null
-                ? $"\n\nYour original save was backed up first, as a separate save named {backupName}.\n" +
-                  "It sits beside this save in your Saves folder, not inside it, so deleting the edited save won't remove it.\n" +
-                  "Load that backup in game if you ever need to recover."
-                : "\n\nNo backup was made (you unticked it), so this overwrote the original save in place.")
-            : "\n\nYour original save is unchanged.";
-        Dlg.Success(this, "Ship updated",
-            $"Written to the save {writtenName}.\n\n" +
-            $"{summary}{costNote}{atmoNote}{wearNote}{powerNote}\n\n" +
-            "Open the in game Load menu and press Refresh first.\n" +
-            "Ostranauts won't list a just written save until you do.\n" +
-            $"Then load {writtenName} to see your edited ship, with crew and cargo intact." +
-            backup);
+        OpenExportWizard(ExportDestination.UpdateShipInSave);
     }
-
-    private static string Money(double v) => "$" + v.ToString("#,##0.##", System.Globalization.CultureInfo.InvariantCulture);
 
     /// <summary>The stern gate before editing a ship the player doesn't own (a station or another vessel).</summary>
     private bool ConfirmUnsupportedShip(SaveShipChoice c) =>
@@ -2816,42 +2696,6 @@ public partial class MainWindow : Window
             "Editing something you don't own is not supported, and it can corrupt or break your save.\n" +
             "Ostraplan can't guarantee a valid result, and takes no responsibility for the outcome. You do.",
             "Edit it anyway");
-
-    /// <summary>The loud in-place confirmation. Detects a running Ostranauts and gates on the user confirming
-    /// they're at the Main Menu (editing a loaded save would be clobbered by the next autosave).</summary>
-    private bool ConfirmInPlace(string saveName, bool backup)
-    {
-        var running = System.Diagnostics.Process.GetProcessesByName("Ostranauts").Length > 0;
-        var gameWarn = running
-            ? "Ostranauts is running.\n" +
-              "Editing in place is only safe from the Main Menu.\n" +
-              "If this save is loaded, the game will overwrite your edit on its next autosave.\n\n" +
-              "Confirm you are at the Main Menu, not in your loaded game, before continuing.\n\n"
-            : "";
-        var backupLine = backup
-            ? "Ostraplan first copies this save to a separate backup save in your Saves folder, beside this one, not inside it.\n" +
-              "Then it writes your edit into the original save, replacing it.\n" +
-              "If the edit goes wrong, load the backup to recover."
-            : "You unticked the backup, so this writes straight into the original save, replacing it.\n" +
-              "There will be no backup to roll back to if the edit goes wrong.";
-        return Dlg.Confirm(this, DlgKind.Danger, $"Overwrite {saveName} in place?",
-            $"{gameWarn}{backupLine}",
-            "Overwrite in place");
-    }
-
-    /// <summary>The loud, explicit confirmation before an inject drops cargo from deleted containers.</summary>
-    private bool ConfirmCargoLoss(IReadOnlyList<CargoLoss> losses)
-    {
-        var lines = losses.Take(8).Select(l =>
-            $"   • {l.ContainerName} ({string.Join(", ", l.Items.Take(6))}{(l.Items.Count > 6 ? $", plus {l.Items.Count - 6} more" : "")})");
-        var total = losses.Sum(l => l.Items.Count);
-        return Dlg.Confirm(this, DlgKind.Danger, "Cargo will be permanently deleted",
-            $"You deleted {losses.Count} container(s) that still hold {total} cargo item(s).\n" +
-            "Writing this back will permanently delete that cargo.\n\n" + string.Join("\n", lines) +
-            "\n\nTo keep it, cancel now.\n" +
-            "Empty those containers in game, then import and edit again.",
-            "Delete cargo & continue");
-    }
 
     /// <summary>Browse core+mod ship templates and import the chosen one as a fresh design.</summary>
     private async void ImportTemplate()
@@ -2909,30 +2753,6 @@ public partial class MainWindow : Window
         OnDocChanged();
         UpdateInspector();
         ReportImport(result, keptContents: context is not null, skippedHandled: context is not null);
-    }
-
-    /// <summary>
-    /// The last gate before a write-back with items Ostraplan can't see. They stay in the save, but every engine
-    /// here reads the document, so their rooms/grid contribution is simply missing: a modded wall no longer divides
-    /// a room, and a modded part at the hull edge no longer sizes the frame. Either writes a ship the game rebuilds
-    /// differently on load — ghost rooms and skewed zones. The user is told plainly and may still proceed (they may
-    /// know the missing parts are decorative), but never silently. Returns false to abort.
-    /// </summary>
-    private bool ConfirmUnresolvedWriteBack(SaveShipContext ctx)
-    {
-        if (_doc is null || _catalog is null) return true;
-        var defs = Substitution.OutstandingDefs(_doc, ctx, _catalog);
-        if (defs.Count == 0) return true;
-
-        var items = defs.Sum(d => d.Count);
-        var names = string.Join("\n", defs.Take(10).Select(d => d.Count > 1 ? $"   • {d.DefName} (x{d.Count})" : $"   • {d.DefName}"));
-        var more = defs.Count > 10 ? $"\n   …and {defs.Count - 10} more" : "";
-        return Dlg.Confirm(this, DlgKind.Danger, "Missing mods — this can corrupt the ship",
-            $"{items} item(s) on this ship use parts that aren't in your loaded data:\n\n{names}{more}\n\n" +
-            "Ostraplan can't see them, so it works out the ship's rooms and grid as if they weren't there. " +
-            "Writing back now can leave the ship with ghost rooms and shifted zones in game.\n\n" +
-            "Enable the mods and re-import, or stand real parts in for them, and this goes away.",
-            "Write back anyway");
     }
 
     /// <summary>Tell the user about anything the import dropped (contained cargo, unresolved defs). Silent on a

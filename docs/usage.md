@@ -340,15 +340,28 @@ that ship, use **Analyse ▸ "Update Ship in Save…"** instead.
 identity*, so you can redesign the structure out-of-game and write it back.
 
 - Pick the ship, confirm, and redesign as normal.
-- **Analyse ▸ "Update Ship in Save…"** writes the result back into a **copy** of
-  the save by default (crew, cargo, world position and ship identity preserved,
-  the original untouched). Overwriting in place is an explicit opt-in and keeps a
-  `.zip.bak`. Do it from the game's **Main Menu**, not while the save is loaded, or
+- **Analyse ▸ "Update Ship in Save…"** opens the export wizard with the **Update a ship
+  in a save** destination already selected. (**Export** reaches the same place; the menu
+  item is the shortcut.) It writes the result back into a **copy** of the save by
+  default: crew, cargo, world position and ship identity preserved, the original
+  untouched. Overwriting in place is an explicit opt-in and keeps a backup save unless
+  you untick it. Do it from the game's **Main Menu**, not while the save is loaded, or
   the game will overwrite your edit on its next autosave. In the in-game Load menu,
   press **Refresh** to see the just-written copy.
-- The update dialog also carries the **Wear** slider (on by default at ~88%). On a
-  save-edit it re-rolls the condition of **every** installed part to the chosen
-  average, replacing existing damage — untick it to keep each part's current wear.
+- There is **no save picker** on this destination: the design already names the save and
+  the ship it came from. Selecting it re-locates that ship, and if the save has moved or
+  been deleted it says so there rather than at the write.
+- The ship's **identity is read-only** here, shown greyed with a note. A save edit
+  rewrites the ship's structure, not who it is. Export as a mod to give a design a new
+  identity.
+- The **Write target & cost** step carries the cost model: new parts at full base value,
+  moved parts at half, times a multiplier you choose. The readout follows the slider and
+  Next refuses if you can't afford the deduction.
+- **Wear** is on **The ship** step, as it is for every destination (on by default at
+  ~88%). On a save edit it re-rolls the condition of **every** installed part to the
+  chosen average, replacing existing damage. Untick it to keep each part's current wear.
+- This destination **never reopens on Review**, even though the other two do. Landing one
+  click from rewriting a save you already have is a footgun.
 - A save-edit `.oplan` stays **linked** to its save — it references the live state
   rather than embedding it, so keep the save if you want to write back later. For a
   ship detached from any save, **Export** it instead.
@@ -367,7 +380,12 @@ back like that and you can get ghost rooms and shifted zones in game.
   **replaces** that item in the save you write back — the modded part isn't kept —
   so choose something the same size where you can. Delete a stand-in and you're back
   to leaving the modded item untouched.
-- Leaving them alone is allowed; **Update Ship in Save** warns you once more first.
+- The wizard offers the same choice again on its **Missing parts** step, which only
+  appears on the update destination and only while something is still unresolved. A
+  stand-in applied there is a **real edit to the design**, not an export setting, so
+  cancelling the wizard afterwards asks whether to keep it.
+- Leaving them alone is allowed; **Review** carries an acknowledgement you have to tick
+  before it will write.
 
 Editing a ship you don't own (a station, another vessel) is gated behind a stern
 warning — it's unsupported.

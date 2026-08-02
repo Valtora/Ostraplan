@@ -65,6 +65,13 @@ public abstract class ExportDriver
     /// the shell catches the explainable I/O failures and lets anything else reach the crash handler.</summary>
     public abstract Task<DoneReport> WriteAsync(WizardSession session);
 
+    /// <summary>Whether this destination has changed the design itself, as opposed to only collecting settings.
+    /// Cancelling then has something to offer to take back out.</summary>
+    public virtual bool HasDocumentEdits => false;
+
+    /// <summary>Take those edits back out. Only called when the user asks, and never after a commit.</summary>
+    public virtual void UndoDocumentEdits(WizardSession session) { }
+
     /// <summary>The plan revision the cached build was made at, or -1 when nothing is cached.</summary>
     protected int BuiltAt { get; private set; } = -1;
 

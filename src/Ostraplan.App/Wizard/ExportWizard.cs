@@ -45,10 +45,7 @@ public sealed class ExportWizard : Window
         [
             new ModDriver(),
             new NewShipDriver(),
-            new PendingDriver(
-                ExportDestination.UpdateShipInSave, "Update a ship in a save",
-                "Rewrites the ship this design was imported from, keeping its crew and cargo.",
-                "Use Analyse ▸ \"Update Ship in Save…\" for now."),
+            new UpdateDriver(),
         ];
 
         if (preselect is { } d) session.Plan.Destination = d;
@@ -85,6 +82,7 @@ public sealed class ExportWizard : Window
         _back.Click += (_, _) => GoBack();
         _next.Click += async (_, _) => await GoNext();
         _cancel.Click += (_, _) => Close();
+        Closing += OnClosing;
 
         var buttons = new StackPanel
         {
@@ -108,6 +106,10 @@ public sealed class ExportWizard : Window
         _ = OpenAsync(resume: preselect is null && session.Settings.LastExport is not null);
     }
 
+    /// <summary>Exposed for tests: run the open sequence to completion rather than fire-and-forget, so a test can
+    /// assert on a wizard whose destination has actually prepared.</summary>
+    internal Task OpenedAsync(bool resume = false) => OpenAsync(resume);
+
     /// <summary>
     /// Open on the right step. With settings remembered from last time, every step is <b>revalidated against the
     /// world as it is now</b> before anything is shown: the save may have been deleted, the output folder may be
@@ -116,30 +118,32 @@ public sealed class ExportWizard : Window
     /// </summary>
     private async Task OpenAsync(bool resume)
     {
-        if (!resume)
-        {
-            await ShowStep();
-            return;
-        }
-
         Mouse.OverrideCursor = Cursors.Wait;
         try
         {
-            await _session.Driver.PrepareAsync(_session);   // reads the remembered save, so its step can validate
+            // Always prepare the destination the wizard opens on, whether it was remembered or preselected by the
+            // Analyse menu. Without this a preselected update destination would advance with no located save
+            // context behind it, and its cost step would have nothing to cost.
+            var blocked = await _session.Driver.PrepareAsync(_session);
+            RebuildFlow();
+            ((DestinationStep)_panes[StepId.Destination]).SetBlocker(blocked);
 
-            var valid = new List<bool>();
-            foreach (var id in _flow.Steps)
+            if (resume && blocked is null)
             {
-                if (id is StepId.Review or StepId.Done) { valid.Add(true); continue; }
-                var pane = _panes[id];
-                pane.Enter(_session);
-                valid.Add(pane.Validate() is null);
-                if (valid[^1]) pane.Leave(_session);
-            }
+                var valid = new List<bool>();
+                foreach (var id in _flow.Steps)
+                {
+                    if (id is StepId.Review or StepId.Done) { valid.Add(true); continue; }
+                    var pane = _panes[id];
+                    pane.Enter(_session);
+                    valid.Add(pane.Validate() is null);
+                    if (valid[^1]) pane.Leave(_session);
+                }
 
-            var target = WizardFlow.ResumeIndex(_session.Plan.Destination, valid, HasUnresolvedParts());
-            for (var i = 0; i < target; i++) _flow.Complete(i);
-            _flow.JumpTo(target);
+                var target = WizardFlow.ResumeIndex(_session.Plan.Destination, valid, HasUnresolvedParts());
+                for (var i = 0; i < target; i++) _flow.Complete(i);
+                _flow.JumpTo(target);
+            }
         }
         finally
         {
@@ -181,12 +185,14 @@ public sealed class ExportWizard : Window
 
     private WizardStep Create(StepId id) => id switch
     {
-        StepId.Destination => new DestinationStep(_drivers, OnDestinationPicked),
+        StepId.Destination => new DestinationStep(_drivers, OnDestinationPickedAsync),
         StepId.Ship => new ShipStep(),
+        StepId.MissingParts => new MissingPartsStep { Palette = _session.Palette },
         StepId.ModDetails => new ModDetailsStep(),
         StepId.Obtainable => new ObtainableStep(),
         StepId.ModTarget => new ModTargetStep(),
         StepId.SavePrice => new SavePriceStep(),
+        StepId.UpdateTarget => new UpdateTargetStep(),
         StepId.Review => new ReviewStep(),
         StepId.Done => new DoneStep(),
         _ => throw new NotSupportedException($"No pane for {id} in this build."),
@@ -201,17 +207,36 @@ public sealed class ExportWizard : Window
         RefreshRail();
     }
 
-    /// <summary>The destination changed, so the whole rail changes with it. Everything already typed survives,
-    /// because it lives in the plan rather than in the panes.</summary>
-    private void OnDestinationPicked(ExportDestination destination)
+    /// <summary>
+    /// The destination changed, so the whole rail changes with it. Everything already typed survives, because it
+    /// lives in the plan rather than in the panes.
+    ///
+    /// <para>The rail is rebuilt twice on purpose. Once immediately, so the user sees the new steps without waiting,
+    /// and once after the driver has prepared, because whether the update path needs a missing-parts step is only
+    /// answerable after its save context has been located. Returns the reason the destination cannot be used, which
+    /// the step shows inline and which blocks Next.</para>
+    /// </summary>
+    private async Task<string?> OnDestinationPickedAsync(ExportDestination destination)
     {
         Current?.Leave(_session);
         _session.Plan.Destination = destination;
         _session.Plan.Touch();
         _session.Driver = DriverFor(destination);
-        _flow = new WizardFlow(destination, HasUnresolvedParts());
+        RebuildFlow();
+        await ShowStep();
+
+        var reason = await _session.Driver.PrepareAsync(_session);
+        RebuildFlow();
+        RefreshRail();
+        return reason;
+    }
+
+    private void RebuildFlow()
+    {
+        var at = _flow.CurrentStep;
+        _flow = new WizardFlow(_session.Plan.Destination, HasUnresolvedParts());
         BuildPanes();
-        _ = ShowStep();
+        _flow.GoTo(_flow.IndexOf(at) >= 0 ? at : StepId.Destination);
     }
 
     private WizardStep? Current => _panes.GetValueOrDefault(_flow.CurrentStep);
@@ -280,6 +305,14 @@ public sealed class ExportWizard : Window
             _busy = false;
             await ShowStep();
         }
+        // the user backed out of a destination's own last confirmation (the in-place overwrite): not a failure,
+        // so say nothing and leave them on Review with the button live
+        catch (OperationCanceledException)
+        {
+            _busy = false;
+            review.ShowCancelled();
+            RefreshButtons();
+        }
         // an explainable failure is a write that didn't land, or a save that turned out not to take the edit;
         // anything else is our bug and belongs in error.log with its stack rather than behind a friendly line
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
@@ -292,6 +325,27 @@ public sealed class ExportWizard : Window
         {
             Mouse.OverrideCursor = null;
         }
+    }
+
+    /// <summary>
+    /// Leaving without writing. A stand-in placed on the missing-parts step is a <b>real edit to the design</b>
+    /// (a <see cref="PlaceCommand"/>), not a wizard setting, so it does not simply vanish with the window: the
+    /// user is asked whether to keep it. Everything else the wizard collected is settings, and settings going away
+    /// when you cancel is what cancelling means.
+    /// </summary>
+    private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
+    {
+        if (_busy) { e.Cancel = true; return; }
+        if (Committed || !_session.Driver.HasDocumentEdits) return;
+
+        var choice = Dlg.Choose(this, DlgKind.Warning, "Keep the stand-in parts?",
+            "You put real parts in place of ones your loaded data doesn't have. That changed the design itself, " +
+            "not just this export, so it stays unless you say otherwise.\n\n" +
+            "Keeping them leaves the design complete and saveable. Discarding puts the unresolved items back.",
+            "Keep them", "Discard them");
+
+        if (choice == MessageDialog.Choice.Cancel) { e.Cancel = true; return; }
+        if (choice == MessageDialog.Choice.Secondary) _session.Driver.UndoDocumentEdits(_session);
     }
 
     // ---- chrome ----

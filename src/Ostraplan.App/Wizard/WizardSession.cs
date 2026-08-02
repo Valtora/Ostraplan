@@ -37,6 +37,10 @@ public sealed class WizardSession
     /// for a reopened <c>.oplan</c>, which has to relocate it.</summary>
     public SaveShipContext? SaveContext { get; set; }
 
+    /// <summary>The part palette, for the missing-parts step's stand-in picker. The main window's list, not
+    /// anything the wizard builds.</summary>
+    public IReadOnlyList<PartVM> Palette { get; init; } = [];
+
     /// <summary>A rough purchase value for the design, used to pre-fill the starting-ship mortgage.</summary>
     public double BuyEstimate { get; init; }
 
