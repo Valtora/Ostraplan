@@ -203,4 +203,78 @@ public class WearTests
         }
         Assert.NotEqual("A", (string)((JsonArray)ship["aRating"]!)[1]!);  // baked grade reflects the wear
     }
+
+    // ---- seeded rolls (what the export wizard's Review step rests on) ----
+
+    /// <summary>
+    /// The wizard shows the built result on Review and writes on commit. Wear is randomised, so unless the seed is
+    /// pinned the two disagree about which parts were damaged and by how much. Both application paths therefore
+    /// have to roll reproducibly from <see cref="WearOptions.Seed"/> alone.
+    ///
+    /// <para>The <b>damage</b> is what is compared, not the whole record: a build also mints a fresh
+    /// <c>strRegID</c> and a fresh <c>strID</c> per synthesized CO, from <see cref="Guid"/>, so no two builds of
+    /// the same design are ever byte-identical. That is exactly why the wizard caches the built artifact for the
+    /// two save destinations instead of rebuilding at commit.</para>
+    ///
+    /// <para>Only the equality is asserted, not that two different seeds differ: that would be a probabilistic
+    /// claim, and a test that fails once a year is worse than the coverage it buys.</para>
+    /// </summary>
+    [Fact]
+    public void The_same_seed_rolls_the_same_export_wear_twice()
+    {
+        var cat = new Fixtures().Part("Panel", startingConds: ["IsInstalled"],
+            condValues: new Dictionary<string, double> { ["StatDamageMax"] = 4.0 }).Build();
+        var doc = Fixtures.Doc(cat,
+            new Placement { DefName = "Panel", X = 0, Y = 0 },
+            new Placement { DefName = "Panel", X = 1, Y = 0 },
+            new Placement { DefName = "Panel", X = 2, Y = 0 },
+            new Placement { DefName = "Panel", X = 3, Y = 0 });
+        var wear = new WearOptions(true, 0.5, Seed: 4242);
+
+        var (first, _, _) = ShipExport.Build(doc, cat, NoSpecs, "Seeded", wear: wear);
+        var (second, _, _) = ShipExport.Build(doc, cat, NoSpecs, "Seeded", wear: wear);
+
+        var rolled = ExportDamage(first);
+        Assert.NotEmpty(rolled);                     // not vacuous: the pass really did damage the parts
+        Assert.All(rolled, d => Assert.True(d > 0));
+        Assert.Equal(rolled, ExportDamage(second));
+    }
+
+    [Fact]
+    public void The_same_seed_rolls_the_same_save_edit_wear_twice()
+    {
+        var cat = new Fixtures().Part("Panel", startingConds: ["IsInstalled"],
+            condValues: new Dictionary<string, double> { ["StatDamageMax"] = 4.0 }).Build();
+        var doc = Fixtures.Doc(cat,
+            new Placement { DefName = "Panel", X = 0, Y = 0, OriginStrID = "a" },
+            new Placement { DefName = "Panel", X = 1, Y = 0 },
+            new Placement { DefName = "Panel", X = 2, Y = 0 });
+        var wear = new WearOptions(true, 0.5, Seed: 4242);
+
+        var (first, _) = SaveEdit.BuildInjectedShip(doc, PanelContext(cat), cat, NoSpecs, wear: wear);
+        var (second, _) = SaveEdit.BuildInjectedShip(doc, PanelContext(cat), cat, NoSpecs, wear: wear);
+
+        var rolled = InjectDamage(first);
+        Assert.Equal(3, rolled.Count);               // every installed part, kept and new alike
+        Assert.Equal(rolled, InjectDamage(second));
+    }
+
+    /// <summary>Every StatDamage amount an export baked, in item order.</summary>
+    private static List<double> ExportDamage(ExportedShip ship) =>
+        ship.AItems
+            .SelectMany(i => i.ACondOverrides ?? [])
+            .Where(c => c.CondName == "StatDamage")
+            .Select(c => c.Amount)
+            .Where(a => a > 0)
+            .ToList();
+
+    /// <summary>Every StatDamage amount an inject baked, sorted: a new part's CO id is a fresh GUID, so the
+    /// records cannot be matched up by identity across two builds.</summary>
+    private static List<double> InjectDamage(JsonObject ship) =>
+        ((JsonArray)ship["aCOs"]!)
+            .SelectMany(co => ((JsonArray)co!["aConds"]!).Select(c => (string)c!))
+            .Where(c => c.StartsWith("StatDamage=", StringComparison.Ordinal))
+            .Select(LootDef.CondAmount)
+            .Order()
+            .ToList();
 }

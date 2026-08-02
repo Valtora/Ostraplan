@@ -287,4 +287,61 @@ public class SaveGrantWriteTests(ITestOutputHelper output)
         Assert.Throws<InvalidDataException>(() => SaveGrant.Grant(
             ctx, Design(g.Catalog), g.Catalog, specs, new GrantOptions("Too dear"), ctx.Balance + 1));
     }
+
+    // ---- the build/write split ----
+
+    /// <summary>
+    /// The property the export wizard's Review step rests on: a ship built once and written later lands in the
+    /// save <b>byte for byte</b> as it was built. Rebuilding at commit instead would not do, because
+    /// <see cref="SaveGrant.MintRegId"/> draws from <see cref="Guid"/> and cannot be seeded, so the registration
+    /// shown on Review would not be the one written.
+    /// </summary>
+    [SkippableFact]
+    public void A_ship_built_up_front_is_written_exactly_as_it_was_built()
+    {
+        var g = TestData.RequireGame();
+        Skip.If(FirstGrantable(g.Env) is null, "no local save the player can be granted a ship in");
+        var (_, ctx) = FirstGrantable(g.Env)!.Value;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+
+        var outDir = Path.Combine(Path.GetTempPath(), "OstraplanGrantTest-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            // --- what Review does ---
+            var regId = SaveGrant.MintRegId(ctx.ExistingRegIds, ctx.PlayerShipRegId);
+            var opts = new GrantOptions("Split Grant", new ExportMetadata("Split Grant"),
+                WearOptions.Vanilla with { Seed = 1234 }, PlacementSeed: 5);
+            var (built, report) = SaveGrant.BuildShip(
+                Design(g.Catalog), g.Catalog, specs, regId, ctx.Anchor, opts, ctx.Epoch);
+            var reviewed = built.ToJsonString();
+
+            // --- what Commit does, later, with no rebuild ---
+            var (dir, written) = SaveGrant.WriteGrant(ctx, regId, built, report, price: 0, outputSaveDir: outDir);
+
+            Assert.Equal(regId, written.RegId);   // the registration Review displayed is the one in the save
+            var zip = Directory.EnumerateFiles(dir, "*.zip").Single();
+            var onDisk = JsonNode.Parse(ReadEntry(zip, $"ships/{regId}.json"))!.AsArray()[0]!;
+            Assert.Equal(reviewed, onDisk.ToJsonString());
+        }
+        finally
+        {
+            if (Directory.Exists(outDir)) Directory.Delete(outDir, recursive: true);
+        }
+    }
+
+    [SkippableFact]
+    public void WriteGrant_refuses_a_price_the_player_cannot_afford()
+    {
+        var g = TestData.RequireGame();
+        Skip.If(FirstGrantable(g.Env) is null, "no local save the player can be granted a ship in");
+        var (_, ctx) = FirstGrantable(g.Env)!.Value;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+
+        var regId = SaveGrant.MintRegId(ctx.ExistingRegIds, ctx.PlayerShipRegId);
+        var (ship, report) = SaveGrant.BuildShip(
+            Design(g.Catalog), g.Catalog, specs, regId, ctx.Anchor, new GrantOptions("Too dear"), ctx.Epoch);
+
+        // the check has to live on the write half too: the wizard never calls Grant
+        Assert.Throws<InvalidDataException>(() => SaveGrant.WriteGrant(ctx, regId, ship, report, ctx.Balance + 1));
+    }
 }

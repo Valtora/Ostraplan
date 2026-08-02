@@ -506,18 +506,39 @@ public static class SaveGrant
     /// <para><paramref name="price"/> is deducted from the player's balance (0 = a gift). The caller is expected
     /// to have checked affordability; an unaffordable price is refused here rather than writing a negative
     /// balance.</para>
+    ///
+    /// <para>This is mint + <see cref="BuildShip"/> + <see cref="WriteGrant"/> in one call, for a caller that has
+    /// nothing to show between the build and the write. A caller that reports the result <b>before</b> committing
+    /// (the export wizard's Review step) must run the three itself, or the registration it displayed would not be
+    /// the one written: <see cref="MintRegId"/> draws from <see cref="Guid"/> and cannot be seeded.</para>
     /// </summary>
     public static (string OutputDir, GrantReport Report) Grant(
         GrantContext ctx, ShipDocument doc, Catalog catalog, IReadOnlyList<RoomSpecDef> specs,
         GrantOptions opts, double price = 0, string? outputSaveDir = null, bool overwrite = false)
     {
-        if (price < 0) throw new ArgumentOutOfRangeException(nameof(price), "A grant's price cannot be negative.");
-        if (price > ctx.Balance)
-            throw new InvalidDataException(
-                $"That costs more than the player has ({price:0.##} against {ctx.Balance:0.##}). Lower the price or make it a gift.");
-
+        CheckPrice(ctx, price);   // refuse before the build, not after it
         var regId = MintRegId(ctx.ExistingRegIds, ctx.PlayerShipRegId);
         var (ship, report) = BuildShip(doc, catalog, specs, regId, ctx.Anchor, opts, ctx.Epoch);
+        return WriteGrant(ctx, regId, ship, report, price, outputSaveDir, overwrite);
+    }
+
+    /// <summary>
+    /// Write an already-built grant (<see cref="BuildShip"/>'s output) into a <b>copy</b> of
+    /// <paramref name="ctx"/>'s save. The original save folder is never opened for writing. Returns where the copy
+    /// landed, and the report restated with what was actually charged.
+    ///
+    /// <para><paramref name="price"/> is deducted from the player's balance (0 = a gift). An unaffordable price is
+    /// refused here rather than writing a negative balance.</para>
+    ///
+    /// <para><b>One shot.</b> This mutates <paramref name="ctx"/>'s player ship record: the CO claims the ship and
+    /// takes the deduction. Calling it twice against the same context would claim twice and charge twice, so read a
+    /// fresh <see cref="GrantContext"/> for each write.</para>
+    /// </summary>
+    public static (string OutputDir, GrantReport Report) WriteGrant(
+        GrantContext ctx, string regId, JsonObject ship, GrantReport report,
+        double price = 0, string? outputSaveDir = null, bool overwrite = false)
+    {
+        CheckPrice(ctx, price);
 
         // The owning half of the grant. dictShipOwners (written into the session record below) is what the ferry
         // and the broker read; aMyShips is what CondOwner.OwnsShip reads, which gates crew pledges, bTargetOwned
@@ -545,6 +566,16 @@ public static class SaveGrant
         WriteIntoCopy(targetZip, ctx, regId, ship);
 
         return (outDir, report with { Charged = price > 0 ? price : null, ResultingBalance = newBalance });
+    }
+
+    /// <summary>A grant is never allowed to overdraw the player. Checked at both entry points, so
+    /// <see cref="Grant"/> refuses before it pays for a build it is going to throw away.</summary>
+    private static void CheckPrice(GrantContext ctx, double price)
+    {
+        if (price < 0) throw new ArgumentOutOfRangeException(nameof(price), "A grant's price cannot be negative.");
+        if (price > ctx.Balance)
+            throw new InvalidDataException(
+                $"That costs more than the player has ({price:0.##} against {ctx.Balance:0.##}). Lower the price or make it a gift.");
     }
 
     /// <summary>
