@@ -122,7 +122,8 @@ public sealed class RatingReportWindow : Window
     private static Brush Warn => ThemeManager.Warn;
 
     public RatingReportWindow(AnalysisReport report, ShipValueEstimate value, BitmapSource? snapshot,
-        Action<IReadOnlyList<(int X, int Y)>> highlightLeak, string? snapshotSvg = null)
+        Action<IReadOnlyList<(int X, int Y)>> highlightLeak, string? snapshotSvg = null,
+        Action<double>? onExtraMassChanged = null)
     {
         Title = "Ship Rating";
         // roomy default (the report grew sections), clamped so it still fits smaller screens
@@ -165,6 +166,8 @@ public sealed class RatingReportWindow : Window
                    "reads heavier there. " + maneuverDetail,
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 12),
         });
+
+        AddPropulsion(body, report.Propulsion, onExtraMassChanged);
 
         // kiosk prices: the game's room-based ship value at the core kiosk rates
         body.Children.Add(Header("KIOSK PRICES"));
@@ -368,6 +371,149 @@ public sealed class RatingReportWindow : Window
             Dlg.Error(owner, "Ship Rating", "Couldn't save the image.\n\n" + ex.Message);
         }
     }
+
+    /// <summary>
+    /// The propulsion block: what the design can pull on RCS and on the torch, and how far it can pull it.
+    /// The game surfaces none of this outside a nav console's Reserves / Course Plot / Torch Drive modules,
+    /// so a planner has to recompute it (see <see cref="Propulsion"/>).
+    /// <para>The extra-mass box re-reads the figures in place via <see cref="PropulsionEstimate.WithExtraMass"/>,
+    /// which is pure arithmetic over the already-measured counts, so hauling a different load never re-analyses
+    /// the ship. <paramref name="persist"/> writes it back onto the document so it saves with the design.</para>
+    /// </summary>
+    private static void AddPropulsion(Panel body, PropulsionEstimate baseline, Action<double>? persist)
+    {
+        body.Children.Add(Header("PROPULSION"));
+
+        var slots = new UniformGrid { Columns = 4, Margin = new Thickness(0, 0, 0, 4) };
+        var (rcsAccelBox, rcsAccel) = LiveSlot("RCS accel");
+        var (deltaVBox, deltaV) = LiveSlot("RCS delta-v");
+        var (torchAccelBox, torchAccel) = LiveSlot("Torch accel");
+        var (reactantBox, reactant) = LiveSlot("Reactant");
+        slots.Children.Add(rcsAccelBox);
+        slots.Children.Add(deltaVBox);
+        slots.Children.Add(torchAccelBox);
+        slots.Children.Add(reactantBox);
+        body.Children.Add(slots);
+
+        var massLine = new TextBlock { Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 6) };
+        body.Children.Add(massLine);
+
+        // Extra mass: the game's own docked-mass path (Ship.RCSAccelMax divides by this ship's mass plus every
+        // docked ship's), which is what makes it the right model for a tug or a salvage hauler. Named "dead
+        // weight" rather than "extra mass" because the obvious misreadings are "extra fuel" (it is the opposite:
+        // it adds no reaction mass) and "my cargo" (which the game does not weigh at all) — the hint below says
+        // both out loud, since a figure that only ever gets worse is not what someone typing a number expects.
+        var haul = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 4) };
+        haul.Children.Add(new TextBlock
+        {
+            Text = "Dead weight to haul", Foreground = Dim, FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
+        });
+        var extraBox = new TextBox
+        {
+            Width = 110, Text = baseline.ExtraMass > 0 ? baseline.ExtraMass.ToString("0.###") : "",
+            VerticalContentAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Right,
+        };
+        haul.Children.Add(extraBox);
+        haul.Children.Add(new TextBlock
+        {
+            Text = "kg", Foreground = Dim, FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 0, 0),
+        });
+        body.Children.Add(haul);
+        body.Children.Add(new TextBlock
+        {
+            Text = "Mass the layout itself does not carry: a ship under tow, or a hold full of salvage. "
+                 + "This is not fuel. It adds no reaction mass, so every figure above only gets worse as you "
+                 + "raise it. Stowed container cargo weighs nothing in game either, so put it here if you want "
+                 + "it counted. Saved with the design.",
+            Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
+        });
+
+        var detail = new TextBlock { Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 4) };
+        body.Children.Add(detail);
+
+        // Faults are the point of the feature, not an afterthought: they name the missing link rather than
+        // leaving a bare dash. They depend only on the layout, so they never change as the haul mass does.
+        foreach (var note in baseline.RcsNotes.Concat(baseline.TorchNotes))
+            body.Children.Add(new TextBlock
+            {
+                Text = note, Foreground = Warn, FontSize = 11,
+                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 2),
+            });
+
+        void Refresh()
+        {
+            var p = baseline.WithExtraMass(ParseKg(extraBox.Text));
+
+            rcsAccel.Text = p.HasRcsFigures ? Gs(p.RcsAccelG) : Dash;
+            deltaV.Text = p.HasRcsFigures && p.RcsReactionMass > 0 ? Speed(p.RcsDeltaV) : Dash;
+            torchAccel.Text = p.HasTorchFigures ? Gs(p.TorchAccelG) : Dash;
+            reactant.Text = p.HasTorchFigures && p.ReactantSeconds > 0 ? Hours(p.ReactantHours) : Dash;
+
+            // The cargo caveat lives beside the input box, where it is actionable, rather than being repeated here.
+            massLine.Text = $"Mass for propulsion: {p.PartsMass:#,0} kg of placed parts"
+                + (p.LooseMass > 0 ? $" + {p.LooseMass:#,0} kg loose on deck" : "")
+                + (p.ExtraMass > 0 ? $" + {p.ExtraMass:#,0} kg dead weight" : "")
+                + $" = {p.Mass:#,0} kg. Gas never counts toward part mass, so burning reaction mass does not "
+                + "lighten the ship.";
+
+            var lines = new List<string>();
+            if (p.HasRcsFigures)
+            {
+                var thrusters = $"RCS: {p.RcsClustersPresent} cluster{(p.RcsClustersPresent == 1 ? "" : "s")} "
+                    + $"giving {p.RcsThrustNewtons / 1000:#,0.#} kN.";
+                if (p.RcsReactionMass > 0)
+                    thrusters += $" Reaction mass {p.RcsReactionMass:#,0.#} kg of {p.RcsReactionMassMax:#,0.#} kg"
+                        + $" across {p.RcsTankCount} feed position{(p.RcsTankCount == 1 ? "" : "s")}"
+                        + $"; brim-full that is {Speed(p.RcsDeltaVFull)}.";
+                lines.Add(thrusters);
+                lines.Add("Delta-v is set by reaction mass over ship mass alone (the thruster count cancels out of "
+                    + "the game's own expression), so more thrusters buy acceleration, never range.");
+            }
+            if (p.HasTorchFigures)
+                lines.Add($"Torch: pellet max {p.PelletMax:0.#} from {p.Lasers} laser array{(p.Lasers == 1 ? "" : "s")} / "
+                    + $"{p.Capacitors} capacitor{(p.Capacitors == 1 ? "" : "s")} / {p.Feeders} feeder{(p.Feeders == 1 ? "" : "s")} / "
+                    + $"{p.Regulators} regulator{(p.Regulators == 1 ? "" : "s")}, giving {p.TorchThrustNewtons / 1000:#,0} kN at full cycle."
+                    + (p.ReactantSeconds > 0 ? $" {p.LimitingReactant} runs out first, at full flow." : ""));
+            else if (p.HasReactor)
+                lines.Add("Torch figures assume the reactor lit at full cycle and at its ideal core temperature, "
+                    + "which is what \"max\" means here; a planned reactor is always installed unlit.");
+            detail.Text = string.Join(" ", lines);
+        }
+
+        extraBox.TextChanged += (_, _) =>
+        {
+            Refresh();
+            persist?.Invoke(ParseKg(extraBox.Text));
+        };
+        Refresh();
+    }
+
+    private const string Dash = "--";
+
+    private static (UIElement Box, TextBlock Value) LiveSlot(string caption)
+    {
+        var value = new TextBlock { Foreground = Ink, FontSize = 18, FontWeight = FontWeights.SemiBold };
+        var sp = new StackPanel { Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Bottom };
+        sp.Children.Add(value);
+        sp.Children.Add(new TextBlock { Text = caption, Foreground = Dim, FontSize = 10 });
+        return (sp, value);
+    }
+
+    /// <summary>Tolerant kg parse: blank, junk or a negative reads as no extra mass rather than rejecting a keystroke
+    /// mid-edit (typing "-" or "1e" should not clear the field).</summary>
+    private static double ParseKg(string? text) =>
+        double.TryParse(text, NumberStyles.Float | NumberStyles.AllowThousands, CultureInfo.CurrentCulture, out var kg)
+        && double.IsFinite(kg) && kg > 0 ? kg : 0;
+
+    private static string Gs(double g) => $"{g:0.00} G";
+
+    private static string Speed(double metresPerSecond) => metresPerSecond >= 1000
+        ? $"{metresPerSecond / 1000:#,0.00} km/s"
+        : $"{metresPerSecond:#,0.#} m/s";
+
+    private static string Hours(double h) => h >= 1000 ? $"{h:#,0} h" : $"{h:0.0} h";
 
     private static UIElement Slot(string caption, string value, double fontSize = 18)
     {

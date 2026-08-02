@@ -128,6 +128,24 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
 - **Ship Rating** (Analyse): runs the full room / airtightness / certification /
   rating pass and opens the **law report** — uncertifiable rooms with reasons,
   air-leak tracing to the unsealed tile, and the six-slot rating broken down.
+- **Propulsion**, in the same report: **RCS acceleration** in G, **RCS delta-v**,
+  **torch acceleration** in G, and **reactant remaining** in hours. In game these
+  appear on a nav console and nowhere else, so you cannot see them until the ship is
+  built and flying; here they come off the plan.
+  - Reaction mass counts only tanks sitting on an installed RCS **distributor's** gas
+    inputs. A canister in a rack feeds nothing, which the report tells you rather than
+    leaving you to work out. Any airtight tank counts, and every gas in it counts by
+    mass, so an O2 tank is reaction mass too.
+  - **More thrusters do not buy more delta-v.** The count cancels out of the game's
+    own maths: delta-v is reaction mass over ship mass, and thrusters buy acceleration.
+  - Torch thrust and burn time both scale with the reactor's pellet ceiling, so a laser
+    array with no capacitor driving it, or a pellet feeder with no fuel regulator, adds
+    nothing. The report names whichever side is capping you.
+  - **Dead weight to haul** models a ship under tow or a hold of salvage: mass the layout
+    itself does not carry. It divides into every figure exactly where the game puts a
+    docked ship's mass, and it is saved with the design. It is **not** fuel — it adds no
+    reaction mass, so raising it only makes the numbers worse. Stowed container cargo
+    weighs nothing in game either, so put it here if you want it counted.
 - **RoomViz overlay** — the **Rooms** toolbar button or **C**. The same
   certification, live on the canvas: every compartment tinted in its own colour and
   labelled with what it certifies as, its tile count and its value. An uncertified

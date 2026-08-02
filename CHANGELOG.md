@@ -11,6 +11,32 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **Propulsion figures on the Ship Rating report** (issues #15 and #16). The game works all of this out, but shows
+  it in exactly one place: a nav console, on a ship you have already built. The report now has a **PROPULSION**
+  block giving **RCS acceleration in G**, **RCS delta-v**, **torch acceleration in G** and **reactant remaining in
+  hours**, so "have I enough thrusters", "have I enough intakes" and "have I enough laser-feeder pairs" are all
+  answerable from the plan.
+  - **Reaction mass is a plumbing question, not an inventory one.** Only tanks sitting on an installed
+    distributor's gas-input points count, exactly as the game's own `GetRCSRemain` reads them, so a canister in a
+    rack is correctly worth nothing. Any airtight tank qualifies and **every gas counts by mass**, which is how the
+    Katydid runs its RCS on O2; capacity is still priced as an N2 refill, which is what a fuel kiosk sells.
+  - **Delta-v does not care how many thrusters you fit.** The thruster count cancels out of the game's own
+    expression, so it is set purely by reaction mass over ship mass. More thrusters buy acceleration and no range
+    at all, and the report says so, because it is the opposite of what most people assume.
+  - **Torch thrust and burn time both scale with the reactor's pellet ceiling**,
+    `2 × min(min(feeders, 2×regulators), min(lasers, 2×capacitors))`. A laser with no capacitor to drive it, or a
+    feeder with no fuel regulator, contributes nothing, and the report names which side is capping you.
+  - **A "dead weight to haul" box** for tugs and salvage runs, which lands where the game puts a docked ship's
+    mass, and is **saved with the design**. It is dead weight in the literal sense: not fuel, so it adds no
+    reaction mass and every figure only gets worse as you raise it.
+  - **Every zero says why.** No distributor, distributor switched off, tanks not plumbed in, a reactor with no
+    capacitors, no helium-3 aboard: each names the missing link instead of printing a bare dash. (The smaller
+    `LHe01` tank is the cryo feed and holds no reactant, which the report will tell you rather than let you guess.)
+  - Verified against game **0.15.1.6** and pinned by tests: every ported constant, the module pairing, and the
+    gas-input geometry across the shipped fleet (108 of the 111 core ships carrying a distributor resolve a real
+    fed RCS system through the same code path).
+
 ### Fixed
 - **Overhead lights are placeable again** (issue #11). The ceiling lights (`ItmLitCeiling1x1` family) are the only
   buildable parts whose socket rules demand a power conduit on an adjacent tile, and the planner was hard-blocking

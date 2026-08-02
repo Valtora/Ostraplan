@@ -28,6 +28,7 @@ It is a sibling tool to [**Ostrasort**](https://github.com/Valtora/Ostrasort), t
 
 - **Live validation.** You cannot place what the game would refuse. The ghost glows green or red with the failing tiles and the reason, and building past an airlock's mating face is blocked.
 - **Rooms, airtightness, and Ship Rating.** Flood-fill compartments, room certification, and the six-slot rating, all computed the way the game computes them.
+- **Propulsion.** RCS acceleration and delta-v, torch acceleration, and reactant hours, with an optional towed mass. The game computes all of this and shows it only on a nav console, on a ship you have already built; here you get it from the plan, along with the reason whenever a figure reads zero (a tank that feeds nothing, a laser with no capacitor to drive it).
 - **RoomViz** (`C`). Every compartment tinted and labelled with what it certifies as, its size, and its value. A room that certifies as nothing says why, down to the single canister in your quarters that quietly costs you the room.
 - **Light Viz** (`L`, on by default). The game's deferred lighting reproduced pixel-exact on the plan: real occluders, glass windows that pass light, lit wall faces, normal-mapped relief, and optional parallax exterior daylight.
 - **Law report.** Every problem in one place, tracing air leaks to the exact unsealed tile.

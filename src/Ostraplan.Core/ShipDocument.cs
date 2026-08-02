@@ -73,6 +73,26 @@ public sealed class ShipDocument
     /// </summary>
     public SaveSourceRef? SourceSave { get; set; }
 
+    /// <summary>
+    /// Extra mass in kilograms the design is expected to haul: a ship under tow, a hold of salvage, anything
+    /// the layout itself does not carry. Shown as "dead weight to haul" on the Ship Rating report, because the
+    /// two things a user might otherwise read it as — extra fuel, or their stowed cargo — are precisely what it
+    /// is not. It feeds <see cref="Propulsion"/> only (never rooms, rating or value),
+    /// where it lands in exactly the place the game puts a docked ship's mass — the divisor of
+    /// <c>Ship.RCSAccelMax</c>. A design property rather than a view setting, so it is persisted in the .oplan
+    /// and travels with the ship.
+    /// <para>It changes no geometry, so it deliberately does <b>not</b> raise <see cref="Changed"/> — that event
+    /// means "the layout moved", and firing it here would re-run the problem scan and drop the Ship Rating leak
+    /// highlight on every keystroke. It is unsaved-state the shell tracks alongside ship identity and view
+    /// orientation instead.</para>
+    /// </summary>
+    public double ExtraMassKg
+    {
+        get => _extraMassKg;
+        set => _extraMassKg = double.IsFinite(value) ? Math.Max(0, value) : 0;
+    }
+    private double _extraMassKg;
+
     public event Action? Changed;
 
     private int _batchDepth;

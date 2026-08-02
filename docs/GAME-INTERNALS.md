@@ -35,6 +35,7 @@ flag exactly that: re-verify after every game update.
 - [17. Ship serialization (templates and saves)](#17-ship-serialization-templates-and-saves)
 - [18. Writing a ship back into a save](#18-writing-a-ship-back-into-a-save)
 - [19. Obtaining a ship in-game (brokers, chargen)](#19-obtaining-a-ship-in-game-brokers-chargen)
+- [20. Propulsion (RCS and the torch drive)](#20-propulsion-rcs-and-the-torch-drive)
 - [Appendix A — Quick reference](#appendix-a--quick-reference)
 - [Appendix B — Ported / deferred / excluded](#appendix-b--ported--deferred--excluded)
 
@@ -989,6 +990,124 @@ Edit-load.
 
 ---
 
+## 20. Propulsion (RCS and the torch drive)
+
+Nothing outside a **nav console** shows any of this. The figures live on `Ship` and
+`FusionIC` and surface only through `NavModReserves` (delta-v, reaction mass),
+`NavModCoursePlot` (max thrust in G, reactant hours for a plotted course) and
+`NavModTorchDrive` (reactant hours). Neither the ship rating, the broker, nor the build
+UI exposes them, which is why a planner has to recompute the lot.
+
+### RCS
+
+```
+RCSAccelMax        = 100f * (0.728f * fRCSCount) * 5.26077E-09f / massIncludingDockedShips   [AU/s²]
+DeltaVRemainingRCS = RCSAccelMax * GetRCSRemain() / 0.7279999852180481 / fRCSCount           [AU/s]
+```
+
+`fRCSCount` is `Σ StatThrustStrength` over installed, non-`IsOff` clusters
+(`TIsRCSClusterAudioEmitter`) — the **same** number behind the Maneuver grade (§10).
+Accelerations render as G with `/ 6.6845869117759804E-12 / 9.81`; distances render
+through `MathUtils.GetDistUnits`, which takes AU.
+
+Collapsed, with mass in kg:
+
+- **thrust** = `57 293.6 N` per unit of `StatThrustStrength` (each core cluster declares 1.0)
+- **delta-v** = `78 700.0 m/s × reactionMass / mass`
+
+**The thruster count cancels out of delta-v.** Fitting more clusters buys acceleration
+and no range whatever. And gas mass never enters `StatMass` (`GasContainer` tracks
+`fGasMass` separately and writes no cond), so burning reaction mass does not lighten the
+ship: the model is linear, not a rocket equation.
+
+**Reaction mass is plumbing, not inventory.** `GetRCSRemain` / `GetRCSMax` walk each
+installed, switched-on **distributor** (`TIsRCSDistroInstalledOn`, i.e. `IsRCSReg` +
+`IsInstalled`, not `IsOff`), then each of its `GasInput*` map points, and take the
+containers found there (`TIsRCSValidInput` = requires `IsAirtight`, forbids `IsHuman` /
+`IsSystem`). A canister in a rack feeds nothing.
+
+- Remaining is `GasContainer.Mass`, the total of **every** gas by mass — so an O2 tank is
+  reaction mass too (the vanilla Katydid).
+- Maximum is always priced as N2: `StatGasPressureMax × StatVolume / 293 / 0.008314` mol
+  × the N2 molar mass, whatever the tank actually holds. That matches a fuel-kiosk refill.
+- `ItmRCSDistro01` is a **3×3 socket grid whose adds are centre-only**, with its four
+  `GasInput` points on the cardinal neighbours of its centre — cells its own mask leaves
+  Blank, so a 1×1 RTA legally occupies one. `ItmRCSDistro02` has a single point at `(8,8)`.
+- **The game de-duplicates nothing.** A tank spanning two GasInput points, or shared
+  between two distributors, is counted once per hit. That double count is in
+  `GetRCSRemain` itself, which the flight model reads, so it is behaviour and not a
+  display artefact.
+
+> **`NavModReserves` double-scales the docked ratio.** `GetDeltaVRemaining(bAllowDocked:
+> true)` multiplies `DeltaVRemainingRCS` by `Mass / totalDockedMass` — but `RCSAccelMax`,
+> which `DeltaVRemainingRCS` is built from, already divided by that same total. Under tow
+> the console therefore under-reads delta-v by `(M/M_total)²`. Undocked the factor is 1 and
+> the two agree. `Ship.DeltaVRemainingRCS` is the value the autopilot and `AIShipManager`
+> plan against, so it is the authority.
+
+### Torch drive
+
+`FusionIC.Run` counts the modules sitting on the reactor core's `Module01..NN` map points
+(`ItmFusionReactorCore01*` declares **12**; `FusionIC.Init` stops at the first name the core
+does not declare). A module qualifies via `TIsFusionModule` (`IsInstalled`, forbidding
+`IsPowerConduit` / `IsWall` / `IsFloorGrate` / `IsDamaged`) and is then classified by its
+`IsFusionLaserArray` / `IsFusionPelletFeeder` / `IsFusionCapacitor` / `IsFusionFuelRegulator`
+cond. Lasers, feeders and regulators are skipped when `IsOff`; **capacitors are counted by
+list length regardless of state**. On a pristine design every module's health term is 1, so:
+
+```
+StatICPellMax = 2 * min( min(feeders, 2*regulators), min(lasers, 2*capacitors) )
+```
+
+A laser with no capacitor to drive it, and a feeder with no fuel regulator, contribute
+nothing. With `veRatio = StatICVe / 70 500 000`:
+
+```
+fFusionThrustMax = 332499980926.5137 * veRatio / 70500000 * StatICPellMax * 393.06358381502895   [N]
+massFlowMax      = 699999988079.071 * veRatio / 70500000 / 70500000 * 393.06358381502895 * StatICPellMax   [kg/s]
+
+GetMaxTorchThrust(f) = Lerp(1, PelletMax, f) / PelletMax * f * fFusionThrustMax / Mass * 6.6845869117759804E-12
+fShallowFusionRemain = min( StatLiqD2O / (massFlowMax * 0.667f), StatSolidHe3 / (massFlowMax * 1f) )   [s]
+```
+
+At limiter `f = 1` the first factor is 1, so **max thrust in G** is
+`fFusionThrustMax / Mass / 9.81`, and the console's reactant clock is
+`fShallowFusionRemain / 3600` hours at full flow (a lower cycle lasts proportionally
+longer). Live thrust additionally scales by `StatICCoreTemp / 0.725`, which is 1 at the
+ideal core temperature.
+
+**Reactants are matched by condowner name, exactly.** `CODicts.GetTriggeredCOListByType`
+keys on the CO name, so only `ItmCanisterLH02` (44,722.8 `StatLiqD2O`) and
+`ItmCanisterLHe02` (5,216 `StatSolidHe3`) count. `ItmCanisterLHe01` is the **cryo** feed
+(`CTCryo`) and carries no He3 at all; a modded or reskinned tank under any other name is
+invisible to the reactor however much fuel it declares.
+
+> **Only the ignited core carries `StatICVe`.** `ItmFusionReactorCore01Ignition` has
+> `7.05e7`, `ItmReactorIC03Ignition` has `1.05e7`, and the installable `…Off` form has none
+> — while `…On` is the condowner-less orphan item (§12). Since every planned ship's reactor
+> is unlit, a literal read reports zero thrust for every design, so the placed core must be
+> resolved through to its `…Ignition` counterpart. The RCS side needs no such help:
+> `Catalog.PreferPoweredState` already builds the switched-on cluster and distributor.
+
+### What a planner cannot reproduce exactly
+
+`GetCOsAtWorldCoords1` is a **physics raycast** (`Physics.RaycastAll`) against colliders,
+so a map-point lookup is one of the in-game-only predicates of §5.7. Socket-footprint
+coverage is the closest headless stand-in and is exact for the 1×1 RTAs that actually feed
+an RCS system; it can over-claim only where a part's socket grid is much larger than its
+collider (the 7×7 / 3×3 fuel canisters, §4). Measured against the shipped fleet, **108 of
+the 111 core ships carrying a distributor** resolve a real fed RCS system through it.
+
+> **Ported in Ostraplan:** `Propulsion` (`PropulsionEstimate` for the derived figures,
+> `Estimate` for the scans), surfaced on the Ship Rating report. Mass is the game's own
+> top-level walk (placed parts, no `IsInstalled` filter, plus loose deck items), which is
+> deliberately **not** `ShipRating.Mass` (§10, installed parts only) — the report shows both
+> and says why. The `NavModReserves` double-scaling is **not** reproduced; the towed-mass
+> input scales once, like `DeltaVRemainingRCS`. **Re-verify per patch:** every constant
+> above, the pellet-max pairing, and the `GasInput` / `Module` map-point layouts.
+
+---
+
 ## Appendix A — Quick reference
 
 - **`nLayer` is always 0** — rank by contributed conditions (§15).
@@ -1035,6 +1154,14 @@ Edit-load.
 - **Filter `IsSystem` on read; an unresolvable def is invisible but REAL** — never treat
   "not in the catalog" as "not there" (§17).
 - **A save's player ship is `strShip`, not `saveInfo.shipName`** (§17).
+- **RCS delta-v ignores the thruster count** — it cancels out of the game's own expression, leaving
+  `78,700 m/s × reactionMass / mass`. More thrusters buy acceleration, never range (§20).
+- **Reaction mass is only what sits on a distributor's `GasInput` point** — a canister in a rack
+  feeds nothing, any airtight tank qualifies, and every gas counts by mass (§20).
+- **Torch thrust and burn time both scale with `StatICPellMax`** =
+  `2 × min(min(feeders, 2×regulators), min(lasers, 2×capacitors))` (§20).
+- **Only the `…Ignition` core carries `StatICVe`** — a planned ship's reactor is always unlit, so the
+  placed core must be resolved through to it or every torch figure reads zero (§20).
 - **Bake `aDockingPorts` + `strPrimaryDockingPortID` or a bought ship never docks** (§6).
 - **Bake `Boarding`/`NotBoarding` spawners into `aShallowPSpecs` or arrivals land outside
   the hull** (§6).
@@ -1079,6 +1206,7 @@ sets), giving a 192-ship rooms **and** certification gate. Only **Babak / Babak 
 | Room certification (`RoomSpec.Matches`) | ported | `RoomSpecs` (`RoomCertifier`) |
 | Ship Rating (`CalculateRating`) | ported | `Rating` |
 | Ship value (`GetShipValue` / `GetBasePrice`) | ported | `ShipValue`, `Catalog.GasPrices` |
+| Propulsion (`RCSAccelMax`, `DeltaVRemainingRCS`, `GetRCSRemain`/`Max`, `FusionIC` + `GetMaxTorchThrust`) | ported (map-point lookup approximates a raycast) | `Propulsion` |
 | Power connectivity (`GetPoweredTiles`) | ported | `PowerNetwork` |
 | Device signal connections (`Electrical` GPM) | ported | `DeviceLink` / `DeviceLinks`, `ShipExport.WireDeviceLinks` |
 | Deferred lighting (`Visibility` + `LoSPass`) | ported (preview only) | `LightNetwork`, `VisibilityMesh`, `LightComposite` |

@@ -73,6 +73,12 @@ public static class ShipValue
         ["Smoke"] = 0.0980785,
     };
 
+    /// <summary>Kilograms per mole of a gas — the hardcoded switch in <c>GasContainer.GetGasMass</c>. A gas
+    /// absent from it weighs nothing (notably He3, which is why He3 <i>gas</i> is valued at zero while the
+    /// solid <c>StatSolidHe3</c> is not). Shared with <see cref="Propulsion"/>, which weighs the same tanks
+    /// as reaction mass rather than as value.</summary>
+    public static double MolarMass(string gas) => MolarMassKgPerMol.GetValueOrDefault(gas);
+
     /// <summary>Installed air pump (IsAirPump + IsInstalled) — the trigger Ship.AddICO gates pumps on.</summary>
     public const string PumpTrigger = "TIsAirPump02Installed";
 

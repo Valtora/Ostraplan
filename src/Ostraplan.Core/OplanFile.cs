@@ -40,6 +40,10 @@ public sealed class OplanFile
     /// <summary>Problem-warning keys the user dismissed (see <see cref="ShipDocument.DismissedAlerts"/>). Additive
     /// at format v1, like <see cref="Zones"/>.</summary>
     [JsonPropertyName("dismissedAlerts")] public List<string> DismissedAlerts { get; set; } = [];
+    /// <summary>Extra mass (kg) the design is expected to haul, for the propulsion figures only (see
+    /// <see cref="ShipDocument.ExtraMassKg"/>). Additive at format v1, like <see cref="Zones"/>: an older build
+    /// ignores it and round-trips it via <see cref="Extra"/>, so no version bump. Omitted when zero.</summary>
+    [JsonPropertyName("extraMassKg")] public double? ExtraMassKg { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 
     private static readonly JsonSerializerOptions Options = new()
@@ -73,6 +77,7 @@ public sealed class OplanFile
                        .ToList(),
             Zones = doc.Zones.Select(ToOplanZone).ToList(),
             LooseObjects = doc.LooseObjects.Select(lo => new OplanLoose { Def = lo.DefName, X = lo.X, Y = lo.Y, Rot = lo.Rot, Qty = lo.Quantity }).ToList(),
+            ExtraMassKg = doc.ExtraMassKg > 0 ? doc.ExtraMassKg : null,
         };
         // Device links as (source, target) index pairs into the parts array (= doc.Placements order); only links
         // whose both endpoints still exist are written (a dangling one, left by an un-undone delete, is pruned here).
@@ -104,6 +109,7 @@ public sealed class OplanFile
         var doc = new ShipDocument(catalog)
         {
             SourceSave = Source is { } s ? new SaveSourceRef(s.SaveName, s.RegId) : null,
+            ExtraMassKg = ExtraMassKg ?? 0,
         };
         var missing = new List<OplanPart>();
         var byIndex = new Placement?[Parts.Count];   // original part index → placement (null where dropped), for links

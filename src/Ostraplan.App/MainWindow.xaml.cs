@@ -639,7 +639,8 @@ public partial class MainWindow : Window
             var value = ShipValue.Estimate(doc, catalog, specs);
             var snapshot = Board.RenderRatingSnapshot(specs);
             var snapshotSvg = Board.RenderRatingSnapshotSvg(specs);   // scalable variant for the "Save image…" dialog
-            new RatingReportWindow(report, value, snapshot, cells => Board.SetLeakCells(cells), snapshotSvg) { Owner = this }.ShowDialog();
+            new RatingReportWindow(report, value, snapshot, cells => Board.SetLeakCells(cells), snapshotSvg,
+                kg => SetExtraMass(doc, kg)) { Owner = this }.ShowDialog();
         }
     }
 
@@ -2155,6 +2156,17 @@ public partial class MainWindow : Window
             && dlg.Year == _meta.Year && dlg.Designation == _meta.Designation && dlg.Description == _meta.Description)
             return;   // nothing changed — don't dirty the document
         dlg.ApplyTo(_meta);
+        _stateDirty = true;
+        RefreshChrome();
+    }
+
+    /// <summary>The Ship Rating report's towed-mass box writes a persisted design property (see
+    /// <see cref="ShipDocument.ExtraMassKg"/>). It moves no part, so it goes through the same non-command
+    /// unsaved-state path as ship identity and view orientation rather than the layout-changed event.</summary>
+    private void SetExtraMass(ShipDocument doc, double kg)
+    {
+        if (kg.Equals(doc.ExtraMassKg)) return;
+        doc.ExtraMassKg = kg;
         _stateDirty = true;
         RefreshChrome();
     }

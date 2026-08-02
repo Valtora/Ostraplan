@@ -34,10 +34,12 @@ public sealed record RoomOpportunity(
     int RoomIndex, string CurrentSpecFriendly, bool Certified, int TileCount,
     double GainSell, IReadOnlyList<string> Lines, IReadOnlyList<(int X, int Y)> Tiles);
 
-/// <summary>The full "Ship Rating" analysis: the six-slot rating, room detail, breaches, and the
-/// optional value-opportunity hints (<see cref="Opportunities"/> + the O2-bonus state).</summary>
+/// <summary>The full "Ship Rating" analysis: the six-slot rating, room detail, breaches, the
+/// optional value-opportunity hints (<see cref="Opportunities"/> + the O2-bonus state), and the
+/// <see cref="Propulsion"/> figures the game only ever shows on a nav console.</summary>
 public sealed record AnalysisReport(ShipRating Rating, IReadOnlyList<RoomInfo> Rooms, IReadOnlyList<Breach> Breaches, int PartCount,
-    IReadOnlyList<RoomOpportunity> Opportunities, bool O2BonusActive, double O2PotentialSell)
+    IReadOnlyList<RoomOpportunity> Opportunities, bool O2BonusActive, double O2PotentialSell,
+    PropulsionEstimate Propulsion)
 {
     public IEnumerable<RoomInfo> Certified => Rooms.Where(r => r.Spec != "Blank");
     public IEnumerable<RoomInfo> Uncertifiable => Rooms.Where(r => r is { Spec: "Blank", Void: false } && r.NearMisses.Count > 0);
@@ -82,9 +84,12 @@ public static class ShipAnalysis
         // the single biggest value lever: a fed O2 pump ×3s the whole room value at the broker
         var o2Potential = o2Active ? 0 : roomsValue * ShipValue.O2Multiplier * ShipValue.BrokerSellFactor;
 
+        progress?.Report(("Measuring propulsion…", 0.95));
+        var propulsion = Propulsion.Estimate(doc, grid, catalog);
+
         progress?.Report(("Done", 1.0));
         return new AnalysisReport(rating, rooms, FindBreaches(grid, partition), doc.Placements.Count,
-            Opportunities(grid, partition, specs, catalog, o2Active), o2Active, o2Potential);
+            Opportunities(grid, partition, specs, catalog, o2Active), o2Active, o2Potential, propulsion);
     }
 
     /// <summary>
