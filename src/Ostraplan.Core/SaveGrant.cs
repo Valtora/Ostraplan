@@ -741,8 +741,12 @@ public static class SaveGrant
         return ship.DeepClone();
     }
 
-    /// <summary>A fresh, non-colliding sibling folder for the copy, matching the naming
-    /// <see cref="SaveEdit.SuggestCopyDir"/> uses so both save-writing paths produce the same kind of save.</summary>
+    /// <summary>A fresh, non-colliding sibling folder for the copy of <paramref name="ctx"/>'s save, matching the
+    /// naming <see cref="SaveEdit.SuggestCopyDir"/> uses so both save-writing paths produce the same kind of save.
+    /// Public so a caller that names the copy before writing it (the export wizard's Review step) names the one
+    /// that will actually be used.</summary>
+    public static string SuggestCopyDir(GrantContext ctx) => SuggestCopyDir(Path.GetDirectoryName(ctx.ZipPath)!);
+
     private static string SuggestCopyDir(string srcDir)
     {
         var parent = Path.GetDirectoryName(srcDir)!;

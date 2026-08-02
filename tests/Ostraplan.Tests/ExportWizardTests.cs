@@ -18,7 +18,8 @@ namespace Ostraplan.Tests;
 public class ExportWizardTests
 {
     private static WizardSession Session((GameEnv Env, DataIndex Index, Catalog Catalog) g,
-        ExportDestination destination = ExportDestination.Mod, string shipName = "Test Ship")
+        ExportDestination destination = ExportDestination.Mod, string shipName = "Test Ship",
+        IReadOnlyList<SaveEntry>? saves = null)
     {
         var doc = new ShipDocument(g.Catalog);
         new PlaceCommand(new Placement { DefName = "ItmWall1x1", X = 0, Y = 0 }).Do(doc);
@@ -32,7 +33,7 @@ public class ExportWizardTests
             Env = g.Env,
             Settings = new AppSettings(),
             Meta = new OplanMeta { Name = shipName },
-            Saves = [],
+            Saves = saves ?? [],
         };
     }
 
@@ -68,6 +69,19 @@ public class ExportWizardTests
             Assert.Equal(3, tiles.Count);
             Assert.True(tiles[0].IsEnabled);                          // as a mod, always available
             Assert.Contains(tiles, t => !t.IsEnabled);                // the two not wired up in this build
+        });
+    }
+
+    [SkippableFact]
+    public void The_rail_shrinks_when_a_save_destination_is_picked()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            // the point of choosing the destination first: later steps suit one path instead of all three
+            var wizard = new ExportWizard(Session(g, ExportDestination.NewShipInSave));
+
+            Assert.Equal(["Destination", "The ship", "Save & price", "Review", "Done"], Rail(wizard));
         });
     }
 
@@ -199,6 +213,78 @@ public class ExportWizardTests
             Descendants<TextBox>(step).First().Text = "My Own Mod";
             step.Leave(session);
             Assert.Equal("My Own Mod", session.Plan.Mod.ModName);      // a user edit sticks
+        });
+    }
+
+    // ---- the save & price step ----
+
+    [SkippableFact]
+    public void A_grant_is_a_gift_until_the_user_asks_to_be_charged()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var session = Session(g, ExportDestination.NewShipInSave);
+            session.Driver = new NewShipDriver();
+            var step = new SavePriceStep();
+            step.Enter(session);
+
+            step.Leave(session);
+
+            Assert.False(session.Plan.NewShip.Charge);
+            Assert.Equal(0, session.Plan.NewShip.Price);
+        });
+    }
+
+    [SkippableFact]
+    public void The_save_step_blocks_until_a_save_is_picked()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var session = Session(g, ExportDestination.NewShipInSave);
+            session.Driver = new NewShipDriver();
+            var step = new SavePriceStep();
+            step.Enter(session);
+
+            var reason = step.Validate();
+
+            Assert.NotNull(reason);
+            Assert.Contains("save", reason, StringComparison.OrdinalIgnoreCase);
+        });
+    }
+
+    [SkippableFact]
+    public void The_new_ship_destination_is_offered_only_when_saves_exist()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var driver = new NewShipDriver();
+
+            // shown but disabled with the reason, rather than hidden
+            Assert.Equal("No save games found.", driver.Unavailable(Session(g)));
+            Assert.Null(driver.Unavailable(
+                Session(g, saves: [new SaveEntry("A save", "Ship", "Player", "now", @"C:\nope\a\a.zip")])));
+        });
+    }
+
+    [SkippableFact]
+    public void An_unreadable_save_reports_itself_instead_of_arming_the_commit()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            // a save entry pointing at nothing: the failure has to surface here, not after the user has committed
+            var bogus = new SaveEntry("Ghost Save", "Ship", "Player", "now", @"C:\nope\ghost\ghost.zip");
+            var session = Session(g, ExportDestination.NewShipInSave);
+            var driver = new NewShipDriver();
+            session.Driver = driver;
+
+            var reason = driver.UseSaveAsync(session, bogus).GetAwaiter().GetResult();
+
+            Assert.NotNull(reason);
+            Assert.Null(driver.Context);
         });
     }
 

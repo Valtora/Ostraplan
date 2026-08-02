@@ -44,10 +44,7 @@ public sealed class ExportWizard : Window
         _drivers =
         [
             new ModDriver(),
-            new PendingDriver(
-                ExportDestination.NewShipInSave, "Into a save game",
-                "Adds the design to a copy of a save as a brand-new ship you own.",
-                "Not available yet in this build."),
+            new NewShipDriver(),
             new PendingDriver(
                 ExportDestination.UpdateShipInSave, "Update a ship in a save",
                 "Rewrites the ship this design was imported from, keeping its crew and cargo.",
@@ -148,6 +145,7 @@ public sealed class ExportWizard : Window
         StepId.ModDetails => new ModDetailsStep(),
         StepId.Obtainable => new ObtainableStep(),
         StepId.ModTarget => new ModTargetStep(),
+        StepId.SavePrice => new SavePriceStep(),
         StepId.Review => new ReviewStep(),
         StepId.Done => new DoneStep(),
         _ => throw new NotSupportedException($"No pane for {id} in this build."),
