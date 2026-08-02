@@ -39,7 +39,7 @@ right, but treat a mismatch as "double-check in-game".
 | **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**, and an **ITEMS** tab for loose floor cargo. Search by friendly or internal name. Modded parts show a small origin badge. |
 | **Canvas** (centre) | The tile grid. Place, paint, select, pan and zoom here. |
 | **Inspector** (right) | The selected part's details, ship stats, the **Problems** list, and the **Law report**. |
-| **Toolbar** (top) | Grouped **File · Edit · Design · Analyse**, then the view overlay toggles **Zones · Rooms · Power · Light · Wire** (each highlights in the accent colour while active) and the **View ▾** menu (fit, symmetry, Light Viz dimming, mod overrides), with the theme picker and the **Help ▾** menu on the right. When a newer release exists it is downloaded quietly in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
+| **Toolbar** (top) | Grouped **File · Edit · Design · Analyse**, then the view overlay toggles **Zones · Rooms · Power · Light · Walk · Wire** (each highlights in the accent colour while active) and the **View ▾** menu (fit, symmetry, Light Viz daylight, walk-overlay switches, mod overrides), with the theme picker and the **Help ▾** menu on the right. When a newer release exists it is downloaded quietly in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
 
 ## Placing parts
 
@@ -165,6 +165,26 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   keeps its lit look while you drag, and the composite refreshes in place without a
   flash. It is a faithful preview, not a validation step (Ostranauts has no darkness
   gameplay).
+- **WalkViz overlay** — the **Walk** toolbar button or **K**. Every tile crew can
+  stand on, tinted by which connected area it belongs to. Two tiles sharing a colour
+  are reachable from each other on foot; two colours mean there is no route, which is
+  the fast way to catch a compartment you have walled yourself out of. On top of that:
+  - **Fittings nobody can operate** are ringed in solid red **on the fitting itself**, so
+    clicking one selects the part at fault. The game requires a crew member to reach a
+    specific point on the device, within that interaction's own range and with line of
+    sight, so a cooler boxed in by a bench is unusable however close you can get. The Law
+    report lists them by kind with counts.
+  - **Amber dashes mean "suit up", not "broken".** Kit mounted on the hull (lift rotors,
+    external cargo pods) has no interior tile to work from, which is just how you reach
+    it, so it is dashed rather than flagged. A doorway with vacuum on one side is dashed
+    the same way: crossable, in a suit. (Pressure is read from the compartments either
+    side, since a plan has no gas simulation.)
+  - **Door state matters here**, unlike for rooms and the rating. A closed door only
+    seals a section off if it is unpowered, locked or damaged; a powered one crew simply
+    open, so it still joins both sides.
+  - Under **View ▸ Walk overlay** you can **count spacewalks** (include routes over the
+    hull, off by default so interior routes are what you see) and choose whether
+    **Forbid zones** apply. Both settings are remembered.
 - **Problems** (inspector): live blocking/warning issues for placement and
   airlock-envelope. Each entry expands for the detail, and a **View** button pans and
   zooms the canvas straight to the offending tiles so it's easy to find on a big ship.

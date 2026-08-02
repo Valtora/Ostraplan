@@ -74,8 +74,73 @@ public static class ProblemScan
         }
 
         AddLegalityProblems(doc, problems);
+        AddWalkabilityWarnings(doc, catalog, problems);
 
         return problems;
+    }
+
+    /// <summary>The dismiss key for the unreachable-devices warning.</summary>
+    public const string UnreachableAlertKey = "unreachable-devices";
+
+    /// <summary>The dismiss key for the isolated-compartment warning.</summary>
+    public const string IsolatedAlertKey = "isolated-compartments";
+
+    /// <summary>
+    /// Live crew-access advice from <see cref="WalkNetwork"/>: fittings no crew member could operate, and interior
+    /// floor that is walled off from the rest of the ship.
+    ///
+    /// <para>All of it is <b>Warning</b>, never Blocking. None of it makes a ship invalid — the game will happily
+    /// spawn a design whose cooler you cannot reach — so it is advice a planner should surface and the user should
+    /// be able to dismiss, exactly like the unsealed-compartment alert. The walk analysis runs with the defaults
+    /// (interior only, Forbid zones respected); the View-menu switches change only the overlay, so the report does
+    /// not quietly re-interpret the ship behind the user.</para>
+    /// </summary>
+    private static void AddWalkabilityWarnings(ShipDocument doc, Catalog catalog, List<Problem> problems)
+    {
+        var grid = ShipGrid.FromDocument(doc, catalog);
+        if (grid.TileCount <= 1) return;
+        var walk = WalkNetwork.Build(grid, catalog, WalkOptions.Default, WalkNetwork.ForbiddenTiles(doc, grid));
+
+        var unreachable = walk.Unreachable.ToList();
+        if (unreachable.Count > 0)
+        {
+            // Counted per kind: a bare list of names reads as "one of each" when it is usually a dozen of one,
+            // and the count is what tells you whether it is a real problem or one awkward fitting.
+            var kinds = unreachable
+                .GroupBy(d => d.Friendly)
+                .OrderByDescending(g => g.Count())
+                .Select(g => g.Count() > 1 ? $"{g.Key} ×{g.Count()}" : g.Key)
+                .ToList();
+            var listed = string.Join(", ", kinds.Take(6)) + (kinds.Count > 6 ? ", …" : "");
+            // Hull-mounted kit (rotors, external cargo pods) is reached on a spacewalk and is excluded upstream by
+            // WalkResult.Unreachable; what is left here genuinely cannot be operated by anyone, suited or not.
+            var why = unreachable.Any(d => d.Reason == WalkBlock.SightBlocked)
+                ? " Some are in range but out of sight, which the game also refuses."
+                : "";
+            problems.Add(new Problem(ProblemSeverity.Warning,
+                $"{unreachable.Count} device{(unreachable.Count == 1 ? "" : "s")} cannot be reached",
+                $"No crew member can stand where the game requires to operate: {listed}.{why} " +
+                "The devices themselves are highlighted; clear a walkable tile within range of each, " +
+                "or Dismiss to hide this alert.",
+                [.. unreachable.SelectMany(d => d.BodyTiles).Distinct().Select(grid.GridToDoc)],
+                DismissKey: UnreachableAlertKey));
+        }
+
+        // Interior floor the crew cannot walk to from the main body. Only worth saying when there IS a main body
+        // to be cut off from, and single tiles are usually a niche a design meant to leave (under a fixture).
+        var main = walk.LargestZone;
+        if (main < 0) return;
+        var isolated = walk.Zones.Where(z => !z.Exterior && z.Index != main && z.TileCount > 1).ToList();
+        if (isolated.Count == 0) return;
+
+        var cut = isolated.Sum(z => z.TileCount);
+        problems.Add(new Problem(ProblemSeverity.Warning,
+            $"{isolated.Count} sealed-off compartment{(isolated.Count == 1 ? "" : "s")}",
+            $"{cut} walkable tile(s) in {isolated.Count} area(s) have no route to the main body of the ship " +
+            "(crew would have to EVA). A stuck door counts: an unpowered, locked or damaged closed door is a solid " +
+            "wall to pathing, unlike a powered one. Use Show to highlight them, or Dismiss to hide this alert.",
+            [.. isolated.SelectMany(z => z.Tiles).Select(grid.GridToDoc)],
+            DismissKey: IsolatedAlertKey));
     }
 
     /// <summary>

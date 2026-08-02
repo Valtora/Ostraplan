@@ -21,6 +21,7 @@ public sealed class Fixtures
     private readonly Dictionary<string, LightDef> _lightDefs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ColorDef> _colorTable = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ParallaxDef> _parallaxDefs = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, InteractionDef> _interactionDefs = new(StringComparer.Ordinal);
 
     /// <summary>Register a named loot (the bundle of conditions a tile socket adds).</summary>
     public Fixtures Loot(string name, params string[] conds)
@@ -51,6 +52,14 @@ public sealed class Fixtures
         return this;
     }
 
+    /// <summary>Register an interaction (data/interactions): the map point on the target a crew member walks to
+    /// and how far away (Chebyshev tiles) they may stand — what <see cref="WalkNetwork"/> gates device reach on.</summary>
+    public Fixtures Interaction(string name, string targetPoint = "use", double range = 0, string? title = null)
+    {
+        _interactionDefs[name] = new InteractionDef(name, title, targetPoint, range, false);
+        return this;
+    }
+
     /// <summary>
     /// Add a part. Each of its <c>w×h</c> footprint tiles adds <paramref name="tileConds"/> (auto-registered
     /// as a loot named "<c>&lt;name&gt;Adds</c>"), so the part contributes real conditions to the grid.
@@ -65,7 +74,8 @@ public sealed class Fixtures
         double basePrice = 0, bool sheet = false, string origin = "core",
         IReadOnlyDictionary<string, double>? condValues = null,
         IReadOnlyList<(double X, double Y)>? powerInputs = null, (double X, double Y)? powerOutput = null,
-        string[]? lights = null, ShadowBox[]? shadowBoxes = null, bool lightWall = false)
+        string[]? lights = null, ShadowBox[]? shadowBoxes = null, bool lightWall = false,
+        string[]? interactions = null)
     {
         string[] adds;
         if (tileConds is { Length: > 0 })
@@ -92,6 +102,7 @@ public sealed class Fixtures
             StackLimit = stackLimit,
             PowerInputPoints = powerInputs ?? [],
             PowerOutputPoint = powerOutput,
+            InteractionNames = interactions ?? [],
         };
         _parts.Add(part);
         _byName[name] = part;
@@ -161,6 +172,7 @@ public sealed class Fixtures
         LightDefs = _lightDefs,
         ColorTable = _colorTable,
         ParallaxDefs = _parallaxDefs,
+        InteractionDefs = _interactionDefs,
         Warnings = [],
     };
 

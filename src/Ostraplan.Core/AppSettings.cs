@@ -38,6 +38,13 @@ public sealed class AppSettings
     /// <summary>Light Viz sun-constellation rotation in degrees (the game's world rotation of its far sun
     /// transform). Meaningful only when <see cref="LightSunParallax"/> is set.</summary>
     [JsonPropertyName("lightSunAngle")] public double LightSunAngle { get; set; }
+    /// <summary>WalkViz: count tiles that are not part of the ship as walkable, joining zones that only connect by
+    /// an EVA route over the hull. The game does count them (<c>Tile.IsWalkable</c> needs no floor), but left on,
+    /// almost every design reads as one zone — so this is off by default and the overlay shows interior routes.</summary>
+    [JsonPropertyName("walkIncludeExterior")] public bool WalkIncludeExterior { get; set; }
+    /// <summary>WalkViz: treat painted Forbid zones as impassable. The game's test is per crew member (a zone
+    /// matches a PersonSpec), so this is the "for a crew member the zone binds" reading. On by default.</summary>
+    [JsonPropertyName("walkRespectForbidZones")] public bool WalkRespectForbidZones { get; set; } = true;
     /// <summary>Parts the user pinned for quick access (the palette's ★ tab's Favorites group), in pin order.</summary>
     [JsonPropertyName("favorites")] public List<PartRef> Favorites { get; set; } = [];
     /// <summary>The most-recently-placed parts, newest first, capped at <see cref="RecentCap"/> (the ★ tab's Recent group).</summary>

@@ -36,6 +36,7 @@ flag exactly that: re-verify after every game update.
 - [18. Writing a ship back into a save](#18-writing-a-ship-back-into-a-save)
 - [19. Obtaining a ship in-game (brokers, chargen)](#19-obtaining-a-ship-in-game-brokers-chargen)
 - [20. Propulsion (RCS and the torch drive)](#20-propulsion-rcs-and-the-torch-drive)
+- [21. Crew walkability and interaction reach](#21-crew-walkability-and-interaction-reach)
 - [Appendix A — Quick reference](#appendix-a--quick-reference)
 - [Appendix B — Ported / deferred / excluded](#appendix-b--ported--deferred--excluded)
 
@@ -1108,6 +1109,137 @@ the 111 core ships carrying a distributor** resolve a real fed RCS system throug
 
 ---
 
+## 21. Crew walkability and interaction reach
+
+Whether crew can *get somewhere*, and whether they can *use what is there*, is a static
+function of tile conditions plus two per-interaction data fields. No simulation is needed.
+
+### Which tiles are walkable (`Tile.IsWalkable`)
+
+Evaluated in this order, all against the tile's accumulated conditions (§3):
+
+| # | Test | Blocks when |
+|---|---|---|
+| 1 | `IsForbidden` | the tile carries `IsZoneForbid` **and** its `JsonZone.Matches` the crew member |
+| 2 | `IsBurningHazard` | `IsTileBurning` and the crew is not `IsFireproof` |
+| 3 | wall | `IsWall` **and not** `IsPortal` |
+| 4 | portal | `IsPortalStuck`; **or** (without airlock permission) a closed door (`IsWall`) with a pressure differential — `Pathfinder.CheckDoorPressure` |
+| 5 | fixture | `IsObstruction` **and** `IsFixture` (`bPassable = !IsObstruction`) |
+| 6 | EVA gravity | `IsEvaTileWithGravitation`: ship not grounded, `Gravity ≥ 0.33`, and the tile is `IsEVATile` or not a `TIsShipTile` |
+
+Consequences that are easy to get wrong:
+
+- **No floor is required.** Empty in-grid tiles carry none of these conditions, so they are
+  walkable. That is the spacewalk case, and `Ship.GetTileAtWorldCoords1` returns an in-bounds
+  tile whether or not it is a ship tile (its `checkIfShipTile` gate is an early return, not a
+  filter). Rule 6 is what suspends this, and only under gravity.
+- **Rule 5 needs both conditions.** An open door is `IsObstruction` with no `IsFixture`, so it
+  is walkable; an under-floor rack (`TILFloorFixture` → `IsFloorSealed` + `IsFixture`, no
+  obstruction) is walkable too.
+
+### Door state IS load-bearing here (unlike rooms and rating)
+
+§8 establishes that open and closed doors give the same rooms and the same airtightness. That
+does **not** carry over to walking. From `data/items`:
+
+| Def | Socket add | Walkable |
+|---|---|---|
+| `ItmDoor01Open` / `…OpenOn` / `…OpenOnLocked` / `ItmHatch01Open` | `TILPortalOpen` | yes |
+| `ItmDoor01ClosedOn` (powered) | `TILPortalClosed` | yes — crew open it |
+| `ItmDoor01Closed` (unpowered), `…ClosedOnLocked`, `…ClosedDmg`, `ItmDockSys03ClosedDmg` | `TILPortalClosedStuck` (adds `IsPortalStuck`) | **no** |
+
+An unpowered, locked or damaged closed door genuinely seals a section off.
+
+### Connectivity (`Ostranauts.Pathing.JumpPointSearch`)
+
+The game pathfinds with jump-point search over 8 directions, caching an `IsWalkable` grid.
+For a connectivity partition only the adjacency rule matters: the four cardinals always, and
+a diagonal only when at least one of the two orthogonals it cuts between is walkable
+(`Jump` returns `INVALID_POINT` when both behind-orthogonals are blocked). `Pathfinder`
+itself adds runtime concerns a planner has none of: other crew's occupied tiles, per-room
+cost penalties, failed-attempt memory.
+
+### Reaching a device (`Interaction.Triggered`)
+
+- A condowner names its actions in **`aInteractions`** (names into `data/interactions`). A
+  cooverlay skin may substitute entries via `aInteractionsReplace` (`COOverlay.Init`).
+- Each interaction carries **`strTargetPoint`** (the map point on the target the crew walks
+  to, almost always `"use"`; `null` or the `REMOTE` sentinel means no approach is needed) and
+  **`fTargetPointRange`** (how far away they may stand). The label shown is `strTitle` —
+  interactions carry no `strNameFriendly`.
+- Range is **Chebyshev**: `TileUtils.TileRange` = `max(|dx|, |dy|)`, rounded.
+- Ranges are per-interaction, not per-device class: `GUINavStation` 0, `GUIAirPump` 1,
+  `GUICooler` / `GUIHeater` / `SeekSleepSimple` / `GUISensor` 2, `GUIReactor` 3,
+  `ACTDecorAdmire` 4. In core, **315 condowners carry both an interaction and a `use` point**,
+  **119 of them buildable**.
+
+### Where the crew actually stands is a two-tier choice, and far looser than the range
+
+This is the part that is easy to get wrong, because the strict-looking range test in
+`Interaction.Triggered` is **not** what gates a normal interaction:
+
+1. **`Triggered`'s range + LOS test only runs on the `bNoWalk` branch** (13 interactions in core).
+   For everything else it runs a *path* check, and only when the caller passes `bCheckPath: true`
+   — which is AI work assignment (`WorkManager`, the pledges, `JsonJobSave`), never the player's
+   own menu. A player-issued order is not range-gated at all; the crew simply walks.
+2. **The walk destination comes from `Pathfinder.GetClosestWalkableDestination`**, a cost BFS
+   *outward from the target point*. It sizes its acceptance band with **`Mathf.CeilToInt`**
+   (so a 1.5-tile interaction genuinely reaches two tiles) and prefers a tile that is not a
+   wall, not **`IsFixture`**, not burning and not occupied, with line of sight.
+3. **When that search finds nothing, the game does not give up.** `GetPath` runs
+   `closestWalkableDestination.Add(destination)` and paths to the target tile itself, which
+   succeeds for anything `Tile.IsWalkable` admits — no sight test on that path, since it goes
+   straight to the jump-point search. So the `IsFixture` rejection is a *preference*, not a
+   requirement: a cargo bay floored wall to wall in under-floor racks is still usable.
+4. `SetGoal2` then retargets `tilDest` to the **end of the path it actually found**, and the
+   completion gate is `Pathfinder.InRange()` against *that* tile — not against the target point.
+
+- Line of sight is `Visibility.IsCondOwnerLOSVisibleBlocks`, run from the target's **`LOS`**
+  map point (falling back to its centre — `CondOwner.GetPos` returns `tf.position` for an
+  undeclared point). Anything within 1 unit is visible outright; otherwise each non-glass
+  `aShadowBoxes` occluder (§16) is segment-tested, skipping boxes owned by the target and any
+  box containing either endpoint. **The destination search calls it with
+  `bIgnoreEndpoints: true`** (grazing a box edge does not block) and, for axis-aligned targets,
+  defers to `IsCondOwnerLOSVisible` — a `Physics.RaycastNonAlloc` that blocks only on installed
+  walls and closed portals. Only the `bNoWalk` branch uses the strict `bIgnoreEndpoints: false`
+  form.
+
+> **Ported in Ostraplan:** `WalkNetwork` (walkable mask, zone labelling, device reach),
+> `LineOfSight` (the sight test), `LightNetwork.Occluders` (the shared occluder source),
+> surfaced as the **WalkViz** overlay (`K`) and as advisory findings in the Law report.
+> Two exclusions keep the output honest rather than merely literal, both measured against the
+> 192-ship corpus: **mineable terrain** (`IsMineable` — 28 rock/ice defs, none buildable) names
+> an `ACTMine` interaction and so parses as an operable fitting, but a block inside an asteroid
+> is unreachable by definition (Port Mojave alone: 1,811 false findings); and a device with no
+> interior standing tile is re-tested with the exterior counted and reported as **EVA-only**
+> rather than unusable, which is how all hull-mounted kit is reached (the "Hand Of God" rig:
+> 33 of 35).
+>
+> **Two further deviations, both because the game escapes into an in-game-only predicate.**
+> A part embedded *in* the hull line (anchor tile `IsWall`: sensors, antennas, wall lights, ship
+> weapons — the same ~87 defs that need the room-membership use-point fallback, §9) has its
+> sight origin inside the wall, so every ray out crosses the neighbouring wall tiles' boxes; the
+> game escapes via the raycast, which does not register the collider it starts inside, so
+> Ostraplan grants sight to embedded parts and leans on range and walkability alone. And a def
+> that declares **no** map point for its interaction's target resolves to its own body, so a
+> range-0 reading would demand standing inside it — unsatisfiable by any layout, and therefore
+> noise rather than a finding, so an undeclared point widens to a minimum radius of 1.
+>
+> Corpus effect of the whole chain: **94 of 14,417 devices read blocked (0.7%)** and 300 as
+> EVA-only, against 2,665 for a literal first reading. What remains concentrates in multi-tile
+> furniture (bar and conference tables) and tightly packed exterior cargo pods.
+> Rules 2 and 6 are **not** modelled (runtime-only: fire, and the ship's world position).
+> Rule 4's pressure half is approximated by the room partition — a portal with a Void room on
+> one side and a sealed room on the other is reported as EVA-only rather than treated as a
+> wall, since crew with airlock permission do cross it. Rule 1 is a user toggle, because the
+> game's test is per crew member and a plan has no crew.
+>
+> **Re-verify per patch:** the `IsWalkable` order and conditions, which door defs carry
+> `TILPortalClosedStuck`, the JPS diagonal rule, and the `strTargetPoint`/`fTargetPointRange`
+> pairs above (`WalkNetworkTests` asserts the last two against live data).
+
+---
+
 ## Appendix A — Quick reference
 
 - **`nLayer` is always 0** — rank by contributed conditions (§15).
@@ -1129,6 +1261,20 @@ the 111 core ships carrying a distributor** resolve a real fed RCS system throug
 - **Only `IsWall` bounds the room fill** — a door's side cells are always `IsWall`; its
   centre is a walkable portal when open (flood-sinks) and an `IsWall` boundary when closed.
   Same two rooms either way (§8).
+- **…but door state is NOT cosmetic to WALKING** — `ItmDoor01Closed` (unpowered), `…ClosedOnLocked`
+  and the `…Dmg` forms add `TILPortalClosedStuck` → `IsPortalStuck` and genuinely seal a section
+  off; `ItmDoor01ClosedOn` does not, because crew open it (§21).
+- **Walking needs no floor** — an empty in-grid tile is walkable (the spacewalk case); only
+  `IsEvaTileWithGravitation` suspends it, and only under gravity (§21).
+- **Interaction range is Chebyshev and per-interaction** — `max(|dx|,|dy|)` against the target's
+  `use` point, at the interaction's own `fTargetPointRange` (nav console 0, pump 1, cooler 2,
+  reactor 3). No single radius is right (§21).
+- **The strict range test only gates `bNoWalk` interactions** — everything else is gated by a
+  *path*, and only for AI work assignment (`bCheckPath` defaults false). A player order is not
+  range-gated at all (§21).
+- **The standing-tile band rounds UP** (`Mathf.CeilToInt`), and rejecting `IsFixture` is a
+  preference, not a rule: when nothing clean is in range the game paths to the target tile
+  itself and stands on the fixture (§21).
 - **Room certification tests CondOwner conds, not tile conds** (§9).
 - **A room-less anchor falls back to the `"use"` point** — wall-embedded parts join the
   room their use point reaches; the air pump's use point is its own wall tile, so it joins
@@ -1208,6 +1354,9 @@ sets), giving a 192-ship rooms **and** certification gate. Only **Babak / Babak 
 | Ship value (`GetShipValue` / `GetBasePrice`) | ported | `ShipValue`, `Catalog.GasPrices` |
 | Propulsion (`RCSAccelMax`, `DeltaVRemainingRCS`, `GetRCSRemain`/`Max`, `FusionIC` + `GetMaxTorchThrust`) | ported (map-point lookup approximates a raycast) | `Propulsion` |
 | Power connectivity (`GetPoweredTiles`) | ported | `PowerNetwork` |
+| Crew walkability + JPS adjacency (`Tile.IsWalkable`, `JumpPointSearch`) | ported (fire and the EVA-gravity gate excluded; door pressure approximated by room Void) | `WalkNetwork` |
+| Interaction reach (`Interaction.Triggered` range + LOS) | ported | `WalkNetwork`, `LineOfSight` |
+| Crew pathing itself (costs, occupancy, doors opening over time) | excluded (a simulation, not a plan) | never ported |
 | Device signal connections (`Electrical` GPM) | ported | `DeviceLink` / `DeviceLinks`, `ShipExport.WireDeviceLinks` |
 | Deferred lighting (`Visibility` + `LoSPass`) | ported (preview only) | `LightNetwork`, `VisibilityMesh`, `LightComposite` |
 | `JsonShip` (de)serialization — export/template/save schema | ported | `ShipExport` (write), `ShipTemplate` (read) |
@@ -1219,7 +1368,7 @@ sets), giving a 192-ship rooms **and** certification gate. Only **Babak / Babak 
 | Wear/damage (`BreakIn` / `DamageAllCOs`) | ported (optional) | `WearModel` |
 | Obtainability (brokers, chargen) | ported | `KioskExport`, `StartingShipExport` |
 | Contained/slotted sub-objects on read; exterior-margin trim | not modelled (corpus-only; import drops sub-objects) | — |
-| Crew LOS/proximity, docked-ship, station build-zone permission | excluded (in-game only) | never ported |
+| Crew LOS/proximity, docked-ship, station build-zone permission **in `CheckFit`** | excluded (in-game only — they gate the interactive builder, not a spawned ship) | never ported |
 
 ---
 

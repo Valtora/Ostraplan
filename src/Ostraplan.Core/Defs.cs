@@ -153,6 +153,46 @@ public sealed record ColorDef(string Name, byte R, byte G, byte B, byte A)
 }
 
 /// <summary>
+/// An interaction (<c>data/interactions</c>, the game's <c>JsonInteraction</c>) reduced to what reachability
+/// needs. A device's condowner names these by <c>aInteractions</c>; the game gates each on the crew being able to
+/// stand near the target (<c>Interaction.Triggered</c>):
+/// <list type="bullet">
+/// <item><see cref="TargetPoint"/> (<c>strTargetPoint</c>) names the <b>map point</b> on the target the crew walks
+/// to, almost always <c>"use"</c>. Null (or the <c>"REMOTE"</c> sentinel) means the interaction needs no
+/// approach at all and so never constrains a layout.</item>
+/// <item><see cref="TargetPointRange"/> (<c>fTargetPointRange</c>) is how far from that point the crew may stand,
+/// in tiles, measured as <b>Chebyshev</b> distance (<c>TileUtils.TileRange</c> = max(|dx|,|dy|)). It varies per
+/// interaction — a nav console is 0 (stand on the point), an air pump 1, a cooler/heater/bed 2, a reactor 3 —
+/// so a single hardcoded radius would be wrong.</item>
+/// <item><see cref="NoWalk"/> (<c>bNoWalk</c>) marks an interaction the crew must already be in range for
+/// (it never walks to it); the game then tests range + line of sight instead of pathing.</item>
+/// </list>
+/// <see cref="Title"/> is <c>strTitle</c> ("Control Panel"), the label the game shows — interactions carry no
+/// <c>strNameFriendly</c>. The rest of a <c>JsonInteraction</c> (duration, animation, social scoring, loot) drives
+/// the in-game action itself, which a planner does not run.
+/// </summary>
+public sealed record InteractionDef(string Name, string? Title, string? TargetPoint, double TargetPointRange, bool NoWalk)
+{
+    /// <summary>The game's <c>Interaction.POINT_REMOTE</c> sentinel: an interaction performed at a distance
+    /// (over the network / by radio), which the game exempts from every range and path check.</summary>
+    public const string PointRemote = "REMOTE";
+
+    /// <summary>True when this interaction requires the crew to physically approach a point on the target, and so
+    /// says something about whether a layout is usable. Interactions with no target point, or the remote sentinel,
+    /// are excluded exactly as <c>Interaction.Triggered</c> excludes them.</summary>
+    public bool NeedsApproach => !string.IsNullOrEmpty(TargetPoint) && TargetPoint != PointRemote;
+
+    public string Label => string.IsNullOrWhiteSpace(Title) ? Name : Title!;
+
+    public static InteractionDef Parse(JsonElement e) => new(
+        Json.Str(e, "strName") ?? "",
+        Json.Str(e, "strTitle"),
+        Json.Str(e, "strTargetPoint"),
+        Json.Dbl(e, "fTargetPointRange"),
+        Json.Bool(e, "bNoWalk"));
+}
+
+/// <summary>
 /// A cooverlay is a named skin over a base condowner: when the game can't find
 /// a CO by name it falls back to dictCOOverlays and uses strCOBase with the
 /// overlay's cosmetic overrides (DataHandler.LoadCO).
@@ -160,6 +200,11 @@ public sealed record ColorDef(string Name, byte R, byte G, byte B, byte A)
 public sealed record CoOverlayDef(
     string Name, string? NameFriendly, string? Img, string? COBase, string[] GpmNames, string[] ModeSwitches)
 {
+    /// <summary>Interaction substitutions this skin applies over its base condowner's <c>aInteractions</c>
+    /// (<c>aInteractionsReplace</c>, flat <c>[from, to]</c> pairs — the game's <c>JsonCOOverlay.mapIAReplaces</c>,
+    /// applied by <c>COOverlay.Init</c>). Empty for a skin that keeps the base's interactions.</summary>
+    public IReadOnlyList<(string From, string To)> InteractionReplacements { get; init; } = [];
+
     /// <summary>The condition-loot this skin applies on top of its base condowner (<c>strCondLoot</c>) — the game's
     /// <c>COOverlay.Init</c> runs <c>Loot.ApplyCondLoot</c> with it on <b>every</b> spawn, so a skin's real stats are
     /// the base's plus these signed deltas (e.g. an MSS "Light Framework" wall is <c>ItmWall1x1</c>'s 24 kg minus a
@@ -178,7 +223,19 @@ public sealed record CoOverlayDef(
         Json.StrArray(e, "mapModeSwitches"))
     {
         CondLoot = Json.Str(e, "strCondLoot"),
+        InteractionReplacements = Pairs(Json.StrArray(e, "aInteractionsReplace")),
     };
+
+    /// <summary>Read a flat alternating <c>[from, to, from, to, …]</c> array as pairs, dropping a trailing odd
+    /// element and any pair with an empty half (the game's <c>JsonCOOverlay</c> loop stops on a null either side).</summary>
+    private static IReadOnlyList<(string From, string To)> Pairs(string[] flat)
+    {
+        var pairs = new List<(string, string)>(flat.Length / 2);
+        for (var i = 0; i + 1 < flat.Length; i += 2)
+            if (!string.IsNullOrEmpty(flat[i]) && !string.IsNullOrEmpty(flat[i + 1]))
+                pairs.Add((flat[i], flat[i + 1]));
+        return pairs;
+    }
 }
 
 public sealed record CondOwnerDef(
@@ -230,6 +287,12 @@ public sealed record CondOwnerDef(
     /// <c>aInputPts</c> name the map points where the device plugs into the conduit network.</summary>
     public string? Jpi { get; init; }
 
+    /// <summary>The interactions this def offers (<c>aInteractions</c>, names into <c>data/interactions</c>) — the
+    /// actions a crew member can perform on it (a cooler's control panel, a bed's sleep, a pump's GUI). The game
+    /// gates each on the crew being able to reach the target point named by the interaction, which is what makes
+    /// this the input to device reachability (see <see cref="WalkNetwork"/>). Empty for inert structure.</summary>
+    public string[] Interactions { get; init; } = [];
+
     public static CondOwnerDef Parse(JsonElement e)
     {
         var conds = Json.StrArray(e, "aStartingConds");
@@ -254,6 +317,7 @@ public sealed record CondOwnerDef(
             SlotLayout = ParsePointObject(e, "dictSlotsLayout"),
             SlotKeys = DictKeys(Json.StrArray(e, "mapSlotEffects")),
             Jpi = Json.Str(e, "jsonPI"),
+            Interactions = Json.StrArray(e, "aInteractions"),
         };
     }
 

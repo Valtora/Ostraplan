@@ -97,6 +97,12 @@ public sealed record PartDef(
     /// input point or an output point) — i.e. it should show connector nubs and take part in PowerViz.</summary>
     public bool IsPowered => PowerInputPoints.Count > 0 || PowerOutputPoint is not null;
 
+    /// <summary>The interactions this part offers (its condowner's <c>aInteractions</c>, after any cooverlay
+    /// substitutions), as names into <c>data/interactions</c>. Resolved to <see cref="InteractionDef"/>s per part by
+    /// <see cref="Catalog.InteractionsFor"/>, which is what decides whether crew can reach and operate it (see
+    /// <see cref="WalkNetwork"/>). Empty for inert structure (walls, floors, conduit).</summary>
+    public string[] InteractionNames { get; init; } = [];
+
     /// <summary>True if this part holds an inventory grid (has a container grid).</summary>
     public bool IsContainer => ContainerGrid is not null;
 
@@ -204,6 +210,27 @@ public sealed class Catalog
     /// <summary>Parallax location definitions by name (from <c>data/parallax</c>) — each location's exterior sun
     /// lights for Light Viz's daylight simulation. Empty in synthetic catalogs.</summary>
     public IReadOnlyDictionary<string, ParallaxDef> ParallaxDefs { get; init; } = new Dictionary<string, ParallaxDef>();
+
+    /// <summary>Interaction definitions by name (from <c>data/interactions</c>) — the target point and stand-off
+    /// range each of a device's <c>aInteractions</c> entries expands to. Resolved per part by
+    /// <see cref="InteractionsFor"/>. Empty in synthetic catalogs.</summary>
+    public IReadOnlyDictionary<string, InteractionDef> InteractionDefs { get; init; } = new Dictionary<string, InteractionDef>();
+
+    private readonly ConcurrentDictionary<string, IReadOnlyList<InteractionDef>> _interactions = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The interactions a part offers that actually require a crew member to walk up to it: its
+    /// <see cref="PartDef.InteractionNames"/> resolved through <see cref="InteractionDefs"/>, keeping only those
+    /// with a real target point (<see cref="InteractionDef.NeedsApproach"/>). A remote or point-less interaction
+    /// never constrains a layout, and an unresolved name (a mod removed the def) is skipped. Cached by def name;
+    /// empty for inert structure or in a synthetic catalog with no interaction table.
+    /// </summary>
+    public IReadOnlyList<InteractionDef> InteractionsFor(PartDef part) =>
+        _interactions.GetOrAdd(part.DefName, _ => part.InteractionNames
+            .Select(n => InteractionDefs.GetValueOrDefault(n))
+            .OfType<InteractionDef>()
+            .Where(ia => ia.NeedsApproach)
+            .ToArray());
 
     /// <summary>Loose cargo items — condowners typed <c>"Item"</c> that aren't installed structure (a wall is
     /// also <c>strType "Item"</c> but carries <c>IsInstalled</c>), plus the cooverlay skins of those items (themed
@@ -345,7 +372,12 @@ public sealed class Catalog
     /// toggleable door (both ends resolve via <see cref="ByDefName"/>). Door state is
     /// cosmetic to the room/airtightness/rating law: the door's wall cells seal each side
     /// of the hull the same open or closed, so CreateRooms gives the same room count and
-    /// airtightness either way. This swaps only the sprite and name, never the analysis.
+    /// airtightness either way. This swaps only the sprite and name, never that analysis.
+    ///
+    /// <para>It is <b>not</b> cosmetic to <see cref="WalkNetwork"/>, though: a closed door that
+    /// is unpowered, locked or damaged carries <c>IsPortalStuck</c> and is a solid wall to crew
+    /// pathing, so toggling one shut can seal a section off. That is the game's behaviour, not a
+    /// modelling choice.</para>
     /// </summary>
     public string? DoorToggle(string defName)
     {
@@ -393,6 +425,7 @@ public sealed class Catalog
         var lightDefs = index.Type("lights").ToDictionary(kv => kv.Key, kv => LightDef.Parse(kv.Value.El), StringComparer.Ordinal);
         var colorTable = index.Type("colors").ToDictionary(kv => kv.Key, kv => ColorDef.Parse(kv.Value.El), StringComparer.Ordinal);
         var parallaxDefs = index.Type("parallax").ToDictionary(kv => kv.Key, kv => ParallaxDef.Parse(kv.Value.El), StringComparer.Ordinal);
+        var interactionDefs = index.Type("interactions").ToDictionary(kv => kv.Key, kv => InteractionDef.Parse(kv.Value.El), StringComparer.Ordinal);
 
         // Loose cargo items for the inventory editor's add-picker: condowners typed "Item" minus installed
         // structure (a wall is strType "Item" too but carries IsInstalled), PLUS the cooverlay skins of those
@@ -539,6 +572,7 @@ public sealed class Catalog
             LightDefs = lightDefs,
             ColorTable = colorTable,
             ParallaxDefs = parallaxDefs,
+            InteractionDefs = interactionDefs,
             LooseItems = looseItems,
             LooseForms = looseForms,
             InstalledForms = installedForms,
@@ -677,6 +711,16 @@ public sealed class Catalog
         (double X, double Y)? powerOutput =
             co is not null && co.MapPoints.TryGetValue("PowerOutput", out var po) ? po : null;
 
+        // A skin can swap interactions on its base (aInteractionsReplace) — the game's COOverlay.Init walks the
+        // base's aInteractions and substitutes in place, so a skinned device offers the skin's action, not the
+        // base's. Non-skinned parts keep the base list.
+        var interactions = co?.Interactions ?? [];
+        if (overlay is { InteractionReplacements.Count: > 0 })
+            interactions = interactions
+                .Select(n => overlay.InteractionReplacements.FirstOrDefault(r => r.From == n) is { To: { Length: > 0 } to }
+                    ? to : n)
+                .ToArray();
+
         return new PartDef(
             defName, friendly, category, origin, item, index.ResolveImage(item.Img), inputs, tools,
             startNames,
@@ -696,6 +740,7 @@ public sealed class Catalog
             SlotKeys = co?.SlotKeys ?? [],
             PowerInputPoints = powerInputs,
             PowerOutputPoint = powerOutput,
+            InteractionNames = interactions,
         };
     }
 

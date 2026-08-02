@@ -118,6 +118,8 @@
                             ToolTip="Power overlay (P): show the conduit network and orphaned runs"/>
                     <ToggleButton x:Name="BtnLight" Content="Light" Style="{StaticResource OverlayToggle}" Click="OnLightToggleClick"
                             ToolTip="Light Viz (L): simulate the in-game interior lighting"/>
+                    <ToggleButton x:Name="BtnWalk" Content="Walk" Style="{StaticResource OverlayToggle}" Click="OnWalkToggleClick"
+                            ToolTip="Walk overlay (K): show which tiles crew can reach, and which fittings they can operate"/>
                     <ToggleButton x:Name="BtnWire" Content="Wire" Style="{StaticResource OverlayToggle}" Click="OnWireToggleClick"
                             ToolTip="Wire mode: click a device, then another, to connect their signals"/>
 

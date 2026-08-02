@@ -352,6 +352,49 @@ public class RenderSmokeTests
         });
     }
 
+    /// <summary>
+    /// Drive the WalkViz draw path end to end on a real ship: build the analysis, push the overlay, render. The
+    /// engine has its own unit tests, but the drawing (zone geometry bake, the unreachable rings, the EVA-portal
+    /// dashes) is only exercised here, and a null or geometry fault in it would otherwise surface at runtime.
+    /// </summary>
+    [SkippableFact]
+    public void Render_walk_overlay()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var doc = new ShipDocument(g.Catalog);
+            new PlaceCommand(new Placement { DefName = Catalog.PrimaryDocksysDef, X = 0, Y = 0 }).Do(doc);
+            for (var x = 0; x < 7; x++)
+                for (var y = 2; y < 6; y++)
+                    new PlaceCommand(new Placement { DefName = "ItmFloorGrate01", X = x, Y = y }).Do(doc);
+            // a wall down the middle, so the overlay has two zones to tint apart
+            for (var y = 2; y < 6; y++)
+                new PlaceCommand(new Placement { DefName = "ItmWall1x1", X = 3, Y = y }).Do(doc);
+
+            var grid = ShipGrid.FromDocument(doc, g.Catalog);
+            var walk = WalkNetwork.Build(grid, g.Catalog, WalkOptions.Default, WalkNetwork.ForbiddenTiles(doc, grid));
+            Assert.True(walk.Zones.Count >= 2, $"expected the wall to split the deck, got {walk.Zones.Count} zone(s)");
+
+            var canvas = new ShipCanvas { Sprites = new SpriteCache() };
+            canvas.SetDocument(doc);
+            canvas.SetShowWalk(true);
+            canvas.SetWalkOverlay(WalkNetwork.ToOverlay(grid, walk));
+            canvas.Measure(new Size(900, 640));
+            canvas.Arrange(new Rect(0, 0, 900, 640));
+            canvas.FitContent();
+            canvas.UpdateLayout();
+
+            var bitmap = new RenderTargetBitmap(900, 640, 96, 96, PixelFormats.Pbgra32);
+            bitmap.Render(canvas);
+            var encoder = new PngBitmapEncoder();
+            encoder.Frames.Add(BitmapFrame.Create(bitmap));
+            var path = Path.Combine(AppContext.BaseDirectory, "smoke-walk.png");
+            using (var stream = File.Create(path)) encoder.Save(stream);
+            Assert.True(new FileInfo(path).Length > 5000);
+        });
+    }
+
     private static void RunSta(Action action)
     {
         Exception? failure = null;

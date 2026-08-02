@@ -97,6 +97,7 @@ public partial class MainWindow : Window
         Board.ShowPowerChanged += OnShowPowerChanged;   // (re)compute the overlay off-thread when toggled on
         Board.ShowRoomsChanged += OnShowRoomsChanged;   // same for the room certification
         Board.ShowLightChanged += OnShowLightChanged;   // same for the interior-lighting flood
+        Board.ShowWalkChanged += OnShowWalkChanged;     // same for the crew-access analysis
         Board.WireModeChanged += OnWireModeChanged;     // swap the status hint for the wiring instructions
         SyncViewToggles();                              // seed the toolbar highlights from the initial overlay state
         Board.LinkToggleRequested += OnLinkToggleRequested;   // connect/disconnect two devices via the command stack
@@ -536,6 +537,10 @@ public partial class MainWindow : Window
         var catalog = _catalog;
         var showPower = Board.ShowPower;   // only pay for the power flood when PowerViz is on
         var showLight = Board.ShowLight;   // and the interior-lighting flood only when Light Viz is on
+        var showWalk = Board.ShowWalk;     // and the walk analysis only when WalkViz is on
+        // WalkViz reads the persisted View-menu switches; the Law report always uses the defaults, so the two never
+        // disagree about what the ship IS — only about what the overlay is currently asking.
+        var walkOpts = new WalkOptions(_settings.WalkIncludeExterior, _settings.WalkRespectForbidZones);
         // RoomViz: only certify while the overlay is on, and only when the data index is up (specs come from it).
         // Loaded here on the UI thread, then handed to the scan as an immutable list.
         var roomSpecs = Board.ShowRooms && _index is { } index ? _roomSpecs ??= RoomCertifier.LoadSpecs(index) : null;
@@ -548,22 +553,27 @@ public partial class MainWindow : Window
         PowerOverlay power;
         RoomOverlay rooms;
         LightScene light;
+        WalkOverlay walk;
         try
         {
-            (problems, power, rooms, light) = await Ui.OffThread(() =>
+            (problems, power, rooms, light, walk) = await Ui.OffThread(() =>
             {
                 var probs = ProblemScan.Scan(snapshot, catalog);
                 var pov = PowerOverlay.Empty;
                 var lov = LightScene.Empty;
-                // Power and light both flood the same grid — build it once when either overlay is on.
-                if (showPower || showLight)
+                var wov = WalkOverlay.Empty;
+                // Power, light and walk all flood the same grid — build it once when any overlay is on.
+                if (showPower || showLight || showWalk)
                 {
                     var grid = ShipGrid.FromDocument(snapshot, catalog);
                     if (showPower) pov = PowerNetwork.ToOverlay(grid, PowerNetwork.Build(grid, catalog));
                     if (showLight) lov = LightNetwork.Build(grid, catalog, sun);
+                    if (showWalk)
+                        wov = WalkNetwork.ToOverlay(grid, WalkNetwork.Build(
+                            grid, catalog, walkOpts, WalkNetwork.ForbiddenTiles(snapshot, grid)));
                 }
                 var rov = roomSpecs is null ? RoomOverlay.Empty : RoomOverlay.Build(snapshot, catalog, roomSpecs);
-                return (probs, pov, rov, lov);
+                return (probs, pov, rov, lov, wov);
             }, token);
         }
         catch (OperationCanceledException) { return; }
@@ -572,6 +582,7 @@ public partial class MainWindow : Window
         Board.SetPowerOverlay(power);
         Board.SetRoomOverlay(rooms);
         Board.SetLightScene(light);
+        Board.SetWalkOverlay(walk);
     }
 
     /// <summary>
@@ -1076,6 +1087,16 @@ public partial class MainWindow : Window
     {
         SyncViewToggles();
         if (Board.ShowRooms) ScheduleScan();
+    }
+
+    // ---- crew access (WalkViz) ----
+
+    /// <summary>WalkViz was toggled: when turned on, kick a scan so the walk zones and device reach compute (the
+    /// analysis only runs while the overlay is on).</summary>
+    private void OnShowWalkChanged()
+    {
+        SyncViewToggles();
+        if (Board.ShowWalk) ScheduleScan();
     }
 
     // ---- lighting (Light Viz) ----
@@ -1986,6 +2007,10 @@ public partial class MainWindow : Window
                 Board.ToggleLight();
                 e.Handled = true;
                 break;
+            case Key.K when !ctrl && !e.IsRepeat:   // WalKViz crew access (W is the pan key)
+                Board.ToggleWalk();
+                e.Handled = true;
+                break;
             case Key.W or Key.A or Key.S or Key.D when !ctrl:
                 Board.SetPanKey(e.Key, true);   // smooth per-frame pan until KeyUp
                 e.Handled = true;
@@ -2446,6 +2471,31 @@ public partial class MainWindow : Window
         return menu;
     }
 
+    /// <summary>
+    /// The WalkViz submenu: the two questions the game's own answer depends on state a plan does not carry.
+    /// "Count spacewalks" admits tiles that are not part of the ship, which is what the game does (walking needs no
+    /// floor) but which reads as one all-encompassing zone unless the user asks for it; "Respect Forbid zones"
+    /// picks whether the analysis speaks for a crew member the painted zone actually binds. Both persist.
+    /// </summary>
+    private MenuItem WalkOptionsItem()
+    {
+        var menu = new MenuItem { Header = "Walk overlay" };
+        menu.Items.Add(MenuAction("Count spacewalks", () => SetWalkOption(exterior: !_settings.WalkIncludeExterior),
+            check: _settings.WalkIncludeExterior));
+        menu.Items.Add(MenuAction("Respect Forbid zones", () => SetWalkOption(forbid: !_settings.WalkRespectForbidZones),
+            check: _settings.WalkRespectForbidZones));
+        return menu;
+    }
+
+    /// <summary>Persist a WalkViz switch and recompute, but only when the overlay is actually on.</summary>
+    private void SetWalkOption(bool? exterior = null, bool? forbid = null)
+    {
+        if (exterior is { } ex) _settings.WalkIncludeExterior = ex;
+        if (forbid is { } fb) _settings.WalkRespectForbidZones = fb;
+        _settings.Save();
+        if (Board.ShowWalk) ScheduleScan();
+    }
+
     /// <summary>A labelled slider plus an editable numeric box hosted in a menu (stays open while adjusting): drag
     /// the slider or type an exact value (committed on Enter or focus loss). Both push through
     /// <paramref name="onChange"/> live, and the box shows the current value in <paramref name="format"/>.</summary>
@@ -2565,6 +2615,7 @@ public partial class MainWindow : Window
 
         m.Items.Add(new Separator());
         m.Items.Add(LightDimmingItem());
+        m.Items.Add(WalkOptionsItem());
         m.Items.Add(MenuAction("Mod overrides", ToggleModOverrides, check: Board.AllowModdedOverrides));
         OpenMenuUnder(m, BtnViewMenu);
     }
@@ -2575,6 +2626,7 @@ public partial class MainWindow : Window
     private void OnRoomsToggleClick(object sender, RoutedEventArgs e) => Board.ToggleRooms();
     private void OnPowerToggleClick(object sender, RoutedEventArgs e) => Board.TogglePower();
     private void OnLightToggleClick(object sender, RoutedEventArgs e) => Board.ToggleLight();
+    private void OnWalkToggleClick(object sender, RoutedEventArgs e) => Board.ToggleWalk();
     private void OnWireToggleClick(object sender, RoutedEventArgs e) => Board.ToggleWireMode();
 
     /// <summary>Reflect the live overlay state onto the toolbar toggle buttons' IsChecked, so the Fluent theme paints
@@ -2587,6 +2639,7 @@ public partial class MainWindow : Window
         BtnRooms.IsChecked = Board.ShowRooms;
         BtnPower.IsChecked = Board.ShowPower;
         BtnLight.IsChecked = Board.ShowLight;
+        BtnWalk.IsChecked = Board.ShowWalk;
         BtnWire.IsChecked = Board.WireMode;
     }
 
@@ -3424,6 +3477,7 @@ public partial class MainWindow : Window
             ("Power overlay", "P", "Show/hide PowerViz: lit conduit runs flow from a live generator/battery, orphaned runs are dim red, and a wired device with no feed gets an amber marker. A powered part also shows its connector badges (blue IN, green OUT) while armed or selected."),
             ("Rooms overlay", "C", "Show/hide RoomViz: every compartment the game would flood-fill, tinted in its own colour and labelled with what it certifies as, its size and its value. A room that certifies as nothing says why — what to add, and which item in it blocks the spec (a canister parked in a quarters, say). Unsealed compartments are red. The exterior isn't tinted, so a room open to space simply loses its tint."),
             ("Light overlay", "L", "Show/hide Light Viz: interior lighting simulated from every fixture and lit device. Each light floods its compartment (bounded by walls) in its own colour, so dark corners and colour clashes show at a glance. The View menu's Light Viz sliders set the light brightness and how far unlit areas darken (from a glow over the full-bright ship up to the in-game dark look)."),
+            ("Walk overlay", "K", "Show/hide WalkViz: every tile crew can stand on, tinted by which connected zone it belongs to — two tiles sharing a colour are reachable from each other on foot, two colours mean no route. Fittings nobody can operate are ringed in red at the spot they'd have to stand, and a doorway with vacuum on one side is dashed amber (crossable, but only in a suit). Note a closed door only seals if it is unpowered, locked or damaged; a powered one crew simply open. The View menu can count spacewalks and choose whether Forbid zones apply."),
             ("Wire mode", "Toolbar toggle", "Wire signalable devices: click a device to arm it as the signal source, then click another to connect (or a connected one to disconnect). Connectable devices ring violet, wires draw source→target. Esc / right-click cancels."),
             ("Delete", "Del", "Delete the selection."),
             ("Select all", "Ctrl+A", "Select every part in the design."),

@@ -12,6 +12,41 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **WalkViz: crew access on the plan** (issue #14). A new overlay (the **Walk** toolbar button, or **K**) tints
+  every tile crew can stand on by which connected area it belongs to, so two tiles sharing a colour are reachable
+  from each other on foot and two colours mean there is no route. This is what catches a compartment you have
+  quietly walled yourself out of. It needs no simulation: walkability is a pure function of the tile conditions
+  Ostraplan already computes, ported from the game's own `Tile.IsWalkable` and the adjacency rule of its
+  jump-point search (a diagonal only passes when one of the two orthogonals it cuts between is open).
+  - **Fittings you cannot operate are named and ringed.** The game does not let a crew member use a device from
+    anywhere convenient: they must reach a specific point on it, within *that interaction's* own range, with line
+    of sight. Those ranges are per-interaction and vary a lot (a nav console is 0 tiles, an air pump 1, a cooler,
+    heater, bed or sensor 2, a reactor 3), so a cooler boxed in by a bench is unusable however close you can get.
+    Unreachable fittings are ringed in red **on the fitting itself**, so clicking the mark selects the part at
+    fault rather than whatever happens to own the tile in front of it, and the Law report lists them by kind with
+    counts. Line of sight is the game's real test against the same occluder boxes Light Viz uses, so a window
+    passes and a canister does not. Where the crew may stand is deliberately as loose as the game is: the band
+    rounds **up**, so a 1.5-tile interaction reaches two tiles; standing on a fixture is a last resort rather than
+    a refusal, so a cargo bay floored wall-to-wall in racks is still usable; and a fitting embedded in the hull
+    (sensors, wall lights, ship weapons) is not blinded by the wall it is mounted in.
+  - **Door state is not cosmetic here**, unlike for rooms and the rating. An unpowered, locked or damaged closed
+    door carries `IsPortalStuck` and is a solid wall to pathing; a powered one crew simply open, so it still joins
+    both sides. Toggling a door shut can therefore split the ship in two, and now shows it.
+  - **"Suit up" is told apart from "impossible".** Hull-mounted kit (lift rotors, external cargo pods, some
+    sensors) has no interior tile to work from, and that is simply how it is reached. Anything only usable from
+    outside is dashed amber and left out of the Law report; solid red and a report entry mean nobody can operate it
+    at all. A doorway with vacuum on one side is dashed the same way: crossable, but only in a suit. Pressure is
+    read from the compartments either side rather than from a gas simulation, so it is advice, not a wall.
+  - **Mineable rock and ice are terrain, not fittings.** Regolith carries a "Mine" action, so it looks like an
+    operable device; a block in the middle of an asteroid being unreachable is what rock *is*. Without this the
+    core Port Mojave alone reports 1,811 unusable "devices" and buries the two findings that matter.
+  - **Spacewalks are a switch, not an assumption.** The game counts the hull exterior as walkable (walking needs no
+    floor at all), which strictly makes almost every design one big zone. Interior routes are what the overlay
+    shows by default; **View ▸ Walk overlay ▸ Count spacewalks** takes the game literally. The same menu chooses
+    whether painted **Forbid zones** apply, since the game's test is per crew member and a plan has no crew. Both
+    settings persist.
+  - Verified against game **0.15.1.6** and pinned by tests, including live-data assertions that the four stuck-door
+    defs still carry `TILPortalClosedStuck` and that the interaction ranges above have not moved.
 - **Propulsion figures on the Ship Rating report** (issues #15 and #16). The game works all of this out, but shows
   it in exactly one place: a nav console, on a ship you have already built. The report now has a **PROPULSION**
   block giving **RCS acceleration in G**, **RCS delta-v**, **torch acceleration in G** and **reactant remaining in

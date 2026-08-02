@@ -70,18 +70,9 @@ public static class LightNetwork
                 if (light.GlowSprite is not null)
                     glows.Add(new GlowDecal(docX, docY, light.GlowSprite, GridMath.Norm(part.Rot)));
             }
-
-            var swap = part.Rot is 90 or 270;
-            foreach (var box in def.Item.ShadowBoxes)
-            {
-                if (box.Glass) continue;   // glass never occludes (Visibility.AddOccludersFromCrewSimBlocks)
-                var (bx, by) = grid.MapPointPos(part, (box.Dx * 16.0, box.Dy * 16.0));
-                blocks.Add(new LightBlock(
-                    (float)(bx + grid.VShipPosX), (float)-(by + grid.VShipPosY),
-                    (float)(swap ? box.Ry : box.Rx), (float)(swap ? box.Rx : box.Ry),
-                    def.Item.IsWallForLight));
-            }
         }
+
+        foreach (var (_, block) in Occluders(grid, catalog)) blocks.Add(block);
 
         if (sun is not null && catalog.ParallaxDefs.TryGetValue(sun.ParallaxName, out var px))
         {
@@ -104,5 +95,35 @@ public static class LightNetwork
         return lights.Count == 0 && glows.Count == 0 && blocks.Count == 0
             ? LightScene.Empty
             : new LightScene(lights, blocks, glows);
+    }
+
+    /// <summary>
+    /// The grid's light/sight occluder boxes, each tagged with the part that contributes it: every placed part's
+    /// item def <c>aShadowBoxes</c>, positioned and rotated onto the grid (half-extents swap at 90°/270°, the
+    /// game's <c>Block.RotateCW</c>) and emitted in <b>game</b> coords (+y up). Glass boxes are dropped, matching
+    /// <c>Visibility.AddOccludersFromCrewSimBlocks</c> for lighting and the default <c>bIgnoreGlass</c> of the
+    /// sight test — light and line of sight both pass through a window.
+    ///
+    /// <para>This is the single occluder source shared by Light Viz (<see cref="Build"/>, which discards the tag)
+    /// and <see cref="LineOfSight"/> (which needs it, because the game's sight test skips boxes belonging to the
+    /// object being looked at). Emission order follows <see cref="ShipGrid.Parts"/>, so the block list Light Viz
+    /// sees is unchanged.</para>
+    /// </summary>
+    public static IEnumerable<(PlacedPart Owner, LightBlock Block)> Occluders(ShipGrid grid, Catalog catalog)
+    {
+        foreach (var part in grid.Parts)
+        {
+            if (catalog.Lookup(part.Part.DefName) is not { } def) continue;
+            var swap = part.Rot is 90 or 270;
+            foreach (var box in def.Item.ShadowBoxes)
+            {
+                if (box.Glass) continue;   // glass never occludes (Visibility.AddOccludersFromCrewSimBlocks)
+                var (bx, by) = grid.MapPointPos(part, (box.Dx * 16.0, box.Dy * 16.0));
+                yield return (part, new LightBlock(
+                    (float)(bx + grid.VShipPosX), (float)-(by + grid.VShipPosY),
+                    (float)(swap ? box.Ry : box.Rx), (float)(swap ? box.Rx : box.Ry),
+                    def.Item.IsWallForLight));
+            }
+        }
     }
 }

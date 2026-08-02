@@ -31,6 +31,7 @@ It is a sibling tool to [**Ostrasort**](https://github.com/Valtora/Ostrasort), t
 - **Propulsion.** RCS acceleration and delta-v, torch acceleration, and reactant hours, with an optional towed mass. The game computes all of this and shows it only on a nav console, on a ship you have already built; here you get it from the plan, along with the reason whenever a figure reads zero (a tank that feeds nothing, a laser with no capacitor to drive it).
 - **RoomViz** (`C`). Every compartment tinted and labelled with what it certifies as, its size, and its value. A room that certifies as nothing says why, down to the single canister in your quarters that quietly costs you the room.
 - **Light Viz** (`L`, on by default). The game's deferred lighting reproduced pixel-exact on the plan: real occluders, glass windows that pass light, lit wall faces, normal-mapped relief, and optional parallax exterior daylight.
+- **WalkViz** (`K`). Every tile crew can stand on, tinted by which connected area it belongs to, so a compartment you have walled yourself out of shows up as its own colour. Fittings nobody can operate are ringed in red at the spot they would have to stand; anything reachable only in a suit (hull-mounted kit, a hatch with vacuum across it) is dashed amber instead of flagged. A closed door only counts as sealed when the game would agree: unpowered, locked or damaged. Optionally counts spacewalks.
 - **Law report.** Every problem in one place, tracing air leaks to the exact unsealed tile.
 
 ### Power and wiring
@@ -57,7 +58,7 @@ Ostraplan resolves your `loading_order.json` exactly like the game, so modded pa
 
 Ostraplan validates the **build**. It is a **plan**ner, not a simulator, so it won't:
 
-- Simulate power, gas, thermal, or crew pathing (the game authors no per-device rates, so an honest budget would need a full network sim);
+- Simulate power, gas, thermal, or crew behaviour (the game authors no per-device rates, so an honest budget would need a full network sim). PowerViz and WalkViz answer *connectivity and reach* from the layout, which is static data; neither runs the sim behind it;
 - Model the economy beyond the bill of materials;
 - Edit more than one ship per document;
 - Write `loading_order.json` (registration stays with Ostrasort/ModTools) or publish to the Workshop (export makes a local mod; you upload in-game);

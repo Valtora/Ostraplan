@@ -186,6 +186,7 @@ public sealed class ShipCanvas : FrameworkElement
             _staticShip = null;
             _powerGeoDirty = true;   // segment geometries bake tile centres at this zoom
             _roomGeoDirty = true;    // room fills bake cell rects at this zoom
+            _walkGeoDirty = true;    // walk-zone fills bake cell rects at this zoom
             // Light Viz is zoom-independent: its composite is a doc-space bitmap scaled at draw time
         }
     }
@@ -202,6 +203,7 @@ public sealed class ShipCanvas : FrameworkElement
     public bool ShowPower { get; private set; }        // PowerViz conduit overlay visibility (toolbar/P toggle)
     public bool ShowRooms { get; private set; }        // RoomViz compartment overlay visibility (toolbar/C toggle)
     public bool ShowLight { get; private set; }        // Light Viz overlay (toolbar/L toggle) — OFF by default: the plan opens on the plain sprite ship, not the in-game dark (an unlit airlock reads as black)
+    public bool ShowWalk { get; private set; }         // WalkViz crew-access overlay (toolbar/K toggle)
 
     /// <summary>When true the canvas is in <b>wire mode</b>: click a signalable device to arm it as the signal
     /// source, then click another to connect them (click a connected one again to disconnect). See
@@ -236,6 +238,11 @@ public sealed class ShipCanvas : FrameworkElement
     private List<(Geometry Geo, Brush Fill)>? _roomGeos;
     private List<RoomLabel>? _roomLabels;
     private bool _roomGeoDirty;
+    private WalkOverlay _walkOverlay = WalkOverlay.Empty;   // the crew-access analysis (doc coords), pushed by the window after each scan
+    // WalkViz bakes exactly like RoomViz: one frozen per-zone Geometry in pan-zero space, rebuilt only when the
+    // overlay data or the zoom changes, so panning stays a transform over a handful of strokes.
+    private List<(Geometry Geo, Brush Fill)>? _walkGeos;
+    private bool _walkGeoDirty;
     private LightScene _lightScene = LightScene.Empty;   // the resolved lights/blocks/glows (doc coords), pushed by the window after each scan
     // Light Viz renders the game's deferred light pass in software at the native 16 px/tile: the ship's albedo and
     // normal maps are baked to doc-space bitmaps on the UI thread, then a worker runs the exact ported pipeline
@@ -293,6 +300,7 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action? ShowPowerChanged;              // the PowerViz overlay was toggled (update the toolbar caption + trigger a scan)
     public event Action? ShowRoomsChanged;              // the RoomViz overlay was toggled (update the toolbar caption + trigger a scan)
     public event Action? ShowLightChanged;              // the Light Viz overlay was toggled (update the menu check + trigger a scan)
+    public event Action? ShowWalkChanged;               // the WalkViz overlay was toggled (update the toolbar caption + trigger a scan)
     public event Action? WireModeChanged;               // wire mode was toggled (update the hint / menu check)
     public event Action<Placement, Placement>? LinkToggleRequested;   // connect source→target, or disconnect if already linked
     public event Action? ActiveZoneChanged;             // the painted zone changed (sync the zones panel selection)
@@ -497,6 +505,27 @@ public sealed class ShipCanvas : FrameworkElement
     {
         _roomOverlay = overlay ?? RoomOverlay.Empty;
         _roomGeoDirty = true;
+        InvalidateVisual();
+    }
+
+    /// <summary>Toggle the WalkViz crew-access overlay. Like PowerViz/RoomViz, the walk analysis is only computed
+    /// off-thread while the overlay is on — the window listens on <see cref="ShowWalkChanged"/> to schedule that scan.</summary>
+    public void ToggleWalk() => SetShowWalk(!ShowWalk);
+
+    public void SetShowWalk(bool on)
+    {
+        if (ShowWalk == on) return;
+        ShowWalk = on;
+        if (!on) { _walkOverlay = WalkOverlay.Empty; _walkGeos = null; }   // drop stale data so it can't flash on re-enable
+        ShowWalkChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    /// <summary>The freshly computed crew-access analysis (document coords), pushed by the window after each scan.</summary>
+    public void SetWalkOverlay(WalkOverlay overlay)
+    {
+        _walkOverlay = overlay ?? WalkOverlay.Empty;
+        _walkGeoDirty = true;
         InvalidateVisual();
     }
 
@@ -2026,6 +2055,7 @@ public sealed class ShipCanvas : FrameworkElement
         DrawLeakCells(dc);
         DrawAirSelection(dc);
         if (ShowRooms) DrawRoomOverlay(dc);   // under the zones: rooms are the ground truth a zone is drawn onto
+        if (ShowWalk) DrawWalkOverlay(dc);    // over the rooms (a walk zone cuts across compartments), under the zones
         if (ShowZones || ActiveZoneId is not null) DrawZones(dc);
         DrawOutOfBounds(dc, view);
         DrawOriginMarker(dc);
@@ -2266,6 +2296,72 @@ public sealed class ShipCanvas : FrameworkElement
         dc.Pop();
 
         if (Zoom >= RoomLabelMinZoom) DrawRoomLabels(dc);
+    }
+
+    // Walk zones reuse the room hues (the same "these cells belong together" reading), but the exterior zone gets a
+    // cold neutral so an EVA route never looks like another compartment.
+    private static readonly Brush WalkExteriorFill = Frozen(new SolidColorBrush(Color.FromArgb(0x33, 0x8A, 0x9B, 0xB0)));
+    private static readonly Pen UnreachablePen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0xE2, 0x4A, 0x4A)), 2.0));
+    private static readonly Brush UnreachableFill = Frozen(new SolidColorBrush(Color.FromArgb(0x55, 0xE2, 0x4A, 0x4A)));
+    private static readonly Pen EvaPortalPen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0xF0, 0xC4, 0x60)), 2.0)
+    { DashStyle = new DashStyle([2, 2], 0) });
+
+    /// <summary>Bake the walk-zone fills into frozen pan-zero geometries at the current zoom, exactly as
+    /// <see cref="EnsureRoomVisuals"/> does for compartments — one DrawGeometry per zone per frame instead of a
+    /// rectangle per tile.</summary>
+    private void EnsureWalkVisuals()
+    {
+        if (!_walkGeoDirty) return;
+        _walkGeoDirty = false;
+
+        var geos = new List<(Geometry, Brush)>(_walkOverlay.Zones.Count);
+        for (var i = 0; i < _walkOverlay.Zones.Count; i++)
+        {
+            var tiles = _walkOverlay.Zones[i];
+            if (tiles.Count == 0) continue;
+
+            var geo = new StreamGeometry();
+            using (var c = geo.Open())
+                foreach (var (x, y) in tiles)
+                {
+                    var r = new Rect(x * Zoom, y * Zoom, Zoom, Zoom);
+                    c.BeginFigure(r.TopLeft, true, true);
+                    c.PolyLineTo([r.TopRight, r.BottomRight, r.BottomLeft], true, false);
+                }
+            geo.Freeze();
+            geos.Add((geo, _walkOverlay.ZoneIsExterior[i] ? WalkExteriorFill : RoomPalette[i % RoomPalette.Length]));
+        }
+        _walkGeos = geos;
+    }
+
+    /// <summary>
+    /// WalkViz: every tile a crew member can stand on, tinted by which connected zone it belongs to, so "have I
+    /// walled myself out of the engine room" is answerable at a glance. Two tiles sharing a hue are mutually
+    /// reachable on foot; two hues means no route, and the usual culprit is a wall, a solid fixture, or a closed
+    /// door that is unpowered, locked or damaged (those add <c>IsPortalStuck</c> and genuinely seal, unlike a
+    /// powered one). Fittings no crew member can operate are ringed in hazard red at the point they would have to
+    /// stand, and a doorway with vacuum on one side is dashed amber: crossable, but only in a suit.
+    /// Drawn live in <see cref="OnRender"/>, never baked into the sprite cache, so edits appear immediately.
+    /// </summary>
+    private void DrawWalkOverlay(DrawingContext dc)
+    {
+        if (_walkOverlay.IsEmpty) return;
+        EnsureWalkVisuals();
+
+        dc.PushTransform(new TranslateTransform(_pan.X, _pan.Y));
+        foreach (var (geo, fill) in _walkGeos!)
+            dc.DrawGeometry(fill, null, geo);
+        dc.Pop();
+
+        // amber dashes = "suit up": a doorway with vacuum across it, or hull-mounted kit you EVA to
+        foreach (var (x, y) in _walkOverlay.EvaOnlyPortals)
+            dc.DrawRectangle(null, EvaPortalPen, CellRect(x, y, 1, 1));
+        foreach (var (x, y) in _walkOverlay.EvaOnlyDevices)
+            dc.DrawRectangle(null, EvaPortalPen, CellRect(x, y, 1, 1));
+
+        // solid red = nobody can operate this, suited or not
+        foreach (var (x, y) in _walkOverlay.UnreachableDevices)
+            dc.DrawRectangle(UnreachableFill, UnreachablePen, CellRect(x, y, 1, 1));
     }
 
     /// <summary>
