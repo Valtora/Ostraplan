@@ -30,10 +30,14 @@ each release was verified against is recorded in
   - **Done is a pane, not a popup.** The three `Dlg.Success` boxes are gone; the result stays where the run
     happened. Anything the export would overwrite or delete is now an acknowledgement checkbox on Review, beside
     the facts that justify it, rather than a separate dialog on top of them.
-  - **Your last export is remembered** (destination, wear, kiosk choices, price, write target), so a repeat export
-    reopens on Review and is one click. Every step is revalidated first: if the save was deleted or the output
-    folder is gone, it opens on the step that can say so. These live in Ostraplan's settings, never in the
-    `.oplan`, so a shared design carries no local paths, save names or credit amounts.
+  - **Your last export is remembered** (destination, wear, kiosk choices, price, write target). Reopening starts
+    at the first step, with every step that still holds already marked done, so the rail lights up and Review is
+    one click away: a repeat export stays quick without the wizard opening one click from a write. Every step is
+    revalidated first, so if the save was deleted or the output folder is gone it opens on the step that can say
+    so, and the rail will not skip past it. These live in Ostraplan's settings, never in the `.oplan`, so a shared
+    design carries no local paths, save names or credit amounts.
+  - **The rail is a control, and now looks like one.** Any completed step, and anything behind you, jumps straight
+    there on a click, and highlights on hover so you can tell.
   - **Updating a ship in a save is now the wizard's third destination.** `Analyse ▸ Update Ship in Save…` survives
     and opens the same wizard with it preselected, so the muscle memory still works. It has no save picker, because
     the design already names the save and the ship: selecting the destination re-locates that ship, and a save that

@@ -25,17 +25,24 @@ public class ExportWizardTests
     {
         var doc = new ShipDocument(g.Catalog) { SourceSave = sourceSave };
         new PlaceCommand(new Placement { DefName = "ItmWall1x1", X = 0, Y = 0 }).Do(doc);
+
+        // built the way MainWindow builds it, so a test that supplies settings exercises the real restore path
+        var live = settings ?? new AppSettings();
+        var meta = new OplanMeta { Name = shipName };
+        var plan = ExportPlan.FromSettings(live, meta, sourceSave);
+        plan.Destination = destination;
+
         return new WizardSession
         {
             SourceSave = sourceSave,
-            Plan = new ExportPlan { Destination = destination, ShipName = shipName },
+            Plan = plan,
             Doc = doc,
             Catalog = g.Catalog,
             Specs = [],
             Index = g.Index,
             Env = g.Env,
-            Settings = settings ?? new AppSettings(),
-            Meta = new OplanMeta { Name = shipName },
+            Settings = live,
+            Meta = meta,
             Saves = saves ?? [],
             OstrasortKnown = ostrasortKnown,
         };
@@ -520,6 +527,65 @@ public class ExportWizardTests
 
             Descendants<CheckBox>(step).First().IsChecked = true;   // not vacuous: a real click still reports
             Assert.Equal(1, raised);
+        });
+    }
+
+    // ---- reopening on a remembered export ----
+
+    /// <summary>
+    /// Reopening lands at the beginning, but a repeat export is still one click: every step that revalidates is
+    /// marked complete, so the rail jumps straight to Review without walking them again.
+    ///
+    /// <para>The first smoke test found the alternative: landing on Review after a successful export showed a
+    /// review of something already written, one reflexive click from writing it a second time.</para>
+    /// </summary>
+    [SkippableFact]
+    public void Reopening_a_remembered_export_starts_at_the_beginning_with_Review_one_click_away()
+    {
+        var g = TestData.RequireGame();
+        var dir = Path.Combine(Path.GetTempPath(), "OstraplanWizardTest-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(dir);
+        try
+        {
+            RunSta(() =>
+            {
+                var settings = new AppSettings
+                {
+                    LastExportDir = dir,
+                    LastExport = new LastExport { Destination = "mod", StagedIntoMods = false },
+                };
+                var wizard = new ExportWizard(Session(g, settings: settings));
+
+                wizard.OpenedAsync(resume: true).GetAwaiter().GetResult();
+
+                Assert.IsType<DestinationStep>(wizard.CurrentPane);
+                Assert.True(wizard.ReviewIsOneClickAway);
+            });
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [SkippableFact]
+    public void A_remembered_export_whose_folder_has_gone_opens_on_the_step_that_can_say_so()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var settings = new AppSettings
+            {
+                LastExportDir = @"C:\nope\this\was\deleted",
+                LastExport = new LastExport { Destination = "mod", StagedIntoMods = false },
+            };
+            var wizard = new ExportWizard(Session(g, settings: settings));
+
+            wizard.OpenedAsync(resume: true).GetAwaiter().GetResult();
+
+            var pane = Assert.IsType<ModTargetStep>(wizard.CurrentPane);
+            Assert.Contains("no longer exists", pane.Validate());
+            Assert.False(wizard.ReviewIsOneClickAway);   // and the rail will not skip past the problem
         });
     }
 

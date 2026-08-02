@@ -151,9 +151,11 @@ public sealed class WizardFlow
     /// revalidating each step against the world as it is now: the save may have been deleted, the output folder
     /// may be gone. The first failure wins, so the user lands on the step that can explain itself.</para>
     ///
-    /// <para>With everything valid, the mod and new-ship destinations open on <b>Review</b>, so a repeat export is
-    /// one click. The update destination never does: landing one click from rewriting a save is a footgun, and it
-    /// is the one destination that overwrites something the user already has.</para>
+    /// <para>With everything valid it opens on the <b>first</b> step, every destination alike. Landing on Review
+    /// instead would put a reflexive click one step from a write, and after a successful export it would be a
+    /// review of an export that had already happened, which reads as though nothing was written. The repeat export
+    /// stays one click regardless: every step that still validates is marked complete, so the rail can jump
+    /// straight to Review.</para>
     /// </summary>
     public static int ResumeIndex(ExportDestination destination, IReadOnlyList<bool> stepValid,
         bool hasUnresolvedParts = false)
@@ -164,11 +166,6 @@ public sealed class WizardFlow
             if (steps[i] is StepId.Review or StepId.Done) break;
             if (!stepValid[i]) return i;
         }
-
-        if (destination == ExportDestination.UpdateShipInSave) return 0;
-
-        for (var i = 0; i < steps.Count; i++)
-            if (steps[i] == StepId.Review) return i;
         return 0;
     }
 }

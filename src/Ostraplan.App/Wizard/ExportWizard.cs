@@ -125,6 +125,9 @@ public sealed class ExportWizard : Window
     /// <summary>Exposed for tests: the pane on screen.</summary>
     internal WizardStep? CurrentPane => Current;
 
+    /// <summary>Exposed for tests: whether the rail can jump straight to Review from where it stands.</summary>
+    internal bool ReviewIsOneClickAway => _flow.CanJumpTo(_flow.IndexOf(StepId.Review));
+
     /// <summary>
     /// Open on the right step. With settings remembered from last time, every step is <b>revalidated against the
     /// world as it is now</b> before anything is shown: the save may have been deleted, the output folder may be
@@ -155,9 +158,14 @@ public sealed class ExportWizard : Window
                     if (valid[^1]) pane.Leave(_session);
                 }
 
-                var target = WizardFlow.ResumeIndex(_session.Plan.Destination, valid, HasUnresolvedParts());
-                for (var i = 0; i < target; i++) _flow.Complete(i);
-                _flow.JumpTo(target);
+                // Light up every step that still holds, not just the ones before where we land. That is what keeps
+                // a repeat export to one click: the rail can jump straight to Review without walking the steps
+                // again, while the wizard still opens somewhere the user recognises.
+                for (var i = 0; i < valid.Count; i++)
+                    if (valid[i] && _flow.Steps[i] is not (StepId.Review or StepId.Done))
+                        _flow.Complete(i);
+
+                _flow.JumpTo(WizardFlow.ResumeIndex(_session.Plan.Destination, valid, HasUnresolvedParts()));
             }
         }
         finally
@@ -431,8 +439,12 @@ public sealed class ExportWizard : Window
             };
             if (jumpable)
             {
+                // A hand cursor alone is something you find by accident. A hover background says the row is a
+                // control before you have moved onto it, which is what makes the one-click jump discoverable.
                 var target = i;
                 row.MouseLeftButtonUp += (_, _) => JumpFromRail(target);
+                row.MouseEnter += (_, _) => row.Background = ThemeManager.FieldBg;
+                row.MouseLeave += (_, _) => row.Background = Brushes.Transparent;
             }
             _rail.Children.Add(row);
         }

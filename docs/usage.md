@@ -243,12 +243,17 @@ The last two steps are the same everywhere:
   before the commit button arms.
 - **Done** reports what happened, in the wizard, with no box to dismiss first.
 
-Your last-used destination, wear, kiosk choices, price and write target are remembered,
-so reopening **Export** on a design you've exported before takes you straight to
-**Review**. If something has changed since — the save was deleted, the output folder is
-gone — it opens on the step that can explain it instead. The **Update a ship in a save**
-destination never reopens on Review, because that would put you one click from rewriting
-a save.
+Your last-used destination, wear, kiosk choices, price and write target are remembered.
+Reopening **Export** always starts you at **Destination**, and every step that still holds
+is marked done, so the rail lights up and **Review** is a single click away: a repeat
+export stays one click without the wizard opening one click from a write.
+
+The rail is clickable. Any step you've already completed, and anything behind you, jumps
+straight there on a click (they highlight as you hover). Steps ahead of an unfinished one
+don't, so you can't skip past something that still needs an answer.
+
+If something has changed since the last export — the save was deleted, the output folder
+is gone — it opens on the step that can explain it, and the rail won't skip past it.
 
 Remembered settings live in Ostraplan's own settings file, never in the `.oplan`, so a
 design you share carries no folder paths, save names or credit amounts. The ship's name
@@ -360,8 +365,9 @@ identity*, so you can redesign the structure out-of-game and write it back.
 - **Wear** is on **The ship** step, as it is for every destination (on by default at
   ~88%). On a save edit it re-rolls the condition of **every** installed part to the
   chosen average, replacing existing damage. Untick it to keep each part's current wear.
-- This destination **never reopens on Review**, even though the other two do. Landing one
-  click from rewriting a save you already have is a footgun.
+- Like every destination, it reopens at the start rather than on Review. Landing one click
+  from rewriting a save you already have is a footgun, and this is the path where it would
+  cost the most.
 - A save-edit `.oplan` stays **linked** to its save — it references the live state
   rather than embedding it, so keep the save if you want to write back later. For a
   ship detached from any save, **Export** it instead.

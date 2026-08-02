@@ -115,37 +115,24 @@ public class WizardFlowTests
     private static IReadOnlyList<bool> AllValid(ExportDestination d, bool unresolved = false) =>
         [.. WizardFlow.StepsFor(d, unresolved).Select(_ => true)];
 
-    [Fact]
-    public void A_remembered_mod_export_reopens_on_Review()
+    /// <summary>
+    /// A remembered export reopens at the beginning, whichever destination it was.
+    ///
+    /// <para>Opening on Review instead would put a reflexive click one step from a write, and after a successful
+    /// export it would show a review of an export that had already happened, which reads as though nothing was
+    /// written. The repeat export is kept to one click by lighting the rail up instead, which is the shell's job
+    /// rather than this one's.</para>
+    /// </summary>
+    [Theory]
+    [InlineData(ExportDestination.Mod)]
+    [InlineData(ExportDestination.NewShipInSave)]
+    [InlineData(ExportDestination.UpdateShipInSave)]
+    public void A_remembered_export_reopens_at_the_beginning(ExportDestination destination)
     {
-        var steps = WizardFlow.StepsFor(ExportDestination.Mod, false);
+        var at = WizardFlow.ResumeIndex(destination, AllValid(destination));
 
-        var at = WizardFlow.ResumeIndex(ExportDestination.Mod, AllValid(ExportDestination.Mod));
-
-        Assert.Equal(StepId.Review, steps[at]);
-    }
-
-    [Fact]
-    public void A_remembered_new_ship_export_reopens_on_Review()
-    {
-        var steps = WizardFlow.StepsFor(ExportDestination.NewShipInSave, false);
-
-        var at = WizardFlow.ResumeIndex(ExportDestination.NewShipInSave, AllValid(ExportDestination.NewShipInSave));
-
-        Assert.Equal(StepId.Review, steps[at]);
-    }
-
-    [Fact]
-    public void A_remembered_update_never_reopens_on_Review()
-    {
-        // one click from rewriting a save the user already has is a footgun, so this destination always walks
-        var steps = WizardFlow.StepsFor(ExportDestination.UpdateShipInSave, false);
-
-        var at = WizardFlow.ResumeIndex(ExportDestination.UpdateShipInSave,
-            AllValid(ExportDestination.UpdateShipInSave));
-
-        Assert.NotEqual(StepId.Review, steps[at]);
         Assert.Equal(0, at);
+        Assert.Equal(StepId.Destination, WizardFlow.StepsFor(destination, false)[at]);
     }
 
     [Fact]
