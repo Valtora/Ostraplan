@@ -557,7 +557,7 @@ public static class SaveEdit
 
     /// <summary>Splice <paramref name="ship"/> into <c>ships/&lt;regId&gt;.json</c> inside <paramref name="zipPath"/>,
     /// preserving the file's array-or-object shape (a sibling-ships array keeps its other ships).</summary>
-    private static void SpliceShipInZip(string zipPath, string regId, JsonObject ship)
+    internal static void SpliceShipInZip(string zipPath, string regId, JsonObject ship)
     {
         using var za = ZipFile.Open(zipPath, ZipArchiveMode.Update);
         var entryName = $"ships/{regId}.json";
@@ -775,8 +775,9 @@ public static class SaveEdit
     /// <summary>Set a CO's <c>StatDamage</c> to <paramref name="amount"/> (in <c>StatDamageMax</c> count units):
     /// drop any existing <c>StatDamage</c>, and — when actually damaging it — its <c>IsPristine</c> resale flag
     /// (the game removes it on first damage), then add a single <c>StatDamage=1.0x&lt;amount&gt;</c>. A zero amount
-    /// leaves the part undamaged (and keeps <c>IsPristine</c>). Does not touch <c>StatDamageMax</c>.</summary>
-    private static void SetStatDamage(JsonObject co, double amount)
+    /// leaves the part undamaged (and keeps <c>IsPristine</c>). Does not touch <c>StatDamageMax</c>.
+    /// <para>Shared with <see cref="SaveGrant"/>, which wears a granted ship the same way.</para></summary>
+    internal static void SetStatDamage(JsonObject co, double amount)
     {
         if (co["aConds"] is not JsonArray conds) co["aConds"] = conds = new JsonArray();
         for (var i = conds.Count - 1; i >= 0; i--)
@@ -795,7 +796,7 @@ public static class SaveEdit
     /// pattern the game and <see cref="ShipExport"/> use. Cooverlay skins resolve through
     /// <c>DataHandler.GetCondOwnerDef</c> to their base def, so this works for any buildable def.
     /// </summary>
-    private static JsonObject SynthesizeCo(string def, string strID, Catalog catalog, string regId, double epoch)
+    internal static JsonObject SynthesizeCo(string def, string strID, Catalog catalog, string regId, double epoch)
     {
         var co = new JsonObject
         {
@@ -856,7 +857,7 @@ public static class SaveEdit
     /// re-derives them from the device's power-map points touching a conduit at load, so the device still only
     /// powers if it's placed on the conduit network.
     /// </summary>
-    private static JsonArray? GpmSettings(Catalog catalog, string defName)
+    internal static JsonArray? GpmSettings(Catalog catalog, string defName)
     {
         if (catalog.Lookup(defName) is not { } part) return null;
         var settings = catalog.GpmSettingsFor(part);
@@ -869,7 +870,7 @@ public static class SaveEdit
 
     private static string SourceDir(SaveShipContext ctx) => Path.GetDirectoryName(ctx.ZipPath)!;
 
-    private static void UpdateSaveInfo(string path, string? name, double? money)
+    internal static void UpdateSaveInfo(string path, string? name, double? money)
     {
         try
         {
@@ -906,7 +907,7 @@ public static class SaveEdit
 
     /// <summary>Set a CO's balance to <paramref name="newBalance"/>: drop its existing <c>StatUSD</c> conds and add
     /// a single <c>StatUSD=1.0x&lt;newBalance&gt;</c> (a plain accumulator, safe to collapse).</summary>
-    private static void SetStatUsd(JsonObject co, double newBalance)
+    internal static void SetStatUsd(JsonObject co, double newBalance)
     {
         if (co["aConds"] is not JsonArray conds) co["aConds"] = conds = new JsonArray();
         for (var i = conds.Count - 1; i >= 0; i--)
@@ -928,7 +929,7 @@ public static class SaveEdit
     /// zip to match the new folder (the game's <c>&lt;folder&gt;/&lt;folder&gt;.zip</c> convention) and repoint saveInfo's
     /// display name (and money, when given). Assumes <paramref name="destDir"/> does not yet exist. Returns the new
     /// zip's path. Shared by <see cref="WriteCopy"/> and the <see cref="WriteInPlace"/> pre-edit backup.</summary>
-    private static string MaterializeCopy(string srcDir, string srcZipName, string destDir, double? newMoney)
+    internal static string MaterializeCopy(string srcDir, string srcZipName, string destDir, double? newMoney)
     {
         CopyDir(srcDir, destDir);
         var newName = new DirectoryInfo(destDir).Name;

@@ -46,6 +46,7 @@ It is a sibling tool to [**Ostrasort**](https://github.com/Valtora/Ostrasort), t
 - **Import your ship from a save.** Pull your live layout straight out of a save game.
 - **Edit your live ship.** Import it, redesign, and write it back into a **copy** of the save, with crew, cargo, position, and identity preserved (the original untouched).
 - **Export as a mod.** A spawnable local mod in the game's own `data/ships` shape, with rooms and rating precomputed. Optionally make it obtainable in-game (broker kiosk, station Special Offer, or Shipbreaker starting ship), replace an existing ship's identity, and hand it to Ostrasort to register in one click.
+- **Add a design to a save as a new ship.** Drop a design into a **copy** of a save as a brand-new ship you already own, without replacing anything that's there. It arrives 3 to 5 km away, exactly where the game parks a ship you've bought with nowhere to dock, so the P.A.S.S. ferry will take you to it. Gift it, or charge yourself for it. Import from one save and add to another to move a ship between playthroughs.
 - **Wear slider.** Export or inject a ship worn rather than pristine, using the game's own kiosk damage model (defaults to the ~88% condition a "Used" kiosk ship comes at, no part below 10%).
 
 ### Mod-aware

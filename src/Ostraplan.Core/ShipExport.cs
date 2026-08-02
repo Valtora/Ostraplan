@@ -406,6 +406,16 @@ public static class ShipExport
     /// <summary>Serialize the ship as the game expects a <c>data/ships</c> file: a one-element top-level array.</summary>
     public static string Serialize(ExportedShip ship) => JsonSerializer.Serialize(new[] { ship }, Json);
 
+    /// <summary>
+    /// The built ship as a single mutable node, for a caller that has to keep editing it — <see cref="SaveGrant"/>,
+    /// which turns this template-shaped record into the save-shaped one a save game needs. Goes through the same
+    /// <see cref="Json"/> options as <see cref="Serialize"/> (notably <c>WhenWritingNull</c>), so a field the DTO
+    /// leaves null is omitted here exactly as it would be on disk, rather than materialising as a JSON null the
+    /// game would then read as a real value.
+    /// </summary>
+    internal static JsonObject ToJsonObject(ExportedShip ship) =>
+        JsonNode.Parse(JsonSerializer.Serialize(ship, Json))!.AsObject();
+
     /// <summary>Serialize the mod metadata as the game expects <c>mod_info.json</c>: a one-element top-level
     /// array, the same shape as every core data file. A bare object parses to an empty collection, so the
     /// loader (<c>DataHandler.JsonToData</c>) falls back to a default name and logs a spurious

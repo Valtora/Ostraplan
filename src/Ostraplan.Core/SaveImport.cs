@@ -13,6 +13,12 @@ public sealed record SaveEntry(string Name, string ShipName, string PlayerName, 
 /// player is currently standing on. A non-owned ship is a station or another vessel — editable, but unsupported.</summary>
 public sealed record SaveShipChoice(string RegId, string Name, string Sub, bool Owned, bool Current);
 
+/// <summary>The save's session (character) record in summary: which ship the player is standing on
+/// (<c>strShip</c>), their character CO id (<c>strPlayerCO</c>, the CO carrying the money balance and the owned-
+/// ship list), the current game epoch, and the record's own zip entry name — which a writer needs, because
+/// ownership lives in that record and nowhere else.</summary>
+internal sealed record SessionRecord(string ShipRegId, string? PlayerCoId, double Epoch, string EntryName);
+
 /// <summary>
 /// Imports the <b>player's own ship</b> from a save game — layout only. A save folder holds a
 /// <c>&lt;name&gt;.zip</c> whose <c>ships/&lt;RegID&gt;.json</c> files are JsonShip records (a superset of a
@@ -56,22 +62,21 @@ public static class SaveImport
 
     /// <summary>The player character's current-ship RegID: the one zip-root record carrying <c>strShip</c>.
     /// Shared with <see cref="SaveEditImport"/>.</summary>
-    internal static string? PlayerShipRegId(ZipArchive zip) =>
-        PlayerRecord(zip) is { } el && Json.Str(el, "strShip") is { Length: > 0 } s ? s : null;
+    internal static string? PlayerShipRegId(ZipArchive zip) => ReadSession(zip)?.ShipRegId;
 
     /// <summary>The player character CO id (<c>strPlayerCO</c>) from the session record — the CO carrying the
     /// authoritative <c>StatUSD</c> money balance. Shared with <see cref="SaveEditImport"/>.</summary>
-    internal static string? PlayerCoId(ZipArchive zip) =>
-        PlayerRecord(zip) is { } el && Json.Str(el, "strPlayerCO") is { Length: > 0 } s ? s : null;
+    internal static string? PlayerCoId(ZipArchive zip) => ReadSession(zip)?.PlayerCoId;
 
     /// <summary>The save's current game epoch (<c>objSystem.dfEpoch</c> on the session record), or 0.</summary>
-    internal static double SessionEpoch(ZipArchive zip) =>
-        PlayerRecord(zip) is { } el && el.TryGetProperty("objSystem", out var sys)
-            && sys.TryGetProperty("dfEpoch", out var ep) && ep.TryGetDouble(out var v) ? v : 0;
+    internal static double SessionEpoch(ZipArchive zip) => ReadSession(zip)?.Epoch ?? 0;
 
-    /// <summary>The zip-root session record — the one JSON at the archive root (not <c>saveInfo.json</c>) that
-    /// carries <c>strShip</c>. Returns its root element (unwrapping a single-element array), or null.</summary>
-    private static JsonElement? PlayerRecord(ZipArchive zip)
+    /// <summary>Everything the session (character) record is asked for, read in <b>one</b> parse: which ship the
+    /// player is on, their CO id, the game epoch, and the record's own entry name. That record is the biggest
+    /// thing in a save (tens of MB on a mature one), so a caller needing more than one of these should take them
+    /// from here rather than calling the single-value helpers in sequence. Null when no root record carries
+    /// <c>strShip</c>.</summary>
+    internal static SessionRecord? ReadSession(ZipArchive zip)
     {
         foreach (var e in zip.Entries)
         {
@@ -81,7 +86,10 @@ public static class SaveImport
             {
                 using var doc = JsonDocument.Parse(ReadText(e));
                 var el = Root(doc);
-                if (Json.Str(el, "strShip") is { Length: > 0 }) return el.Clone();   // clone: outlives the JsonDocument
+                if (Json.Str(el, "strShip") is not { Length: > 0 } ship) continue;
+                var epoch = el.TryGetProperty("objSystem", out var sys)
+                    && sys.TryGetProperty("dfEpoch", out var ep) && ep.TryGetDouble(out var v) ? v : 0;
+                return new SessionRecord(ship, Json.Str(el, "strPlayerCO"), epoch, e.FullName);
             }
             catch { /* not the player record — keep looking */ }
         }

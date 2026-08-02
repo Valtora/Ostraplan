@@ -12,6 +12,31 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Add a design to a save as a new ship** (issue #17). **Export** is now two destinations rather than one: the
+  familiar **As a mod** tab, and a new **Into a save game** tab that writes the design into a *copy* of a save as a
+  brand-new ship you already own, without touching any ship that is already there. The point is the gap the issue
+  names: until now the only ways to get a design in front of you either rewrote an existing ship or edited the
+  world's kiosk loot. The ship's name and identity, and its condition, are shared between both tabs, because both
+  destinations want exactly those.
+  - **It arrives where a bought ship would.** The game's own "you bought a ship and the station has no free port"
+    path scatters the ship 3 to 5 km out at a random bearing, and that pair of radii is ported literally, so a
+    granted ship is parked exactly where a purchased one lands. That is 1% of the P.A.S.S. ferry's 5,000 km range,
+    so you can call a ferry to board it, and far enough out that even an RCS-only hull flies home in minutes.
+    Docking it to the station is deliberately **not** attempted: it needs reciprocal entries on both ships and a
+    formation the game computes from port geometry, which is a large surface for a small convenience.
+  - **You own it properly.** Ownership in Ostranauts lives in two places and needs both. The character record's
+    `dictShipOwners` is what the ferry and the broker read, and the player's `aMyShips` is what `OwnsShip` reads,
+    which gates crew pledges, fast-forward and every interaction that tests whether a ship is yours. Write only the
+    first and the ship is reachable but your own crew will not work on it.
+  - **Price it, or gift it.** Tick the charge box and the cost comes off your character's balance (the authoritative
+    `StatUSD` on the player CO, mirrored into `saveInfo.money`), with the balance shown live and the button disabled
+    when you cannot afford it. Left unticked it is free.
+  - **Your save is never written.** The result is a new `<save> (Ostraplan)` folder; the original is not opened for
+    writing at all. The one edit inside the character record is done textually, inserting two array entries, so a
+    60 MB record is not round-tripped through a serialiser to add two strings.
+  - Designs imported from a save can be granted too, which is a save-to-save ship transfer: import from one save,
+    add to another. Layout, cargo, loose items, zones and device wiring all survive that trip. Per-part damage and
+    crew do not, and the dialog says so.
 - **WalkViz: crew access on the plan** (issue #14). A new overlay (the **Walk** toolbar button, or **K**) tints
   every tile crew can stand on by which connected area it belongs to, so two tiles sharing a colour are reachable
   from each other on foot and two colours mean there is no route. This is what catches a compartment you have

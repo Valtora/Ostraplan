@@ -2222,7 +2222,8 @@ public partial class MainWindow : Window
         var ostrasortKnown = OstrasortLauncher.Detect(_settings) is not null;
 
         var dlg = new ExportDialog(_meta.Name, _settings.ExportAuthor ?? _meta.Author, _env.ModsDir,
-            _settings.LastExportDir, index, buyEstimate, ostrasortKnown, _meta) { Owner = this };
+            _settings.LastExportDir, index, buyEstimate, ostrasortKnown, _meta,
+            SaveImport.ListSaves(_env), _doc.SourceSave is not null) { Owner = this };
         if (dlg.ShowDialog() != true) return;
 
         // Identity edited in the export dialog flows back onto the design's saved metadata, so the two never drift.
@@ -2233,6 +2234,14 @@ public partial class MainWindow : Window
             _meta.Year = dlg.Year; _meta.Designation = dlg.Designation; _meta.Description = dlg.Description;
             _stateDirty = true;
             RefreshChrome();
+        }
+
+        // the save-game destination is a different write entirely (a new owned ship in a copy of a save), so it
+        // branches off here before any of the mod-folder plumbing below
+        if (dlg.Mode == ExportMode.Save)
+        {
+            await GrantIntoSave(dlg, doc, catalog, specs);
+            return;
         }
 
         // don't silently clobber an existing mod folder we may not have created
@@ -2305,6 +2314,78 @@ public partial class MainWindow : Window
             deliverySummary + "\n" +
             $"Written to {result.ModDir}\n\n" +
             registerNote);
+    }
+
+    /// <summary>
+    /// Write the design into a <b>copy</b> of the chosen save as a new ship the player owns
+    /// (<see cref="SaveGrant"/>). Unlike the mod export this touches a save game, so it is deliberately loud:
+    /// the user confirms first, and the result names the copy they must load to see the ship.
+    /// </summary>
+    private async Task GrantIntoSave(ExportDialog dlg, ShipDocument doc, Catalog catalog, IReadOnlyList<RoomSpecDef> specs)
+    {
+        if (dlg.GrantContext is not { } ctx) return;
+
+        var priceLine = dlg.Price > 0
+            ? $"{dlg.Price:C0} will be deducted from your credits.\n"
+            : "It's a gift — nothing is deducted.\n";
+        if (!Dlg.Confirm(this, DlgKind.Warning, "Add ship to save",
+                $"\"{dlg.ShipName}\" will be added to a COPY of \"{ctx.SaveName}\" as a ship you own.\n\n" +
+                priceLine +
+                "It appears 3–5 km from where you are, undocked, so take the P.A.S.S. ferry to reach it.\n\n" +
+                "Your original save is not modified. Do this from the game's Main Menu, not while the save is " +
+                "loaded, or the game may overwrite it on its next autosave.",
+                "Add ship"))
+            return;
+
+        // Every value the engine call needs is read HERE, on the UI thread, and only the plain results are
+        // captured by the lambda below. Reading a control inside an OffThread lambda is the v0.43.1 bug
+        // UiThreadGuardTests exists to prevent: it throws "a different thread owns it" while evaluating the
+        // arguments, so the engine never runs at all.
+        var opts = new GrantOptions(
+            dlg.ShipName,
+            new ExportMetadata(dlg.PublicName, dlg.Make, dlg.Model, dlg.Year, dlg.Designation, dlg.Description),
+            dlg.Wear);
+        var price = dlg.Price;
+
+        string outDir;
+        GrantReport report;
+        Mouse.OverrideCursor = Cursors.Wait;
+        using (FreezeDoc())
+        {
+            try
+            {
+                (outDir, report) = await Ui.OffThread(() => SaveGrant.Grant(ctx, doc, catalog, specs, opts, price));
+            }
+            // the explainable failures are a save that can't take a grant (no player CO, no owner registry) and a
+            // write that didn't land; anything else is our bug and belongs in error.log with its stack
+            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
+            {
+                Dlg.Show(this, "Couldn't add the ship:\n\n" + ex.Message, "Add to save",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+                return;
+            }
+            finally
+            {
+                Mouse.OverrideCursor = null;
+            }
+        }
+
+        AuditLog.Add($"Granted ship \"{dlg.ShipName}\" ({report.RegId}) into {outDir}.");
+
+        var chargeNote = report.Charged is { } c
+            ? $"Charged {c:C0}, leaving {report.ResultingBalance:C0}.\n"
+            : "";
+        var wearNote = dlg.Wear.Enabled
+            ? $"Worn to ~{dlg.Wear.TargetCondition * 100:0}% average condition (parts vary, none below 10%).\n"
+            : "";
+        Dlg.Success(this, "Ship added",
+            $"\"{report.PublicName}\" ({report.RegId}) is in your save.\n\n" +
+            $"{report.ItemCount} parts, {report.RoomCount} certified room(s), rating " +
+            $"{(string.IsNullOrEmpty(report.Rating.Display) ? "None" : report.Rating.Display)}.\n" +
+            wearNote + chargeNote +
+            $"Parked {report.DistanceKm:0.0} km from your ship — take the P.A.S.S. ferry to board it.\n\n" +
+            $"Load this save to see it:\n{Path.GetFileName(outDir)}\n\n" +
+            "In the game's Load menu, press Refresh if it isn't listed.");
     }
 
     /// <summary>A one-line human summary of the chosen delivery options, or "" when the ship file was exported

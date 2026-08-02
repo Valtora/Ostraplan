@@ -224,7 +224,14 @@ Everything below is under **File ▸ Import** / the **Export** button.
   existing hull (a Vagabond, say). Layout only — cargo and crew aren't read.
 - **Import your ship from a save:** pulls your player ship's layout out of a save
   game. Layout only, behind a confirmation.
-- **Export as a mod:** writes a spawnable local mod (`data/ships/<Name>.json` in
+- **Export** opens one dialog with two destinations. The ship's **name and identity**
+  (in-game name, make, model, year, designation, description) and its **condition**
+  are shared by both, since both want exactly those. Everything else lives in the tab
+  it belongs to: **As a mod**, or **Into a save game**.
+
+### As a mod
+
+Writes a spawnable local mod (`data/ships/<Name>.json` in
   the game's own shape, rooms and rating precomputed) to a folder, or staged into
   your `Mods/` folder. This is the way to get a **standalone, shareable ship** that
   doesn't depend on any save. The dialog also lets you:
@@ -251,6 +258,45 @@ Everything below is under **File ▸ Import** / the **Export** button.
     **average** condition; it defaults to **~88%**, which is what the game's own kiosk
     ("Used") ships come at, and damage is spread randomly across parts (none below
     10%). Drag it left for a grungier ship, or to 100% (or untick) for pristine.
+    (The wear slider sits below the tabs because it applies to both destinations.)
+
+### Into a save game
+
+Adds the design to a **copy** of a save as a brand-new ship you already own, without
+replacing anything that's already there. Use it to fly a design you've just drawn, or
+to move a ship from one save to another.
+
+1. Pick the **save game**. Ostraplan reads it and tells you where the ship will appear.
+2. Optionally tick **Charge for the ship** and type a price. Your character's balance
+   is shown live, and the button greys out if you can't afford it. Left unticked, the
+   ship is a gift.
+3. Set the **condition** (the shared wear slider) and click **Add to save…**.
+
+What you get:
+
+- A new save folder, `<save> (Ostraplan)`. **Your original save is never modified** —
+  not even opened for writing. Load the copy to see the ship, and press **Refresh** in
+  the game's Load menu if it isn't listed.
+- The ship parked **3 to 5 km** from wherever you are, undocked, exactly where the game
+  itself puts a ship you've bought when the station has no free port. Take the
+  **P.A.S.S. ferry** to board it (that range limit is 5,000 km, so it's comfortably
+  inside). It isn't docked to the station on purpose: faking a dock means writing
+  matching entries on both ships and a berth position the game derives from port
+  geometry, which is a lot of ways to break a save for a short walk.
+- The ship registered to you properly, so it shows in the broker's sell list, the ferry
+  offers it, and your crew treat it as yours and will work on it.
+
+Do this from the game's **Main Menu**, not while the save is loaded, or the game may
+overwrite the copy on its next autosave.
+
+**Moving a ship between saves.** Import your ship from save A (**File ▸ Import ▸ "Your
+ship, for editing"**), then add it to save B here. Layout, cargo, loose items, zones and
+device wiring all make the trip. **Per-part damage and crew do not** — the new ship
+arrives at whatever the wear slider says, uncrewed.
+
+A design that's linked to a save can still be added to one; the dialog reminds you that
+this creates a **separate new ship** rather than updating the one you imported. To change
+that ship, use **Analyse ▸ "Update Ship in Save…"** instead.
 - **PNG snapshot:** export the current design as an image for sharing. The **Ship
   Rating** room map can also be saved as **SVG** (its "Save image…" dialog offers PNG
   or SVG): the room tints and labels stay crisp at any zoom. The room map (PNG and

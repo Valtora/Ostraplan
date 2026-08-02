@@ -985,6 +985,53 @@ overriding or appending to the relevant pools:
 sell/derelict `GetQuotedPrice` cache does), and it is reset to 0 on a non-derelict
 Edit-load.
 
+### Putting a ship into a save directly (ownership, placement, and one lethal null)
+
+A save's ships are loaded by **enumerating every file under `ships/`** in the zip
+(`CrewSim.DoLoadGame`), not from a manifest: `objSystem.dictShips` is written on save and
+never read back. So a new `ships/<RegID>.json` is picked up simply by existing, and unlike
+the template path `strRegID` **is** honoured (`_SpawnShip(bTemplate: false, …)`).
+
+**Ownership lives in two places and needs both.** `JsonShip` has no owner field at all.
+
+| Where | Read by | Consequence if missing |
+|---|---|---|
+| `objSystem.dictShipOwners` (flat alternating `[regID, ownerCOID, …]`) | `StarSystem.GetShipOwner`, hence the P.A.S.S. ferry filter and the broker's sell list | `GetShipOwner` returns the literal `"UNREGISTERED"`; the ship is unreachable and unsellable |
+| The owning CO's `aMyShips` | `CondOwner.OwnsShip` | Crew pledges, `bTargetOwned` interactions, fire response and fast-forward all treat the ship as somebody else's |
+
+`CondOwner.ClaimShip` refuses to claim a station or hidden-station ship for an `IsPlayer`
+CO, which is why an apartment (`objSS.bIsBO = true`) never enters `aMyShips` and rests on
+`dictShipOwners` plus its residence conds instead.
+
+**Placement.** `GUIShipBroker.OnPurchaseConfirm`'s no-free-port fallback calls
+`SetSituToRandomSafeCoords` with radii `2.005376131819503E-08` / `3.342293553032505E-08`
+AU, which are exactly **3.000 and 5.000 km**, at a flat random bearing, retrying up to 25
+times against bodies and other ships. `objSS.vPosx/vPosy` are **absolute system coordinates
+in AU**, not offsets from `boPORShip`: a docked ship shares its host's coordinates exactly
+(verified: separation 0.0). The ferry's own cut-off (`GUIPDAFerry.ShowRequest`) is
+`3.342293712194078E-05` AU = **5,000 km**, and it lists a destination only if it is a
+station or a ship whose `GetShipOwner` matches the crew's CO.
+
+> **`ShipSitu.aPathRecent` is the one field that must not be omitted.** Every collection on
+> `Ship` is created in its constructor and merely *replaced* when the save carries one, so
+> leaving `aCrew`, `aLog`, `aWPs`, `aProxIgnores` or `aTrackIgnores` out is safe. But
+> `ShipSitu(JsonShipSitu)` does **not** chain to the constructor that calls `InitPath()`, so
+> `aPathRecent` is built **only** when `aPathRecentX` is present. `StarSystem.UpdateShip`
+> then ends with an unguarded `objSS.aPathRecent.Count` (IL_0409), which throws every frame
+> — and because that exception escapes `StarSystem.Update` into `CrewSim.Update`, it stops
+> the **entire simulation**, not just the offending ship: the player cannot move and every
+> stat runs red. Seed one entry (position at the current epoch), as `LogPath` would.
+
+Two fields the game re-derives, so they need no fabrication: `objSS.size` (recomputed from
+the floor plan by `Ship.InitShip`) and `origin` (re-rolled from the `TXTShipOrigin<first
+letter of RegID>` loot whenever it reads `"$TEMPLATE"`, on the save path as well as the
+template one).
+
+> **Ported in Ostraplan:** `SaveGrant` (build + write), surfaced as the Export dialog's
+> "Into a save game" tab. Writes to a copy of the save; the original is never opened for
+> writing. **Re-verify per patch:** the two spawn radii, the ferry range, and whether
+> `aPathRecent` is still the only json-gated field on `ShipSitu`.
+
 > **Ported in Ostraplan:** `KioskExport` (`AppendShipToPool`, `PinShipToPool`),
 > `StartingShipExport`. Where another ship mod overrides the same pool, whole-object load
 > semantics would drop one side; the resolution is Ostrasort's per-item-union `--patch`.

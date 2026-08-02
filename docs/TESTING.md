@@ -78,6 +78,7 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 | Ship rating cutoffs | `RatingGradeTests` | `RatingTests` |
 | Room certification | — | `CertTests`, `ParityTests` |
 | Save-edit inject (write-back) | `SaveEditInjectSyntheticTests` | `SaveEditInjectTests` (real saves) |
+| Save grant (a new ship into a save) | `SaveGrantTests`, `SaveGrantWriteTests` (the owner-registry insert) | `SaveGrantWriteTests` (end-to-end, real saves) |
 | Diff / identity | `SaveEditTests` (pure) | `SaveEditTests` (end-to-end) |
 | Export (mapping, `mod_info` shape, nav) | `ShipExportMappingTests`, `NavConsoleTests` | `ShipExportTests` |
 | `.oplan` round-trip | `EngineTests` | `SaveEditTests` |

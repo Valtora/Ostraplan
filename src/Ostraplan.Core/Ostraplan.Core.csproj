@@ -9,4 +9,8 @@
     <LangVersion>latest</LangVersion>
   </PropertyGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Ostraplan.Tests" />
+  </ItemGroup>
+
 </Project>

@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Ostraplan.Core;
 
 namespace Ostraplan.Tests;
@@ -22,6 +23,17 @@ public sealed class Fixtures
     private readonly Dictionary<string, ColorDef> _colorTable = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ParallaxDef> _parallaxDefs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, InteractionDef> _interactionDefs = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, JsonElement> _gpmTemplates = new(StringComparer.Ordinal);
+
+    /// <summary>Register a GUI-prop-map template (data/guipropmaps): the flat key/value <c>dictGUIPropMap</c> a
+    /// named panel expands to. A part declares which templates it uses via <see cref="Part"/>'s <c>gpm</c>
+    /// argument, and <see cref="Catalog.GpmSettingsFor"/> joins the two — which is what an injected device needs
+    /// baked onto it or it loads unwired.</summary>
+    public Fixtures GpmTemplate(string name, params string[] flatKeyValues)
+    {
+        _gpmTemplates[name] = JsonDocument.Parse(JsonSerializer.Serialize(flatKeyValues)).RootElement.Clone();
+        return this;
+    }
 
     /// <summary>Register a named loot (the bundle of conditions a tile socket adds).</summary>
     public Fixtures Loot(string name, params string[] conds)
@@ -75,7 +87,7 @@ public sealed class Fixtures
         IReadOnlyDictionary<string, double>? condValues = null,
         IReadOnlyList<(double X, double Y)>? powerInputs = null, (double X, double Y)? powerOutput = null,
         string[]? lights = null, ShadowBox[]? shadowBoxes = null, bool lightWall = false,
-        string[]? interactions = null)
+        string[]? interactions = null, IReadOnlyList<(string Instance, string Template)>? gpm = null)
     {
         string[] adds;
         if (tileConds is { Length: > 0 })
@@ -103,6 +115,7 @@ public sealed class Fixtures
             PowerInputPoints = powerInputs ?? [],
             PowerOutputPoint = powerOutput,
             InteractionNames = interactions ?? [],
+            Gpm = gpm ?? [],
         };
         _parts.Add(part);
         _byName[name] = part;
@@ -173,6 +186,7 @@ public sealed class Fixtures
         ColorTable = _colorTable,
         ParallaxDefs = _parallaxDefs,
         InteractionDefs = _interactionDefs,
+        GpmTemplates = _gpmTemplates,
         Warnings = [],
     };
 
