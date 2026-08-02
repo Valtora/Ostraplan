@@ -22,6 +22,20 @@ each release was verified against is recorded in
   advisory — an amber ghost reading *"⚠ places, but no power conduit adjacent"* plus a Problems-panel warning that
   points at the anchor tile — instead of a hard, unexplained block. Drop a POWR conduit on the adjoining tile (or
   rotate the light to face an existing one) and the flag clears.
+- **"Use as brush" hands you the part at the angle you picked it** (issue #13). The eyedropper (**Alt+click**, or
+  the right-click menu) took only the part's *def* from the tile you clicked and left the brush at whatever angle
+  it was last rotated to, so picking a canister that sits at 270° could arm it facing some other way. It now adopts
+  the picked part's rotation as well, which is what pointing at a thing and saying "that one" ought to mean.
+  The brush angle is still **sticky across parts** on purpose, so a run of consoles can all be painted facing the
+  same way without re-rotating each time, and that is exactly why the rest of this entry exists: it needs to be
+  visible rather than deduced from the ghost.
+- **The brush's rotation is now shown in the status bar**, beside the view's, whenever a part that can turn is
+  armed. A carried-over angle used to be invisible until you noticed the ghost looked wrong.
+- **Holding R no longer spins the brush.** The rotate key acted on auto-repeat, so a key held a beat too long ran
+  through several 90° steps, and the angle it happened to land on then followed you onto the next part you armed.
+  One press is now one 90° step, as **Ctrl+R** and the flip keys already were.
+- **The activity log records the brush's angle**, both when a part is armed and when R turns it. A report about a
+  part that went down facing the wrong way can now be read back from the log, which was not possible for issue #13.
 
 ## [0.52.0] 2026-07-21, Smoother Light Viz and toolbar view toggles
 

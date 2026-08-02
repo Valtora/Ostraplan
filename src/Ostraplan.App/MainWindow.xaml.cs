@@ -82,6 +82,7 @@ public partial class MainWindow : Window
         Board.Disarmed += ClearPaletteSelection;
         Board.ContextMenuRequested += OnContextMenuRequested;
         Board.BrushPicked += OnArmFromTile;   // Alt+LMB eyedropper
+        Board.ArmedChanged += UpdateBrushText;
         Board.LooseContextMenuRequested += OnLooseContextMenuRequested;
         Board.BandFilterRequested += OnBandFilterRequested;
         Board.GhostReasonChanged += status => TxtGhost.Text =
@@ -214,6 +215,13 @@ public partial class MainWindow : Window
 
     private void UpdateZoomText() =>
         TxtZoom.Text = $"zoom {Board.Zoom / 16:0.##}×" + (Board.ViewRot != 0 ? $" · view {Board.ViewRot}°" : "");
+
+    /// <summary>The brush's rotation, in the status bar beside the view's. It is sticky across parts by design (so a
+    /// row of consoles can all face the same way), which only works if the angle is readable instead of inferred from
+    /// the ghost. Blank when nothing is armed, or when the armed part is a wall or floor, which autotile rather than
+    /// turn and so ignore the angle entirely.</summary>
+    private void UpdateBrushText() =>
+        TxtBrush.Text = Board.ArmedPart is { Item.HasSpriteSheet: false } ? $"brush {Board.ArmedRot}°" : "";
 
     // ---- palette ----
 
@@ -423,10 +431,19 @@ public partial class MainWindow : Window
         _syncingPalette = false;
 
         Board.SetArmed(vm.Part, loose: vm.Part.Category == ItemsCategory);
-        AuditLog.Tool(vm.Part.Friendly);
+        AuditLog.Tool(BrushLabel(vm.Part));
         Board.Focus();   // keys (R, Del, Esc) belong to the canvas once a part is armed
         UpdateInspector();
     }
+
+    /// <summary>
+    /// The activity-log label for the brush: the part, plus the angle it is armed at when that isn't the default.
+    /// The brush rotation is sticky across parts (arm a second part and it keeps the angle you set), so an armed
+    /// part's angle is part of what the user did and a bug report needs it to explain a part that went down turned.
+    /// Sheet items (walls/floors) autotile rather than rotate, so their angle is never meaningful.
+    /// </summary>
+    private string BrushLabel(PartDef part) =>
+        part.Item.HasSpriteSheet || Board.ArmedRot == 0 ? part.Friendly : $"{part.Friendly} r{Board.ArmedRot}";
 
     private void ClearPaletteSelection()
     {
@@ -437,19 +454,24 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Arm the brush with a placed part's def (the RMB "Use as brush" action) and keep drawing.
-    /// Selecting its palette entry (when visible) both arms it and syncs the highlight; if it is
-    /// filtered out by the search, arm directly. Non-buildable parts (the primary airlock,
-    /// a closed door) are not in the palette and so are silently ignored — nothing to paint.
+    /// Arm the brush with a placed part's def and pose (the Alt+click / RMB "Use as brush" action) and keep
+    /// drawing. An eyedropper hands back what you pointed at, so the picked part's <paramref name="rot"/> is
+    /// adopted as well as its def: without that you get the part at whatever angle the brush was last left at,
+    /// which reads as the tile turning itself on the way into the cursor. The rotation is applied first so the
+    /// arming is logged at the angle it actually lands on. Selecting its palette entry (when visible) both arms
+    /// it and syncs the highlight; if it is filtered out by the search, arm directly. Non-buildable parts (the
+    /// primary airlock, a closed door) are not in the palette and so are ignored — nothing to paint.
     /// </summary>
-    private void OnArmFromTile(string defName)
+    private void OnArmFromTile(string defName, int rot)
     {
         var vm = _allParts.FirstOrDefault(v => v.Part.DefName == defName);
         if (vm is null) return;
+        Board.SetArmedRot(rot);
         foreach (var list in _paletteLists)
-            if (list.Items.Contains(vm)) { list.SelectedItem = vm; Board.Focus(); return; }
-        Board.SetArmed(vm.Part);   // visible nowhere (search-filtered) — arm without a palette highlight
-        AuditLog.Tool(vm.Part.Friendly);
+            if (list.Items.Contains(vm)) { list.SelectedItem = vm; break; }
+        if (Board.ArmedPart?.DefName != defName)
+            Board.SetArmed(vm.Part);   // visible nowhere (search-filtered) — arm without a palette highlight
+        AuditLog.Tool(BrushLabel(vm.Part));   // collapses to nothing when the palette path already logged this brush
         Board.Focus();
     }
 
@@ -1608,10 +1630,11 @@ public partial class MainWindow : Window
         var canRotate = unlocked.Count > 1 || unlocked.Any(p => _doc.Part(p)?.Item.HasSpriteSheet != true);
         var suffix = unlocked.Count > 1 ? $" ({unlocked.Count})" : "";
 
-        // "Use as brush" (the eyedropper — formerly double-click): arm the part this menu is about,
-        // if it is buildable. Uses the lone selected part, else the topmost part on the tile.
+        // "Use as brush" (the eyedropper — formerly double-click): arm the part this menu is about, at its own
+        // rotation, if it is buildable. Uses the lone selected part, else the topmost part on the tile.
         var brushPart = selected.Count == 1 ? selected[0] : stack[0];
         var brushDef = _allParts.Any(v => v.Part.DefName == brushPart.DefName) ? brushPart.DefName : null;
+        var brushRot = brushPart.Rot;
 
         // "Replace with…": enabled when the whole (unlocked) selection shares one render layer +
         // footprint and at least one buildable part of that same kind exists to swap in.
@@ -1669,7 +1692,7 @@ public partial class MainWindow : Window
         menu.Items.Add(new Separator());
         if (brushDef is not null)
         {
-            menu.Items.Add(Item("Use as brush", "Alt+Click", (_, _) => OnArmFromTile(brushDef)));
+            menu.Items.Add(Item("Use as brush", "Alt+Click", (_, _) => OnArmFromTile(brushDef, brushRot)));
             menu.Items.Add(Item(_settings.IsFavorite(brushDef, false) ? "Remove from Favorites" : "Add to Favorites",
                 "", (_, _) => ToggleFavoriteByRef(brushDef, false)));
         }
@@ -1824,8 +1847,15 @@ public partial class MainWindow : Window
                 ReplaceSelection();
                 e.Handled = true;
                 break;
-            case Key.R when !ctrl:   // same key as the game's build mode
-                if (Board.ArmedPart is not null) Board.RotateArmed(shift ? -90 : 90);
+            // same key as the game's build mode. Not on auto-repeat: a key held a beat too long would otherwise
+            // spin the brush through several 90° steps, and the angle it settles on then follows you onto the
+            // next part you arm.
+            case Key.R when !ctrl && !e.IsRepeat:
+                if (Board.ArmedPart is { } armed)
+                {
+                    Board.RotateArmed(shift ? -90 : 90);
+                    AuditLog.Tool(BrushLabel(armed));   // the brush's angle is part of what the user did
+                }
                 else RotateSelection(shift ? -90 : 90);
                 e.Handled = true;
                 break;
@@ -3371,11 +3401,11 @@ public partial class MainWindow : Window
             ("Filter box-select", "Shift + drag", "With nothing armed: box-select even when starting on a part, then filter chips let you keep only some layers (e.g. the walls without the floors)."),
             ("Flood-select", "Double-click", "On a part: select every touching tile of the same type (bulk delete or re-skin). Ctrl+double-click adds the region."),
             ("Fill a compartment", "Double-click empty space, then Enter", "Double-click enclosed (sealed) empty space to highlight the whole compartment, then arm a part and press Enter to fill it (Esc to cancel). Areas open to space can't be selected, so a fill never leaks."),
-            ("Use as brush", "Alt + click", "Eyedropper: arm the part under the cursor so you can keep painting it. Also on the right-click menu."),
+            ("Use as brush", "Alt + click", "Eyedropper: arm the part under the cursor, at its own rotation, so you can keep painting it. Also on the right-click menu."),
             ("Replace with…", "Ctrl+R", "Swap the selection for a compatible part (same layer + footprint) via a picker. Also on the right-click menu."),
             ("Move", "Drag selection", "Move the selected parts."),
             ("Context menu", "RMB", "Use as brush · Replace with… · Find and Replace All… · Make Loose Item / Install item · pick a buried layer on stacked tiles · Select only (after a box-select) · Close/Open door. Also cancels placement while armed."),
-            ("Rotate part", "R / Shift+R", "CW / CCW — the armed part, a selected part in place, or a whole selection about its centre (walls & floors auto-tile rather than turn)."),
+            ("Rotate part", "R / Shift+R", "CW / CCW — the armed part, a selected part in place, or a whole selection about its centre (walls & floors auto-tile rather than turn). The brush keeps its angle when you arm another part; the status bar shows what it is."),
             ("Flip selection", "H / Shift+H", "Mirror the selection about its centre — H horizontal (left↔right), Shift+H vertical (up↔down); each part reflects and snaps to a real rotation."),
             ("Symmetry", "M", "Cycle Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on. While on, it also drives editing: selecting a part grabs its mirror partner(s), and moving, rotating, or deleting the group keeps it symmetric (the far side tracks in the mirrored direction)."),
             ("Mod overrides", "Toolbar toggle", "Let modded parts place where the core-game rules say they don't fit (ghost turns amber, flagged as a warning — verify in-game). Core parts stay enforced."),

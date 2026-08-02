@@ -46,7 +46,10 @@ right, but treat a mismatch as "double-check in-game".
 - **Arm a part:** click it in the palette. Your cursor becomes a ghost preview.
 - **Place:** left-click. Keep clicking to place more; **Esc** disarms.
 - **Rotate** the armed part: **R** (clockwise), **Shift+R** (counter-clockwise).
-  Walls and floors don't rotate — they autotile to their neighbours instead.
+  Walls and floors don't rotate — they autotile to their neighbours instead. The angle
+  **sticks when you arm another part**, so a run of consoles can all face the same way
+  without re-rotating each one; the status bar shows the brush's current angle so a
+  carried-over rotation is never a surprise.
 - **Paint:** left-drag to place along a stroke (one undo step).
 - **Box fill:** **Shift**-drag a rectangle. **Ctrl+Shift**-drag fills only the
   rectangle's border (a hollow room).
@@ -95,8 +98,9 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   whole sealed compartment, then arm a part and press **Enter** to fill it in one
   step (each tile is placed only where it actually fits; **Esc** cancels). Space that
   opens to vacuum can't be selected, so a fill never leaks out.
-- **Use as brush (eyedropper):** **Alt+click** a part to arm it and keep painting
-  it. **Replace with…:** **Ctrl+R** swaps the selection for a compatible part.
+- **Use as brush (eyedropper):** **Alt+click** a part to arm it, at its own rotation,
+  and keep painting it. **Replace with…:** **Ctrl+R** swaps the selection for a
+  compatible part.
 - **Move:** drag a selection. **Rotate a selection/group:** **R** / **Shift+R**.
 - **Flip a selection:** **H** mirrors it left↔right (horizontal), **Shift+H** up↔down
   (vertical), about the selection's centre. Each part reflects its position and snaps
@@ -105,8 +109,8 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   part can't be truly mirrored — flip a *group* to mirror a whole room or subassembly.)
 - **Right-click** for the context menu: Duplicate (**Ctrl+D**), Copy
   (**Ctrl+C**) / Paste (**Ctrl+V**), Rotate, Flip Horizontal / Vertical, Delete
-  (**Del**), **Use as brush** (**Alt+click**, the eyedropper — arm the part you clicked and keep
-  drawing), and **Replace with…** (**Ctrl+R**).
+  (**Del**), **Use as brush** (**Alt+click**, the eyedropper — arm the part you clicked, at its
+  rotation, and keep drawing), and **Replace with…** (**Ctrl+R**).
 - **Undo / redo:** **Ctrl+Z** / **Ctrl+Y**, unbounded. Paint strokes and fills
   are single steps.
 

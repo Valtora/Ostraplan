@@ -157,6 +157,8 @@
             <Separator/>
             <StatusBarItem><TextBlock x:Name="TxtZoom" Text="" Width="90"/></StatusBarItem>
             <Separator/>
+            <StatusBarItem><TextBlock x:Name="TxtBrush" Text="" Width="80"/></StatusBarItem>
+            <Separator/>
             <StatusBarItem><TextBlock x:Name="TxtParts" Text=""/></StatusBarItem>
             <Separator/>
             <StatusBarItem><TextBlock x:Name="TxtGhost" Text="" FontWeight="SemiBold" Foreground="{DynamicResource Bad}"/></StatusBarItem>

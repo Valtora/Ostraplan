@@ -277,7 +277,8 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action? Disarmed;
     public event Action? ViewChanged;
     public event Action<(int X, int Y)>? ContextMenuRequested;   // right-clicked tile; window builds the layer picker
-    public event Action<string>? BrushPicked;   // Alt+LMB eyedropper: arm the def of the part under the cursor
+    public event Action<string, int>? BrushPicked;   // Alt+LMB eyedropper: arm the def AND the pose of the part under the cursor
+    public event Action? ArmedChanged;   // the brush changed: a different part, a new rotation, or disarmed
     public event Action<int>? AirSelectionChanged;   // the highlighted air region's tile count changed (0 = cleared)
     public event Action<(int W, int H)?>? SelectionSizeChanged;   // live WxH (tiles) of a rubber-band box drag; null = no box drag in progress
     public event Action? BandFilterRequested;   // a Shift+drag band select finished; window offers the layer filter chips
@@ -381,6 +382,23 @@ public sealed class ShipCanvas : FrameworkElement
             ClearLooseSelection();
             SetActiveZone(null);   // arming a part leaves zone-paint mode (the two modes are mutually exclusive)
         }
+        ArmedChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    /// <summary>
+    /// Set the brush's rotation outright, rather than stepping it with <see cref="RotateArmed"/>. This is how the
+    /// eyedropper adopts the pose of the part it picked: picking a part that sits at 270° should hand you that part
+    /// at 270°, not at whatever angle the last brush happened to be left at. Stored for sheet items too (they can't
+    /// turn, but the value outlives them and applies to the next part that can), so every consumer keeps its own
+    /// existing sheet rule rather than depending on this being pre-pinned.
+    /// </summary>
+    public void SetArmedRot(int rot)
+    {
+        var next = GridMath.Norm(rot);
+        if (next == ArmedRot) return;
+        ArmedRot = next;
+        ArmedChanged?.Invoke();
         InvalidateVisual();
     }
 
@@ -611,6 +629,7 @@ public sealed class ShipCanvas : FrameworkElement
         // sheet items (walls/floors) never rotate - Item.RotateCW is skipped for them
         if (ArmedPart is null || ArmedPart.Item.HasSpriteSheet) return;
         ArmedRot = GridMath.Norm(ArmedRot + delta);
+        ArmedChanged?.Invoke();
         InvalidateVisual();
     }
 
@@ -1046,11 +1065,12 @@ public sealed class ShipCanvas : FrameworkElement
         if (e.ChangedButton != MouseButton.Left || Doc is null) return;
         var cell = CellAt(screen);
 
-        // Alt+LMB is the eyedropper: pick the (topmost) part under the cursor as the brush. Works whether or
-        // not something is already armed, and takes priority over placing/selecting so an Alt-click never edits.
+        // Alt+LMB is the eyedropper: pick the (topmost) part under the cursor as the brush, at its own rotation.
+        // Works whether or not something is already armed, and takes priority over placing/selecting so an
+        // Alt-click never edits.
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt) && Doc.HitTest(cell.X, cell.Y) is { } pick)
         {
-            BrushPicked?.Invoke(pick.DefName);
+            BrushPicked?.Invoke(pick.DefName, pick.Rot);
             e.Handled = true;
             return;
         }
