@@ -58,7 +58,7 @@ public sealed class ReviewStep : WizardStep
 
         try
         {
-            Render(await session.Driver.BuildAsync(session));
+            Render(await session.Driver.ReviewAsync(session));
             _built = true;
         }
         catch (Exception ex) when (ex is IOException or InvalidDataException or UnauthorizedAccessException)

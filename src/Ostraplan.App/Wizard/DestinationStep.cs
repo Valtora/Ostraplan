@@ -25,6 +25,7 @@ public sealed class DestinationStep : WizardStep
     private string? _prepareFailure;
     private bool _preparing;
     private bool _syncing;
+    private int _pick;   // only the newest click's result is applied; see OnPicked
 
     public override string Title => "Destination";
 
@@ -115,25 +116,39 @@ public sealed class DestinationStep : WizardStep
         return ShowProblem(_problem, _prepareFailure);
     }
 
-    private async void OnPicked(ExportDestination destination)
+    private async void OnPicked(ExportDestination destination) => await PickAsync(destination);
+
+    /// <summary>The tile click's whole effect, awaitable. <see cref="OnPicked"/> is an event handler and therefore
+    /// <c>async void</c>, which nothing can wait on; a test drives this instead.</summary>
+    internal async Task PickAsync(ExportDestination destination)
     {
         if (_syncing) return;
 
         // Selecting a destination can be slow: the update path re-locates its save context rather than finding out
         // at commit that the save has moved. A failure blocks Next, with the reason on this step.
+        //
+        // Clicking a second tile while the first is still preparing has to leave the newer answer standing, so each
+        // pick takes a token and a stale one discards its result rather than overwriting the live destination's.
+        var pick = ++_pick;
         _prepareFailure = null;
         ShowProblem(_problem, null);
         _preparing = true;
+        OnChanged();   // Next goes dead while this runs, and the shell only learns from here
+        string? failure;
         Mouse.OverrideCursor = Cursors.Wait;
         try
         {
-            _prepareFailure = await _picked(destination);
+            failure = await _picked(destination);
         }
         finally
         {
-            _preparing = false;
+            if (pick == _pick) _preparing = false;
             Mouse.OverrideCursor = null;
         }
-        ShowProblem(_problem, _prepareFailure);
+
+        if (pick != _pick) return;
+        _prepareFailure = failure;
+        ShowProblem(_problem, failure);
+        OnChanged();   // ...and it only learns that this finished from here too
     }
 }

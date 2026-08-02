@@ -52,7 +52,6 @@ public sealed class ModDriver : ExportDriver
         var meta = plan.Identity with { PublicName = publicName };
         var (ship, rating, roomCount, warnings) =
             await BuildOffThread(session.Doc, session.Catalog, session.Specs, strName, meta, _pinnedWear);
-        MarkBuilt(session);
 
         var facts = new List<ReviewFact>
         {
@@ -219,7 +218,7 @@ public sealed class ModDriver : ExportDriver
         session.Plan.Mod.StagedIntoMods ? session.Env.ModsDir : session.Plan.Mod.Folder!;
 
     private static ShipDelivery BuildDelivery(ExportPlan plan, string publicName) => new(
-        plan.Mod.BrokerPools, plan.Mod.BrokerWeight, plan.Mod.SpecialOfferPools,
+        plan.Mod.BrokerPools, plan.Mod.BrokerWeight ?? 0.05, plan.Mod.SpecialOfferPools,
         plan.Mod.StartingShip, plan.Mod.StartWeight, plan.Mod.StartStation, plan.Mod.StartMortgage,
         publicName is { Length: > 0 } && publicName != "$TEMPLATE" ? publicName : plan.ShipName,
         plan.Identity.Description, plan.Mod.StartingShipExclusive);

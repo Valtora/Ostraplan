@@ -49,7 +49,25 @@ public abstract class WizardStep : UserControl
     /// build. Wire it to the controls that feed the engine, not to every keystroke of a free-text note.</summary>
     public event Action? Changed;
 
-    protected void OnChanged() => Changed?.Invoke();
+    /// <summary>
+    /// Report a change the shell should react to. Suppressed while <see cref="Enter"/> is populating the pane,
+    /// because assigning <c>IsChecked</c> or a slider value raises the same events a user's click does. Without
+    /// this, merely visiting a step would report itself as an edit and throw away the build behind Review.
+    /// </summary>
+    protected void OnChanged()
+    {
+        if (!_populating) Changed?.Invoke();
+    }
+
+    private bool _populating;
+
+    /// <summary>The shell's way in to <see cref="Enter"/>: populating a pane from the plan is not an edit to it.</summary>
+    internal void Populate(WizardSession session)
+    {
+        _populating = true;
+        try { Enter(session); }
+        finally { _populating = false; }
+    }
 
     // ---- shared pane furniture, matching the dialogs the wizard replaces ----
 

@@ -20,7 +20,8 @@ public class ExportWizardTests
 {
     private static WizardSession Session((GameEnv Env, DataIndex Index, Catalog Catalog) g,
         ExportDestination destination = ExportDestination.Mod, string shipName = "Test Ship",
-        IReadOnlyList<SaveEntry>? saves = null, SaveSourceRef? sourceSave = null)
+        IReadOnlyList<SaveEntry>? saves = null, SaveSourceRef? sourceSave = null,
+        AppSettings? settings = null, bool ostrasortKnown = false)
     {
         var doc = new ShipDocument(g.Catalog) { SourceSave = sourceSave };
         new PlaceCommand(new Placement { DefName = "ItmWall1x1", X = 0, Y = 0 }).Do(doc);
@@ -33,9 +34,10 @@ public class ExportWizardTests
             Specs = [],
             Index = g.Index,
             Env = g.Env,
-            Settings = new AppSettings(),
+            Settings = settings ?? new AppSettings(),
             Meta = new OplanMeta { Name = shipName },
             Saves = saves ?? [],
+            OstrasortKnown = ostrasortKnown,
         };
     }
 
@@ -467,6 +469,113 @@ public class ExportWizardTests
             var reason = step.Validate();
             Assert.NotNull(reason);
             Assert.Contains("no longer in your Saves folder", reason);
+        });
+    }
+
+    // ---- navigation state that a slow step leaves behind ----
+
+    /// <summary>
+    /// The regression that shipped first: switching destination disabled Next for the duration of the prepare, and
+    /// nothing ever turned it back on, so the wizard was dead from step one.
+    ///
+    /// <para>The cause was structural rather than local. A pane's <see cref="WizardStep.CanAdvance"/> can change
+    /// asynchronously, and the shell only re-read it when it navigated, which is exactly what it could no longer
+    /// do. Any future slow step has the same shape, which is why this is asserted through the real pick path.</para>
+    /// </summary>
+    [SkippableFact]
+    public void Switching_destination_and_back_leaves_Next_usable()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var wizard = new ExportWizard(Session(g,
+                saves: [new SaveEntry("A save", "Ship", "Player", "now", @"C:\nope\a\a.zip")]));
+            wizard.OpenedAsync().GetAwaiter().GetResult();
+            var step = (DestinationStep)wizard.CurrentPane!;
+            Assert.True(wizard.NextEnabled);
+
+            step.PickAsync(ExportDestination.NewShipInSave).GetAwaiter().GetResult();
+            Assert.True(wizard.NextEnabled);
+
+            step.PickAsync(ExportDestination.Mod).GetAwaiter().GetResult();
+            Assert.True(wizard.NextEnabled);
+        });
+    }
+
+    [SkippableFact]
+    public void Populating_a_pane_is_not_an_edit_to_it()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            // Enter assigns IsChecked and slider values, which raise the same events a user's click does. Left
+            // unguarded, merely walking to a step would report itself as an edit and throw away Review's build.
+            var session = Session(g);
+            var step = new ObtainableStep();
+            var raised = 0;
+            step.Changed += () => raised++;
+
+            step.Populate(session);
+            Assert.Equal(0, raised);
+
+            Descendants<CheckBox>(step).First().IsChecked = true;   // not vacuous: a real click still reports
+            Assert.Equal(1, raised);
+        });
+    }
+
+    // ---- remembered settings ----
+
+    [Fact]
+    public void A_customised_broker_weight_survives_a_round_trip()
+    {
+        var settings = new AppSettings();
+        var plan = new ExportPlan();
+        plan.Mod.BrokerWeight = 0.42;
+
+        plan.SaveTo(settings);
+        var restored = ExportPlan.FromSettings(settings, new OplanMeta(), null);
+
+        Assert.Equal(0.42, restored.Mod.BrokerWeight);
+    }
+
+    [SkippableFact]
+    public void A_remembered_broker_weight_is_not_overwritten_by_the_games_default()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            // the game's own weight is the starting point for a first export, not an override applied every time
+            var session = Session(g);
+            session.Plan.Mod.BrokerWeight = 0.42;
+            var step = new ObtainableStep();
+
+            step.Populate(session);
+            step.Leave(session);
+
+            Assert.Equal(0.42, session.Plan.Mod.BrokerWeight);
+        });
+    }
+
+    [SkippableFact]
+    public void Registering_with_Ostrasort_is_recommended_on_a_first_export_when_it_is_installed()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var first = Session(g, ostrasortKnown: true);           // nothing remembered yet
+            var step = new ModTargetStep();
+            step.Populate(first);
+            step.Leave(first);
+            Assert.True(first.Plan.Mod.RegisterWithOstrasort);
+
+            // but once the user has answered, their answer stands
+            var settings = new AppSettings { LastExport = new LastExport { RegisterWithOstrasort = false } };
+            var later = Session(g, settings: settings, ostrasortKnown: true);
+            later.Plan.Mod.RegisterWithOstrasort = false;
+            var step2 = new ModTargetStep();
+            step2.Populate(later);
+            step2.Leave(later);
+            Assert.False(later.Plan.Mod.RegisterWithOstrasort);
         });
     }
 

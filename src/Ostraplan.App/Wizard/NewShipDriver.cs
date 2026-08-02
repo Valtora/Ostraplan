@@ -95,7 +95,6 @@ public sealed class NewShipDriver : ExportDriver
         var opts = new GrantOptions(plan.ShipName, plan.Identity, _pinnedWear, PlacementSeed: Random.Shared.Next());
         (_ship, _report) = await BuildOffThread(
             session.Doc, session.Catalog, session.Specs, _regId, ctx.Anchor, opts, ctx.Epoch);
-        MarkBuilt(session);
 
         var price = plan.NewShip.Charge ? plan.NewShip.Price : 0;
         var facts = new List<ReviewFact>

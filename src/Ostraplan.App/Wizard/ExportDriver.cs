@@ -56,9 +56,21 @@ public abstract class ExportDriver
     public virtual Task<string?> PrepareAsync(WizardSession session) => Task.FromResult<string?>(null);
 
     /// <summary>
-    /// Run the engine and report what a commit would produce. Called on entering Review, and again whenever the
-    /// plan's revision has moved on since the last build.
+    /// What a commit would produce, built if anything has changed since the last time and returned from the cache
+    /// if not. Walking Back and Next past Review therefore does not re-run the engine, while any actual edit does.
     /// </summary>
+    public async Task<BuildOutcome> ReviewAsync(WizardSession session)
+    {
+        if (!NeedsRebuild(session) && _outcome is { } cached) return cached;
+        _outcome = await BuildAsync(session);
+        MarkBuilt(session);
+        return _outcome;
+    }
+
+    private BuildOutcome? _outcome;
+
+    /// <summary>Run the engine and report what a commit would produce. Called through
+    /// <see cref="ReviewAsync"/>, which owns the caching.</summary>
     public abstract Task<BuildOutcome> BuildAsync(WizardSession session);
 
     /// <summary>Perform the write, from what <see cref="BuildAsync"/> produced. Throws for the caller to report;
@@ -73,11 +85,11 @@ public abstract class ExportDriver
     public virtual void UndoDocumentEdits(WizardSession session) { }
 
     /// <summary>The plan revision the cached build was made at, or -1 when nothing is cached.</summary>
-    protected int BuiltAt { get; private set; } = -1;
+    private int BuiltAt { get; set; } = -1;
 
-    protected bool NeedsRebuild(WizardSession session) => BuiltAt != session.Plan.Revision;
+    private bool NeedsRebuild(WizardSession session) => BuiltAt != session.Plan.Revision;
 
-    protected void MarkBuilt(WizardSession session) => BuiltAt = session.Plan.Revision;
+    private void MarkBuilt(WizardSession session) => BuiltAt = session.Plan.Revision;
 
     /// <summary>Draw the seed that pins a wear roll for this build, so the commit damages exactly the parts Review
     /// showed. Drawn fresh on every build, because the target condition may have changed since the last one.</summary>

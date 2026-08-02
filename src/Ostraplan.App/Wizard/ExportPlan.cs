@@ -33,7 +33,10 @@ public sealed class ModPlan
     public ShipFileEntry? ReplaceShip { get; set; }
 
     public List<string> BrokerPools { get; set; } = [];
-    public double BrokerWeight { get; set; } = 0.05;
+
+    /// <summary>How often the ship appears in a kiosk's stock. Null until it has been chosen, which is what lets
+    /// the step fill in the game's own default without overwriting a weight the user set last time.</summary>
+    public double? BrokerWeight { get; set; }
     public List<string> SpecialOfferPools { get; set; } = [];
     public bool StartingShip { get; set; }
     public bool StartingShipExclusive { get; set; }
@@ -137,6 +140,7 @@ public sealed class ExportPlan
         plan.Mod.Author = settings.ExportAuthor ?? meta.Author;
         plan.Mod.BrokerPools = [.. last.BrokerPools];
         if (last.BrokerWeight > 0) plan.Mod.BrokerWeight = last.BrokerWeight;
+        plan.Mod.RegisterWithOstrasort = last.RegisterWithOstrasort;
         plan.Mod.SpecialOfferPools = [.. last.SpecialOfferPools];
         plan.Mod.StartingShip = last.StartingShip;
         plan.Mod.StartingShipExclusive = last.StartingShipExclusive;
@@ -172,7 +176,7 @@ public sealed class ExportPlan
 
         last.ModVersion = Mod.Version;
         last.BrokerPools = [.. Mod.BrokerPools];
-        last.BrokerWeight = Mod.BrokerWeight;
+        last.BrokerWeight = Mod.BrokerWeight ?? 0;
         last.SpecialOfferPools = [.. Mod.SpecialOfferPools];
         last.StartingShip = Mod.StartingShip;
         last.StartingShipExclusive = Mod.StartingShipExclusive;

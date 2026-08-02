@@ -2254,11 +2254,19 @@ public partial class MainWindow : Window
 
         // The wizard reads the live document off-thread while it builds, so the editing surface goes dead for its
         // whole run rather than only around each engine call.
-        using (FreezeDoc())
-            new ExportWizard(session, preselect) { Owner = this }.ShowDialog();
+        var wizard = new ExportWizard(session, preselect) { Owner = this };
+        using (FreezeDoc()) wizard.ShowDialog();
 
         // the update destination relocates the save context on demand; keep it for the rest of the session
         _saveContext ??= session.SaveContext;
+
+        // Stand-in parts go straight onto the document rather than through the undo stack, so nothing else would
+        // record that the design now has unsaved changes. Same path as ship identity and view orientation.
+        if (wizard.DocumentEdited)
+        {
+            _stateDirty = true;
+            RefreshChrome();
+        }
 
         // Identity edited in the wizard flows back onto the design's saved metadata, so the two never drift.
         ApplyExportedIdentity(session.Plan.Identity);

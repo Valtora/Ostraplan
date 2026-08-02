@@ -19,6 +19,7 @@ public sealed class ModTargetStep : WizardStep
 
     private string? _modsDir;
     private string? _picked;
+    private bool _loaded;
 
     public override string Title => "Where to write";
 
@@ -70,6 +71,14 @@ public sealed class ModTargetStep : WizardStep
         var mod = session.Plan.Mod;
         _modsDir = session.Env.ModsDir;
         _picked = mod.Folder ?? session.Settings.LastExportDir;
+
+        // First run ever, with nothing remembered: recommend the hand-off if Ostrasort is actually here. Once the
+        // user has exported once, their own answer is the one that stands, ticked or not.
+        if (!_loaded)
+        {
+            if (session.Settings.LastExport is null) mod.RegisterWithOstrasort = session.OstrasortKnown;
+            _loaded = true;
+        }
 
         _toMods.IsEnabled = _modsDir is not null;
         _toMods.IsChecked = mod.StagedIntoMods && _modsDir is not null;

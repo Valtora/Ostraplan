@@ -128,7 +128,8 @@ public sealed class ObtainableStep : WizardStep
 
         if (!_loaded)
         {
-            mod.BrokerWeight = KioskExport.DefaultBrokerWeight(session.Index, "RandomShipBrokerOKLG");
+            // the game's own weight is only the starting point: a weight the user set last time has to survive
+            mod.BrokerWeight ??= KioskExport.DefaultBrokerWeight(session.Index, "RandomShipBrokerOKLG");
             mod.StartWeight = KioskExport.DefaultBrokerWeight(session.Index, StartingShipExport.ShipEventsPool);
             if (mod.StartMortgage <= 0) mod.StartMortgage = Math.Round(session.BuyEstimate);
             _loaded = true;
@@ -136,7 +137,7 @@ public sealed class ObtainableStep : WizardStep
 
         foreach (var (pool, box) in _broker) box.IsChecked = mod.BrokerPools.Contains(pool);
         foreach (var (pool, box) in _special) box.IsChecked = mod.SpecialOfferPools.Contains(pool);
-        _brokerWeight.Text = mod.BrokerWeight.ToString("0.####", CultureInfo.InvariantCulture);
+        _brokerWeight.Text = (mod.BrokerWeight ?? 0.05).ToString("0.####", CultureInfo.InvariantCulture);
         _startingShip.IsChecked = mod.StartingShip;
         _startExclusive.IsChecked = mod.StartingShipExclusive;
         _startWeighted.IsChecked = !mod.StartingShipExclusive;

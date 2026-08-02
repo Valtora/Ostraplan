@@ -36,6 +36,15 @@ public sealed class ExportWizard : Window
     /// <summary>True once a commit landed, so the caller knows the design was actually written somewhere.</summary>
     public bool Committed { get; private set; }
 
+    /// <summary>
+    /// True when the wizard changed the <b>design</b> and the user kept it, which today means stand-in parts.
+    ///
+    /// <para>The caller has to know, because those edits go on the document directly rather than through the undo
+    /// stack, so nothing else marks the design as having unsaved changes. Without this the user could close
+    /// Ostraplan with no prompt and lose them.</para>
+    /// </summary>
+    public bool DocumentEdited { get; private set; }
+
     public ExportWizard(WizardSession session, ExportDestination? preselect = null)
     {
         _session = session;
@@ -110,6 +119,12 @@ public sealed class ExportWizard : Window
     /// assert on a wizard whose destination has actually prepared.</summary>
     internal Task OpenedAsync(bool resume = false) => OpenAsync(resume);
 
+    /// <summary>Exposed for tests: whether the user could move on right now.</summary>
+    internal bool NextEnabled => _next.IsEnabled;
+
+    /// <summary>Exposed for tests: the pane on screen.</summary>
+    internal WizardStep? CurrentPane => Current;
+
     /// <summary>
     /// Open on the right step. With settings remembered from last time, every step is <b>revalidated against the
     /// world as it is now</b> before anything is shown: the save may have been deleted, the output folder may be
@@ -135,7 +150,7 @@ public sealed class ExportWizard : Window
                 {
                     if (id is StepId.Review or StepId.Done) { valid.Add(true); continue; }
                     var pane = _panes[id];
-                    pane.Enter(_session);
+                    pane.Populate(_session);
                     valid.Add(pane.Validate() is null);
                     if (valid[^1]) pane.Leave(_session);
                 }
@@ -198,13 +213,20 @@ public sealed class ExportWizard : Window
         _ => throw new NotSupportedException($"No pane for {id} in this build."),
     };
 
-    /// <summary>A pane's state moved, so anything derived from it is stale. The steps in between keep their
-    /// completion — only the build behind Review is thrown away.</summary>
+    /// <summary>
+    /// A pane's state moved, so anything derived from it is stale. The steps in between keep their completion:
+    /// only the build behind Review is thrown away.
+    ///
+    /// <para>The buttons are refreshed here too, and that is not cosmetic. A pane's <see cref="WizardStep.CanAdvance"/>
+    /// can change asynchronously — a destination preparing, a save being read — and the shell has no other moment
+    /// to notice. Without it, Next goes dead the first time a slow step finishes and never comes back.</para>
+    /// </summary>
     private void OnPaneChanged()
     {
         _session.Plan.Touch();
         _flow.InvalidateReview();
         RefreshRail();
+        RefreshButtons();
     }
 
     /// <summary>
@@ -245,7 +267,7 @@ public sealed class ExportWizard : Window
     private async Task ShowStep()
     {
         var pane = _panes[_flow.CurrentStep];
-        pane.Enter(_session);
+        pane.Populate(_session);
         _host.Content = pane;
         _scroll.ScrollToTop();
         RefreshRail();
@@ -309,21 +331,21 @@ public sealed class ExportWizard : Window
         // so say nothing and leave them on Review with the button live
         catch (OperationCanceledException)
         {
-            _busy = false;
             review.ShowCancelled();
-            RefreshButtons();
         }
         // an explainable failure is a write that didn't land, or a save that turned out not to take the edit;
         // anything else is our bug and belongs in error.log with its stack rather than behind a friendly line
         catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
         {
-            _busy = false;
             review.ShowFailure(ex.Message);
-            RefreshButtons();
         }
         finally
         {
+            // in the finally, not per-branch: an exception we deliberately let through to the crash handler would
+            // otherwise leave the window busy forever, refusing even to close
+            _busy = false;
             Mouse.OverrideCursor = null;
+            RefreshButtons();
         }
     }
 
@@ -336,7 +358,8 @@ public sealed class ExportWizard : Window
     private void OnClosing(object? sender, System.ComponentModel.CancelEventArgs e)
     {
         if (_busy) { e.Cancel = true; return; }
-        if (Committed || !_session.Driver.HasDocumentEdits) return;
+        if (!_session.Driver.HasDocumentEdits) return;
+        if (Committed) { DocumentEdited = true; return; }
 
         var choice = Dlg.Choose(this, DlgKind.Warning, "Keep the stand-in parts?",
             "You put real parts in place of ones your loaded data doesn't have. That changed the design itself, " +
@@ -346,6 +369,7 @@ public sealed class ExportWizard : Window
 
         if (choice == MessageDialog.Choice.Cancel) { e.Cancel = true; return; }
         if (choice == MessageDialog.Choice.Secondary) _session.Driver.UndoDocumentEdits(_session);
+        else DocumentEdited = true;
     }
 
     // ---- chrome ----
@@ -353,9 +377,13 @@ public sealed class ExportWizard : Window
     private void RefreshButtons()
     {
         var done = _flow.CurrentStep == StepId.Done;
+        var review = _flow.CurrentStep == StepId.Review;
         _back.Visibility = done || _flow.Current == 0 ? Visibility.Collapsed : Visibility.Visible;
         _next.Visibility = done ? Visibility.Collapsed : Visibility.Visible;
-        _next.Content = _flow.CurrentStep == StepId.Review ? _session.Driver.CommitVerb : "Next";
+        _next.Content = review ? _session.Driver.CommitVerb : "Next";
+        // Enter advances a step, but never performs the write: a reflexive Enter must not be what commits an
+        // export, the same reason Dlg keeps its risky confirmations off the default button.
+        _next.IsDefault = !review;
         _next.IsEnabled = !_busy && (Current?.CanAdvance ?? true);
         _cancel.Content = done ? "Close" : "Cancel";
         _cancel.IsEnabled = !_busy;

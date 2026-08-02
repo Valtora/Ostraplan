@@ -155,7 +155,6 @@ public sealed class UpdateDriver : ExportDriver
             : null;
 
         (_ship, _report) = await BuildOffThread(session.Doc, ctx, session.Catalog, session.Specs, charge, _pinnedWear);
-        MarkBuilt(session);
 
         var target = plan.Update.InPlace
             ? $"the original save \"{ctx.Source.SaveName}\", in place"
