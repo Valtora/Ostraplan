@@ -286,7 +286,10 @@ Writes a spawnable local mod (`data/ships/<Name>.json` in
     the **derelict fields** as a wreck to be found while salvaging. Other ship mods'
     entries in the same pools are preserved. **At least one of these is required**: without
     one the mod writes a ship file nothing in the game will ever spawn, so the wizard
-    refuses rather than letting you find out in game.
+    refuses rather than letting you find out in game. If a bare ship file is genuinely what
+    you want — assembling a modpack, wiring `loot.json` yourself, referencing the ship from
+    another mod — tick **No route: I'll wire it up myself** under **Advanced**. That section
+    opens on its own when nothing is ticked and stays shut once the step has routes in it.
   - **Derelict fields** come in three size bands plus Venus. Two things are worth knowing.
     They are filled when a world is generated, so ticking one reaches a **new game only** —
     a save you already have will never grow one. And the game wrecks a derelict itself when

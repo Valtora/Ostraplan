@@ -45,6 +45,10 @@ public sealed class ModPlan
 
     public double? DerelictWeight { get; set; }
 
+    /// <summary>The user deliberately asked for a ship file with no way to obtain it: a modpack piece, or loot
+    /// they intend to wire themselves. Distinct from having simply forgotten, which the wizard refuses.</summary>
+    public bool NoDeliveryRoute { get; set; }
+
     public bool StartingShip { get; set; }
     public bool StartingShipExclusive { get; set; }
     public string StartStation { get; set; } = "OKLG";
@@ -156,6 +160,7 @@ public sealed class ExportPlan
         plan.Mod.SpecialOfferPools = [.. last.SpecialOfferPools];
         plan.Mod.DerelictPools = [.. last.DerelictPools];
         if (last.DerelictWeight > 0) plan.Mod.DerelictWeight = last.DerelictWeight;
+        plan.Mod.NoDeliveryRoute = last.NoDeliveryRoute;
         plan.Mod.StartingShip = last.StartingShip;
         plan.Mod.StartingShipExclusive = last.StartingShipExclusive;
         plan.Mod.StartStation = last.StartStation;
@@ -194,6 +199,7 @@ public sealed class ExportPlan
         last.SpecialOfferPools = [.. Mod.SpecialOfferPools];
         last.DerelictPools = [.. Mod.DerelictPools];
         last.DerelictWeight = Mod.DerelictWeight ?? 0;
+        last.NoDeliveryRoute = Mod.NoDeliveryRoute;
         last.StartingShip = Mod.StartingShip;
         last.StartingShipExclusive = Mod.StartingShipExclusive;
         last.StartStation = Mod.StartStation;

@@ -64,7 +64,9 @@ public sealed class ModDriver : ExportDriver
         };
         if (_replaceTarget is not null)
             facts.Add(new ReviewFact("Replaces", $"the existing ship \"{_replaceTarget}\""));
-        facts.Add(new ReviewFact("Obtainable via", Describe(_delivery) is { Length: > 0 } d ? d : "nothing (the ship file only)"));
+        facts.Add(new ReviewFact("Obtainable via", Describe(_delivery) is { Length: > 0 } d
+            ? d
+            : "nothing. You chose to wire this up yourself, so the ship file goes out on its own"));
         facts.Add(new ReviewFact("Writes to", _modDir));
         facts.Add(new ReviewFact("Registering", plan.Mod.RegisterWithOstrasort
             ? "handed to Ostrasort right after the write"

@@ -18,9 +18,10 @@ public sealed class ObtainableStep : WizardStep
     private readonly List<(string Pool, CheckBox Box)> _special = [];
     private readonly List<(string Pool, CheckBox Box)> _derelict = [];
     private readonly TextBox _brokerWeight, _startStation, _startMortgage;
-    private readonly CheckBox _startingShip;
+    private readonly CheckBox _startingShip, _noRoute;
     private readonly RadioButton _startWeighted, _startExclusive;
     private readonly TextBlock _problem, _bandHint;
+    private readonly Expander _advanced;
 
     private bool _loaded;
 
@@ -38,8 +39,8 @@ public sealed class ObtainableStep : WizardStep
         foreach (var (pool, label) in KioskExport.BrokerPools)
         {
             var cb = new CheckBox { Content = label, Foreground = Ink, Margin = new Thickness(0, 0, 14, 4), MinWidth = 130 };
-            cb.Checked += (_, _) => OnChanged();
-            cb.Unchecked += (_, _) => OnChanged();
+            cb.Checked += (_, _) => { SyncAdvanced(); OnChanged(); };
+            cb.Unchecked += (_, _) => { SyncAdvanced(); OnChanged(); };
             _broker.Add((pool, cb));
             brokerWrap.Children.Add(cb);
         }
@@ -62,8 +63,8 @@ public sealed class ObtainableStep : WizardStep
         foreach (var (pool, label) in KioskExport.SpecialOfferPools)
         {
             var cb = new CheckBox { Content = label, Foreground = Ink, Margin = new Thickness(0, 0, 14, 4), MinWidth = 110 };
-            cb.Checked += (_, _) => OnChanged();
-            cb.Unchecked += (_, _) => OnChanged();
+            cb.Checked += (_, _) => { SyncAdvanced(); OnChanged(); };
+            cb.Unchecked += (_, _) => { SyncAdvanced(); OnChanged(); };
             _special.Add((pool, cb));
             specialWrap.Children.Add(cb);
         }
@@ -87,8 +88,8 @@ public sealed class ObtainableStep : WizardStep
             Content = "Only your ship offered (guaranteed start)", GroupName = "startMode",
             IsEnabled = false, Foreground = Ink, Margin = new Thickness(20, 0, 0, 2),
         });
-        _startingShip.Checked += (_, _) => { SyncStart(); OnChanged(); };
-        _startingShip.Unchecked += (_, _) => { SyncStart(); OnChanged(); };
+        _startingShip.Checked += (_, _) => { SyncStart(); SyncAdvanced(); OnChanged(); };
+        _startingShip.Unchecked += (_, _) => { SyncStart(); SyncAdvanced(); OnChanged(); };
 
         var startRow = Add(body, new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(20, 2, 0, 2) });
         startRow.Children.Add(new TextBlock
@@ -119,8 +120,8 @@ public sealed class ObtainableStep : WizardStep
         foreach (var (pool, label) in KioskExport.DerelictPools)
         {
             var cb = new CheckBox { Content = label, Foreground = Ink, Margin = new Thickness(0, 0, 14, 4), MinWidth = 90 };
-            cb.Checked += (_, _) => OnChanged();
-            cb.Unchecked += (_, _) => OnChanged();
+            cb.Checked += (_, _) => { SyncAdvanced(); OnChanged(); };
+            cb.Unchecked += (_, _) => { SyncAdvanced(); OnChanged(); };
             _derelict.Add((pool, cb));
             derelictWrap.Children.Add(cb);
         }
@@ -141,6 +142,34 @@ public sealed class ObtainableStep : WizardStep
             "ships survive.");
         _problem = Problem(body);
 
+        // ---- the escape hatch ----
+        // A bare ship file is a real output for someone assembling a modpack or wiring loot.json by hand, but it
+        // is also what you get by forgetting to tick anything, and those two have to look different. Putting it
+        // behind a disclosure makes it a decision rather than an oversight.
+        _noRoute = new CheckBox
+        {
+            Content = new TextBlock
+            {
+                Text = "No route: I'll wire it up myself", TextWrapping = TextWrapping.Wrap, MaxWidth = 400,
+            },
+            Foreground = Ink, Margin = new Thickness(0, 2, 0, 2),
+            VerticalContentAlignment = VerticalAlignment.Top,
+        };
+        _noRoute.Checked += (_, _) => { ShowProblem(_problem, null); OnChanged(); };
+        _noRoute.Unchecked += (_, _) => OnChanged();
+
+        var advancedBody = new StackPanel { Margin = new Thickness(0, 4, 0, 4) };
+        advancedBody.Children.Add(_noRoute);
+        Note(advancedBody,
+            "Writes the ship file and nothing else, so the game will never spawn it on its own. Pick this when you " +
+            "are assembling a modpack, editing loot.json yourself, or referencing the ship from another mod. " +
+            "Ticking any route above takes precedence over it.", indent: 24);
+
+        _advanced = Add(body, new Expander
+        {
+            Header = "Advanced", Foreground = Dim, Margin = new Thickness(0, 16, 0, 0), Content = advancedBody,
+        });
+
         Content = body;
     }
 
@@ -148,6 +177,24 @@ public sealed class ObtainableStep : WizardStep
     {
         var on = _startingShip.IsChecked == true;
         _startWeighted.IsEnabled = _startExclusive.IsEnabled = on;
+    }
+
+    /// <summary>Any real way for the game to place this ship. The escape hatch is not one of them: it is the
+    /// statement that there is none.</summary>
+    private bool AnyRoute() =>
+        _startingShip.IsChecked == true
+        || _broker.Concat(_special).Concat(_derelict).Any(x => x.Box.IsChecked == true);
+
+    /// <summary>
+    /// Keep the escape hatch honest against the routes above it. "No route" while a route is ticked is a
+    /// contradiction, so a ticked route disables it and clears it, rather than leaving two answers standing.
+    /// </summary>
+    private void SyncAdvanced()
+    {
+        var busy = AnyRoute();
+        if (busy) _noRoute.IsChecked = false;
+        _noRoute.IsEnabled = !busy;
+        _advanced.Opacity = busy ? 0.55 : 1.0;
     }
 
     public override void Enter(WizardSession session)
@@ -179,6 +226,13 @@ public sealed class ObtainableStep : WizardStep
         foreach (var (pool, box) in _broker) box.IsChecked = mod.BrokerPools.Contains(pool);
         foreach (var (pool, box) in _special) box.IsChecked = mod.SpecialOfferPools.Contains(pool);
         foreach (var (pool, box) in _derelict) box.IsChecked = mod.DerelictPools.Contains(pool);
+        _noRoute.IsChecked = mod.NoDeliveryRoute;
+
+        // Decided on entry and left alone after: the disclosure opens when the step has nothing in it, which is
+        // exactly when the hatch is the thing the user needs to see, and stays shut when the step is already busy
+        // with routes. Toggling it live as boxes are ticked would move a control out from under the cursor.
+        _advanced.IsExpanded = !AnyRoute();
+        SyncAdvanced();
         _brokerWeight.Text = (mod.BrokerWeight ?? 0.05).ToString("0.####", CultureInfo.InvariantCulture);
         _startingShip.IsChecked = mod.StartingShip;
         _startExclusive.IsChecked = mod.StartingShipExclusive;
@@ -190,18 +244,15 @@ public sealed class ObtainableStep : WizardStep
 
     /// <summary>
     /// A ship nothing will ever spawn is refused here rather than written and wondered about later. Every route
-    /// counts: a kiosk, a Special Offer, a Shipbreaker start, or a derelict field.
+    /// counts: a kiosk, a Special Offer, a Shipbreaker start, or a derelict field. The one way past it is to say
+    /// so deliberately, under Advanced.
     /// </summary>
     public override string? Validate() =>
-        Ticked().Any()
+        AnyRoute() || _noRoute.IsChecked == true
             ? ShowProblem(_problem, null)
             : ShowProblem(_problem,
                 "Pick at least one way to get this ship in game. Without one, the mod writes a ship file that " +
-                "nothing in the game will ever spawn.");
-
-    private IEnumerable<CheckBox> Ticked() =>
-        _broker.Concat(_special).Concat(_derelict).Select(x => x.Box).Where(b => b.IsChecked == true)
-            .Concat(_startingShip.IsChecked == true ? [_startingShip] : Array.Empty<CheckBox>());
+                "nothing in the game will ever spawn. If that is what you want, say so under Advanced.");
 
     public override void Leave(WizardSession session)
     {
@@ -214,6 +265,7 @@ public sealed class ObtainableStep : WizardStep
         mod.StartingShipExclusive = _startExclusive.IsChecked == true;
         mod.StartStation = _startStation.Text.Trim() is { Length: > 0 } s ? s : "OKLG";
         mod.StartMortgage = ParseDouble(_startMortgage.Text, 0);
+        mod.NoDeliveryRoute = _noRoute.IsChecked == true && !AnyRoute();
 
         // A wreck is damaged by the game when it first loads, so baking wear on top would double-damage every
         // part. Only the untouched default is overridden: a user who set the slider themselves keeps their answer.

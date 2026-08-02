@@ -394,6 +394,71 @@ public class ExportWizardTests
     }
 
     [SkippableFact]
+    public void The_advanced_escape_hatch_satisfies_the_requirement()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            // a bare ship file is a real output for a modpack; it just has to be asked for rather than forgotten
+            var session = Session(g);
+            var step = new ObtainableStep();
+            step.Populate(session);
+            Assert.NotNull(step.Validate());
+
+            NoRouteBox(step).IsChecked = true;
+
+            Assert.Null(step.Validate());
+            step.Leave(session);
+            Assert.True(session.Plan.Mod.NoDeliveryRoute);
+        });
+    }
+
+    [SkippableFact]
+    public void The_advanced_section_opens_on_an_empty_step_and_stays_shut_on_a_busy_one()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var empty = new ObtainableStep();
+            empty.Populate(Session(g));
+            Assert.True(Descendants<Expander>(empty).Single().IsExpanded);
+
+            var busy = Session(g);
+            busy.Plan.Mod.BrokerPools = ["RandomShipBrokerOKLG"];
+            var step = new ObtainableStep();
+            step.Populate(busy);
+            Assert.False(Descendants<Expander>(step).Single().IsExpanded);
+        });
+    }
+
+    [SkippableFact]
+    public void A_real_route_overrides_the_escape_hatch()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            // "no route" while a route is ticked is a contradiction, so the route wins and the hatch clears
+            var session = Session(g);
+            var step = new ObtainableStep();
+            step.Populate(session);
+            var hatch = NoRouteBox(step);
+            hatch.IsChecked = true;
+
+            Descendants<CheckBox>(step).First(c => c.Content is string s && s.StartsWith("OKLG")).IsChecked = true;
+
+            Assert.False(hatch.IsChecked);
+            Assert.False(hatch.IsEnabled);
+            step.Leave(session);
+            Assert.False(session.Plan.Mod.NoDeliveryRoute);
+            Assert.Equal(["RandomShipBrokerOKLG"], session.Plan.Mod.BrokerPools);
+        });
+    }
+
+    private static CheckBox NoRouteBox(ObtainableStep step) =>
+        Descendants<CheckBox>(step).Single(c =>
+            c.Content is TextBlock t && t.Text.StartsWith("No route", StringComparison.Ordinal));
+
+    [SkippableFact]
     public void A_blocking_design_problem_reaches_Review_as_an_acknowledgement()
     {
         var g = TestData.RequireGame();

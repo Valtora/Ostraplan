@@ -59,7 +59,11 @@ each release was verified against is recorded in
     there on a click, and highlights on hover so you can tell.
   - **A mod export now requires a way to get the ship in game.** With no kiosk, Special Offer, start or derelict
     field ticked, the mod writes a ship file nothing will ever spawn, which is the commonest first-time mistake and
-    invisible until the ship fails to turn up. The wizard refuses instead.
+    invisible until the ship fails to turn up. The wizard refuses instead. A bare ship file is still a legitimate
+    output for a modpack or hand-wired loot, so **No route: I'll wire it up myself** sits under an **Advanced**
+    disclosure: enough friction that it cannot be the accident, none that it cannot be the decision. The section
+    opens on its own when the step is empty, which is exactly when it is the thing you need, and stays shut once
+    there are routes in it. Ticking a real route clears and disables it, since the two contradict.
   - **Blocking design problems reach Review.** `ProblemScan` has always rated problems as blocking or warning, and
     nothing outside the PROBLEMS list ever acted on the distinction, so a design flagged "No docking port" could be
     exported without a word. Each one is now an acknowledgement you tick before the commit arms. They acknowledge

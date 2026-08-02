@@ -40,6 +40,7 @@ public sealed class LastExport
     [JsonPropertyName("specialOfferPools")] public List<string> SpecialOfferPools { get; set; } = [];
     [JsonPropertyName("derelictPools")] public List<string> DerelictPools { get; set; } = [];
     [JsonPropertyName("derelictWeight")] public double DerelictWeight { get; set; }
+    [JsonPropertyName("noDeliveryRoute")] public bool NoDeliveryRoute { get; set; }
     [JsonPropertyName("startingShip")] public bool StartingShip { get; set; }
     [JsonPropertyName("startingShipExclusive")] public bool StartingShipExclusive { get; set; }
     [JsonPropertyName("startStation")] public string StartStation { get; set; } = "OKLG";
