@@ -58,6 +58,10 @@ public sealed class ShipCanvas : FrameworkElement
     private static readonly Pen GhostOkPen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0x5A, 0xD0, 0x6A)), 2));
     private static readonly Pen GhostBadPen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0xE0, 0x5B, 0x5B)), 2));
     private static readonly Pen GhostOverridePen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0xE0, 0xB0, 0x40)), 2));   // amber: modded, illegal by core rules, but placing anyway
+    // dark halo under the ghost's facing needle, so the cue reads over a busy sprite whatever colour it lands on
+    private static readonly Color NeedleHaloColor = Color.FromArgb(0xC0, 0x0A, 0x0E, 0x12);
+    private static readonly Pen NeedleHaloPen = Frozen(new Pen(new SolidColorBrush(NeedleHaloColor), 4.5) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round });
+    private static readonly Brush NeedleHaloBrush = Frozen(new SolidColorBrush(NeedleHaloColor));
     // per-cell hazard fill for both a ghost's failing cells and existing illegal placements (same red vocabulary)
     private static readonly Brush HazardFill = Frozen(new SolidColorBrush(Color.FromArgb(0x66, 0xD6, 0x45, 0x45)));
     private static readonly Brush OverrideFill = Frozen(new SolidColorBrush(Color.FromArgb(0x55, 0xE0, 0xB0, 0x40)));   // amber tint for an overridden modded part's failing cells
@@ -2597,20 +2601,20 @@ public sealed class ShipCanvas : FrameworkElement
     /// <summary>
     /// The armed part's rotation, on the ghost, as a compass needle: a stub from the footprint's centre out to its
     /// leading edge with a dot at the pivot, drawn in the outline's own colour so the cue never competes with the
-    /// green/amber/red validity language. Only drawn when the part is actually turned, so an unrotated ghost stays
-    /// clean and a rotation carried over from the last part is the thing that catches the eye. Walls and floors
-    /// autotile rather than turn, so they never get one: <see cref="DrawRot"/> is the same rule the sprite itself
-    /// is drawn by, which keeps the cue honest about what will be placed. The needle stays inside the footprint so
-    /// it can never be read as belonging to the neighbouring tile, is capped near a tile long so a 7×7 tank gets a
-    /// needle rather than a spear, and is skipped entirely when the zoom leaves it too short to read.
+    /// green/amber/red validity language, over a dark halo so it stays readable on top of a busy sprite. Drawn at
+    /// every angle including 0°, so the needle reads as "this is which way it faces" rather than as a warning, and
+    /// the resting orientation is as visible as a turned one. Walls and floors autotile rather than turn, so they
+    /// never get one, which is the same rule <see cref="DrawRot"/> draws the sprite by and keeps the cue honest
+    /// about what will be placed. The needle stays inside the footprint so it can never be read as belonging to the
+    /// neighbouring tile, is capped near a tile long so a 7×7 tank gets a needle rather than a spear, and is
+    /// skipped entirely when the zoom leaves it too short to read.
     /// </summary>
     private void DrawFacingNeedle(DrawingContext dc, PartDef part, Rect body, int rot, Pen pen)
     {
-        var norm = DrawRot(part, rot);
-        if (norm == 0) return;
+        if (part.Item.HasSpriteSheet) return;
 
         // 0° points up the screen and the angle runs clockwise, matching the RotateTransform the sprite is drawn under
-        var rad = norm * Math.PI / 180;
+        var rad = DrawRot(part, rot) * Math.PI / 180;
         var (dx, dy) = (Math.Sin(rad), -Math.Cos(rad));
         var centre = new Point(body.X + body.Width / 2, body.Y + body.Height / 2);
 
@@ -2621,8 +2625,11 @@ public sealed class ShipCanvas : FrameworkElement
         var len = Math.Min(toEdge - Zoom * 0.14, Zoom * 0.85);
         if (len < 2) return;
 
-        dc.DrawLine(pen, centre, new Point(centre.X + dx * len, centre.Y + dy * len));
+        var tip = new Point(centre.X + dx * len, centre.Y + dy * len);
         var dot = Math.Max(1.5, Zoom * 0.07);
+        dc.DrawLine(NeedleHaloPen, centre, tip);
+        dc.DrawEllipse(NeedleHaloBrush, null, centre, dot + 1.25, dot + 1.25);
+        dc.DrawLine(pen, centre, tip);
         dc.DrawEllipse(pen.Brush, null, centre, dot, dot);
     }
 

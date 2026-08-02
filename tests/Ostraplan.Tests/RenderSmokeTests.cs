@@ -248,9 +248,9 @@ public class RenderSmokeTests
     [SkippableFact]
     public void Render_armed_ghost_shows_the_facing_needle_at_each_angle()
     {
-        // Issue #13's visual half: a turned brush draws a compass needle from the ghost's centre to its leading
-        // edge. One PNG per angle, next to the test binaries, so the direction can be eyeballed as well as
-        // asserted — 0° must produce no needle at all, which is what keeps an unrotated ghost clean.
+        // Issue #13's visual half: the ghost draws a compass needle from its centre to its leading edge, at every
+        // angle including 0°, over a dark halo so it survives a busy sprite. One PNG per angle, next to the test
+        // binaries, so the direction can be eyeballed rather than only inferred from the trigonometry.
         var g = TestData.RequireGame();
         var part = g.Catalog.Parts
             .Where(p => !p.Item.HasSpriteSheet && p.Item.Width == 1 && p.Item.Height == 1)
