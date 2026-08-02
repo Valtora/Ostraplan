@@ -11,6 +11,8 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.61.1] 2026-08-02, The export wizard and ships into saves
+
 ### Added
 - **Spawn a design as a derelict.** A mod export can now scatter the ship through the salvage fields as a wreck to
   be found, alongside the existing kiosk, Special Offer and starting-ship routes. `star_system.json`'s
