@@ -105,7 +105,48 @@ public sealed class ExportWizard : Window
         Content = root;
 
         BuildPanes();
-        _ = ShowStep();
+        _ = OpenAsync(resume: preselect is null && session.Settings.LastExport is not null);
+    }
+
+    /// <summary>
+    /// Open on the right step. With settings remembered from last time, every step is <b>revalidated against the
+    /// world as it is now</b> before anything is shown: the save may have been deleted, the output folder may be
+    /// gone. The first step that fails wins, so the user lands somewhere that can explain itself, and only a run
+    /// where everything still holds jumps straight to Review.
+    /// </summary>
+    private async Task OpenAsync(bool resume)
+    {
+        if (!resume)
+        {
+            await ShowStep();
+            return;
+        }
+
+        Mouse.OverrideCursor = Cursors.Wait;
+        try
+        {
+            await _session.Driver.PrepareAsync(_session);   // reads the remembered save, so its step can validate
+
+            var valid = new List<bool>();
+            foreach (var id in _flow.Steps)
+            {
+                if (id is StepId.Review or StepId.Done) { valid.Add(true); continue; }
+                var pane = _panes[id];
+                pane.Enter(_session);
+                valid.Add(pane.Validate() is null);
+                if (valid[^1]) pane.Leave(_session);
+            }
+
+            var target = WizardFlow.ResumeIndex(_session.Plan.Destination, valid, HasUnresolvedParts());
+            for (var i = 0; i < target; i++) _flow.Complete(i);
+            _flow.JumpTo(target);
+        }
+        finally
+        {
+            Mouse.OverrideCursor = null;
+        }
+
+        await ShowStep();
     }
 
     /// <summary>A design whose <c>.oplan</c> was reopened without its mods still has items Ostraplan can't see.
@@ -232,6 +273,8 @@ public sealed class ExportWizard : Window
         {
             var report = await _session.Driver.WriteAsync(_session);
             Committed = true;
+            _session.Plan.SaveTo(_session.Settings);
+            _session.Settings.Save();
             _flow.GoTo(StepId.Done);
             ((DoneStep)_panes[StepId.Done]).Set(report);
             _busy = false;

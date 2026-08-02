@@ -11,6 +11,34 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Changed
+- **Export is now a wizard.** The dialog it replaces was one long scrolling panel with the two destinations behind a
+  `TabControl`, and those tab headers were near invisible against the dark background. The wizard removes tabs
+  entirely, so that problem goes away rather than being restyled around. Step one asks where the design should go,
+  and the rail down the left then shows only that destination's steps: the mod path's twenty-odd controls never
+  appear on a save export, and vice versa. All destinations share one **The ship** step, because the name, the
+  in-game identity and the condition are exactly what all of them want.
+  - **Review builds before anything is written.** It runs the real engine and reports the real outcome: part and
+    room counts, the rating, placement warnings, the price against your balance, and exactly where the write will
+    land. The commit that follows performs only the write. This matters because several of those facts are only
+    knowable after the build, which is why the flows this replaces confirmed them *after* running the engine.
+  - **Wear is pinned at Review.** Wear rolls per part from a time-based seed, so a rebuild at commit would have
+    damaged different parts from the ones Review described. The seed is now fixed when Review builds and reused by
+    the write, and the two save destinations skip the rebuild altogether by writing the artifact Review produced.
+  - **Destinations that can't be used are shown disabled with the reason**, not hidden. Hiding a feature teaches
+    nobody that it exists, and the reason is usually the actionable part.
+  - **Done is a pane, not a popup.** The three `Dlg.Success` boxes are gone; the result stays where the run
+    happened. Anything the export would overwrite or delete is now an acknowledgement checkbox on Review, beside
+    the facts that justify it, rather than a separate dialog on top of them.
+  - **Your last export is remembered** (destination, wear, kiosk choices, price, write target), so a repeat export
+    reopens on Review and is one click. Every step is revalidated first: if the save was deleted or the output
+    folder is gone, it opens on the step that can say so. These live in Ostraplan's settings, never in the
+    `.oplan`, so a shared design carries no local paths, save names or credit amounts.
+- **The mod folder's overwrite check now looks at the folder the export will really write**, resolved through the
+  mod name rather than assumed from the ship name. A customised mod name previously had its warning checked against
+  a folder the export was not going to touch.
+- **Picking a save no longer reads it on the UI thread.** The read parses the save's largest record.
+
 ### Added
 - **Add a design to a save as a new ship** (issue #17). **Export** is now two destinations rather than one: the
   familiar **As a mod** tab, and a new **Into a save game** tab that writes the design into a *copy* of a save as a

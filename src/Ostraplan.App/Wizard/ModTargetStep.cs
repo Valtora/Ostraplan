@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using Microsoft.Win32;
@@ -90,10 +91,16 @@ public sealed class ModTargetStep : WizardStep
         OnChanged();
     }
 
-    public override string? Validate() =>
-        _toFolder.IsChecked == true && string.IsNullOrWhiteSpace(_picked)
-            ? ShowProblem(_problem, "Choose a folder to write to.")
-            : ShowProblem(_problem, null);
+    public override string? Validate()
+    {
+        if (_toFolder.IsChecked != true) return ShowProblem(_problem, null);
+        if (string.IsNullOrWhiteSpace(_picked)) return ShowProblem(_problem, "Choose a folder to write to.");
+        // a remembered folder can have been moved or deleted since the last export, which is one of the things the
+        // wizard revalidates on reopening rather than discovering at the write
+        return Directory.Exists(_picked)
+            ? ShowProblem(_problem, null)
+            : ShowProblem(_problem, $"That folder no longer exists:\n{_picked}");
+    }
 
     public override void Leave(WizardSession session)
     {

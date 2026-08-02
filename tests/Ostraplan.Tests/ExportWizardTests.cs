@@ -1,3 +1,4 @@
+using System.IO;
 using System.Windows;
 using System.Windows.Controls;
 using Ostraplan.App;
@@ -286,6 +287,98 @@ public class ExportWizardTests
             Assert.NotNull(reason);
             Assert.Null(driver.Context);
         });
+    }
+
+    // ---- what Review actually builds ----
+
+    /// <summary>
+    /// Review runs the real engine, so what it reports is what the write produces rather than a restatement of the
+    /// settings. Driven directly rather than through the wizard: a bare STA thread has no
+    /// <see cref="SynchronizationContext"/>, so awaiting the shell's navigation would resume UI work on the thread
+    /// pool. See <see cref="UiThreadGuardTests"/>.
+    /// </summary>
+    [SkippableFact]
+    public void The_mod_review_reports_the_real_build_and_the_real_target()
+    {
+        var g = TestData.RequireGame();
+        var dir = Path.Combine(Path.GetTempPath(), "OstraplanWizardTest-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(dir);
+        try
+        {
+            RunSta(() =>
+            {
+                var session = Session(g, shipName: "Kestrel");
+                session.Plan.Mod.StagedIntoMods = false;
+                session.Plan.Mod.Folder = dir;
+                var driver = new ModDriver();
+
+                var outcome = driver.BuildAsync(session).GetAwaiter().GetResult();
+
+                Assert.Contains(outcome.Facts, f => f.Label == "Rating");
+                Assert.Contains(outcome.Facts, f => f.Label == "Writes to" && f.Value == Path.Combine(dir, "Kestrel"));
+                Assert.Empty(outcome.Acknowledgements);   // nothing to overwrite yet
+            });
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [SkippableFact]
+    public void An_existing_mod_folder_becomes_an_acknowledgement_rather_than_a_popup()
+    {
+        var g = TestData.RequireGame();
+        var dir = Path.Combine(Path.GetTempPath(), "OstraplanWizardTest-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(Path.Combine(dir, "Kestrel"));
+        File.WriteAllText(Path.Combine(dir, "Kestrel", "mod_info.json"), "{}");
+        try
+        {
+            RunSta(() =>
+            {
+                var session = Session(g, shipName: "Kestrel");
+                session.Plan.Mod.StagedIntoMods = false;
+                session.Plan.Mod.Folder = dir;
+
+                var outcome = new ModDriver().BuildAsync(session).GetAwaiter().GetResult();
+
+                var ack = Assert.Single(outcome.Acknowledgements);
+                Assert.Contains("already exists", ack);
+            });
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [SkippableFact]
+    public void The_overwrite_check_follows_a_customised_mod_name_not_the_ship_name()
+    {
+        var g = TestData.RequireGame();
+        var dir = Path.Combine(Path.GetTempPath(), "OstraplanWizardTest-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(dir);
+        try
+        {
+            RunSta(() =>
+            {
+                // the dialog this replaces checked SanitizeName(shipName), which is not where the export writes
+                // once the mod has been renamed, so its warning watched a folder nothing was going to touch
+                var session = Session(g, shipName: "Kestrel");
+                session.Plan.Mod.StagedIntoMods = false;
+                session.Plan.Mod.Folder = dir;
+                session.Plan.Mod.ModName = "Valtora Fleet Pack";
+
+                var outcome = new ModDriver().BuildAsync(session).GetAwaiter().GetResult();
+
+                Assert.Contains(outcome.Facts,
+                    f => f.Label == "Writes to" && f.Value == Path.Combine(dir, "Valtora Fleet Pack"));
+            });
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
     }
 
     // ---- the capture guard ----

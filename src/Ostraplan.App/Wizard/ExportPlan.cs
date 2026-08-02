@@ -105,4 +105,88 @@ public sealed class ExportPlan
     public ModPlan Mod { get; } = new();
     public NewShipPlan NewShip { get; } = new();
     public UpdatePlan Update { get; } = new();
+
+    // ---- last-used settings ----
+
+    /// <summary>
+    /// Start from what was used last time, so a repeat export is one click. The design's own fields — its name and
+    /// in-game identity — come from the <c>.oplan</c>, never from settings, because they belong to the design
+    /// rather than to this machine.
+    /// </summary>
+    public static ExportPlan FromSettings(AppSettings settings, OplanMeta meta, SaveSourceRef? sourceSave)
+    {
+        var plan = new ExportPlan
+        {
+            ShipName = meta.Name,
+            Identity = new ExportMetadata(meta.PublicName, meta.Make, meta.Model, meta.Year, meta.Designation,
+                meta.Description),
+        };
+
+        if (settings.LastExport is not { } last) return plan;
+
+        plan.Destination = last.Destination switch
+        {
+            "newShip" => ExportDestination.NewShipInSave,
+            // only offer to reopen on the update destination for a design that still came from a save
+            "update" when sourceSave is not null => ExportDestination.UpdateShipInSave,
+            _ => ExportDestination.Mod,
+        };
+        plan.Wear = new WearOptions(last.WearOn, last.WearTarget);
+
+        plan.Mod.Version = last.ModVersion;
+        plan.Mod.Author = settings.ExportAuthor ?? meta.Author;
+        plan.Mod.BrokerPools = [.. last.BrokerPools];
+        if (last.BrokerWeight > 0) plan.Mod.BrokerWeight = last.BrokerWeight;
+        plan.Mod.SpecialOfferPools = [.. last.SpecialOfferPools];
+        plan.Mod.StartingShip = last.StartingShip;
+        plan.Mod.StartingShipExclusive = last.StartingShipExclusive;
+        plan.Mod.StartStation = last.StartStation;
+        plan.Mod.StagedIntoMods = last.StagedIntoMods;
+        plan.Mod.Folder = settings.LastExportDir;
+        plan.Mod.RegisterWithOstrasort = last.RegisterWithOstrasort;
+
+        plan.NewShip.SaveName = last.SaveName;
+        plan.NewShip.Charge = last.Charge;
+        plan.NewShip.Price = last.Price;
+
+        plan.Update.InPlace = last.InPlace;
+        plan.Update.Backup = last.Backup;
+        plan.Update.Deduct = last.Deduct;
+        plan.Update.Multiplier = last.CostMultiplier;
+
+        return plan;
+    }
+
+    /// <summary>Remember this run. The caller persists; this only fills the object in.</summary>
+    public void SaveTo(AppSettings settings)
+    {
+        var last = settings.LastExport ??= new LastExport();
+        last.Destination = Destination switch
+        {
+            ExportDestination.NewShipInSave => "newShip",
+            ExportDestination.UpdateShipInSave => "update",
+            _ => "mod",
+        };
+        last.WearOn = Wear.Enabled;
+        last.WearTarget = Wear.TargetCondition;
+
+        last.ModVersion = Mod.Version;
+        last.BrokerPools = [.. Mod.BrokerPools];
+        last.BrokerWeight = Mod.BrokerWeight;
+        last.SpecialOfferPools = [.. Mod.SpecialOfferPools];
+        last.StartingShip = Mod.StartingShip;
+        last.StartingShipExclusive = Mod.StartingShipExclusive;
+        last.StartStation = Mod.StartStation;
+        last.StagedIntoMods = Mod.StagedIntoMods;
+        last.RegisterWithOstrasort = Mod.RegisterWithOstrasort;
+
+        last.SaveName = NewShip.SaveName;
+        last.Charge = NewShip.Charge;
+        last.Price = NewShip.Price;
+
+        last.InPlace = Update.InPlace;
+        last.Backup = Update.Backup;
+        last.Deduct = Update.Deduct;
+        last.CostMultiplier = Update.Multiplier;
+    }
 }

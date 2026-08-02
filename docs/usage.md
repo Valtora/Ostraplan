@@ -224,17 +224,43 @@ Everything below is under **File ▸ Import** / the **Export** button.
   existing hull (a Vagabond, say). Layout only — cargo and crew aren't read.
 - **Import your ship from a save:** pulls your player ship's layout out of a save
   game. Layout only, behind a confirmation.
-- **Export** opens one dialog with two destinations. The ship's **name and identity**
-  (in-game name, make, model, year, designation, description) and its **condition**
-  are shared by both, since both want exactly those. Everything else lives in the tab
-  it belongs to: **As a mod**, or **Into a save game**.
+- **Export** opens a **wizard**. Step one asks where the design should go, and the rail
+  down the left then shows only that destination's steps, so you never scroll past
+  settings that belong to a path you didn't choose. Every destination shares one **The
+  ship** step (name, in-game identity, condition), because all of them want exactly
+  those.
+
+Three destinations are offered. One that can't be used is shown **disabled with the
+reason on it** rather than hidden: **Into a save game** needs at least one save game,
+and **Update a ship in a save** needs a design that was imported from one.
+
+The last two steps are the same everywhere:
+
+- **Review** runs the real engine and tells you what the export will actually produce:
+  the part and room counts, the rating, any placement warnings, the price against your
+  balance, and exactly where it will be written. Nothing has been written at this point.
+  Anything the export would overwrite or delete appears as a checkbox you have to tick
+  before the commit button arms.
+- **Done** reports what happened, in the wizard, with no box to dismiss first.
+
+Your last-used destination, wear, kiosk choices, price and write target are remembered,
+so reopening **Export** on a design you've exported before takes you straight to
+**Review**. If something has changed since — the save was deleted, the output folder is
+gone — it opens on the step that can explain it instead. The **Update a ship in a save**
+destination never reopens on Review, because that would put you one click from rewriting
+a save.
+
+Remembered settings live in Ostraplan's own settings file, never in the `.oplan`, so a
+design you share carries no folder paths, save names or credit amounts. The ship's name
+and in-game identity do travel with the design.
 
 ### As a mod
 
 Writes a spawnable local mod (`data/ships/<Name>.json` in
   the game's own shape, rooms and rating precomputed) to a folder, or staged into
   your `Mods/` folder. This is the way to get a **standalone, shareable ship** that
-  doesn't depend on any save. The dialog also lets you:
+  doesn't depend on any save. Its steps are **Mod details**, **Obtainable in game** and
+  **Where to write**, and between them they let you:
   - **Name it and give it flavour** — the in-game ship name (kept exactly as typed)
     plus make / model / year / designation / description.
   - **Replace an existing ship** — pick any vanilla or modded ship and your design
@@ -258,7 +284,9 @@ Writes a spawnable local mod (`data/ships/<Name>.json` in
     **average** condition; it defaults to **~88%**, which is what the game's own kiosk
     ("Used") ships come at, and damage is spread randomly across parts (none below
     10%). Drag it left for a grungier ship, or to 100% (or untick) for pristine.
-    (The wear slider sits below the tabs because it applies to both destinations.)
+    (Wear lives on **The ship** step, because every destination bakes it the same way.)
+    The roll is pinned when **Review** builds, so the ship you're told about is the ship
+    that gets written, part for part.
 
 ### Into a save game
 
@@ -266,11 +294,14 @@ Adds the design to a **copy** of a save as a brand-new ship you already own, wit
 replacing anything that's already there. Use it to fly a design you've just drawn, or
 to move a ship from one save to another.
 
+Its one destination-specific step is **Save & price**:
+
 1. Pick the **save game**. Ostraplan reads it and tells you where the ship will appear.
 2. Optionally tick **Charge for the ship** and type a price. Your character's balance
-   is shown live, and the button greys out if you can't afford it. Left unticked, the
-   ship is a gift.
-3. Set the **condition** (the shared wear slider) and click **Add to save…**.
+   is shown live, and Next refuses with the reason if you can't afford it. Left
+   unticked, the ship is a gift.
+3. **Review** shows the registration the ship will be given, how far out it will be
+   parked, and the name of the copy. Click **Add ship** to write it.
 
 What you get:
 

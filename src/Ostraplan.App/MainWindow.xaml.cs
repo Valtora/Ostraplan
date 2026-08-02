@@ -12,6 +12,7 @@ using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
+using Ostraplan.App.Wizard;
 using Ostraplan.Core;
 
 namespace Ostraplan.App;
@@ -2212,7 +2213,12 @@ public partial class MainWindow : Window
         RefreshChrome();
     }
 
-    private async void OnExportClick(object sender, RoutedEventArgs e)
+    /// <summary>
+    /// Open the export wizard (see <see cref="ExportWizard"/>). Everything the export does now lives behind it: the
+    /// destination's own steps, the Review that builds before anything is written, and the Done pane that reports
+    /// what happened.
+    /// </summary>
+    private void OnExportClick(object sender, RoutedEventArgs e)
     {
         if (_doc is null || _catalog is null || _index is null || _env is null) return;
         if (_doc.Placements.Count == 0)
@@ -2222,266 +2228,47 @@ public partial class MainWindow : Window
             return;
         }
 
-        // specs + a value estimate are needed before the dialog: the estimate pre-fills the starting-ship mortgage
+        // specs + a value estimate are needed before the wizard: the estimate pre-fills the starting-ship mortgage
         _roomSpecs ??= RoomCertifier.LoadSpecs(_index);
-        var (doc, catalog, specs, index) = (_doc, _catalog, _roomSpecs, _index);
-        var buyEstimate = ShipValue.Estimate(doc, catalog, specs).BuyEstimate;
-        var ostrasortKnown = OstrasortLauncher.Detect(_settings) is not null;
-
-        var dlg = new ExportDialog(_meta.Name, _settings.ExportAuthor ?? _meta.Author, _env.ModsDir,
-            _settings.LastExportDir, index, buyEstimate, ostrasortKnown, _meta,
-            SaveImport.ListSaves(_env), _doc.SourceSave is not null) { Owner = this };
-        if (dlg.ShowDialog() != true) return;
-
-        // Identity edited in the export dialog flows back onto the design's saved metadata, so the two never drift.
-        if (dlg.PublicName != _meta.PublicName || dlg.Make != _meta.Make || dlg.Model != _meta.Model
-            || dlg.Year != _meta.Year || dlg.Designation != _meta.Designation || dlg.Description != _meta.Description)
+        var session = new WizardSession
         {
-            _meta.PublicName = dlg.PublicName; _meta.Make = dlg.Make; _meta.Model = dlg.Model;
-            _meta.Year = dlg.Year; _meta.Designation = dlg.Designation; _meta.Description = dlg.Description;
-            _stateDirty = true;
-            RefreshChrome();
-        }
+            Plan = ExportPlan.FromSettings(_settings, _meta, _doc.SourceSave),
+            Doc = _doc,
+            Catalog = _catalog,
+            Specs = _roomSpecs,
+            Index = _index,
+            Env = _env,
+            Settings = _settings,
+            Meta = _meta,
+            Saves = SaveImport.ListSaves(_env),
+            SourceSave = _doc.SourceSave,
+            SaveContext = _saveContext,
+            BuyEstimate = ShipValue.Estimate(_doc, _catalog, _roomSpecs).BuyEstimate,
+            OstrasortKnown = OstrasortLauncher.Detect(_settings) is not null,
+        };
 
-        // the save-game destination is a different write entirely (a new owned ship in a copy of a save), so it
-        // branches off here before any of the mod-folder plumbing below
-        if (dlg.Mode == ExportMode.Save)
-        {
-            await GrantIntoSave(dlg, doc, catalog, specs);
-            return;
-        }
-
-        // don't silently clobber an existing mod folder we may not have created
-        var targetDir = Path.Combine(dlg.DestinationParent, ShipExport.SanitizeName(dlg.ShipName));
-        if (Directory.Exists(targetDir) && Directory.EnumerateFileSystemEntries(targetDir).Any()
-            && !Dlg.Confirm(this, DlgKind.Warning, "Folder already exists",
-                $"A folder named \"{Path.GetFileName(targetDir)}\" already exists at:\n{Path.GetDirectoryName(targetDir)}\n\n" +
-                "Overwriting replaces its data files (ship, and any loot/lifeevents/interactions). Other files in the folder are left untouched.",
-                "Overwrite"))
-            return;
-
-        // when replacing an existing ship, resolve its real strName (the override key) from the chosen file — the
-        // filename usually matches but a mod/multi-ship file may not; fall back to the filename if parsing fails
-        var replaceTarget = dlg.ReplaceShip is { } rs
-            ? TemplateImport.ResolveShipStrName(rs.Path) ?? rs.Name
-            : null;
-        var opts = new ExportOptions(dlg.ShipName, dlg.Author, dlg.Notes, dlg.ModVersion,
-            _env.InstalledVersion ?? GameEnv.VerifiedGameVersion, dlg.DestinationParent, dlg.PublicName,
-            dlg.Make, dlg.Model, dlg.Year, dlg.Designation, dlg.Description, dlg.Delivery, replaceTarget, dlg.ModName,
-            dlg.Wear);
-
-        ExportResult result;
-        Mouse.OverrideCursor = Cursors.Wait;
+        // The wizard reads the live document off-thread while it builds, so the editing surface goes dead for its
+        // whole run rather than only around each engine call.
         using (FreezeDoc())
-        {
-            try
-            {
-                result = await Ui.OffThread(() => ShipExport.Write(doc, catalog, specs, opts, index));
-            }
-            // a real, explainable export failure is a write that didn't land (disk full, read-only, file in use);
-            // anything else is our bug and belongs in error.log with its stack, not behind "Export failed"
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
-            {
-                Dlg.Show(this, "Export failed:\n\n" + ex.Message, "Export", MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-            finally
-            {
-                Mouse.OverrideCursor = null;
-            }
-        }
+            new ExportWizard(session) { Owner = this }.ShowDialog();
 
-        _settings.ExportAuthor = dlg.Author;
-        if (!dlg.StagedIntoMods) _settings.LastExportDir = dlg.DestinationParent;
-        _settings.Save();
-        AuditLog.Add($"Exported mod \"{dlg.ShipName}\" to {result.ModDir}.");
-
-        var deliverySummary =
-            (replaceTarget is not null ? $"Replaces the existing ship \"{replaceTarget}\".\n" : "")
-            + DescribeDelivery(dlg.Delivery);
-        if (dlg.RegisterWithOstrasort)
-        {
-            await RegisterWithOstrasort(dlg.ShipName, result, deliverySummary);
-            return;
-        }
-
-        var registerNote = dlg.StagedIntoMods
-            ? "It's staged into the game's Mods folder.\n" +
-              "Register it with Ostrasort (or ModTools) before it appears in game.\n" +
-              "Ostraplan never writes loading_order.json itself."
-            : "Copy this folder into Ostranauts_Data\\Mods.\n" +
-              "Then register it with Ostrasort (or ModTools) to spawn it in game.";
-        var wearNote = dlg.Wear.Enabled
-            ? $"Worn to ~{dlg.Wear.TargetCondition * 100:0}% average condition (parts vary, none below 10%).\n"
-            : "";
-        Dlg.Success(this, "Export complete",
-            $"Exported {dlg.ShipName}.\n\n" +
-            $"{result.PartCount} parts, {result.RoomCount} certified room(s), rating {(string.IsNullOrEmpty(result.Rating.Display) ? "None" : result.Rating.Display)}.\n" +
-            wearNote +
-            deliverySummary + "\n" +
-            $"Written to {result.ModDir}\n\n" +
-            registerNote);
+        // Identity edited in the wizard flows back onto the design's saved metadata, so the two never drift.
+        ApplyExportedIdentity(session.Plan.Identity);
     }
 
-    /// <summary>
-    /// Write the design into a <b>copy</b> of the chosen save as a new ship the player owns
-    /// (<see cref="SaveGrant"/>). Unlike the mod export this touches a save game, so it is deliberately loud:
-    /// the user confirms first, and the result names the copy they must load to see the ship.
-    /// </summary>
-    private async Task GrantIntoSave(ExportDialog dlg, ShipDocument doc, Catalog catalog, IReadOnlyList<RoomSpecDef> specs)
+    /// <summary>Fold the identity the user typed in the export wizard back into the design's own metadata, marking
+    /// the design dirty only when something actually changed.</summary>
+    private void ApplyExportedIdentity(ExportMetadata id)
     {
-        if (dlg.GrantContext is not { } ctx) return;
-
-        var priceLine = dlg.Price > 0
-            ? $"{dlg.Price:C0} will be deducted from your credits.\n"
-            : "It's a gift — nothing is deducted.\n";
-        if (!Dlg.Confirm(this, DlgKind.Warning, "Add ship to save",
-                $"\"{dlg.ShipName}\" will be added to a COPY of \"{ctx.SaveName}\" as a ship you own.\n\n" +
-                priceLine +
-                "It appears 3–5 km from where you are, undocked, so take the P.A.S.S. ferry to reach it.\n\n" +
-                "Your original save is not modified. Do this from the game's Main Menu, not while the save is " +
-                "loaded, or the game may overwrite it on its next autosave.",
-                "Add ship"))
+        if (id.PublicName == _meta.PublicName && id.Make == _meta.Make && id.Model == _meta.Model
+            && id.Year == _meta.Year && id.Designation == _meta.Designation && id.Description == _meta.Description)
             return;
 
-        // Every value the engine call needs is read HERE, on the UI thread, and only the plain results are
-        // captured by the lambda below. Reading a control inside an OffThread lambda is the v0.43.1 bug
-        // UiThreadGuardTests exists to prevent: it throws "a different thread owns it" while evaluating the
-        // arguments, so the engine never runs at all.
-        var opts = new GrantOptions(
-            dlg.ShipName,
-            new ExportMetadata(dlg.PublicName, dlg.Make, dlg.Model, dlg.Year, dlg.Designation, dlg.Description),
-            dlg.Wear);
-        var price = dlg.Price;
-
-        string outDir;
-        GrantReport report;
-        Mouse.OverrideCursor = Cursors.Wait;
-        using (FreezeDoc())
-        {
-            try
-            {
-                (outDir, report) = await Ui.OffThread(() => SaveGrant.Grant(ctx, doc, catalog, specs, opts, price));
-            }
-            // the explainable failures are a save that can't take a grant (no player CO, no owner registry) and a
-            // write that didn't land; anything else is our bug and belongs in error.log with its stack
-            catch (Exception ex) when (ex is IOException or UnauthorizedAccessException or InvalidDataException)
-            {
-                Dlg.Show(this, "Couldn't add the ship:\n\n" + ex.Message, "Add to save",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
-                return;
-            }
-            finally
-            {
-                Mouse.OverrideCursor = null;
-            }
-        }
-
-        AuditLog.Add($"Granted ship \"{dlg.ShipName}\" ({report.RegId}) into {outDir}.");
-
-        var chargeNote = report.Charged is { } c
-            ? $"Charged {c:C0}, leaving {report.ResultingBalance:C0}.\n"
-            : "";
-        var wearNote = dlg.Wear.Enabled
-            ? $"Worn to ~{dlg.Wear.TargetCondition * 100:0}% average condition (parts vary, none below 10%).\n"
-            : "";
-        Dlg.Success(this, "Ship added",
-            $"\"{report.PublicName}\" ({report.RegId}) is in your save.\n\n" +
-            $"{report.ItemCount} parts, {report.RoomCount} certified room(s), rating " +
-            $"{(string.IsNullOrEmpty(report.Rating.Display) ? "None" : report.Rating.Display)}.\n" +
-            wearNote + chargeNote +
-            $"Parked {report.DistanceKm:0.0} km from your ship — take the P.A.S.S. ferry to board it.\n\n" +
-            $"Load this save to see it:\n{Path.GetFileName(outDir)}\n\n" +
-            "In the game's Load menu, press Refresh if it isn't listed.");
+        _meta.PublicName = id.PublicName; _meta.Make = id.Make; _meta.Model = id.Model;
+        _meta.Year = id.Year; _meta.Designation = id.Designation; _meta.Description = id.Description;
+        _stateDirty = true;
+        RefreshChrome();
     }
-
-    /// <summary>A one-line human summary of the chosen delivery options, or "" when the ship file was exported
-    /// on its own.</summary>
-    private static string DescribeDelivery(ShipDelivery d)
-    {
-        var parts = new List<string>();
-        if (d.BrokerPools.Count > 0) parts.Add($"{d.BrokerPools.Count} broker kiosk(s)");
-        if (d.SpecialOfferPools.Count > 0) parts.Add($"{d.SpecialOfferPools.Count} Special Offer slot(s)");
-        if (d.StartingShip) parts.Add(d.StartingShipExclusive ? "Shipbreaker starting ship (guaranteed)" : "Shipbreaker starting ship");
-        return parts.Count == 0 ? "" : "Obtainable via: " + string.Join(", ", parts) + ".\n";
-    }
-
-    /// <summary>Hand a staged export to Ostrasort: locate it (prompting once if needed and remembering the path),
-    /// register the mod (<c>--apply</c>), then merge kiosk-loot conflicts (<c>--patch</c>) if the export wrote any
-    /// loot pools. Ostraplan never writes loading_order.json itself — this only drives the tool that owns it.</summary>
-    private async Task RegisterWithOstrasort(string shipName, ExportResult result, string deliverySummary)
-    {
-        if (_env is null) return;
-
-        var exe = OstrasortLauncher.Detect(_settings);
-        if (exe is null)
-        {
-            if (!Dlg.Confirm(this, DlgKind.Info, "Locate Ostrasort",
-                    "Ostraplan couldn't find Ostrasort.exe. Point it at your Ostrasort.exe to register the mod " +
-                    "(or cancel and register it yourself later).", "Locate…"))
-            {
-                ExportedButNotRegistered(shipName, result, deliverySummary);
-                return;
-            }
-            exe = OstrasortLauncher.Prompt(this);
-            if (exe is null) { ExportedButNotRegistered(shipName, result, deliverySummary); return; }
-            _settings.OstrasortPath = exe;
-            _settings.Save();
-        }
-
-        Mouse.OverrideCursor = Cursors.Wait;
-        OstrasortRun apply, patch = new(false, 0, "", null);
-        try
-        {
-            apply = await OstrasortLauncher.RunAsync(exe, _env.GameRoot, _env.ModsDir, patch: false);
-            if (apply.Ok && result.TouchedLootPools)
-                patch = await OstrasortLauncher.RunAsync(exe, _env.GameRoot, _env.ModsDir, patch: true);
-        }
-        finally
-        {
-            Mouse.OverrideCursor = null;
-        }
-
-        // a valid remembered path that failed to launch is likely stale — clear it so next time re-detects/prompts
-        if (!apply.Launched && _settings.OstrasortPath == exe) { _settings.OstrasortPath = null; _settings.Save(); }
-
-        AuditLog.Add($"Ostrasort register \"{shipName}\": apply exit {apply.ExitCode}" +
-                     (result.TouchedLootPools ? $", patch exit {patch.ExitCode}" : ""));
-
-        if (!apply.Launched)
-        {
-            Dlg.Show(this, $"Exported {shipName}, but Ostrasort could not be launched:\n\n{apply.Error}\n\n" +
-                           "Register the mod yourself with Ostrasort or ModTools.", "Export complete",
-                MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
-        }
-
-        var patchNote = result.TouchedLootPools
-            ? patch.Ok
-                ? "Kiosk-loot conflicts patched (if any).\n"
-                : $"Loot patch step reported an issue (exit {patch.ExitCode}); check Ostrasort if another ship mod shares those kiosks.\n"
-            : "";
-        var body =
-            $"Exported {shipName} and registered it with Ostrasort.\n\n" +
-            $"{result.PartCount} parts, {result.RoomCount} certified room(s), rating {(string.IsNullOrEmpty(result.Rating.Display) ? "None" : result.Rating.Display)}.\n" +
-            deliverySummary + patchNote + "\n" +
-            "Launch Ostranauts and check the MODS screen to confirm it loaded.";
-        if (apply.Ok) Dlg.Success(this, "Export complete", body);
-        else Dlg.Show(this, body + $"\n\n(Ostrasort exit {apply.ExitCode}.)", "Export complete",
-            MessageBoxButton.OK, MessageBoxImage.Warning);
-    }
-
-    /// <summary>The mod folder was written, but the user backed out of the Ostrasort hand-off — so it is
-    /// <b>not registered</b> and won't appear in game yet. Framed as a warning (not a green success) so the
-    /// skipped step is unmistakable.</summary>
-    private void ExportedButNotRegistered(string shipName, ExportResult result, string deliverySummary) =>
-        Dlg.Warn(this, "Exported — not registered yet",
-            $"Exported {shipName}, but it was not registered (you cancelled the Ostrasort step).\n\n" +
-            $"{result.PartCount} parts, {result.RoomCount} certified room(s), rating {(string.IsNullOrEmpty(result.Rating.Display) ? "None" : result.Rating.Display)}.\n" +
-            deliverySummary + "\n" +
-            $"Written to {result.ModDir}\n\n" +
-            "It won't appear in game until you register it — run Ostrasort (or ModTools), or export again with " +
-            "\"Register with Ostrasort\" ticked once it's installed.");
 
     /// <summary>Save a PNG image of the ship (sprites only — no grid, overlays or UI) for sharing or reference.</summary>
     private void OnSnapshotClick(object sender, RoutedEventArgs e)

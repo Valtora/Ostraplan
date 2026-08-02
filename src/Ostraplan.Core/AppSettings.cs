@@ -18,6 +18,44 @@ public sealed class PartRef
     public bool Same(string def, bool loose) => Loose == loose && string.Equals(Def, def, StringComparison.Ordinal);
 }
 
+/// <summary>
+/// The export wizard's last-used settings, so a repeat export is one click.
+///
+/// <para>These live here rather than in the <c>.oplan</c> on purpose: a design shared with someone else must not
+/// carry local folder paths, save-game names or credit amounts. What belongs to the <i>design</i> — its name and
+/// in-game identity — stays in <see cref="OplanMeta"/> and travels with it.</para>
+/// </summary>
+public sealed class LastExport
+{
+    /// <summary>"mod", "newShip" or "update". A name rather than an enum so an unknown value from a newer build
+    /// degrades to the default instead of throwing.</summary>
+    [JsonPropertyName("destination")] public string? Destination { get; set; }
+
+    [JsonPropertyName("wearOn")] public bool WearOn { get; set; } = true;
+    [JsonPropertyName("wearTarget")] public double WearTarget { get; set; } = 0.87625;
+
+    [JsonPropertyName("modVersion")] public string ModVersion { get; set; } = "1.0.0";
+    [JsonPropertyName("brokerPools")] public List<string> BrokerPools { get; set; } = [];
+    [JsonPropertyName("brokerWeight")] public double BrokerWeight { get; set; }
+    [JsonPropertyName("specialOfferPools")] public List<string> SpecialOfferPools { get; set; } = [];
+    [JsonPropertyName("startingShip")] public bool StartingShip { get; set; }
+    [JsonPropertyName("startingShipExclusive")] public bool StartingShipExclusive { get; set; }
+    [JsonPropertyName("startStation")] public string StartStation { get; set; } = "OKLG";
+    [JsonPropertyName("stagedIntoMods")] public bool StagedIntoMods { get; set; } = true;
+    [JsonPropertyName("registerWithOstrasort")] public bool RegisterWithOstrasort { get; set; }
+
+    [JsonPropertyName("saveName")] public string? SaveName { get; set; }
+    [JsonPropertyName("charge")] public bool Charge { get; set; }
+    [JsonPropertyName("price")] public double Price { get; set; }
+
+    [JsonPropertyName("inPlace")] public bool InPlace { get; set; }
+    [JsonPropertyName("backup")] public bool Backup { get; set; } = true;
+    [JsonPropertyName("deduct")] public bool Deduct { get; set; }
+    [JsonPropertyName("costMultiplier")] public double CostMultiplier { get; set; } = 1.0;
+
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
+}
+
 /// <summary>Ostraplan's own settings (%APPDATA%\Ostraplan\settings.json) - never the game's.</summary>
 public sealed class AppSettings
 {
@@ -26,6 +64,10 @@ public sealed class AppSettings
     [JsonPropertyName("recentFiles")] public List<string> RecentFiles { get; set; } = [];
     [JsonPropertyName("exportAuthor")] public string? ExportAuthor { get; set; }
     [JsonPropertyName("lastExportDir")] public string? LastExportDir { get; set; }
+    /// <summary>The export wizard's remembered settings. Null until the first export; an older build ignores it.
+    /// <see cref="ExportAuthor"/> and <see cref="LastExportDir"/> keep their own keys, so no settings file written
+    /// before the wizard needs migrating.</summary>
+    [JsonPropertyName("lastExport")] public LastExport? LastExport { get; set; }
     [JsonPropertyName("installPromptDismissed")] public bool InstallPromptDismissed { get; set; }
     [JsonPropertyName("ostrasortPath")] public string? OstrasortPath { get; set; }
     /// <summary>Let modded parts be placed where Ostraplan's core-game placement law says they don't fit (they are
