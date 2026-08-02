@@ -173,6 +173,34 @@ public class UiThreadGuardTests
             Assert.Throws<InvalidOperationException>(() => { _ = Ui.OffThread(() => opts.Wear); });
         });
     }
+
+    [Fact]
+    public void A_progress_reporter_drags_its_dialog_into_the_same_closure()
+    {
+        RunSta(() =>
+        {
+            // The Ship Rating shape, and why it tripped the guard. `dialog` is a local of the SAME scope as the
+            // work lambda and is captured by the reporter's lambda, so the compiler files both in ONE closure —
+            // and the guard walks the closure it is handed and rightly finds a UI object in it, even though the
+            // work lambda names only the reporter. In the app nothing touches the dialog off-thread, because
+            // Progress<T> posts back to the SynchronizationContext it captured on the UI thread.
+            var dialog = new StackPanel();
+            var reporter = new Progress<int>(n => dialog.Width = n);
+
+            var ex = Assert.Throws<InvalidOperationException>(
+                () => { _ = Ui.OffThread(() => Analyse(reporter)); });
+            Assert.Contains("StackPanel", ex.Message);
+
+            // ...which is exactly what allowUiCapture is for: it lets the provably-safe case through.
+            Assert.NotNull(Ui.OffThread(() => Analyse(reporter), allowUiCapture: true));
+        });
+
+        // stands in for ShipAnalysis.AnalyzeDocument: it takes the reporter but never the dialog. It is not
+        // invoked with a live reporter above — a bare STA thread has no SynchronizationContext, so Progress<T>
+        // would fall back to the pool and really would touch the dialog off-thread, which is a property of the
+        // test rig rather than of the code under test.
+        static int Analyse(IProgress<int> p) => p is null ? 0 : 1;
+    }
 #endif
 
     // ---- FreezeGate: edits stay blocked until the LAST engine finishes ----

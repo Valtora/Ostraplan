@@ -37,6 +37,14 @@ each release was verified against is recorded in
   - Designs imported from a save can be granted too, which is a save-to-save ship transfer: import from one save,
     add to another. Layout, cargo, loose items, zones and device wiring all survive that trip. Per-part damage and
     crew do not, and the dialog says so.
+
+### Fixed
+- **Ship Rating ran in release builds but not development ones.** The rating's progress dialog is a local of the
+  same scope as the analysis lambda, and the reporter's own lambda captures it, so the compiler files both in one
+  closure. The UI-capture guard walks that closure, found a dialog in it, and threw before the analysis started —
+  so a Debug build logged an error and rendered no report. Nothing actually touched the dialog off-thread
+  (`Progress<T>` posts back to the UI thread's synchronization context), so this is the guard's documented
+  opt-out case and is now marked as one. Release builds strip the guard, so shipped versions were unaffected.
 - **WalkViz: crew access on the plan** (issue #14). A new overlay (the **Walk** toolbar button, or **K**) tints
   every tile crew can stand on by which connected area it belongs to, so two tiles sharing a colour are reachable
   from each other on foot and two colours mean there is no route. This is what catches a compartment you have

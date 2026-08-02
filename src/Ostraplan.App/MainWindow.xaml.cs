@@ -634,7 +634,14 @@ public partial class MainWindow : Window
         {
             try
             {
-                report = await Ui.OffThread(() => ShipAnalysis.AnalyzeDocument(doc, catalog, specs, reporter));
+                // allowUiCapture: the analysis lambda captures only doc/catalog/specs/reporter, but `progress` is
+                // a local of this same scope that the reporter's lambda captures, so the compiler files them all
+                // in ONE closure and the guard sees a UI-owned dialog in it. Nothing here touches the dialog off
+                // the UI thread: Progress<T> captures the SynchronizationContext at construction and posts
+                // Update back to it, which is the whole point of using it. Without the opt-out the guard throws
+                // before Task.Run, so in a Debug build Ship Rating logged an error and rendered nothing.
+                report = await Ui.OffThread(
+                    () => ShipAnalysis.AnalyzeDocument(doc, catalog, specs, reporter), allowUiCapture: true);
             }
             finally
             {
