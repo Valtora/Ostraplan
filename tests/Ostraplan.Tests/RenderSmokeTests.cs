@@ -246,6 +246,49 @@ public class RenderSmokeTests
     }
 
     [SkippableFact]
+    public void Render_armed_ghost_shows_the_facing_needle_at_each_angle()
+    {
+        // Issue #13's visual half: a turned brush draws a compass needle from the ghost's centre to its leading
+        // edge. One PNG per angle, next to the test binaries, so the direction can be eyeballed as well as
+        // asserted — 0° must produce no needle at all, which is what keeps an unrotated ghost clean.
+        var g = TestData.RequireGame();
+        var part = g.Catalog.Parts
+            .Where(p => !p.Item.HasSpriteSheet && p.Item.Width == 1 && p.Item.Height == 1)
+            .OrderBy(p => p.DefName, StringComparer.Ordinal)
+            .FirstOrDefault();
+        if (part is null || !g.Catalog.ByDefName.ContainsKey("ItmFloorGrate01")) return;
+        RunSta(() =>
+        {
+            var doc = new ShipDocument(g.Catalog);
+            for (var x = 0; x < 5; x++)
+                for (var y = 0; y < 5; y++)
+                    new PlaceCommand(new Placement { DefName = "ItmFloorGrate01", X = x, Y = y }).Do(doc);
+
+            var canvas = new ShipCanvas { Sprites = new SpriteCache() };
+            canvas.SetDocument(doc);
+            canvas.Measure(new Size(400, 400));
+            canvas.Arrange(new Rect(0, 0, 400, 400));
+            canvas.FitContent();
+            canvas.SetArmed(part);
+            canvas.SetHover((2, 2));
+
+            foreach (var rot in new[] { 0, 90, 180, 270 })
+            {
+                canvas.SetArmedRot(rot);
+                canvas.UpdateLayout();
+                var bitmap = new RenderTargetBitmap(400, 400, 96, 96, PixelFormats.Pbgra32);
+                bitmap.Render(canvas);
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(bitmap));
+                var path = Path.Combine(AppContext.BaseDirectory, $"smoke-needle-{rot}.png");
+                using var stream = File.Create(path);
+                encoder.Save(stream);
+                Assert.True(new FileInfo(path).Length > 3000);
+            }
+        });
+    }
+
+    [SkippableFact]
     public void Render_symmetry_previews_the_cursor_pose_and_its_mirror()
     {
         // Symmetry now ghosts every mirror, not just the cursor part, so a mirror that won't land is visible

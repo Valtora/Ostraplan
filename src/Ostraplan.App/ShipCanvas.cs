@@ -2578,19 +2578,52 @@ public sealed class ShipCanvas : FrameworkElement
             foreach (var (cx, cy) in fit.AdvisoryCells ?? [])
                 dc.DrawRectangle(OverrideFill, null, CellRect(cx, cy, 1, 1));
 
+        Rect body;
         if (under.Count > 0)
         {
             // dashed outline round the whole reservation, the solid validity outline hugging the body
             dc.DrawRectangle(null, SubfloorPen, CellRect(gx, gy, w, h));
             var (bx, by, bw, bh) = AboveFloorBounds(part, gx, gy, rot);
-            dc.DrawRectangle(null, outlinePen, CellRect(bx, by, bw, bh));
+            body = CellRect(bx, by, bw, bh);
         }
-        else
-        {
-            dc.DrawRectangle(null, outlinePen, CellRect(gx, gy, w, h));
-        }
+        else body = CellRect(gx, gy, w, h);
+
+        dc.DrawRectangle(null, outlinePen, body);
+        DrawFacingNeedle(dc, part, body, rot, outlinePen);
         DrawConnectorNubs(dc, part, gx, gy, rot);   // show where this part plugs into power, to orient it before placing
         return fit;
+    }
+
+    /// <summary>
+    /// The armed part's rotation, on the ghost, as a compass needle: a stub from the footprint's centre out to its
+    /// leading edge with a dot at the pivot, drawn in the outline's own colour so the cue never competes with the
+    /// green/amber/red validity language. Only drawn when the part is actually turned, so an unrotated ghost stays
+    /// clean and a rotation carried over from the last part is the thing that catches the eye. Walls and floors
+    /// autotile rather than turn, so they never get one: <see cref="DrawRot"/> is the same rule the sprite itself
+    /// is drawn by, which keeps the cue honest about what will be placed. The needle stays inside the footprint so
+    /// it can never be read as belonging to the neighbouring tile, is capped near a tile long so a 7×7 tank gets a
+    /// needle rather than a spear, and is skipped entirely when the zoom leaves it too short to read.
+    /// </summary>
+    private void DrawFacingNeedle(DrawingContext dc, PartDef part, Rect body, int rot, Pen pen)
+    {
+        var norm = DrawRot(part, rot);
+        if (norm == 0) return;
+
+        // 0° points up the screen and the angle runs clockwise, matching the RotateTransform the sprite is drawn under
+        var rad = norm * Math.PI / 180;
+        var (dx, dy) = (Math.Sin(rad), -Math.Cos(rad));
+        var centre = new Point(body.X + body.Width / 2, body.Y + body.Height / 2);
+
+        // distance from the centre to wherever this direction leaves the footprint, then inset off the outline
+        var toEdge = Math.Min(
+            Math.Abs(dx) < 1e-6 ? double.MaxValue : body.Width / 2 / Math.Abs(dx),
+            Math.Abs(dy) < 1e-6 ? double.MaxValue : body.Height / 2 / Math.Abs(dy));
+        var len = Math.Min(toEdge - Zoom * 0.14, Zoom * 0.85);
+        if (len < 2) return;
+
+        dc.DrawLine(pen, centre, new Point(centre.X + dx * len, centre.Y + dy * len));
+        var dot = Math.Max(1.5, Zoom * 0.07);
+        dc.DrawEllipse(pen.Brush, null, centre, dot, dot);
     }
 
     /// <summary>Draw the device signal connections: a violet line from each source device's centre to its target,
@@ -2769,7 +2802,10 @@ public sealed class ShipCanvas : FrameworkElement
         dc.PushOpacity(0.55);
         DrawSprite(dc, part, cell.X, cell.Y, ArmedRot, ghost: true);
         dc.Pop();
-        dc.DrawRectangle(null, ok ? GhostOkPen : GhostBadPen, CellRect(cell.X, cell.Y, w, h));
+        var pen = ok ? GhostOkPen : GhostBadPen;
+        var body = CellRect(cell.X, cell.Y, w, h);
+        dc.DrawRectangle(null, pen, body);
+        DrawFacingNeedle(dc, part, body, ArmedRot, pen);
         RaiseGhostReason(ok ? null : "Drop an item onto a floor tile or an open container");
     }
 

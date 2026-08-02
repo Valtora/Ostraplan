@@ -30,7 +30,10 @@ each release was verified against is recorded in
   same way without re-rotating each time, and that is exactly why the rest of this entry exists: it needs to be
   visible rather than deduced from the ghost.
 - **The brush's rotation is now shown in the status bar**, beside the view's, whenever a part that can turn is
-  armed. A carried-over angle used to be invisible until you noticed the ghost looked wrong.
+  armed, **and on the ghost itself**: a turned part draws a compass needle from its centre out towards its leading
+  edge, in the same green/amber/red as the validity outline. Neither appears at 0°, so an unrotated ghost stays
+  exactly as clean as it was and a carried-over angle is the thing that catches the eye. A carried-over angle used
+  to be invisible until you noticed the ghost looked wrong.
 - **Holding R no longer spins the brush.** The rotate key acted on auto-repeat, so a key held a beat too long ran
   through several 90° steps, and the angle it happened to land on then followed you onto the next part you armed.
   One press is now one 90° step, as **Ctrl+R** and the flip keys already were.

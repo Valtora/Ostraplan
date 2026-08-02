@@ -48,8 +48,9 @@ right, but treat a mismatch as "double-check in-game".
 - **Rotate** the armed part: **R** (clockwise), **Shift+R** (counter-clockwise).
   Walls and floors don't rotate — they autotile to their neighbours instead. The angle
   **sticks when you arm another part**, so a run of consoles can all face the same way
-  without re-rotating each one; the status bar shows the brush's current angle so a
-  carried-over rotation is never a surprise.
+  without re-rotating each one. A turned brush is never a surprise: the ghost draws a
+  needle from its centre towards its leading edge, and the status bar reads out the
+  angle. Neither appears at 0°, so an unrotated ghost stays clean.
 - **Paint:** left-drag to place along a stroke (one undo step).
 - **Box fill:** **Shift**-drag a rectangle. **Ctrl+Shift**-drag fills only the
   rectangle's border (a hollow room).
