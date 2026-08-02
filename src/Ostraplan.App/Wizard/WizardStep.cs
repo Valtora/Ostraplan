@@ -61,6 +61,10 @@ public abstract class WizardStep : UserControl
 
     private bool _populating;
 
+    /// <summary>True while <see cref="Enter"/> is filling the pane in. A pane that records "the user changed this"
+    /// has to consult it: the controls raise the same events either way.</summary>
+    protected bool IsPopulating => _populating;
+
     /// <summary>The shell's way in to <see cref="Enter"/>: populating a pane from the plan is not an edit to it.</summary>
     internal void Populate(WizardSession session)
     {

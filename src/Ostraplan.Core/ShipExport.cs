@@ -43,14 +43,27 @@ public sealed record ExportOptions(
 /// <param name="StartingShipExclusive">When a starting ship: if true, the exported ship <b>replaces</b> the
 /// Shipbreaker start-event pick pool with only this ship (guaranteed start), dropping the vanilla salvage pods;
 /// if false (default) it is appended as one more weighted option alongside them.</param>
+/// <param name="DerelictPools">Derelict-ring pools to add the ship to (see <see cref="KioskExport.DerelictPools"/>).
+/// These place wrecks at <b>world generation</b>, so they only ever affect a new game; the spawner marks the ship
+/// derelict and damages it, which is why an export aimed at them should bake no wear of its own.</param>
 public sealed record ShipDelivery(
     IReadOnlyList<string> BrokerPools, double BrokerWeight,
     IReadOnlyList<string> SpecialOfferPools,
     bool StartingShip, double StartingShipWeight, string StartingShipStation,
     double StartingShipMortgage, string StartingShipTitle, string StartingShipDesc,
-    bool StartingShipExclusive = false)
+    bool StartingShipExclusive = false,
+    IReadOnlyList<string>? DerelictPools = null, double DerelictWeight = 0.05)
 {
-    public bool TouchesLoot => BrokerPools.Count > 0 || SpecialOfferPools.Count > 0 || StartingShip;
+    /// <summary>The derelict pools, never null.</summary>
+    public IReadOnlyList<string> Derelicts => DerelictPools ?? [];
+
+    public bool TouchesLoot =>
+        BrokerPools.Count > 0 || SpecialOfferPools.Count > 0 || StartingShip || Derelicts.Count > 0;
+
+    /// <summary>Whether anything at all will spawn this ship. A false here is a ship file the game will never
+    /// place on its own, which the export wizard refuses rather than writing an unreachable mod.</summary>
+    public bool IsObtainable => TouchesLoot;
+
     public static ShipDelivery None => new([], 0, [], false, 0, "OKLG", 0, "", "");
 }
 
@@ -523,6 +536,8 @@ public static class ShipExport
             loot.Add(KioskExport.BrokerPoolOverride(index, pool, shipStrName, delivery.BrokerWeight));
         foreach (var pool in delivery.SpecialOfferPools)
             loot.Add(KioskExport.SpecialOfferOverride(index, pool, shipStrName));
+        foreach (var pool in delivery.Derelicts)
+            loot.Add(KioskExport.DerelictPoolOverride(index, pool, shipStrName, delivery.DerelictWeight));
 
         List<JsonObject>? lifeevents = null, interactions = null;
         if (delivery.StartingShip)

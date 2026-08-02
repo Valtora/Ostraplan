@@ -63,9 +63,16 @@ public sealed class ShipStep : WizardStep
                 ? "When armed, this replaces the current condition of every installed part on the ship, not just " +
                   "the ones you edited. Untick to keep each part's existing wear."
                 : null);
-        control.Changed += OnChanged;
+        control.Changed += () =>
+        {
+            // SetWear raises this too, so the populating guard is what makes it mean "the user moved it"
+            if (!IsPopulating) _wearTouched = true;
+            OnChanged();
+        };
         return control;
     }
+
+    private bool _wearTouched;
 
     public override void Enter(WizardSession session)
     {
@@ -113,6 +120,7 @@ public sealed class ShipStep : WizardStep
         var plan = session.Plan;
         plan.ShipName = _name.Text.Trim();
         plan.Wear = _wear.Wear;
+        if (_wearTouched) plan.WearChosen = true;
 
         // Identity is read-only for the update destination, so writing it back there would be writing back what we
         // just displayed. Harmless, but it would also mark the design dirty for nothing.

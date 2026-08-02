@@ -240,7 +240,10 @@ The last two steps are the same everywhere:
   the part and room counts, the rating, any placement warnings, the price against your
   balance, and exactly where it will be written. Nothing has been written at this point.
   Anything the export would overwrite or delete appears as a checkbox you have to tick
-  before the commit button arms.
+  before the commit button arms, and so does any **blocking design problem** the PROBLEMS
+  list is showing (a hull with no docking port, say). Those acknowledge rather than refuse,
+  because a blocking problem is not equally fatal everywhere: a ship with no docking port
+  is a broken purchase and a perfectly good derelict.
 - **Done** reports what happened, in the wizard, with no box to dismiss first.
 
 Your last-used destination, wear, kiosk choices, price and write target are remembered.
@@ -278,9 +281,20 @@ Writes a spawnable local mod (`data/ships/<Name>.json` in
     screen) — rename it in the **Mod name** field to whatever you like.
   - **Make it obtainable in game** without hand-editing `loot.json`: add it to any
     **ship broker kiosk** (K-Leg / BCER / BCRS / Venus / VORB), pin it as a station's
-    **Special Offer**, and/or offer it as a **Shipbreaker starting ship** (a weighted
-    chance in a fresh start — vanilla has no true ship picker). Other ship mods'
-    entries in the same kiosk are preserved.
+    **Special Offer**, offer it as a **Shipbreaker starting ship** (a weighted
+    chance in a fresh start — vanilla has no true ship picker), and/or scatter it through
+    the **derelict fields** as a wreck to be found while salvaging. Other ship mods'
+    entries in the same pools are preserved. **At least one of these is required**: without
+    one the mod writes a ship file nothing in the game will ever spawn, so the wizard
+    refuses rather than letting you find out in game.
+  - **Derelict fields** come in three size bands plus Venus. Two things are worth knowing.
+    They are filled when a world is generated, so ticking one reaches a **new game only** —
+    a save you already have will never grow one. And the game wrecks a derelict itself when
+    it first loads, so an export aimed only at the fields turns the condition slider off for
+    you rather than baking damage on top of damage; move the slider yourself and your
+    choice stands. The bands overlap a lot in practice (Small runs 107 to 800 parts, Big
+    starts at 520), so Ostraplan shows each band's real range and suggests the nearest
+    rather than claiming your hull "is" a given size.
   - **Register with Ostrasort** in one click (when staging into `Mods/`): Ostraplan
     hands the mod to Ostrasort to register it (and patch any kiosk conflicts with
     other ship mods). **Ostraplan itself never writes `loading_order.json`** — that

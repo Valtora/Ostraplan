@@ -93,10 +93,58 @@ public static class KioskExport
         ("RandomShipBrokerSpecialOfferVORB", "VORB"),
     ];
 
+    /// <summary>
+    /// The derelict-ring pools: the wrecks scattered through the salvage fields at world generation.
+    ///
+    /// <para><c>star_systems/star_system.json</c>'s <c>aSpawnDerelictRings</c> names a <c>strType: "ship"</c> loot
+    /// pool per ring, so these are the same kind of weighted pick as a broker kiosk and take the same override.
+    /// The spawner is what marks the ship derelict and damages it; every one of the 192 core ship templates
+    /// carries <c>DMGStatus = 0</c>, so nothing about being a wreck belongs in the ship file.</para>
+    ///
+    /// <para><b>Venus is not a leaf.</b> <c>RandomDerelictVenus</c> has an empty <c>aCOs</c> and delegates through
+    /// <c>aLoots</c> to <c>RandomScavShipVNCA</c> (0.85) and <c>RandomScavShip</c> (0.15), the way
+    /// <c>RandomDerelict</c> delegates to the three size bands. The VNCA pool is therefore the honest target for
+    /// "put my ship in the Venus fields": adding to the composer would be writing at the wrong level.</para>
+    /// </summary>
+    public static readonly IReadOnlyList<(string Pool, string Label)> DerelictPools =
+    [
+        ("RandomDerelictSmall", "Small"),
+        ("RandomDerelictMedium", "Medium"),
+        ("RandomDerelictBig", "Big"),
+        ("RandomScavShipVNCA", "Venus"),
+    ];
+
+    /// <summary>
+    /// The part counts of each size band's own members, measured against game 0.15.1.6, so the UI can say what a
+    /// band actually holds instead of asserting a size.
+    ///
+    /// <para><b>The bands overlap heavily</b> — Small reaches 800 parts while Medium starts at 319 and Big at 520 —
+    /// so no threshold separates them and any claim that a hull "is" a given size would be invented. The median is
+    /// offered as a nearest-fit suggestion and the range is shown beside it, which is as far as the data honestly
+    /// goes.</para>
+    /// </summary>
+    public static readonly IReadOnlyList<(string Pool, int Min, int Median, int Max)> DerelictBands =
+    [
+        ("RandomDerelictSmall", 107, 252, 800),
+        ("RandomDerelictMedium", 319, 348, 2508),
+        ("RandomDerelictBig", 520, 2321, 5853),
+    ];
+
+    /// <summary>The size band whose members a design of <paramref name="partCount"/> parts sits closest to, by
+    /// distance from the band median. Never Venus, which is a flavour pool rather than a size.</summary>
+    public static string SuggestDerelictBand(int partCount) =>
+        DerelictBands.OrderBy(b => Math.Abs(partCount - b.Median)).ThenBy(b => b.Median).First().Pool;
+
     /// <summary>Add <paramref name="shipName"/> to a regular broker pool as one more weighted alternative,
     /// preserving every ship already in the effective pool. Returns the full override object to write.</summary>
     public static JsonObject BrokerPoolOverride(DataIndex index, string poolName, string shipName, double weight) =>
         AppendShipToPool(ClonePoolOrDefault(index, poolName), shipName, weight);
+
+    /// <summary>Add <paramref name="shipName"/> to a derelict ring's pool. Mechanically identical to
+    /// <see cref="BrokerPoolOverride"/> — both are weighted <c>aCOs</c> picks — and named separately because the
+    /// two mean entirely different things to a player.</summary>
+    public static JsonObject DerelictPoolOverride(DataIndex index, string poolName, string shipName, double weight) =>
+        BrokerPoolOverride(index, poolName, shipName, weight);
 
     /// <summary>Point a Special Offer pool at <paramref name="shipName"/> — a straight overwrite, since a
     /// Special Offer pool is always exactly one pinned ship at weight 1.</summary>

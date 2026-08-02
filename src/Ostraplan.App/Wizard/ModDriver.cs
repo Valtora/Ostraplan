@@ -50,7 +50,7 @@ public sealed class ModDriver : ExportDriver
             ShipExport.ResolveModName(plan.Mod.ModName, plan.ShipName, _replaceTarget)));
 
         var meta = plan.Identity with { PublicName = publicName };
-        var (ship, rating, roomCount, warnings) =
+        var (ship, rating, roomCount, buildWarnings) =
             await BuildOffThread(session.Doc, session.Catalog, session.Specs, strName, meta, _pinnedWear);
 
         var facts = new List<ReviewFact>
@@ -69,6 +69,11 @@ public sealed class ModDriver : ExportDriver
         facts.Add(new ReviewFact("Registering", plan.Mod.RegisterWithOstrasort
             ? "handed to Ostrasort right after the write"
             : "left to you (Ostraplan never edits loading_order.json)"));
+
+        var warnings = new List<string>(buildWarnings);
+        if (_delivery.Derelicts.Count > 0)
+            warnings.Add("Derelict fields are filled when a world is generated, so this reaches a NEW GAME only. " +
+                         "A save you already have will never grow one.");
 
         var acks = new List<string>();
         if (Directory.Exists(_modDir) && Directory.EnumerateFileSystemEntries(_modDir).Any())
@@ -221,7 +226,8 @@ public sealed class ModDriver : ExportDriver
         plan.Mod.BrokerPools, plan.Mod.BrokerWeight ?? 0.05, plan.Mod.SpecialOfferPools,
         plan.Mod.StartingShip, plan.Mod.StartWeight, plan.Mod.StartStation, plan.Mod.StartMortgage,
         publicName is { Length: > 0 } && publicName != "$TEMPLATE" ? publicName : plan.ShipName,
-        plan.Identity.Description, plan.Mod.StartingShipExclusive);
+        plan.Identity.Description, plan.Mod.StartingShipExclusive,
+        plan.Mod.DerelictPools, plan.Mod.DerelictWeight ?? 0.05);
 
     /// <summary>A one-line human summary of the chosen delivery options, or "" when the ship file goes out on its
     /// own.</summary>
@@ -232,6 +238,11 @@ public sealed class ModDriver : ExportDriver
         if (d.SpecialOfferPools.Count > 0) parts.Add($"{d.SpecialOfferPools.Count} Special Offer slot(s)");
         if (d.StartingShip)
             parts.Add(d.StartingShipExclusive ? "Shipbreaker starting ship (guaranteed)" : "Shipbreaker starting ship");
+        if (d.Derelicts.Count > 0)
+            parts.Add($"{d.Derelicts.Count} derelict field(s): " + string.Join(", ", d.Derelicts.Select(Band)));
         return string.Join(", ", parts);
     }
+
+    private static string Band(string pool) =>
+        KioskExport.DerelictPools.FirstOrDefault(p => p.Pool == pool).Label ?? pool;
 }

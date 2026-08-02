@@ -11,6 +11,25 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **Spawn a design as a derelict.** A mod export can now scatter the ship through the salvage fields as a wreck to
+  be found, alongside the existing kiosk, Special Offer and starting-ship routes. `star_system.json`'s
+  `aSpawnDerelictRings` names an ordinary `strType: "ship"` loot pool per ring, so a derelict pool takes exactly
+  the override a broker kiosk does.
+  - **It reaches a new game only**, and says so plainly. Rings are filled when the world is generated, so a save
+    you already have will never grow one.
+  - **The wear slider turns itself off** for an export aimed only at the fields. Being a wreck is not in the ship
+    file at all: all 192 core ship templates carry `DMGStatus = 0`, and the spawner marks the ship derelict and
+    lets `Ship.BreakIn` damage it on load. Baking wear on top would double-damage every part. Move the slider
+    yourself and your choice stands.
+  - **Venus writes to the right pool.** `RandomDerelictVenus` has an empty `aCOs` and delegates to
+    `RandomScavShipVNCA` and `RandomScavShip`, so it is a chooser like `RandomDerelict` rather than a leaf. The
+    VNCA pool is the honest target.
+  - **The size bands overlap, and Ostraplan says so** instead of pretending otherwise. Small runs 107 to 800
+    parts, Medium 319 to 2508, Big 520 to 5853, so no threshold separates them. Each band's real range is shown
+    and the nearest median is suggested. Measured against 0.15.1.6 and recorded in
+    [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) §19.
+
 ### Changed
 - **Export is now a wizard.** The dialog it replaces was one long scrolling panel with the two destinations behind a
   `TabControl`, and those tab headers were near invisible against the dark background. The wizard removes tabs
@@ -38,6 +57,14 @@ each release was verified against is recorded in
     design carries no local paths, save names or credit amounts.
   - **The rail is a control, and now looks like one.** Any completed step, and anything behind you, jumps straight
     there on a click, and highlights on hover so you can tell.
+  - **A mod export now requires a way to get the ship in game.** With no kiosk, Special Offer, start or derelict
+    field ticked, the mod writes a ship file nothing will ever spawn, which is the commonest first-time mistake and
+    invisible until the ship fails to turn up. The wizard refuses instead.
+  - **Blocking design problems reach Review.** `ProblemScan` has always rated problems as blocking or warning, and
+    nothing outside the PROBLEMS list ever acted on the distinction, so a design flagged "No docking port" could be
+    exported without a word. Each one is now an acknowledgement you tick before the commit arms. They acknowledge
+    rather than refuse because a blocking problem is not equally fatal everywhere: a hull with no docking port is a
+    broken purchase and a perfectly good derelict.
   - **Updating a ship in a save is now the wizard's third destination.** `Analyse ▸ Update Ship in Save…` survives
     and opens the same wizard with it preselected, so the muscle memory still works. It has no save picker, because
     the design already names the save and the ship: selecting the destination re-locates that ship, and a save that

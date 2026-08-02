@@ -985,6 +985,41 @@ overriding or appending to the relevant pools:
 sell/derelict `GetQuotedPrice` cache does), and it is reset to 0 on a non-derelict
 Edit-load.
 
+### Derelict rings (world generation, not gameplay)
+
+`star_systems/star_system.json` carries an `aSpawnDerelictRings` array. Each entry names a
+`strLootShipType` — an ordinary `strType: "ship"` loot pool — plus the body to spawn
+around, a count range, radii, and an owner/faction. The K-Legrange field alone is 40–60
+ships around `1036 Ganymed`.
+
+Three consequences a planner has to respect:
+
+- **A derelict pool takes exactly the same override a broker kiosk does.** Both are a
+  single `|`-delimited `aCOs` pick, so `KioskExport.BrokerPoolOverride` works verbatim.
+- **It is world generation, so a mod only reaches a NEW GAME.** Rings are populated when
+  the world is built; an existing save never grows one.
+- **Being a wreck is not in the ship file.** All **192** core ship templates carry
+  `DMGStatus = 0`. The spawner marks the ship derelict and `Ship.BreakIn` damages it on
+  first Edit-load, so an export aimed at a ring should bake **no** wear of its own or the
+  two compound.
+
+`RandomDerelict` is a chooser, delegating `Small=0.30 | Medium=0.35 | Big=0.35`.
+`RandomDerelictVenus` is **also** a chooser, delegating to `RandomScavShipVNCA` (0.85) and
+`RandomScavShip` (0.15) — its own `aCOs` is empty — so the honest write target for "put my
+ship in the Venus fields" is the VNCA leaf, not the composer.
+
+The size bands **overlap heavily**, measured by member part count against 0.15.1.6:
+
+| Pool | Members | Parts (min–max) | Median |
+| --- | --- | --- | --- |
+| `RandomDerelictSmall` | 12 | 107–800 | ~252 |
+| `RandomDerelictMedium` | 11 | 319–2508 | 348 |
+| `RandomDerelictBig` | 21 | 520–5853 | 2321 |
+
+No threshold separates them, so any claim that a given hull "is" Small or Big would be
+invented. Nearest-median is the most a planner can honestly offer, with the ranges shown
+alongside it.
+
 ### Putting a ship into a save directly (ownership, placement, and one lethal null)
 
 A save's ships are loaded by **enumerating every file under `ships/`** in the zip

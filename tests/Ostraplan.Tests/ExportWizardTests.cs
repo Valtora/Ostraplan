@@ -299,6 +299,117 @@ public class ExportWizardTests
         });
     }
 
+    // ---- what an export requires ----
+
+    [SkippableFact]
+    public void A_mod_nothing_can_spawn_is_refused()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            // with no kiosk, Special Offer, start or derelict field, the mod writes a ship file the game will
+            // never place, which is the commonest first-time mistake and invisible until it fails in game
+            var session = Session(g);
+            var step = new ObtainableStep();
+            step.Populate(session);
+
+            var reason = step.Validate();
+
+            Assert.NotNull(reason);
+            Assert.Contains("at least one way", reason);
+        });
+    }
+
+    [SkippableTheory]
+    [InlineData(0)]   // a broker kiosk
+    [InlineData(1)]   // a Special Offer slot
+    public void Any_single_route_satisfies_the_requirement(int checkbox)
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var session = Session(g);
+            var step = new ObtainableStep();
+            step.Populate(session);
+
+            Descendants<CheckBox>(step).ToList()[checkbox].IsChecked = true;
+
+            Assert.Null(step.Validate());
+        });
+    }
+
+    [SkippableFact]
+    public void A_derelict_field_on_its_own_is_a_route()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var session = Session(g);
+            var step = new ObtainableStep();
+            step.Populate(session);
+
+            Descendants<CheckBox>(step).First(c => (string)c.Content == "Small").IsChecked = true;
+            step.Leave(session);
+
+            Assert.Null(step.Validate());
+            Assert.Equal(["RandomDerelictSmall"], session.Plan.Mod.DerelictPools);
+        });
+    }
+
+    [SkippableFact]
+    public void A_derelict_only_export_leaves_the_wear_to_the_game()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            // the spawner damages a wreck on load, so baking more on top double-damages every part
+            var session = Session(g);
+            Assert.True(session.Plan.Wear.Enabled);
+            var step = new ObtainableStep();
+            step.Populate(session);
+            Descendants<CheckBox>(step).First(c => (string)c.Content == "Big").IsChecked = true;
+
+            step.Leave(session);
+
+            Assert.False(session.Plan.Wear.Enabled);
+        });
+    }
+
+    [SkippableFact]
+    public void A_wear_setting_the_user_chose_survives_a_derelict_export()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var session = Session(g);
+            session.Plan.WearChosen = true;   // the user moved the slider themselves
+            var step = new ObtainableStep();
+            step.Populate(session);
+            Descendants<CheckBox>(step).First(c => (string)c.Content == "Big").IsChecked = true;
+
+            step.Leave(session);
+
+            Assert.True(session.Plan.Wear.Enabled);
+        });
+    }
+
+    [SkippableFact]
+    public void A_blocking_design_problem_reaches_Review_as_an_acknowledgement()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            // one wall is not a ship: ProblemScan rates "no docking port" blocking, and until now the wizard
+            // never mentioned it
+            var session = Session(g);
+            session.Plan.Mod.BrokerPools = ["RandomShipBrokerOKLG"];
+
+            var outcome = new ModDriver().ReviewAsync(session).GetAwaiter().GetResult();
+
+            Assert.Contains(outcome.Acknowledgements, a => a.StartsWith("No docking port"));
+        });
+    }
+
     // ---- what Review actually builds ----
 
     /// <summary>
@@ -552,7 +663,11 @@ public class ExportWizardTests
                 var settings = new AppSettings
                 {
                     LastExportDir = dir,
-                    LastExport = new LastExport { Destination = "mod", StagedIntoMods = false },
+                    LastExport = new LastExport
+                    {
+                        Destination = "mod", StagedIntoMods = false,
+                        BrokerPools = ["RandomShipBrokerOKLG"],   // a route, or the obtainability gate wins first
+                    },
                 };
                 var wizard = new ExportWizard(Session(g, settings: settings));
 
@@ -577,7 +692,11 @@ public class ExportWizardTests
             var settings = new AppSettings
             {
                 LastExportDir = @"C:\nope\this\was\deleted",
-                LastExport = new LastExport { Destination = "mod", StagedIntoMods = false },
+                LastExport = new LastExport
+                    {
+                        Destination = "mod", StagedIntoMods = false,
+                        BrokerPools = ["RandomShipBrokerOKLG"],   // a route, or the obtainability gate wins first
+                    },
             };
             var wizard = new ExportWizard(Session(g, settings: settings));
 

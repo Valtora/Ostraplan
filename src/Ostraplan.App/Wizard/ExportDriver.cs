@@ -62,10 +62,30 @@ public abstract class ExportDriver
     public async Task<BuildOutcome> ReviewAsync(WizardSession session)
     {
         if (!NeedsRebuild(session) && _outcome is { } cached) return cached;
-        _outcome = await BuildAsync(session);
+
+        var built = await BuildAsync(session);
+        var blocking = await ScanOffThread(session.Doc, session.Catalog);
+        _outcome = blocking.Count == 0
+            ? built
+            : built with { Acknowledgements = [.. built.Acknowledgements, .. blocking] };
         MarkBuilt(session);
         return _outcome;
     }
+
+    /// <summary>
+    /// The design problems Ostraplan already rates as blocking, turned into acknowledgements so no export leaves
+    /// with one unmentioned. The PROBLEMS list has always shown these; nothing ever put them in front of a write.
+    ///
+    /// <para>They acknowledge rather than refuse because a blocking problem is not equally fatal everywhere: a
+    /// hull with no docking port is a broken purchase and a perfectly good derelict. Ostraplan says plainly what
+    /// is wrong and lets the person who knows the design decide.</para>
+    /// </summary>
+    private static Task<IReadOnlyList<string>> ScanOffThread(
+        Ostraplan.Core.ShipDocument doc, Ostraplan.Core.Catalog catalog) =>
+        Ui.OffThread<IReadOnlyList<string>>(() =>
+            [.. Ostraplan.Core.ProblemScan.Scan(doc, catalog)
+                .Where(p => p.Severity == Ostraplan.Core.ProblemSeverity.Blocking)
+                .Select(p => $"{p.Title}. {p.Detail}")]);
 
     private BuildOutcome? _outcome;
 

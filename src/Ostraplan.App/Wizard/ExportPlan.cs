@@ -38,6 +38,13 @@ public sealed class ModPlan
     /// the step fill in the game's own default without overwriting a weight the user set last time.</summary>
     public double? BrokerWeight { get; set; }
     public List<string> SpecialOfferPools { get; set; } = [];
+
+    /// <summary>Derelict-ring pools to scatter the ship through as a wreck. World generation only: an existing
+    /// save never grows one.</summary>
+    public List<string> DerelictPools { get; set; } = [];
+
+    public double? DerelictWeight { get; set; }
+
     public bool StartingShip { get; set; }
     public bool StartingShipExclusive { get; set; }
     public string StartStation { get; set; } = "OKLG";
@@ -105,6 +112,11 @@ public sealed class ExportPlan
     /// when Review builds and reuses that same value at commit, or the two would damage different parts.</summary>
     public WearOptions Wear { get; set; } = WearOptions.Vanilla;
 
+    /// <summary>True once the user has moved the condition control themselves. A derelict export otherwise turns
+    /// wear off on their behalf, because the game damages a wreck on load and baking more on top of that is
+    /// double-damage nobody asked for. Their own choice always wins.</summary>
+    public bool WearChosen { get; set; }
+
     public ModPlan Mod { get; } = new();
     public NewShipPlan NewShip { get; } = new();
     public UpdatePlan Update { get; } = new();
@@ -142,6 +154,8 @@ public sealed class ExportPlan
         if (last.BrokerWeight > 0) plan.Mod.BrokerWeight = last.BrokerWeight;
         plan.Mod.RegisterWithOstrasort = last.RegisterWithOstrasort;
         plan.Mod.SpecialOfferPools = [.. last.SpecialOfferPools];
+        plan.Mod.DerelictPools = [.. last.DerelictPools];
+        if (last.DerelictWeight > 0) plan.Mod.DerelictWeight = last.DerelictWeight;
         plan.Mod.StartingShip = last.StartingShip;
         plan.Mod.StartingShipExclusive = last.StartingShipExclusive;
         plan.Mod.StartStation = last.StartStation;
@@ -178,6 +192,8 @@ public sealed class ExportPlan
         last.BrokerPools = [.. Mod.BrokerPools];
         last.BrokerWeight = Mod.BrokerWeight ?? 0;
         last.SpecialOfferPools = [.. Mod.SpecialOfferPools];
+        last.DerelictPools = [.. Mod.DerelictPools];
+        last.DerelictWeight = Mod.DerelictWeight ?? 0;
         last.StartingShip = Mod.StartingShip;
         last.StartingShipExclusive = Mod.StartingShipExclusive;
         last.StartStation = Mod.StartStation;

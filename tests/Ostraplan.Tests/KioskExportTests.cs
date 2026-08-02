@@ -152,4 +152,71 @@ public class KioskExportTests
         Assert.Equal("CGEncVagabondIntro", only.Name);
         Assert.Equal(1.0, only.Weight, 6);
     }
+
+    // ---- derelict rings ----
+
+    /// <summary>
+    /// A derelict ring pool is the same kind of weighted <c>aCOs</c> pick a broker kiosk is, which is why the
+    /// override machinery is shared. <c>star_system.json</c>'s <c>aSpawnDerelictRings</c> names one per ring, and
+    /// the spawner is what marks the ship derelict: no core ship template carries a damaged state of its own.
+    /// </summary>
+    [SkippableFact]
+    public void A_derelict_pool_takes_the_same_override_a_kiosk_does()
+    {
+        var g = TestData.RequireGame();
+
+        var pool = KioskExport.DerelictPoolOverride(g.Index, "RandomDerelictSmall", "My Wreck", 0.1);
+
+        var entries = LootList.Parse(pool["aCOs"]!.AsArray()[0]!.GetValue<string>()).ToList();
+        Assert.Contains(entries, e => e.Name == "My Wreck" && Math.Abs(e.Weight - 0.1) < 1e-6);
+        Assert.Contains(entries, e => e.Name == "Katydid");   // the stock wrecks survive
+        Assert.Equal("ship", pool["strType"]!.GetValue<string>());
+    }
+
+    /// <summary>
+    /// Venus is a composer, not a leaf: <c>RandomDerelictVenus</c> carries an empty <c>aCOs</c> and delegates
+    /// through <c>aLoots</c> to <c>RandomScavShipVNCA</c> (0.85) and <c>RandomScavShip</c> (0.15). Writing to the
+    /// composer would be writing at the wrong level, so the offered pool is the VNCA leaf.
+    /// </summary>
+    [SkippableFact]
+    public void The_Venus_derelict_target_is_the_leaf_pool_not_the_composer()
+    {
+        var g = TestData.RequireGame();
+
+        Assert.Contains(KioskExport.DerelictPools, p => p.Pool == "RandomScavShipVNCA");
+        Assert.DoesNotContain(KioskExport.DerelictPools, p => p.Pool == "RandomDerelictVenus");
+
+        var composer = g.Index.Type("loot")["RandomDerelictVenus"].El;
+        Assert.Empty(composer.GetProperty("aCOs").EnumerateArray());
+        Assert.NotEmpty(composer.GetProperty("aLoots").EnumerateArray());
+    }
+
+    [SkippableFact]
+    public void Every_offered_derelict_pool_exists_in_the_game_data()
+    {
+        var g = TestData.RequireGame();
+
+        foreach (var (pool, _) in KioskExport.DerelictPools)
+            Assert.True(g.Index.Type("loot").ContainsKey(pool), $"{pool} is missing from the loot data");
+    }
+
+    /// <summary>The bands overlap heavily, so the suggestion is a nearest fit rather than a claim about which
+    /// size a hull "is". It only has to be stable, and sane at the extremes.</summary>
+    [Theory]
+    [InlineData(50, "RandomDerelictSmall")]
+    [InlineData(250, "RandomDerelictSmall")]
+    [InlineData(400, "RandomDerelictMedium")]
+    [InlineData(9000, "RandomDerelictBig")]
+    public void The_suggested_band_is_the_nearest_by_median(int parts, string expected) =>
+        Assert.Equal(expected, KioskExport.SuggestDerelictBand(parts));
+
+    [Fact]
+    public void A_delivery_with_only_a_derelict_field_still_counts_as_obtainable()
+    {
+        var delivery = ShipDelivery.None with { DerelictPools = ["RandomDerelictBig"] };
+
+        Assert.True(delivery.IsObtainable);
+        Assert.True(delivery.TouchesLoot);   // so the Ostrasort conflict patch still runs
+        Assert.False(ShipDelivery.None.IsObtainable);
+    }
 }
