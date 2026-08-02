@@ -36,6 +36,11 @@ each release was verified against is recorded in
   One press is now one 90° step, as **Ctrl+R** and the flip keys already were.
 - **The activity log records the brush's angle**, both when a part is armed and when R turns it. A report about a
   part that went down facing the wrong way can now be read back from the log, which was not possible for issue #13.
+- **A modded wall or floor can no longer be drawn at a rotation it will never place at.** Sheet parts autotile
+  instead of turning, and the placement law, the stored pose and the footprint maths all pin them to 0 by reading
+  `bHasSpriteSheet` alone. The renderer was instead keying off `bHasSpriteSheet` **and** a `ctSpriteSheet`, so a def
+  that declares the first without the second (no core part does; a mod may) fell through to the rotated path and
+  would ghost turned while placing straight. It now uses the same rule as everything else.
 
 ## [0.52.0] 2026-07-21, Smoother Light Viz and toolbar view toggles
 

@@ -100,6 +100,24 @@ public class BrushRotationTests
     }
 
     [Fact]
+    public void A_sheet_part_is_drawn_at_rot_0_whatever_the_brush_says()
+    {
+        // The draw has to pin sheet items the same way CheckFit and TryPlacePose do. Fixtures builds a sheet part
+        // with no ctSpriteSheet, which is exactly the shape a mod can declare and the shape that used to slip past
+        // the autotile branch and be drawn turned at a rotation it could never place at.
+        var cat = Catalog();
+        var floor = cat.ByDefName["ItmFloor"];
+        Assert.True(floor.Item.HasSpriteSheet);
+        Assert.Null(floor.Item.CtSpriteSheet);
+        Assert.Equal(0, ShipCanvas.DrawRot(floor, 90));
+        Assert.Equal(0, ShipCanvas.DrawRot(floor, 270));
+
+        var console = cat.ByDefName["ItmConsole"];
+        Assert.Equal(90, ShipCanvas.DrawRot(console, 90));
+        Assert.Equal(270, ShipCanvas.DrawRot(console, -90));
+    }
+
+    [Fact]
     public void Every_brush_change_raises_ArmedChanged()
     {
         // The status-bar rotation readout is driven by this event, so a path that changes the brush without

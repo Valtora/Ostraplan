@@ -2788,6 +2788,18 @@ public sealed class ShipCanvas : FrameworkElement
     // Viz normal-pass bake). Parts with no normal map draw nothing — alpha 0 reads as a flat surface downstream.
     private bool _normalPass;
 
+    /// <summary>
+    /// The rotation a part is actually drawn at. Sheet items (walls, floors) autotile to their neighbours instead
+    /// of turning, and every other site agrees on that by keying off <see cref="ItemDef.HasSpriteSheet"/> alone:
+    /// <see cref="CheckFit"/> tests the socket ring at 0, <see cref="TryPlacePose"/> stores 0, and
+    /// <see cref="ShipDocument"/> derives sub-floor cells from 0. The draw has to use the same rule or it
+    /// promises a rotation the part will never place at. It cannot read the autotile branch above as the test,
+    /// because that branch also requires a <c>ctSpriteSheet</c>: a def declaring <c>bHasSpriteSheet</c> without
+    /// one (no core part does, a mod may) falls past it and would otherwise ghost turned and place straight.
+    /// </summary>
+    internal static int DrawRot(PartDef part, int rot) =>
+        part.Item.HasSpriteSheet ? 0 : GridMath.Norm(rot);
+
     private void DrawSprite(DrawingContext dc, PartDef part, int gx, int gy, int rot, bool ghost)
     {
         if (part.Item.HasSpriteSheet && part.Item.CtSpriteSheet is { } ct)
@@ -2810,9 +2822,9 @@ public sealed class ShipCanvas : FrameworkElement
         // vScale), centered on the socket footprint. For most parts the sprite fills the
         // footprint; for the large tanks a 3x3 canister sprite sits centered in a 7x7
         // footprint whose outer ring is abstracted sub-floor storage, not the tank body.
-        var (effW, effH) = GridMath.Size(part.Item.Width, part.Item.Height, rot);
+        var norm = DrawRot(part, rot);
+        var (effW, effH) = GridMath.Size(part.Item.Width, part.Item.Height, norm);
         var (visW, visH) = Sprites!.SpriteTiles(part);
-        var norm = GridMath.Norm(rot);
         var bmp = _normalPass ? Sprites.NormalSprite(part, norm) : Sprites.Sprite(part);
         if (bmp is null) return;
         var center = new Point(_pan.X + (gx + effW / 2.0) * Zoom, _pan.Y + (gy + effH / 2.0) * Zoom);
