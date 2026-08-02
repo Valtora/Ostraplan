@@ -25,16 +25,25 @@ public abstract class WizardStep : UserControl
     /// reflects the current state rather than whatever it was left showing.</summary>
     public virtual void Enter(WizardSession session) { }
 
+    /// <summary>Anything slow the pane needs on entry, awaited by the shell after <see cref="Enter"/>. Review
+    /// builds here; nothing else needs it.</summary>
+    public virtual Task EnterAsync(WizardSession session) => Task.CompletedTask;
+
     /// <summary>Null when the step is satisfied. Otherwise the reason, which the pane has already rendered beside
     /// the offending field (see <see cref="ShowProblem"/>).</summary>
     public virtual string? Validate() => null;
 
-    /// <summary>Write the pane back into the plan. Only called once <see cref="Validate"/> has passed, so a pane
-    /// never has to defend against half-valid input here.</summary>
+    /// <summary>
+    /// Write the pane back into the plan. Called on the way out in every direction, including backwards and out of
+    /// a step that does not validate, because storing what the user typed is not the same question as whether they
+    /// may move on: losing a half-finished field to a Back click would be worse than keeping it.
+    /// </summary>
     public virtual void Leave(WizardSession session) { }
 
-    /// <summary>The commit button's label when this is the last step before a write. Only Review answers.</summary>
-    public virtual string NextLabel => "Next";
+    /// <summary>Whether the Next button is usable at all. This is for the mechanical cases only — a build in
+    /// flight, a commit under way. A refusal the <b>user</b> can fix belongs in <see cref="Validate"/>, so that
+    /// clicking Next explains itself rather than leaving a dead button on screen.</summary>
+    public virtual bool CanAdvance => true;
 
     /// <summary>Raised when the pane's state changed enough that the shell should re-evaluate and drop any cached
     /// build. Wire it to the controls that feed the engine, not to every keystroke of a free-text note.</summary>

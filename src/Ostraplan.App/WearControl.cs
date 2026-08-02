@@ -36,6 +36,18 @@ public sealed class WearControl : StackPanel
         }
     }
 
+    /// <summary>Restore a previously chosen wear (the export wizard remembers it between runs). The seed is not
+    /// restored: it is pinned per build, not per setting.</summary>
+    public void SetWear(WearOptions wear)
+    {
+        _apply.IsChecked = wear.Enabled;
+        _condition.Value = Math.Clamp(Math.Round(wear.TargetCondition * 100.0), _condition.Minimum, _condition.Maximum);
+        Sync();
+    }
+
+    /// <summary>Raised whenever the chosen wear changed, so a host can invalidate anything derived from it.</summary>
+    public event Action? Changed;
+
     /// <param name="defaultOn">Whether wear starts armed (export: true; save-edit: caller's choice).</param>
     /// <param name="overrideNote">When set, an extra warning line — used by save-edit to flag that wear replaces
     /// each part's existing damage across the whole ship.</param>
@@ -90,6 +102,8 @@ public sealed class WearControl : StackPanel
         var vanilla = pct == (int)VanillaPercent ? "  ·  Vanilla Used" : "";
         var tail = pct >= 100 ? "  ·  pristine" : $"  ·  rating ~{grade}";
         _readout.Text = $"Average condition: {pct}%{vanilla}{tail}";
+
+        Changed?.Invoke();
     }
 
     private static void Header(Panel parent, string text) => parent.Children.Add(new TextBlock

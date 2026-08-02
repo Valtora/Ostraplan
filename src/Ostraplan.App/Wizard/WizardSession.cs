@@ -44,9 +44,10 @@ public sealed class WizardSession
     /// default to ticked.</summary>
     public bool OstrasortKnown { get; init; }
 
-    /// <summary>The wizard window, for nested dialogs (the folder picker, the in-place confirmation). Never
-    /// touched off the UI thread.</summary>
-    public required Window Owner { get; init; }
+    /// <summary>The wizard window, for nested dialogs (the folder picker, the in-place confirmation). Set by the
+    /// wizard on construction, because the session is built before the window it belongs to. Never touched off the
+    /// UI thread.</summary>
+    public Window Owner { get; set; } = null!;
 
     /// <summary>The driver for the currently selected destination. Swapped when the destination changes.</summary>
     public ExportDriver Driver { get; set; } = null!;

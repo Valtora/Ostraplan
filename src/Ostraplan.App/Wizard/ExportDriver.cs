@@ -33,6 +33,9 @@ public sealed record DoneReport(string Headline, IReadOnlyList<string> Lines);
 /// </summary>
 public abstract class ExportDriver
 {
+    /// <summary>Which destination this drives.</summary>
+    public abstract ExportDestination Destination { get; }
+
     /// <summary>What this destination is called in the rail's first step.</summary>
     public abstract string Name { get; }
 
