@@ -18,7 +18,7 @@ It is a sibling tool to [**Ostrasort**](https://github.com/Valtora/Ostrasort), t
 
 ### Design
 
-- **Every buildable part in one palette.** The game's eight build tabs (HULL, HVAC, POWR, SENS, CTRL, FURN, APPS, MISC), searchable by friendly or internal name, drawn with the real 16 px sprites. Modded parts appear inline with an origin badge. A tenth **ITEMS** tab holds loose floor cargo (food, tools, ammo) you can drop onto tiles or into containers.
+- **Every buildable part in one palette.** The game's eight build tabs (HULL, HVAC, POWR, SENS, CTRL, FURN, APPS, MISC) plus **All**, searchable by friendly or internal name, drawn with the real 16 px sprites. Modded parts appear inline with an origin badge. A **FAV/REC** tab keeps the parts you pinned and the ones you just placed one click away, and an **ITEMS** tab holds loose floor cargo (food, tools, ammo) you can drop onto tiles or into containers.
 - **Build on the real grid.** Drag-and-drop with game-accurate autotiling, `R` to rotate, crisp pixel-art zoom and pan, and `Q`/`E` plan-view rotation that matches the in-game camera.
 - **A full editing suite.** Drag-paint, box and hollow fill, symmetry mirroring, flood-select, "Replace with…", ship-wide re-skin, group rotate and flip (`H` / `Shift+H`), copy/paste, and unbounded undo/redo.
 - **Bill of materials.** Install-kit counts for the whole ship or the current selection, ready to copy out.
@@ -30,7 +30,7 @@ It is a sibling tool to [**Ostrasort**](https://github.com/Valtora/Ostrasort), t
 - **Rooms, airtightness, and Ship Rating.** Flood-fill compartments, room certification, and the six-slot rating, all computed the way the game computes them.
 - **Propulsion.** RCS acceleration and delta-v, torch acceleration, and reactant hours, with an optional towed mass. The game computes all of this and shows it only on a nav console, on a ship you have already built; here you get it from the plan, along with the reason whenever a figure reads zero (a tank that feeds nothing, a laser with no capacitor to drive it).
 - **RoomViz** (`C`). Every compartment tinted and labelled with what it certifies as, its size, and its value. A room that certifies as nothing says why, down to the single canister in your quarters that quietly costs you the room.
-- **Light Viz** (`L`, on by default). The game's deferred lighting reproduced pixel-exact on the plan: real occluders, glass windows that pass light, lit wall faces, normal-mapped relief, and optional parallax exterior daylight.
+- **Light Viz** (`L`). The game's deferred lighting reproduced pixel-exact on the plan: real occluders, glass windows that pass light, lit wall faces, normal-mapped relief, and optional parallax exterior daylight. Off by default, so a design opens on the flat sprite view rather than an unlit airlock.
 - **WalkViz** (`K`). Every tile crew can stand on, tinted by which connected area it belongs to, so a compartment you have walled yourself out of shows up as its own colour. Fittings nobody can operate are ringed in red at the spot they would have to stand; anything reachable only in a suit (hull-mounted kit, a hatch with vacuum across it) is dashed amber instead of flagged. A closed door only counts as sealed when the game would agree: unpowered, locked or damaged. Optionally counts spacewalks.
 - **Law report.** Every problem in one place, tracing air leaks to the exact unsealed tile.
 
@@ -42,10 +42,12 @@ It is a sibling tool to [**Ostrasort**](https://github.com/Valtora/Ostrasort), t
 
 ### Import and export
 
+Getting a design into the game runs through one **wizard**: pick a destination, answer only the steps that destination needs, then a **Review** step that tells you exactly what will be written before anything is.
+
 - **Import a template.** Any core or modded ship, as a starting point.
 - **Import your ship from a save.** Pull your live layout straight out of a save game.
 - **Edit your live ship.** Import it, redesign, and write it back into a **copy** of the save, with crew, cargo, position, and identity preserved (the original untouched).
-- **Export as a mod.** A spawnable local mod in the game's own `data/ships` shape, with rooms and rating precomputed. Optionally make it obtainable in-game (broker kiosk, station Special Offer, or Shipbreaker starting ship), replace an existing ship's identity, and hand it to Ostrasort to register in one click.
+- **Export as a mod.** A spawnable local mod in the game's own `data/ships` shape, with rooms and rating precomputed. Give it a way into the game (broker kiosk, station Special Offer, Shipbreaker starting ship, or scattered through the derelict fields as salvage); at least one route is required, so the export can't quietly produce a ship nothing will ever spawn. You can also replace an existing ship's identity, and hand the mod to Ostrasort to register in one click.
 - **Add a design to a save as a new ship.** Drop a design into a **copy** of a save as a brand-new ship you already own, without replacing anything that's there. It arrives 3 to 5 km away, exactly where the game parks a ship you've bought with nowhere to dock, so the P.A.S.S. ferry will take you to it. Gift it, or charge yourself for it. Import from one save and add to another to move a ship between playthroughs.
 - **Wear slider.** Export or inject a ship worn rather than pristine, using the game's own kiosk damage model (defaults to the ~88% condition a "Used" kiosk ship comes at, no part below 10%).
 
@@ -57,15 +59,20 @@ Ostraplan resolves your `loading_order.json` exactly like the game, so modded pa
 
 ## What Ostraplan won't do
 
-Ostraplan validates the **build**. It is a **plan**ner, not a simulator, so it won't:
+Ostraplan does one thing: **it designs ships, and it gets them into your game.** That is the whole remit, and it is deliberately narrow. One question settles nearly every "could it also…": **does the feature take a *design* as its input?** If not, it belongs to some other tool. Ostraplan is a planner that can write what it plans into your game, **not a save editor that happens to draw ships**.
 
-- Simulate power, gas, thermal, or crew behaviour (the game authors no per-device rates, so an honest budget would need a full network sim). PowerViz and WalkViz answer *connectivity and reach* from the layout, which is static data; neither runs the sim behind it;
-- Model the economy beyond the bill of materials;
-- Edit more than one ship per document;
-- Write `loading_order.json` (registration stays with Ostrasort/ModTools) or publish to the Workshop (export makes a local mod; you upload in-game);
-- Run anywhere but Windows.
+So it won't:
+
+- **Edit your save beyond delivering a ship.** No apartments, crew, careers, money, or station contents. Adding a design to a save is in scope because a design is the input; editing save state with no design involved is not;
+- **Simulate the ship.** No power, gas, thermal, or crew simulation (the game authors no per-device rates, so an honest budget would need a full network sim). PowerViz and WalkViz answer *connectivity and reach* from the layout, which is static data; neither runs the sim behind it;
+- **Model the economy** beyond the bill of materials;
+- **Edit more than one ship per document;**
+- **Manage your mods.** It never writes `loading_order.json` (registration stays with Ostrasort/ModTools), and it doesn't publish to the Workshop (export makes a local mod; you upload in-game);
+- **Run anywhere but Windows.**
 
 **Read-only by default:** it never touches your game install, saves, or `loading_order.json` unless you ask. Save-editing creates a **copy** unless you explicitly opt into an in-place edit, which then keeps a backup anyway.
+
+The full statement, with the reasoning and worked examples of requests either side of the line, is in **[docs/SCOPE.md](docs/SCOPE.md)**. Read it before filing a feature request.
 
 ## Quick start
 
@@ -73,7 +80,7 @@ Download **`Ostraplan-win-Setup.exe`** from the [Releases](https://github.com/Va
 
 It isn't code-signed yet, so the first run may trip Windows SmartScreen ("Windows protected your PC") — click **More info ▸ Run anyway**. If you'd rather not trust the binary, build it yourself (below).
 
-**Updates are automatic.** When a new version is out, Ostraplan downloads it quietly in the background on launch and shows a **Restart to update** button in the toolbar. The update applies only when you click it, so you never lose unsaved work. There is also a *Check for updates* button in Help. Your settings and activity log live in `%APPDATA%\Ostraplan` and survive updates and uninstalls.
+**Updates are automatic.** When a new version is out, Ostraplan downloads it in the background on launch and shows a **Restart to update** button in the toolbar. The update applies only when you click it, so you never lose unsaved work. To check on demand, there is a *Check for updates* button in **Help ▾ ▸ Controls & keybinds**. Your settings and activity log live in `%APPDATA%\Ostraplan` and survive updates and uninstalls.
 
 **Requirements:** Windows, and a **local Ostranauts install**. Ostraplan finds a Steam install automatically and reads its data and sprites at runtime; point it at the folder if yours is elsewhere. Without the game, Ostraplan has nothing to read and won't work. **No game assets are distributed with the tool.**
 
@@ -82,30 +89,26 @@ It isn't code-signed yet, so the first run may trip Windows SmartScreen ("Window
 Needs the **.NET 10 SDK**. Windows only (the app is WPF).
 
 ```powershell
-dotnet run --project src\Ostraplan.App     # launch
+dotnet run --project src\Ostraplan.App     # build and launch
 .\test.ps1                                 # run the test suite (most tests are game-free)
-.\test.ps1 -Filter Rooms                   # run a subset by name
-.\publish.ps1                              # build the Velopack release into publish\releases
 ```
 
-`publish.ps1` needs the Velopack CLI once (`dotnet tool install -g vpk`). It does a self-contained publish, smoke-tests the built exe, then packs the installer (`Ostraplan-win-Setup.exe`), the portable zip, the update package, and the release manifest into `publish\releases`. Close the running app first — it locks its own exe. Cut a release by uploading that whole folder:
+Tests that need a local Ostranauts install report as **skipped** (never a false pass) when it is absent, so a green run is always honest.
 
-```powershell
-vpk upload github --outputDir publish\releases --repoUrl https://github.com/Valtora/Ostraplan --publish --releaseName vX.Y.Z --tag vX.Y.Z --token (gh auth token)
-```
-
-Installed and portable copies pick up the new version on their next launch (they compare against `releases.win.json`).
-
-Most tests run without the game; the ones that need a local Ostranauts install report as **skipped** (never a false pass) when it is absent. See [docs/TESTING.md](docs/TESTING.md).
+For the full build, test, versioning and release procedure, see **[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)**.
 
 ## Documentation
 
 - [docs/usage.md](docs/usage.md) — how to use it, start to finish.
+- [docs/SCOPE.md](docs/SCOPE.md) — what Ostraplan is for, and where the line is drawn.
 - [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) — the reverse-engineering reference: how Ostranauts works internally, and what Ostraplan ports.
 - [docs/OPLAN-FORMAT.md](docs/OPLAN-FORMAT.md) — the `.oplan` document format, field by field.
+- [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — building, running, versioning, and cutting a release.
 - [docs/TESTING.md](docs/TESTING.md) — how the test suite is structured (game-free vs game-gated) and how to run it.
 - [CHANGELOG.md](CHANGELOG.md) — what shipped, version by version.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — bug reports and pull requests.
+- [SECURITY.md](SECURITY.md) — reporting a security issue.
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md) — how we behave here.
 
 ## Licence and disclaimers
 

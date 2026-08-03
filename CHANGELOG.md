@@ -11,6 +11,24 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Documentation
+- **The project's scope is written down** in a new [docs/SCOPE.md](docs/SCOPE.md). Ostraplan designs ships and gets
+  them into your game, and that is the whole remit. The doc gives the test that settles nearly every request
+  ("does a *design* go into it?"), what is in, what is deliberately out and why, and worked examples either side
+  of the line. The README carries a shorter version and the feature-request form now points at it, so a request
+  outside the boundary gets an explanation rather than silence.
+- **Build and release instructions moved out of the README** into a new
+  [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md). Publishing to GitHub is a maintainer step, not something a reader
+  of the README needs. It also now records the WPF `BG1002 App.baml` build quirk, the versioning rule, and the two
+  traps in the Velopack release flow. The README keeps a two-line "build and run".
+- **Documentation reconciled with the code.** The README claimed Light Viz was on by default (it has started off
+  since 0.52.0), listed the palette tabs without the FAV/REC tab added in 0.51.0, miscounted the tabs, described
+  the obtainable-in-game routes without derelict fields, and pointed at the wrong menu for *Check for updates*.
+  `docs/OPLAN-FORMAT.md` was missing the `extraMassKg` field entirely. usage.md gains the FAV/REC tab and a
+  Snapshots section (the PNG/SVG note had drifted into the middle of the save-injection walkthrough).
+- **The policy docs are reachable.** CODE_OF_CONDUCT.md and SECURITY.md were linked from nowhere; the README and
+  CONTRIBUTING now link them.
+
 ## [0.61.1] 2026-08-02, The export wizard and ships into saves
 
 ### Added

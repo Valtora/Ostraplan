@@ -8,7 +8,7 @@ body:
       value: |
         Thanks for the idea! A quick note on scope so we're on the same page:
 
-        Ostraplan validates the **build** — it's a *plan*ner, not a simulator. The [README's "What Ostraplan won't do"](https://github.com/Valtora/Ostraplan#what-ostraplan-wont-do) lists things that are deliberately out of scope (power/gas/thermal sim, economy beyond the bill of materials, multi-ship documents, writing `loading_order.json`, non-Windows). Requests inside that boundary are very welcome; ones outside it I'll probably close with a friendly explanation.
+        Ostraplan does one thing: it **designs ships and gets them into your game**. It's a *plan*ner, not a simulator, and not a save editor. The quick test is whether a *design* is the input to what you're asking for — [docs/SCOPE.md](https://github.com/Valtora/Ostraplan/blob/main/docs/SCOPE.md) sets out the boundary in full, with worked examples either side of the line. Requests inside it are very welcome; ones outside it I'll probably close with a friendly explanation.
 
         For open-ended "would it be cool if…" musing, a [Discussion](https://github.com/Valtora/Ostraplan/discussions) is often a better home than an issue.
   - type: checkboxes
@@ -18,7 +18,7 @@ body:
       options:
         - label: I searched [existing issues](https://github.com/Valtora/Ostraplan/issues?q=is%3Aissue) and this isn't already requested.
           required: true
-        - label: I've read [What Ostraplan won't do](https://github.com/Valtora/Ostraplan#what-ostraplan-wont-do) and believe this is in scope.
+        - label: I've read [what's in scope](https://github.com/Valtora/Ostraplan/blob/main/docs/SCOPE.md) and believe this fits.
           required: false
   - type: textarea
     id: problem

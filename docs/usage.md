@@ -1,7 +1,8 @@
 # Using Ostraplan
 
-A practical walkthrough. For how the game works internally (and what Ostraplan
-ports) see [GAME-INTERNALS.md](GAME-INTERNALS.md); for what shipped when see
+A practical walkthrough. For where the tool's remit starts and stops see
+[SCOPE.md](SCOPE.md); for how the game works internally (and what Ostraplan ports) see
+[GAME-INTERNALS.md](GAME-INTERNALS.md); for what shipped when see
 [CHANGELOG.md](../CHANGELOG.md).
 
 Press **F1** in-app at any time for the full keybinding table.
@@ -36,7 +37,7 @@ right, but treat a mismatch as "double-check in-game".
 
 | Region | What's there |
 |---|---|
-| **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**, and an **ITEMS** tab for loose floor cargo. Search by friendly or internal name. Modded parts show a small origin badge. |
+| **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**, an **ITEMS** tab for loose floor cargo, and a **FAV/REC** tab at the front for the parts you pinned and the ones you just placed. Search by friendly or internal name. Modded parts show a small origin badge. |
 | **Canvas** (centre) | The tile grid. Place, paint, select, pan and zoom here. |
 | **Inspector** (right) | The selected part's details, ship stats, the **Problems** list, and the **Law report**. |
 | **Toolbar** (top) | Grouped **File · Edit · Design · Analyse**, then the view overlay toggles **Zones · Rooms · Power · Light · Walk · Wire** (each highlights in the accent colour while active) and the **View ▾** menu (fit, symmetry, Light Viz daylight, walk-overlay switches, mod overrides), with the theme picker and the **Help ▾** menu on the right. When a newer release exists it is downloaded quietly in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
@@ -59,6 +60,19 @@ right, but treat a mismatch as "double-check in-game".
   when the selection is a genuine mirror set (its partners are selected too); an
   arbitrary selection, such as a fresh paste on one side of the axis, rotates about its
   own centre and moves rigidly instead.
+
+### Finding a part again — FAV/REC
+
+The palette's first tab keeps the parts you actually use within one click of any tab.
+
+- **Favorites** — click the ☆ on any palette row, or right-click a placed tile or loose
+  item ▸ **Add to Favorites**, to pin it. The star fills gold.
+- **Recent** — every part you place is recorded automatically, newest first (the last
+  8). Favorited parts are left out of Recent, since they already have a home, and
+  reappear there if you unpin them.
+
+Both lists persist across sessions and honour the search box. Once you have pins, the
+palette opens on this tab; a fresh install still lands on the full catalogue.
 
 ### The Law — live validation
 
@@ -216,6 +230,14 @@ Two ways out, and it's your call which:
 - **You're done with those mods:** just **Save** and confirm. The parts are dropped,
   the warning clears, and the design carries on as a normal, complete one.
 
+### Snapshots
+
+**PNG snapshot** exports the current design as an image for sharing. The **Ship
+Rating** room map can also be saved as **SVG** (its "Save image…" dialog offers PNG or
+SVG), so the room tints and labels stay crisp at any zoom. Both the plain snapshot and
+the room map render in your current view orientation, so if you've rotated the plan
+with **Q**/**E** the image matches; the room labels stay upright.
+
 ## Import & export
 
 Everything below is under **File ▸ Import** / the **Export** button.
@@ -350,11 +372,6 @@ arrives at whatever the wear slider says, uncrewed.
 A design that's linked to a save can still be added to one; the dialog reminds you that
 this creates a **separate new ship** rather than updating the one you imported. To change
 that ship, use **Analyse ▸ "Update Ship in Save…"** instead.
-- **PNG snapshot:** export the current design as an image for sharing. The **Ship
-  Rating** room map can also be saved as **SVG** (its "Save image…" dialog offers PNG
-  or SVG): the room tints and labels stay crisp at any zoom. The room map (PNG and
-  SVG) is rendered in your current view orientation, so if you've rotated the plan
-  view with **Q**/**E**, the image matches; the room labels stay upright.
 
 ## Editing your live in-game ship
 

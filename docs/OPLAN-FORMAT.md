@@ -84,7 +84,8 @@ A complete file, with every section populated:
   "links": [
     { "src": 0, "tgt": 1 }
   ],
-  "dismissedAlerts": []
+  "dismissedAlerts": [],
+  "extraMassKg": 12000
 }
 ```
 
@@ -94,11 +95,11 @@ A complete file, with every section populated:
   `DefaultIgnoreCondition = WhenWritingNull`: a `null` field is **omitted**, but an
   empty **array** is written (`"zones": []`, `"links": []`, …). So a minimal
   from-scratch design still carries empty `mods` / `zones` / `looseObjects` /
-  `links` / `dismissedAlerts` arrays, and omits `source` (null) and any per-part
-  `origin` / `cargo` that is null.
+  `links` / `dismissedAlerts` arrays, and omits `source` (null), `extraMassKg` (zero),
+  and any per-part `origin` / `cargo` that is null.
 - Property order follows the field order below (`formatVersion`, `viewRot`, `game`,
   `mods`, `meta`, `source`, `parts`, `zones`, `looseObjects`, `links`,
-  `dismissedAlerts`).
+  `dismissedAlerts`, `extraMassKg`).
 - Rotations are one of `0`, `90`, `180`, `270`, normalized on load.
 
 ## Field reference
@@ -118,6 +119,7 @@ A complete file, with every section populated:
 | `looseObjects` | array | Loose floor cargo (below). Additive since v1. |
 | `links` | array | Device signal connections (below). Additive since v1. |
 | `dismissedAlerts` | array of string | Problem-warning keys the user dismissed, so a dismissed warning stays dismissed across reopens. Additive since v1. |
+| `extraMassKg` | double / absent | Dead weight the design is expected to haul (a tow, or a hold of salvage), in kg. Feeds the **propulsion** figures only, dividing in exactly where the game puts a docked ship's mass; it is not reaction mass. **Omitted when zero.** Additive since v1. |
 
 Unknown fields at **every** level are preserved on round-trip.
 

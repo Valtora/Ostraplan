@@ -3,7 +3,7 @@
 # Most tests are game-free and run on any machine. Tests that genuinely need a local
 # Ostranauts install (the Law parity corpus, real prices, sprite rendering) report as
 # SKIPPED — not passed — when the game is absent, so a green run is always honest.
-# See docs/TESTING.md.
+# See docs/TESTING.md (and docs/DEVELOPMENT.md for the wider build/release flow).
 #
 #   .\test.ps1                        # run everything (Debug)
 #   .\test.ps1 -Filter Rooms          # only tests whose full name contains "Rooms"

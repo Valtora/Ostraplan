@@ -2,7 +2,7 @@
 # (Ostraplan-win-Setup.exe), a portable zip (Ostraplan-win-Portable.zip), the
 # update package (*-full.nupkg) and the update manifest (releases.win.json).
 # Output: publish\releases\. Upload the whole folder with `vpk upload github`
-# (see docs\usage.md / README).
+# (the full release procedure is in docs\DEVELOPMENT.md).
 #
 # Close the running app first: it locks its own exe and the publish will fail.
 # -NoLaunch is accepted for old scripts/agent runs (this script never launches

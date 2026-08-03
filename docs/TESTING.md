@@ -4,6 +4,8 @@ Ostraplan's regression suite is an xUnit project at `tests/Ostraplan.Tests`. It 
 game logic — the placement Law, room/rating engine, save-edit write-back, export, cargo, and the
 data parsers — so a change that shifts behaviour is caught before it ships.
 
+For building, versioning and releasing, see [DEVELOPMENT.md](DEVELOPMENT.md).
+
 ## Running
 
 ```powershell
