@@ -82,7 +82,13 @@ public sealed class UpdatePlan
     public bool Backup { get; set; } = true;
 
     public bool Deduct { get; set; }
-    public double Multiplier { get; set; } = EditCost.DefaultMultiplier;
+
+    /// <summary>What a newly-added part (and any authored cargo) costs, as a multiple of its base value.</summary>
+    public double NewMultiplier { get; set; } = EditCost.DefaultNewMultiplier;
+
+    /// <summary>What a moved part costs, as a multiple of its base value. Separate from <see cref="NewMultiplier"/>
+    /// so a refit that shifts a lot of parts without conjuring any need not be priced like a rebuild.</summary>
+    public double MovedMultiplier { get; set; } = EditCost.DefaultMovedMultiplier;
 }
 
 /// <summary>
@@ -175,7 +181,8 @@ public sealed class ExportPlan
         plan.Update.InPlace = last.InPlace;
         plan.Update.Backup = last.Backup;
         plan.Update.Deduct = last.Deduct;
-        plan.Update.Multiplier = last.CostMultiplier;
+        plan.Update.NewMultiplier = last.NewCostMultiplier;
+        plan.Update.MovedMultiplier = last.MovedCostMultiplier;
 
         return plan;
     }
@@ -213,6 +220,7 @@ public sealed class ExportPlan
         last.InPlace = Update.InPlace;
         last.Backup = Update.Backup;
         last.Deduct = Update.Deduct;
-        last.CostMultiplier = Update.Multiplier;
+        last.NewCostMultiplier = Update.NewMultiplier;
+        last.MovedCostMultiplier = Update.MovedMultiplier;
     }
 }

@@ -11,6 +11,52 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **Moved parts have their own price multiplier** on a save edit's **Write target & cost** step (issue #19). The one
+  "Cost multiplier" slider became two, **Added parts** (default 2.0× base value) and **Moved parts** (default 1.0×),
+  replacing the multiplier's fixed half-price weighting for a move. The defaults reproduce the old pricing exactly,
+  so nothing changes until you move a slider.
+  - **This is what a modular refit needed.** Extending the nose of a ship, or shuffling a modular block, moves a
+    great many tiles without conjuring anything, and the single multiplier billed all of it. Setting **Moved parts**
+    to **0×** now leaves only the genuinely new parts on the bill, which removes the two-pass workaround of
+    exporting once to move and again to add.
+  - Deleted parts stay free, and authored cargo still rides the added-parts multiplier: it is conjured the same way
+    a new part is.
+  - The cost readout shows each side with its own multiplier rather than one bracket times one number, so the bill
+    reads as what it is.
+  - The remembered `costMultiplier` setting is replaced by `newCostMultiplier` and `movedCostMultiplier`. A settings
+    file written before this has neither, so both sliders start at their defaults.
+
+### Changed
+- **The edit cost is a ledger now, not an equation.** The **Write target & cost** step used to state the bill as
+  one wrapped line (`( 12 added: $4,300 + 40 moved: $9,100 ) × 2.0× = $17,700`), which is compact and close to
+  unreadable. It is now a tally: one row per kind of change, with base value, multiplier and resulting figure in
+  aligned right-hand columns, a rule, and a total. Rows for a kind of change the edit doesn't contain are simply
+  absent, so a move-only edit shows two lines rather than a row of zeros.
+- **A balance meter shows what the edit takes out of your credits.** Under the tally, a bar fills as the
+  multipliers rise and reads `Balance $50,000 … Left $30,420` with the share as a percentage. It turns red and
+  says how far short you are the moment the cost passes your balance, which is the same point at which Next
+  refuses, so the wall is visible before you hit it rather than only once you try to move on.
+
+### Fixed
+- **Uninstalling a part you already own is no longer billed as building a new one.** "Make Loose Item", "Install
+  item" and toggling a door open or shut all rebuild the part under a different def, and that dropped its link to
+  the save item it came from — so the edit cost saw a free deletion plus a brand-new part, and charged the full
+  added-parts price for a fixture the player already had. They now price on the **moved** multiplier, which is why
+  that slider reads **Moved or un/installed parts**.
+  - **The link can't simply be kept**, which is why this was wrong in the first place: the write-back reuses the
+    save's own item record for a kept or moved part, and that is impossible once the def has changed. The part now
+    records *where it came from* separately, so the save is written exactly as before while the cost model can tell
+    a re-stated part from conjured material.
+  - **Uninstalling and re-installing the same part is free.** Swapping back to the def it started as restores the
+    save identity outright, so a change of mind costs nothing rather than being billed as a move.
+  - The counts line and the done report name these parts separately (`… · 3 un/installed · …`) instead of reporting
+    one uninstall as an addition *and* a deletion.
+  - **Replacing a part with a genuinely different part is unchanged**: a re-skin or a "Replace with…" is new
+    material and still prices as added.
+  - A `.oplan` gains optional `swappedFrom` / `swappedFromDef` fields on a part. Additive, so an older design
+    still loads; its re-stated parts just price as they used to until they are swapped again.
+
 ### Documentation
 - **The project's scope is written down** in a new [docs/SCOPE.md](docs/SCOPE.md). Ostraplan designs ships and gets
   them into your game, and that is the whole remit. The doc gives the test that settles nearly every request

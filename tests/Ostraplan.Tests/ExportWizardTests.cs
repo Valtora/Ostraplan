@@ -841,6 +841,25 @@ public class ExportWizardTests
         Ui.VerifyCaptures(() => plan.ShipName.Length);
     }
 
+    [SkippableFact]
+    public void The_cost_step_builds_and_stands_down_when_there_is_nothing_to_deduct()
+    {
+        // The cost readout is a built-in-code ledger + balance meter, so a row-index or column-span slip lands in
+        // the constructor. Entering with no driver also exercises the path where the tally is collapsed entirely:
+        // a table of zeros would be noise when nothing is being charged.
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var session = Session(g, ExportDestination.UpdateShipInSave,
+                sourceSave: new SaveSourceRef("Cold Open", "J-P3HF"));
+
+            var step = new UpdateTargetStep();
+            step.Enter(session);
+
+            Assert.Null(step.Validate());   // nothing to charge → never blocks Next
+        });
+    }
+
     // ---- helpers ----
 
     private static IReadOnlyList<string> Rail(ExportWizard wizard) =>

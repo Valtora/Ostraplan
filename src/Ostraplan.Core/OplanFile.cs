@@ -70,6 +70,7 @@ public sealed class OplanFile
                        .Select(p => new OplanPart
                        {
                            Def = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot, Given = p.IsGiven, Origin = p.OriginStrID,
+                           SwappedFrom = p.SwappedFromStrID, SwappedFromDef = p.SwappedFromDef,
                            // Persist a FULL snapshot of a container's contents once it has been edited, so authored
                            // cargo is authoritative on reopen rather than re-derived from the (possibly moved) save.
                            Cargo = doc.IsCargoEdited(p) && p.Cargo.Count > 0 ? p.Cargo.Select(ToOplanCargo).ToList() : null,
@@ -121,7 +122,11 @@ public sealed class OplanFile
                 missing.Add(part);
                 continue;
             }
-            var placement = new Placement { DefName = part.Def, X = part.X, Y = part.Y, Rot = GridMath.Norm(part.Rot), IsGiven = part.Given, OriginStrID = part.Origin };
+            var placement = new Placement
+            {
+                DefName = part.Def, X = part.X, Y = part.Y, Rot = GridMath.Norm(part.Rot), IsGiven = part.Given,
+                OriginStrID = part.Origin, SwappedFromStrID = part.SwappedFrom, SwappedFromDef = part.SwappedFromDef,
+            };
             doc.Add(placement);
             byIndex[i] = placement;
             // Restore an edited container's authored contents from the snapshot and re-mark it edited, so the
@@ -264,6 +269,11 @@ public sealed class OplanPart
     [JsonPropertyName("rot")] public int Rot { get; set; }
     [JsonPropertyName("given")] public bool Given { get; set; }   // imported (pre-existing) structure — exempt from the placement-law scan
     [JsonPropertyName("origin")] public string? Origin { get; set; }   // save-edit: the source save item's strID (see Placement.OriginStrID)
+    /// <summary>Save-edit: the save item this part was before an uninstall/install or door toggle re-stated it,
+    /// and the def it carried then (see <see cref="Placement.SwappedFromStrID"/>). Additive; a design written
+    /// before these existed simply has neither, and its re-stated parts price as new material as they used to.</summary>
+    [JsonPropertyName("swappedFrom")] public string? SwappedFrom { get; set; }
+    [JsonPropertyName("swappedFromDef")] public string? SwappedFromDef { get; set; }
     /// <summary>A full snapshot of this container's contents, present only when its cargo was edited in the
     /// inventory editor (see <see cref="ShipDocument.IsCargoEdited"/>). Null for un-edited parts, whose cargo is
     /// re-read from the linked save on open. See <see cref="OplanCargo"/>.</summary>

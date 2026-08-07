@@ -29,10 +29,52 @@ public sealed class Placement
     /// the part keeps its save identity so its live-state CO and cargo travel with it on write-back, and the diff
     /// classifies it as <i>moved</i> rather than deleted+new. It is dropped only by operations that create a genuinely new
     /// part: duplicate, paste, paint, box-fill, symmetry-mirror, a def-changing replace / re-skin, and layout-only
-    /// template/save import (all of which build a fresh <see cref="Placement"/> without copying it). Drives the
-    /// save-edit diff (<see cref="ShipDiff"/>). Init-only: identity is fixed at creation and never reassigned.
+    /// template/save import (all of which build a fresh <see cref="Placement"/> without copying it). A
+    /// <b>state</b>-changing swap (<see cref="Restate"/>) drops it too — the item record can't be reused under a
+    /// new def — but records it in <see cref="SwappedFromStrID"/>, so the part is still known to be one the player
+    /// already owns. Drives the save-edit diff (<see cref="ShipDiff"/>). Init-only: identity is fixed at creation
+    /// and never reassigned.
     /// </summary>
     public string? OriginStrID { get; init; }
+
+    /// <summary>
+    /// The <c>strID</c> of the save item this part <b>used to be</b>, when a state-changing swap
+    /// (<see cref="Restate"/>: uninstall / install, open / close a door) rebuilt it under a different def. Its
+    /// <see cref="OriginStrID"/> is necessarily null — the def changed, so the save's item record can't be reused
+    /// and the write-back has to author a fresh item — but the object is one the player <i>already owns</i>, merely
+    /// in a different state. That distinction is what stops the edit cost billing an uninstalled fixture as though
+    /// it had been conjured (issue #19); the diff reports it and <see cref="EditCost"/> prices it as a move.
+    /// </summary>
+    public string? SwappedFromStrID { get; init; }
+
+    /// <summary>The def this part carried before the swap that set <see cref="SwappedFromStrID"/>, so a swap back
+    /// to it can restore the save identity outright (uninstall then re-install is a no-op, and must be free).
+    /// Always null when <see cref="SwappedFromStrID"/> is.</summary>
+    public string? SwappedFromDef { get; init; }
+
+    /// <summary>
+    /// A replacement for this part under <paramref name="targetDef"/>, for a swap that changes a part's <b>state</b>
+    /// rather than its identity: uninstall / install (<see cref="FormSwap"/>) and open / close a door. Tile and
+    /// cargo ride across; given-ness is cleared, so the problem scan re-checks the result like any authoring act.
+    ///
+    /// <para>Swapping back to the def the part came from restores <see cref="OriginStrID"/> outright — same def,
+    /// same cargo, so the save's own item record genuinely can be reused again and the round trip is free. Any
+    /// other swap records where it came from in <see cref="SwappedFromStrID"/> instead. A part with no save
+    /// identity to preserve carries neither.</para>
+    /// </summary>
+    public Placement Restate(string targetDef, int rot)
+    {
+        var carriedId = SwappedFromStrID ?? OriginStrID;
+        var carriedDef = SwappedFromDef ?? DefName;
+        var backHome = carriedId is not null && string.Equals(carriedDef, targetDef, StringComparison.Ordinal);
+        return new Placement
+        {
+            DefName = targetDef, X = X, Y = Y, Rot = rot, IsGiven = false, Cargo = Cargo,
+            OriginStrID = backHome ? carriedId : null,
+            SwappedFromStrID = backHome ? null : carriedId,
+            SwappedFromDef = backHome || carriedId is null ? null : carriedDef,
+        };
+    }
 
     /// <summary>
     /// The contained sub-objects this part holds — loose cargo and slotted equipment, nested (see
@@ -194,7 +236,11 @@ public sealed class ShipDocument
     {
         var copy = new ShipDocument(Catalog);
         foreach (var p in _placements)
-            copy.Add(new Placement { DefName = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot, IsGiven = p.IsGiven, OriginStrID = p.OriginStrID });
+            copy.Add(new Placement
+            {
+                DefName = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot, IsGiven = p.IsGiven,
+                OriginStrID = p.OriginStrID, SwappedFromStrID = p.SwappedFromStrID, SwappedFromDef = p.SwappedFromDef,
+            });
         return copy;
     }
 

@@ -26,7 +26,13 @@ public sealed record InjectReport(
     IReadOnlyList<string> Warnings,
     bool GridReframed, int NCols, int NRows,
     double? Charged = null, double? ResultingBalance = null,
-    bool AtmosphereFilled = false, int PowerFixed = 0);
+    bool AtmosphereFilled = false, int PowerFixed = 0)
+{
+    /// <summary>Parts that only changed state — uninstalled, installed, a door opened or shut (see
+    /// <see cref="ShipDiff.ReformedCount"/>). Written as fresh items like <see cref="Added"/>, but reported apart
+    /// from it because nothing was actually built.</summary>
+    public int Reformed { get; init; }
+}
 
 /// <summary>
 /// Writes an edited design back into the player's ship — the inject half of save-edit. It takes the edited
@@ -444,7 +450,10 @@ public static class SaveEdit
         var report = new InjectReport(
             diff.KeptCount, diff.MovedCount, diff.NewCount, diff.DeletedCount,
             cargoLosses, warnings, reframed, nColsNew, nRowsNew,
-            charge?.Amount, charge?.NewBalance, atmosphereFilled, powerFixed);
+            charge?.Amount, charge?.NewBalance, atmosphereFilled, powerFixed)
+        {
+            Reformed = diff.ReformedCount,
+        };
         return (ship, report);
     }
 

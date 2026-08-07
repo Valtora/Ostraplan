@@ -45,7 +45,8 @@ public sealed class UpdateDriver : ExportDriver
     /// <summary>The structural change counts, for the cost step's header.</summary>
     public ShipDiff? Diff => _diff;
 
-    /// <summary>The edit's cost at a multiplier of 1.0, which the cost step scales live.</summary>
+    /// <summary>The edit's cost at multipliers of 1.0, which the cost step scales live via
+    /// <see cref="EditCost.Total(EditCostBreakdown, double, double)"/>.</summary>
     public EditCostBreakdown? BaseCost => _baseCost;
 
     /// <summary>The player's current credits, or null when this save has no balance to deduct from.</summary>
@@ -94,7 +95,7 @@ public sealed class UpdateDriver : ExportDriver
     {
         if (_ctx is not { } ctx) return;
         _diff = ShipDiff.Compute(session.Doc, ctx);
-        _baseCost = EditCost.Compute(_diff, session.Catalog, 1.0);
+        _baseCost = EditCost.Compute(_diff, session.Catalog, 1.0, 1.0);
         _balance = SaveEdit.CurrentBalance(ctx);
     }
 
@@ -163,7 +164,7 @@ public sealed class UpdateDriver : ExportDriver
         var facts = new List<ReviewFact>
         {
             new("Ship", $"{ctx.Source.RegId} in \"{ctx.Source.SaveName}\""),
-            new("Changes", $"{_report.Kept} kept, {_report.Moved} moved, {_report.Added} added, {_report.Deleted} deleted"),
+            new("Changes", ChangeSummary(_report)),
             new("Grid", _report.GridReframed
                 ? $"reframed to {_report.NCols} x {_report.NRows}"
                 : $"{_report.NCols} x {_report.NRows}, unchanged"),
@@ -244,7 +245,7 @@ public sealed class UpdateDriver : ExportDriver
 
         var lines = new List<string>
         {
-            $"{report.Kept} kept, {report.Moved} moved, {report.Added} added, {report.Deleted} deleted.",
+            ChangeSummary(report) + ".",
         };
         if (report.Charged is { } charged)
             lines.Add($"{Money(charged)} was deducted. Your balance is now {Money(report.ResultingBalance ?? 0)}.");
@@ -297,8 +298,21 @@ public sealed class UpdateDriver : ExportDriver
             $"{gameWarn}{backupLine}", "Overwrite in place");
     }
 
+    /// <summary>The structural change summary. Re-stated parts (uninstalled, installed, a door toggled) are named
+    /// separately from added ones, because the save gets a fresh item for them either way but nothing was built.</summary>
+    private static string ChangeSummary(InjectReport r)
+    {
+        var parts = new List<string> { $"{r.Kept} kept", $"{r.Moved} moved" };
+        if (r.Reformed > 0) parts.Add($"{r.Reformed} un/installed");
+        parts.Add($"{r.Added} added");
+        parts.Add($"{r.Deleted} deleted");
+        return string.Join(", ", parts);
+    }
+
     private double Cost(ExportPlan plan) =>
-        plan.Update.Deduct && _baseCost is { } b ? plan.Update.Multiplier * b.Total : 0;
+        plan.Update.Deduct && _baseCost is { } b
+            ? EditCost.Total(b, plan.Update.NewMultiplier, plan.Update.MovedMultiplier)
+            : 0;
 
     private static string Money(double v) =>
         "$" + v.ToString("#,##0.##", System.Globalization.CultureInfo.InvariantCulture);

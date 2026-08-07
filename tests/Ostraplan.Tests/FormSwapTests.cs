@@ -92,6 +92,76 @@ public class FormSwapTests
         Assert.Empty(FormSwap.Installable(doc, [wall, fix]));      // neither is a loose form
     }
 
+    // ---- save identity across a swap (issue #19) ----
+
+    [Fact]
+    public void Uninstalling_a_save_part_records_the_item_it_came_from()
+    {
+        var doc = new ShipDocument(PairCatalog());
+        var p = new Placement { DefName = "Fix", X = 2, Y = 3, OriginStrID = "save-1" };
+        new PlaceCommand(p).Do(doc);
+
+        var swap = FormSwap.BuildSwap(doc, FormSwap.Loosenable(doc, [p]))!.Value;
+        swap.Cmd.Do(doc);
+
+        var loose = Assert.Single(swap.New);
+        Assert.Null(loose.OriginStrID);                    // def changed → the save's item record can't be reused
+        Assert.Equal("save-1", loose.SwappedFromStrID);    // but this is still a part the player owns
+        Assert.Equal("Fix", loose.SwappedFromDef);         // and we know what to restore it to
+    }
+
+    [Fact]
+    public void Re_installing_restores_the_save_identity_so_the_round_trip_is_a_no_op()
+    {
+        var doc = new ShipDocument(PairCatalog());
+        var p = new Placement { DefName = "Fix", X = 2, Y = 3, OriginStrID = "save-1" };
+        new PlaceCommand(p).Do(doc);
+
+        var out1 = FormSwap.BuildSwap(doc, FormSwap.Loosenable(doc, [p]))!.Value;
+        out1.Cmd.Do(doc);
+
+        var back = FormSwap.BuildSwap(doc, FormSwap.Installable(doc, [out1.New[0]]))!.Value;
+        back.Cmd.Do(doc);
+
+        var reinstalled = Assert.Single(back.New);
+        Assert.Equal("Fix", reinstalled.DefName);
+        Assert.Equal("save-1", reinstalled.OriginStrID);   // same def again → the item record IS reusable
+        Assert.Null(reinstalled.SwappedFromStrID);         // nothing outstanding to price
+        Assert.Null(reinstalled.SwappedFromDef);
+    }
+
+    [Fact]
+    public void A_part_with_no_save_identity_carries_no_provenance()
+    {
+        var doc = new ShipDocument(PairCatalog());
+        var p = Fixtures.Place(doc, "Fix", 0, 0);          // authored here, never in a save
+
+        var swap = FormSwap.BuildSwap(doc, FormSwap.Loosenable(doc, [p]))!.Value;
+        swap.Cmd.Do(doc);
+
+        var loose = Assert.Single(swap.New);
+        Assert.Null(loose.SwappedFromStrID);
+        Assert.Null(loose.SwappedFromDef);
+    }
+
+    [Fact]
+    public void Restate_carries_the_earliest_identity_through_a_chain_of_states()
+    {
+        // The door toggle uses the same primitive as the form swap, on defs with no form pair at all.
+        var closed = new Placement { DefName = "DoorClosed", X = 1, Y = 1, OriginStrID = "save-9" };
+
+        var open = closed.Restate("DoorOpen", 0);
+        Assert.Null(open.OriginStrID);
+        Assert.Equal("save-9", open.SwappedFromStrID);
+
+        // a third state keeps pointing at the ORIGINAL def, so the way home is never lost
+        var ajar = open.Restate("DoorAjar", 0);
+        Assert.Equal("save-9", ajar.SwappedFromStrID);
+        Assert.Equal("DoorClosed", ajar.SwappedFromDef);
+
+        Assert.Equal("save-9", ajar.Restate("DoorClosed", 0).OriginStrID);
+    }
+
     // ---- real game data (install-gated) ----
 
     [SkippableFact]

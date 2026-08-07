@@ -1389,6 +1389,9 @@ public partial class MainWindow : Window
     /// and a closed door identically — but it lets a design record which doors are shut,
     /// e.g. to picture a multi-compartment ship. Implemented as remove-old + place-new so
     /// it rides the normal undo stack; the new placements become the selection.
+    ///
+    /// <para>A state change, not an identity change, so it goes through <see cref="Placement.Restate"/>: on a save
+    /// edit the door is one the player already owns, and shutting it must not be billed as a new door.</para>
     /// </summary>
     private void ToggleDoors(IReadOnlyList<Placement> doors)
     {
@@ -1398,7 +1401,7 @@ public partial class MainWindow : Window
         foreach (var p in doors)
         {
             if (_doc.IsLocked(p) || _catalog.DoorToggle(p.DefName) is not { } peer) continue;
-            var swapped = new Placement { DefName = peer, X = p.X, Y = p.Y, Rot = p.Rot };
+            var swapped = p.Restate(peer, p.Rot);
             commands.Add(new RemoveCommand([p]));
             commands.Add(new PlaceCommand(swapped));
             newIds.Add(swapped.Id);

@@ -50,7 +50,7 @@ public static class FormSwap
             if (doc.IsLocked(p) || p.DefName == target) continue;
             // A sheet target (a wall/floor) auto-tiles and must sit at rot 0; a loose fixture keeps its rotation.
             var sheet = doc.Catalog.Lookup(target)?.Item.HasSpriteSheet == true;
-            var repl = new Placement { DefName = target, X = p.X, Y = p.Y, Rot = sheet ? 0 : p.Rot, IsGiven = false, Cargo = p.Cargo };
+            var repl = p.Restate(target, sheet ? 0 : p.Rot);
             cmds.Add(new RemoveCommand([p]));
             cmds.Add(new PlaceCommand(repl));
             created.Add(repl);

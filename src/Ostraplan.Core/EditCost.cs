@@ -1,10 +1,11 @@
 namespace Ostraplan.Core;
 
 /// <summary>The credit cost of an edit, broken down for display: how many parts were added / moved, the raw
-/// base-value sums, the multiplier applied, and the resulting <see cref="Total"/>. Deletes are free and don't
+/// base-value sums, the two multipliers applied, and the resulting <see cref="Total"/>. Deletes are free and don't
 /// appear here; a re-skin is counted as its new part (the diff models it as delete + new).</summary>
 public sealed record EditCostBreakdown(
-    int NewParts, int MovedParts, double NewValue, double MovedValue, double Multiplier, double Total)
+    int NewParts, int MovedParts, double NewValue, double MovedValue,
+    double NewMultiplier, double MovedMultiplier, double Total)
 {
     /// <summary>How many cargo items were authored into containers (see <see cref="CargoItem.Authored"/>) — each
     /// priced at full base value, like a new part, since you're conjuring it outside the game's economy. A stack's
@@ -13,54 +14,85 @@ public sealed record EditCostBreakdown(
 
     /// <summary>The summed base value of the authored cargo (before the multiplier).</summary>
     public double CargoValue { get; init; }
+
+    /// <summary>How many parts only changed state — uninstalled, installed, a door opened or shut (see
+    /// <see cref="PartChange.Reformed"/>). Counted apart from <see cref="MovedParts"/> so the readout can name
+    /// them, but priced on the same multiplier: the player already owns them.</summary>
+    public int ReformedParts { get; init; }
+
+    /// <summary>The summed base value of the re-stated parts (before the multiplier).</summary>
+    public double ReformedValue { get; init; }
 }
 
 /// <summary>
-/// The "feel less cheaty" cost model for writing an edit back into a save: a player-set multiplier over the
-/// base value of everything the edit added or moved. New parts count at full base value (you're conjuring them
-/// outside the game's build economy); moved parts count at half (you already own them); deletes are free. The
-/// multiplier is the player's tax knob — 0× makes edits free, higher makes them bite — and at the default of
-/// <see cref="DefaultMultiplier"/> a new part costs 2× and a moved part 1× its base value, matching the
-/// originally-specified premium. Base value is the part's <c>StatBasePrice</c> (see <see cref="PartDef.BasePrice"/>).
+/// The "feel less cheaty" cost model for writing an edit back into a save: player-set multipliers over the base
+/// value of everything the edit added or moved. Adding and moving are priced independently, because they are
+/// different acts: a new part is conjured outside the game's build economy, while a moved part is one you already
+/// own being put somewhere else. Deletes are free either way.
+///
+/// <para>"Moved" is the broader of the two, and covers any part you already own that merely changed: repositioned,
+/// or <b>re-stated</b> — uninstalled to its packaged form, installed from one, a door opened or shut. The
+/// write-back has to author a fresh item for a re-stated part (its def changed, so the save's item record can't be
+/// reused), but that is a storage detail, not a purchase, and pricing it as construction was the bug behind
+/// issue #19. What is <i>not</i> covered is a replace or re-skin: swapping a part for a genuinely different part
+/// is new material, and stays on the added side.</para>
+///
+/// <para>The two multipliers are the player's tax knobs — 0× makes that side of the edit free, higher makes it
+/// bite — and at the defaults (<see cref="DefaultNewMultiplier"/> and <see cref="DefaultMovedMultiplier"/>) a new
+/// part costs 2× and a moved part 1× its base value, the originally-specified premium. Splitting them is what lets
+/// a modular refit, where a lot of parts shift but nothing is really conjured, cost close to nothing (issue #19).
+/// Base value is the part's <c>StatBasePrice</c> (see <see cref="PartDef.BasePrice"/>).</para>
 /// </summary>
 public static class EditCost
 {
-    /// <summary>New parts count at full base value.</summary>
-    public const double NewWeight = 1.0;
+    /// <summary>The new-parts slider's starting multiplier.</summary>
+    public const double DefaultNewMultiplier = 2.0;
 
-    /// <summary>Moved parts count at half base value (you already own them).</summary>
-    public const double MovedWeight = 0.5;
+    /// <summary>The moved-parts slider's starting multiplier, half the new-parts default: you already own it.</summary>
+    public const double DefaultMovedMultiplier = 1.0;
 
-    /// <summary>The slider's starting multiplier — 2× new / 1× moved, the specified premium.</summary>
-    public const double DefaultMultiplier = 2.0;
-
-    /// <summary>The slider's ceiling.</summary>
+    /// <summary>Both sliders' ceiling.</summary>
     public const double MaxMultiplier = 10.0;
 
-    /// <summary>Cost the edit described by <paramref name="diff"/> at the given <paramref name="multiplier"/>,
-    /// pricing each changed part from its <see cref="PartDef.BasePrice"/> (0 when a def has no price or can't
-    /// resolve). Pure and deterministic.</summary>
-    public static EditCostBreakdown Compute(ShipDiff diff, Catalog catalog, double multiplier)
+    /// <summary>Cost the edit described by <paramref name="diff"/> at the given multipliers, pricing each changed
+    /// part from its <see cref="PartDef.BasePrice"/> (0 when a def has no price or can't resolve). Authored cargo
+    /// rides the new-parts multiplier, since it is conjured the same way. Pure and deterministic.</summary>
+    public static EditCostBreakdown Compute(ShipDiff diff, Catalog catalog,
+        double newMultiplier, double movedMultiplier)
     {
-        double newValue = 0, movedValue = 0, cargoValue = 0;
-        int newParts = 0, movedParts = 0, newCargo = 0;
+        double newValue = 0, movedValue = 0, reformedValue = 0, cargoValue = 0;
+        int newParts = 0, movedParts = 0, reformedParts = 0, newCargo = 0;
         foreach (var c in diff.Changes)
         {
             if (c.Placement is null) continue;   // deleted parts are free
             var price = catalog.Lookup(c.Placement.DefName)?.BasePrice ?? 0;
-            if (c.Kind == PartChangeKind.New) { newValue += price; newParts++; }
+            // a re-stated part is New to the write-back but not new material, so it is priced as a move
+            if (c.Reformed) { reformedValue += price; reformedParts++; }
+            else if (c.Kind == PartChangeKind.New) { newValue += price; newParts++; }
             else if (c.Kind == PartChangeKind.Moved) { movedValue += price; movedParts++; }
             // authored cargo added to this surviving container (a kept container can gain items) — full value
             foreach (var node in c.Placement.Cargo)
                 AddAuthoredCargo(node, catalog, ref cargoValue, ref newCargo);
         }
-        var total = multiplier * (newValue * NewWeight + movedValue * MovedWeight + cargoValue * NewWeight);
-        return new EditCostBreakdown(newParts, movedParts, newValue, movedValue, multiplier, total)
+        var total = Total(newValue, movedValue + reformedValue, cargoValue, newMultiplier, movedMultiplier);
+        return new EditCostBreakdown(newParts, movedParts, newValue, movedValue, newMultiplier, movedMultiplier, total)
         {
             NewCargo = newCargo,
             CargoValue = cargoValue,
+            ReformedParts = reformedParts,
+            ReformedValue = reformedValue,
         };
     }
+
+    /// <summary>Re-total an already-computed breakdown at different multipliers, without walking the diff again.
+    /// The cost step computes once at 1×/1× and calls this as the sliders move.</summary>
+    public static double Total(EditCostBreakdown breakdown, double newMultiplier, double movedMultiplier) =>
+        Total(breakdown.NewValue, breakdown.MovedValue + breakdown.ReformedValue, breakdown.CargoValue,
+            newMultiplier, movedMultiplier);
+
+    private static double Total(double newValue, double movedValue, double cargoValue,
+        double newMultiplier, double movedMultiplier) =>
+        newMultiplier * (newValue + cargoValue) + movedMultiplier * movedValue;
 
     /// <summary>Accumulate the base value + count of every authored item in a cargo subtree (stack members and
     /// nested authored items included); original save items are free — they already exist.</summary>

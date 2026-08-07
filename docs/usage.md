@@ -393,9 +393,22 @@ identity*, so you can redesign the structure out-of-game and write it back.
 - The ship's **identity is read-only** here, shown greyed with a note. A save edit
   rewrites the ship's structure, not who it is. Export as a mod to give a design a new
   identity.
-- The **Write target & cost** step carries the cost model: new parts at full base value,
-  moved parts at half, times a multiplier you choose. The readout follows the slider and
-  Next refuses if you can't afford the deduction.
+- The **Write target & cost** step carries the cost model: **two multipliers over base
+  value**, one for parts you added (default **2.0×**) and one for parts you **moved or
+  un/installed** (default **1.0×**). Deleted parts are free, and authored cargo is priced
+  like an added part. Pricing the two separately means a modular refit, or extending the
+  nose of a ship, need not cost like a rebuild just because a lot of tiles shifted: drop
+  the moved multiplier to **0×** and only the genuinely new parts are billed.
+- The bill is shown as a **tally**: one row per kind of change with its base value,
+  multiplier and figure in aligned columns, then a total. Under it, a **balance meter**
+  shows what the edit takes out of your credits and how much is left. Both follow the
+  sliders live. The meter turns red and tells you how far short you are once the cost
+  passes your balance, which is exactly when Next refuses.
+- **"Make Loose Item", "Install item" and toggling a door count as moves, not purchases.**
+  A part you already own that only changes *state* is priced on the moved multiplier, and
+  the counts line names it separately (`… · 3 un/installed · …`). Uninstalling and
+  re-installing the same part is free: it ends up exactly where it started. Replacing a
+  part with a genuinely **different** part is still new material and prices as added.
 - **Wear** is on **The ship** step, as it is for every destination (on by default at
   ~88%). On a save edit it re-rolls the condition of **every** installed part to the
   chosen average, replacing existing damage. Untick it to keep each part's current wear.

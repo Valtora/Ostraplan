@@ -96,7 +96,7 @@ A complete file, with every section populated:
   empty **array** is written (`"zones": []`, `"links": []`, …). So a minimal
   from-scratch design still carries empty `mods` / `zones` / `looseObjects` /
   `links` / `dismissedAlerts` arrays, and omits `source` (null), `extraMassKg` (zero),
-  and any per-part `origin` / `cargo` that is null.
+  and any per-part `origin` / `swappedFrom` / `swappedFromDef` / `cargo` that is null.
 - Property order follows the field order below (`formatVersion`, `viewRot`, `game`,
   `mods`, `meta`, `source`, `parts`, `zones`, `looseObjects`, `links`,
   `dismissedAlerts`, `extraMassKg`).
@@ -166,6 +166,8 @@ The design itself, in draw order (array order is preserved). Each entry:
 | `rot` | int | `0` / `90` / `180` / `270`. |
 | `given` | bool | Imported (pre-existing) structure, exempt from the placement-law scan until moved. `false` for parts you placed. |
 | `origin` | string / absent | Save-edit only: the source save item's `strID`, used to write structural edits back to the right item. Absent otherwise. |
+| `swappedFrom` | string / absent | Save-edit only: the `strID` this part **used to be**, before an uninstall / install or door toggle re-stated it under another def. `origin` is necessarily absent when this is present (the item record can't be reused), but the part is still one the player owns, so the edit cost prices it as a move rather than as construction. |
+| `swappedFromDef` | string / absent | The def the part carried before that swap, so swapping back to it restores `origin` outright and the round trip is free. Always absent when `swappedFrom` is. |
 | `cargo` | array / absent | A full snapshot of this container's contents, present **only** when its cargo was edited in the inventory editor. Un-edited containers omit it and re-read their contents from the linked save on open. |
 
 **Cargo snapshot node** (`cargo[]`, recursive via `children`):

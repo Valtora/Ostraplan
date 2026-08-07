@@ -54,7 +54,14 @@ public sealed class LastExport
     [JsonPropertyName("inPlace")] public bool InPlace { get; set; }
     [JsonPropertyName("backup")] public bool Backup { get; set; } = true;
     [JsonPropertyName("deduct")] public bool Deduct { get; set; }
-    [JsonPropertyName("costMultiplier")] public double CostMultiplier { get; set; } = 1.0;
+    /// <summary>The edit-cost multipliers, one per side of the edit (see <see cref="EditCost"/>). New keys as of
+    /// the split in 0.62: a settings file written before it has neither, so both sliders start at their defaults
+    /// rather than inheriting the single <c>costMultiplier</c> that used to cover both.</summary>
+    [JsonPropertyName("newCostMultiplier")]
+    public double NewCostMultiplier { get; set; } = EditCost.DefaultNewMultiplier;
+
+    [JsonPropertyName("movedCostMultiplier")]
+    public double MovedCostMultiplier { get; set; } = EditCost.DefaultMovedMultiplier;
 
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }
