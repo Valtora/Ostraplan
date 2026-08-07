@@ -12,6 +12,21 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **An exported mod now ships its own preview art**, so the ship shows a picture wherever the game shows one
+  (issue #21). Character creation asks for exactly `images/ships/<ship>/<ship>.png` and has no fallback, so an
+  Ostraplan ship offered as a Shipbreaker start drew the game's red missing-image X where its portrait belongs.
+  The export writes that file, at the same 800×600 on black the game's own ship editor produces.
+  - **Room thumbnails come with it**, one per certified room, named the way the game names its own
+    (`BridgeRoom.png`, `Engineering_1.png`) so the broker kiosk can pair each with its room icon. The broker
+    listing now reads like a core ship's instead of falling back to a grey silhouette.
+  - Framing follows the game: the whole ship centred with a little air, each room centred at a closer zoom with
+    the surrounding decks still visible and cut off by the frame. The art is drawn at the design's real
+    orientation, not the editor's Q/E plan-view rotation.
+  - Re-exporting sweeps the ship's old images first, so a thumbnail of a room a redesign no longer has cannot
+    linger in the kiosk. Nothing outside `images/ships/<ship>/` is touched.
+  - A replacement export files its art under the ship it replaces, which is what makes the new design's picture
+    override the original's.
+
 - **Moved parts have their own price multiplier** on a save edit's **Write target & cost** step (issue #19). The one
   "Cost multiplier" slider became two, **Added parts** (default 2.0× base value) and **Moved parts** (default 1.0×),
   replacing the multiplier's fixed half-price weighting for a move. The defaults reproduce the old pricing exactly,
@@ -39,6 +54,16 @@ each release was verified against is recorded in
   refuses, so the wall is visible before you hit it rather than only once you try to move on.
 
 ### Fixed
+- **An exported ship no longer weighs nothing and no longer reads as having no thrusters.** The block of
+  shallow-load state every core template carries (`fShallowMass`, `fShallowRCSRemass`/`Max`, `nRCSCount`,
+  `nRCSDistroCount`, and the torch figures) was declared on the export but never filled in, so it went out as
+  zeroes. That is what printed "Mass: 0 (kg)" and "RCS Count: 0" on the character-creation and kiosk spec sheets,
+  and it went further than cosmetics: the game refuses RCS flight outright when the thruster or distributor count
+  is zero, so a copy of the ship that had not been fully loaded yet could not manoeuvre. Every figure is now
+  baked from the same propulsion analysis the design's own report is built on.
+  - The design's **expected haul mass** is deliberately left out of the ship's mass. It is a planning input for
+    the acceleration report, not something the ship weighs.
+
 - **Uninstalling a part you already own is no longer billed as building a new one.** "Make Loose Item", "Install
   item" and toggling a door open or shut all rebuild the part under a different def, and that dropped its link to
   the save item it came from — so the edit cost saw a free deletion plus a brand-new part, and charged the full

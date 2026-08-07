@@ -825,8 +825,9 @@ A ship file is a **top-level array** of ship objects (the ship element carries `
 and unknown fields are ignored**. A well-formed template is the **54 top-level fields
 present on all 192 core templates** plus `aRating`; unlisted fields are safely omitted.
 
-- Values are pristine/neutral (wear/mass/physics caches 0 — the game recomputes on full
-  load), `origin` / `publicName` = `"$TEMPLATE"`, `nConstructionProgress` 100.
+- Values are pristine/neutral (wear and runtime physics caches 0), `origin` /
+  `publicName` = `"$TEMPLATE"`, `nConstructionProgress` 100. **The shallow-state block is
+  the exception** — see below.
 - `strRegID` must be non-empty (the loader indexes `strRegID[0]`), but the game
   **regenerates** it and **re-derives `origin`** from a loot table when `origin ==
   "$TEMPLATE"`, and null-guards `aCrew` / `aCOs`, so a template needs no crew or cargo.
@@ -840,6 +841,38 @@ present on all 192 core templates** plus `aRating`; unlisted fields are safely o
 **`aRooms`** = each room's tile indices (`col + row·nCols`) + `bVoid` + `roomSpec` +
 `roomValue` (the **parts** value `Room.CalculateRoomValue` sums, which `GetShipValue`
 reads on a shallow load — **not** the physical `Volume`).
+
+### The shallow-state block is real data, not a cache
+
+`Ship.GetJSON` writes a block of derived figures on save, and `Ship.InitShip` reads them
+straight back for a ship loaded **Shallow**. They are only recomputed once the ship
+reaches an Edit/Full load, so on a template they are the ship's stats for as long as it
+stays unloaded. **Every core template carries a real `fShallowMass`** (0 of the 220 ship
+elements in 1.0.0.7 are zero), and each of the rest is populated wherever the ship
+actually has that system.
+
+| Field | Written from | Read by |
+| --- | --- | --- |
+| `fShallowMass` | `Ship.Mass` (Σ `StatMass` over top-level COs, no `IsInstalled` filter) | `Ship.Mass` while shallow (+ cargo mass); "Mass: (kg)" on the chargen/kiosk spec sheet |
+| `fShallowRCSRemass` / `…Max` | `GetRCSRemain()` / `GetRCSMax()` | the AI fuel-request path |
+| `nRCSCount` | `fRCSCount` (Σ `StatThrustStrength`, **not** a headcount) | `Ship.Maneuver`; "RCS Count" on the spec sheet |
+| `nRCSDistroCount` | counted on distributor install, ignoring power state | `Ship.Maneuver` |
+| `bFusionTorch` | `bFusionReactorRunning` | "Torch Drive: Yes/No"; AI interregional routing; sensor signature |
+| `fFusionThrustMax` / `fFusionPelletMax` / `fShallowFusionRemain` | `FusionIC` | the nav console's course plot and reactant clock |
+
+Two of these are load-bearing rather than cosmetic. `Ship.Mass` returns `fShallowMass`
+verbatim while shallow, so a zero divides through every acceleration the flight model
+computes; and `Ship.Maneuver` **returns without thrusting** when `fRCSCount == 0` or
+`nRCSDistroCount == 0`, so a shallow ship with a zeroed pair cannot manoeuvre at all.
+
+A template's reactor is unlit, yet every core torch ship still ships `bFusionTorch: true`
+with its thrust and pellet figures baked. Shallow, this block **is** the ship's stated
+torch capability; `FusionIC` overwrites all three the moment the ship loads far enough to
+run one.
+
+> **Ported in Ostraplan:** `Propulsion` supplies every figure; `ShipExport.Build` bakes
+> them. The design's *expected haul mass* is deliberately excluded from `fShallowMass` —
+> it is a planning input for the acceleration report, not ship mass.
 
 ### Contained cargo is stored the SAVE way
 
@@ -984,6 +1017,40 @@ overriding or appending to the relevant pools:
 `fLastQuotedPrice` is a red herring for buy pricing: neither buy path reads it (only the
 sell/derelict `GetQuotedPrice` cache does), and it is reset to 0 on a non-derelict
 Edit-load.
+
+### A ship's picture is a file named after the ship
+
+Everywhere the game shows a ship portrait it resolves the art from
+`images/ships/<strName>/`, keyed on the ship's **`strName`** and nothing else — not the
+`data/ships` file name, not the `publicName`, not the mod folder. `DataHandler.LoadPNG`
+searches `<modPath>/images/` across every loaded mod, most recently loaded first, then
+the core streaming assets, so **a mod's image overrides core's for the same name**. That
+is what lets a replacement export supply its own picture for the ship it replaces.
+
+Two call sites, and they behave very differently on a miss:
+
+- **Chargen** (`GUIChargenCareer.PageEvent`) loads exactly one file by name,
+  `/ships/<strName>/<strName>.png`, where `<strName>` is the first entry of the `…Reward`
+  loot's `aCOs`. There is **no fallback**: `LoadPNG` returns `Resources/Sprites/missing`,
+  which is the red X, and the panel shows it full size next to the ship's stats.
+- **The broker kiosk** (`UsedShipListEntry.SetData`) loads the whole folder with
+  `LoadPNGFolder`, treats the one file whose name **contains** the ship's `strName` as the
+  main image and every other file as a room thumbnail, and falls back to a generated
+  silhouette when the folder is empty. So a missing folder degrades here rather than
+  breaking.
+
+The game writes these itself from the ship editor (`GUIShipEdit.SaveShipEdit` →
+`ScreenshotUtil`): an 800×600 crop of an orthographic camera render with LoS and CRT off
+and loot spawners hidden, on black. One image for the whole ship plus one per room, named
+by the room's spec `strName` with `_1`, `_2` … appended for repeats — the suffix matters,
+because the broker recovers a thumbnail's room icon by stripping at the first underscore
+and looking the remainder up in `data/rooms`. Void rooms, blank-spec rooms and rooms of
+three tiles or fewer get no image.
+
+> **Ported in Ostraplan:** `ShipCanvas.RenderGamePreview` draws the set from the design's
+> own sprites at the same size and framing conventions; `ShipExport.Write` files it. Only
+> the mod destination writes art: a ship put into a save is a loaded ship, and the game
+> screenshots those itself.
 
 ### Derelict rings (world generation, not gameplay)
 

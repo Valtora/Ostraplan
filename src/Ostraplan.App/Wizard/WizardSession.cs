@@ -55,4 +55,14 @@ public sealed class WizardSession
 
     /// <summary>The driver for the currently selected destination. Swapped when the destination changes.</summary>
     public ExportDriver Driver { get; set; } = null!;
+
+    /// <summary>
+    /// Renders the mod's preview art (see <see cref="ShipPreview"/>). Supplied by the main window because drawing
+    /// needs the live canvas and its sprite atlas, which the wizard has no handle on.
+    ///
+    /// <para><b>Call it on the UI thread only.</b> It returns plain PNG bytes precisely so the result, and not the
+    /// delegate, is what crosses into <see cref="Ui.OffThread"/>. Null when the host supplied no renderer, which is
+    /// every test that builds a session by hand.</para>
+    /// </summary>
+    public Func<ShipPreview?>? RenderPreview { get; init; }
 }

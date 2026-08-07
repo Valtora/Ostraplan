@@ -28,12 +28,36 @@ namespace Ostraplan.Core;
 /// from the ship. Blank resolves (<see cref="ShipExport.ResolveModName"/>) to <c>"{ReplaceTarget} - Replaced
 /// via Ostraplan"</c> for a replacement (so the mod is distinct from the ship it overrides), else to
 /// <see cref="ShipName"/>.</para></summary>
+/// <param name="Preview">The rendered preview images the mod ships in <c>images/ships/</c>, or null to write none.
+/// Rendering needs the sprite atlas, which only the app has, so the caller supplies the encoded PNGs and
+/// <see cref="ShipExport.Write"/> only files them. See <see cref="ShipPreview"/> for why they matter.</param>
 public sealed record ExportOptions(
     string ShipName, string Author, string Notes, string ModVersion, string GameVersion,
     string DestinationParent, string PublicName, string Make = "", string Model = "",
     string Year = "", string Designation = "", string Description = "",
     ShipDelivery? Delivery = null, string? ReplaceTarget = null, string ModName = "",
-    WearOptions? Wear = null);
+    WearOptions? Wear = null, ShipPreview? Preview = null);
+
+/// <summary>
+/// The preview art a ship mod ships alongside its data file, as encoded PNG bytes.
+///
+/// <para>The game looks these up by the ship's <c>strName</c> under <c>&lt;mod&gt;/images/ships/&lt;strName&gt;/</c>
+/// (<c>DataHandler.LoadPNG</c> searches every loaded mod's <c>images/</c> in load order, most recent first). Chargen
+/// loads exactly one file, <c>&lt;strName&gt;.png</c>, and has <b>no</b> fallback: a miss renders
+/// <c>Resources/Sprites/missing</c>, the red X. The broker kiosk instead loads the whole folder
+/// (<c>DataHandler.LoadPNGFolder</c>), treats the one file whose name contains the ship's <c>strName</c> as the main
+/// image and every other as a room thumbnail, and falls back to a generated silhouette when the folder is empty.</para>
+///
+/// <para><see cref="Rooms"/> names are the game's own room-spec <c>strName</c>s, deduplicated with an
+/// <c>_1</c>/<c>_2</c> suffix exactly as <c>ScreenshotUtil.BuildTargetDict</c> does, because the broker maps a
+/// thumbnail back to its room icon by stripping at the first underscore and looking the remainder up in
+/// <c>data/rooms</c>.</para>
+/// </summary>
+public sealed record ShipPreview(byte[] Ship, IReadOnlyList<ShipPreviewRoom> Rooms);
+
+/// <summary>One room thumbnail: the file stem (a room-spec <c>strName</c>, possibly <c>_N</c>-suffixed) and its
+/// encoded PNG.</summary>
+public sealed record ShipPreviewRoom(string Name, byte[] Png);
 
 /// <summary>How the exported ship becomes obtainable in game — the loot/chargen data an export
 /// injects on top of the ship file. All of it is full-object overrides / additive entries the game
@@ -73,7 +97,7 @@ public sealed record ShipDelivery(
 public sealed record ExportResult(
     string ModDir, string ShipJsonPath, string ModInfoPath,
     int PartCount, int RoomCount, ShipRating Rating, IReadOnlyList<string> Warnings,
-    bool TouchedLootPools = false);
+    bool TouchedLootPools = false, int PreviewCount = 0);
 
 /// <summary>Flavor/identity fields for <see cref="ShipExport.Build"/>, split out from
 /// <see cref="ExportOptions"/> so callers that don't care about ship metadata (most tests) can omit
@@ -375,6 +399,16 @@ public static class ShipExport
             : primaryPort.Id is not null ? primaryPort.Anchor : docksysPorts[0].Anchor;
         var shallowPSpecs = BuildBoardingSpawners(grid, partition, airlockAnchor);
 
+        // The shallow-state block the game writes on save (Ship.GetJSON) and reads straight back on a SHALLOW
+        // spawn (Ship.InitShip). Every core template carries it; leaving it at zero is not neutral:
+        //   * fShallowMass is what Ship.Mass returns until the ship is fully loaded, so a zero mass gives the
+        //     flight model a divide-by-zero and shows "Mass: 0 (kg)" on the chargen/broker spec sheet;
+        //   * fRCSCount/nRCSDistroCount together GATE RCS flight (Ship.Maneuver bails outright when either is
+        //     zero), so a shallow AI or vendor-docked copy could not manoeuvre at all;
+        //   * the torch block is what "Torch Drive: Yes/No" reads.
+        // Every figure here is the one the game's own accessor would produce, mapped in Propulsion.
+        var prop = Propulsion.Estimate(doc, grid, catalog);
+
         var ship = new ExportedShip
         {
             StrName = shipName,
@@ -411,6 +445,20 @@ public static class ShipExport
             Dimensions = string.Create(System.Globalization.CultureInfo.InvariantCulture,
                 $"{grid.NCols * MetresPerTile:0.00}m x {grid.NRows * MetresPerTile:0.00}m"),
             ShipCO = ExportedShipCO.Pristine(),
+            // fShallowMass = Ship.Mass: the StatMass walk over placed parts plus the loose items on the deck.
+            // ExtraMassKg is deliberately excluded — it is the design's planning haul figure, not ship mass.
+            FShallowMass = prop.PartsMass + prop.LooseMass,
+            FShallowRCSRemass = prop.RcsReactionMass,        // Ship.GetRCSRemain
+            FShallowRCSRemassMax = prop.RcsReactionMassMax,  // Ship.GetRCSMax
+            NRCSCount = prop.RcsThrust,                      // Ship.fRCSCount (Σ StatThrustStrength, not a headcount)
+            NRCSDistroCount = prop.RcsDistrosPresent,        // counted on install, independent of power state
+            // A template's reactor is unlit, but every core torch ship still ships bFusionTorch true with its
+            // thrust/pellet figures baked: shallow, the block IS the ship's torch capability, and FusionIC
+            // recomputes all three the moment the ship loads far enough to run.
+            BFusionTorch = prop.HasTorchFigures,
+            FFusionThrustMax = prop.HasTorchFigures ? prop.TorchThrustNewtons : 0,
+            FFusionPelletMax = prop.PelletMax,
+            FShallowFusionRemain = prop.ReactantSeconds,
         };
 
         return (ship, rating, roomCount);
@@ -436,9 +484,10 @@ public static class ShipExport
     public static string SerializeModInfo(ModInfo modInfo) => JsonSerializer.Serialize(new[] { modInfo }, Json);
 
     /// <summary>
-    /// Build the design and write a complete mod folder (<c>mod_info.json</c> + <c>data/ships/&lt;Name&gt;.json</c>)
+    /// Build the design and write a complete mod folder (<c>mod_info.json</c> + <c>data/ships/&lt;Name&gt;.json</c>,
+    /// plus <c>images/ships/&lt;Name&gt;/</c> when <see cref="ExportOptions.Preview"/> is supplied)
     /// under <see cref="ExportOptions.DestinationParent"/>. Overwrites an existing same-named mod folder's data
-    /// files (never deletes anything else). When <see cref="ExportOptions.Delivery"/> asks for kiosk/Special-Offer/
+    /// files and that one image folder (never deletes anything else). When <see cref="ExportOptions.Delivery"/> asks for kiosk/Special-Offer/
     /// starting-ship availability, also writes the loot/lifeevent/interaction files — which needs
     /// <paramref name="index"/> to clone the current effective loot pools. Returns where it landed; throws on I/O
     /// failure for the caller to report.
@@ -484,6 +533,8 @@ public static class ShipExport
         };
         File.WriteAllText(modInfoPath, SerializeModInfo(modInfo));
 
+        var previewCount = WritePreviewImages(modDir, strName, opts.Preview, warnings);
+
         var touchedLoot = false;
         if (opts.Delivery is { TouchesLoot: true } delivery)
         {
@@ -493,7 +544,56 @@ public static class ShipExport
                 touchedLoot = WriteDeliveryFiles(modDir, strName, delivery, index, warnings);
         }
 
-        return new ExportResult(modDir, shipPath, modInfoPath, ship.AItems.Length, roomCount, rating, warnings, touchedLoot);
+        return new ExportResult(
+            modDir, shipPath, modInfoPath, ship.AItems.Length, roomCount, rating, warnings, touchedLoot, previewCount);
+    }
+
+    /// <summary>
+    /// File the rendered previews under <c>images/ships/&lt;strName&gt;/</c>, the one place the game looks for them
+    /// (see <see cref="ShipPreview"/>). The whole-ship image takes the ship's own <c>strName</c> as its file name,
+    /// which is both what chargen asks for by name and what the broker matches its main image on. A room thumbnail
+    /// whose stem would collide with that is dropped rather than overwriting it.
+    /// </summary>
+    private static int WritePreviewImages(string modDir, string strName, ShipPreview? preview, List<string> warnings)
+    {
+        if (preview is null || preview.Ship.Length == 0) return 0;
+
+        // The folder name IS the ship's strName, because that is the string the game builds its lookup path from.
+        // Sanitising it would just file the art somewhere the game never looks, so a name that cannot be a folder
+        // is reported instead: the ship still exports, it simply carries no picture.
+        if (strName != SanitizeName(strName))
+        {
+            warnings.Add($"No preview art was written: \"{strName}\" cannot be a folder name, and the game looks " +
+                         "for a ship's art under its name exactly. Rename the ship to give it a picture in game.");
+            return 0;
+        }
+
+        var dir = Path.Combine(modDir, "images", "ships", strName);
+        var existed = Directory.Exists(dir);
+        Directory.CreateDirectory(dir);
+
+        // Clear the folder's PNGs first. The broker loads whatever is in here wholesale, so a room thumbnail left
+        // behind by an earlier export of a since-redesigned ship would keep showing a room that no longer exists.
+        // The game's own writer (ScreenshotUtil.GetScreenShots) sweeps the same way.
+        if (existed)
+            foreach (var stale in Directory.EnumerateFiles(dir, "*.png"))
+                File.Delete(stale);
+
+        File.WriteAllBytes(Path.Combine(dir, strName + ".png"), preview.Ship);
+        var written = 1;
+
+        foreach (var room in preview.Rooms)
+        {
+            if (room.Png.Length == 0) continue;
+            if (string.Equals(room.Name, strName, StringComparison.OrdinalIgnoreCase))
+            {
+                warnings.Add($"Skipped the \"{room.Name}\" room thumbnail: its name collides with the ship's own preview image.");
+                continue;
+            }
+            File.WriteAllBytes(Path.Combine(dir, room.Name + ".png"), room.Png);
+            written++;
+        }
+        return written;
     }
 
     /// <summary>

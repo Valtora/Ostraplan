@@ -2253,6 +2253,7 @@ public partial class MainWindow : Window
             Palette = _allParts,
             BuyEstimate = ShipValue.Estimate(_doc, _catalog, _roomSpecs).BuyEstimate,
             OstrasortKnown = OstrasortLauncher.Detect(_settings) is not null,
+            RenderPreview = () => Board.RenderGamePreview(_roomSpecs),
         };
 
         // The wizard reads the live document off-thread while it builds, so the editing surface goes dead for its

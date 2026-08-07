@@ -67,6 +67,9 @@ public sealed class ModDriver : ExportDriver
         facts.Add(new ReviewFact("Obtainable via", Describe(_delivery) is { Length: > 0 } d
             ? d
             : "nothing. You chose to wire this up yourself, so the ship file goes out on its own"));
+        facts.Add(new ReviewFact("Preview art",
+            "a ship image plus a thumbnail per certified room, so the ship shows a picture at the kiosk and in " +
+            "character creation instead of a missing-image X"));
         facts.Add(new ReviewFact("Writes to", _modDir));
         facts.Add(new ReviewFact("Registering", plan.Mod.RegisterWithOstrasort
             ? "handed to Ostrasort right after the write"
@@ -80,7 +83,8 @@ public sealed class ModDriver : ExportDriver
         var acks = new List<string>();
         if (Directory.Exists(_modDir) && Directory.EnumerateFileSystemEntries(_modDir).Any())
             acks.Add($"A folder named \"{Path.GetFileName(_modDir)}\" already exists here. Its data files (ship, and " +
-                     "any loot/lifeevents/interactions) will be replaced. Other files in the folder are left alone.");
+                     $"any loot/lifeevents/interactions) will be replaced, as will the preview art in " +
+                     $"images\\ships\\{strName}. Other files in the folder are left alone.");
 
         return new BuildOutcome(facts, warnings, acks);
     }
@@ -102,12 +106,18 @@ public sealed class ModDriver : ExportDriver
     public override async Task<DoneReport> WriteAsync(WizardSession session)
     {
         var plan = session.Plan;
+
+        // Rendered here, on the UI thread, and handed over as plain PNG bytes: the canvas and its sprite atlas are
+        // thread-affine, so nothing about the renderer may cross into the background write.
+        var preview = session.RenderPreview?.Invoke();
+
         var opts = new ExportOptions(
             plan.ShipName, plan.Mod.Author, plan.Mod.Notes, plan.Mod.Version,
             session.Env.InstalledVersion ?? GameEnv.VerifiedGameVersion, Parent(session),
             plan.Identity.PublicName, plan.Identity.Make, plan.Identity.Model, plan.Identity.Year,
             plan.Identity.Designation, plan.Identity.Description, _delivery, _replaceTarget, plan.Mod.ModName,
-            _pinnedWear);   // the seed Review built with, so the rebuild inside Write lands in the same place
+            _pinnedWear,   // the seed Review built with, so the rebuild inside Write lands in the same place
+            preview);
 
         var result = await WriteOffThread(session.Doc, session.Catalog, session.Specs, opts, session.Index);
 
@@ -123,6 +133,8 @@ public sealed class ModDriver : ExportDriver
         };
         if (_pinnedWear.Enabled)
             lines.Add($"Worn to ~{_pinnedWear.TargetCondition * 100:0}% average condition (parts vary, none below 10%).");
+        if (result.PreviewCount > 0)
+            lines.Add($"Preview art: 1 ship image and {result.PreviewCount - 1} room thumbnail(s).");
         if (_replaceTarget is not null) lines.Add($"Replaces the existing ship \"{_replaceTarget}\".");
         if (Describe(_delivery) is { Length: > 0 } delivery) lines.Add("Obtainable via: " + delivery + ".");
         lines.Add("");

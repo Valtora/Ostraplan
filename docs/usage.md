@@ -291,6 +291,13 @@ Writes a spawnable local mod (`data/ships/<Name>.json` in
   your `Mods/` folder. This is the way to get a **standalone, shareable ship** that
   doesn't depend on any save. Its steps are **Mod details**, **Obtainable in game** and
   **Where to write**, and between them they let you:
+  - **Ship with its own picture.** Alongside the ship file the export writes
+    `images/ships/<Name>/`, the folder the game looks in for a ship's portrait: one image
+    of the whole ship plus a thumbnail per certified room, drawn from your design at the
+    same size the game's own ship editor uses. This is not optional decoration. Character
+    creation has no fallback picture, so a ship offered as a Shipbreaker start draws a red
+    X without it, and the broker kiosk falls back to a plain silhouette. Re-exporting
+    redraws the set and clears out images of rooms the design no longer has.
   - **Name it and give it flavour** — the in-game ship name (kept exactly as typed)
     plus make / model / year / designation / description.
   - **Replace an existing ship** — pick any vanilla or modded ship and your design

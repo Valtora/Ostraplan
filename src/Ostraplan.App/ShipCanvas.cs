@@ -1784,6 +1784,151 @@ public sealed class ShipCanvas : FrameworkElement
     private static string Hex(Color c) => $"#{c.R:X2}{c.G:X2}{c.B:X2}";
     private static string Xml(string s) => s.Replace("&", "&amp;").Replace("<", "&lt;").Replace(">", "&gt;");
 
+    // ---- game preview art ----
+
+    /// <summary>The frame the game's own ship previews are written at (<c>ScreenshotUtil.TakeScreenShot</c> crops
+    /// its render to exactly this), and the aspect the kiosk and chargen panels expect their RawImage to be.</summary>
+    private const int PreviewW = 800, PreviewH = 600;
+
+    /// <summary>How much of the frame the subject fills. The whole ship is framed edge to edge with a little air;
+    /// a room is framed at less than half so the surrounding decks stay visible, which is what makes the game's
+    /// room thumbnails read as a place on a ship rather than a floating fragment.</summary>
+    private const double ShipPreviewFill = 0.88, RoomPreviewFill = 0.45;
+
+    /// <summary>How much closer than the whole-ship portrait a room thumbnail is drawn, at a minimum. Fitting the
+    /// room alone is not enough on its own: on a small ship one room is most of the hull, so the fit lands at the
+    /// ship's own zoom and every thumbnail comes out a near-copy of the portrait.</summary>
+    private const double RoomZoomFloor = 1.6;
+
+    /// <summary>Zoom ceiling for a preview, in output px per tile. Without it a two-room pod would be rendered at
+    /// 100 px per 16 px sprite, which reads as a texture inspector rather than a ship portrait.</summary>
+    private const int MaxPreviewPxPerTile = 48;
+
+    /// <summary>Room thumbnails written per ship. The broker shows only a handful of slots and the game itself
+    /// stops at 100; a low cap keeps a shareable mod folder from running to megabytes of near-black PNG.</summary>
+    private const int MaxPreviewRooms = 12;
+
+    /// <summary>Preview art is drawn on black, not on the editor's backdrop: these files sit beside the game's own
+    /// in the same UI, and every one of those is a render of the ship against empty space.</summary>
+    private static readonly Brush PreviewBg = Frozen(new SolidColorBrush(Colors.Black));
+
+    /// <summary>
+    /// The preview art the exported mod ships in <c>images/ships/</c>: one whole-ship portrait plus a thumbnail per
+    /// certified room, all 800×600 on black, matching what the game's ship editor writes for a core ship. Null when
+    /// the design is empty. Does not disturb the on-screen view.
+    ///
+    /// <para>Drawn unrotated whatever the editor's Q/E orientation is, unlike <see cref="RenderSnapshot"/>: this
+    /// image stands in for the ship as the game will actually spawn it, and the plan-view rotation is a convenience
+    /// of the editing surface that the exported data knows nothing about.</para>
+    ///
+    /// <para>Room naming follows <c>ScreenshotUtil.BuildTargetDict</c> exactly (spec <c>strName</c>, then
+    /// <c>_1</c>/<c>_2</c> for repeats, skipping void, uncertified and trivially small rooms) because the broker
+    /// recovers a thumbnail's room icon by stripping at the first underscore.</para>
+    /// </summary>
+    public ShipPreview? RenderGamePreview(IReadOnlyList<RoomSpecDef> specs)
+    {
+        if (Doc?.Bounds() is not { } b || Sprites is null) return null;
+
+        var (savedPan, savedZoom, savedRot) = (_pan, Zoom, ViewRot);
+        ViewRot = 0;
+        try
+        {
+            var shipPx = FitPxPerTile(b.MaxX - b.MinX + 1, b.MaxY - b.MinY + 1, ShipPreviewFill);
+            var ship = RenderPreviewFrame(b.MinX, b.MinY, b.MaxX, b.MaxY, shipPx);
+
+            var rooms = new List<ShipPreviewRoom>();
+            var used = new HashSet<string>(StringComparer.Ordinal);
+            foreach (var (name, rb) in PreviewRooms(b, specs))
+            {
+                if (rooms.Count >= MaxPreviewRooms) break;
+                // the game's own dedupe: the plain name first, then _1, _2, … for each repeat
+                var stem = name;
+                for (var n = 1; !used.Add(stem); n++) stem = name + "_" + n;
+
+                // fit the room, but never further out than a step in from the ship portrait: the point of a
+                // thumbnail is to show one place aboard, which it stops doing the moment it frames the whole hull
+                var px = Math.Clamp(
+                    Math.Max(FitPxPerTile(rb.MaxX - rb.MinX + 1, rb.MaxY - rb.MinY + 1, RoomPreviewFill),
+                             (int)Math.Ceiling(shipPx * RoomZoomFloor)),
+                    1, MaxPreviewPxPerTile);
+                rooms.Add(new ShipPreviewRoom(stem, RenderPreviewFrame(rb.MinX, rb.MinY, rb.MaxX, rb.MaxY, px)));
+            }
+            return new ShipPreview(ship, rooms);
+        }
+        finally
+        {
+            (_pan, Zoom, ViewRot) = (savedPan, savedZoom, savedRot);
+        }
+    }
+
+    /// <summary>Output px per tile that fits a <paramref name="tilesW"/>×<paramref name="tilesH"/> subject into
+    /// <paramref name="fill"/> of the preview frame. Whole pixels only, so a 16 px sprite lands on a pixel
+    /// boundary and nearest-neighbour scaling stays even.</summary>
+    private static int FitPxPerTile(int tilesW, int tilesH, double fill) =>
+        Math.Clamp((int)Math.Floor(Math.Min(PreviewW * fill / Math.Max(1, tilesW), PreviewH * fill / Math.Max(1, tilesH))),
+                   1, MaxPreviewPxPerTile);
+
+    /// <summary>One 800×600 preview frame: the whole design drawn at <paramref name="pxPerTile"/>, centred on the
+    /// given tile rect, on black. Everything outside the frame is clipped away by the bitmap, which is how a room
+    /// thumbnail comes to show its neighbours cut off at the edges.</summary>
+    private byte[] RenderPreviewFrame(int minX, int minY, int maxX, int maxY, int pxPerTile)
+    {
+        Zoom = pxPerTile;
+        var centreX = (minX + maxX + 1) / 2.0;
+        var centreY = (minY + maxY + 1) / 2.0;
+        _pan = new Vector(PreviewW / 2.0 - centreX * pxPerTile, PreviewH / 2.0 - centreY * pxPerTile);
+
+        var dv = new DrawingVisual();
+        RenderOptions.SetBitmapScalingMode(dv, BitmapScalingMode.NearestNeighbor);
+        using (var ctx = dv.RenderOpen())
+        {
+            ctx.DrawRectangle(PreviewBg, null, new Rect(0, 0, PreviewW, PreviewH));
+            foreach (var p in Doc!.DrawOrder())
+                DrawPlacement(ctx, p, (0, 0));
+            foreach (var lo in Doc.LooseObjects)
+                if (Doc.Catalog.Lookup(lo.DefName) is { } part) DrawSprite(ctx, part, lo.X, lo.Y, lo.Rot, ghost: false);
+        }
+        var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(PreviewW, PreviewH, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(dv);
+
+        var enc = new System.Windows.Media.Imaging.PngBitmapEncoder();
+        enc.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(rtb));
+        using var ms = new MemoryStream();
+        enc.Save(ms);
+        return ms.ToArray();
+    }
+
+    /// <summary>
+    /// The rooms worth a thumbnail, each with its bounding rect in document tiles: certified, sealed, and more than
+    /// the three tiles the game dismisses as a cupboard. Recomputed in a known frame, as
+    /// <see cref="RenderRatingSnapshot"/> does, so a room's flat tile index maps back to an exact document tile.
+    /// </summary>
+    private IEnumerable<(string Name, (int MinX, int MinY, int MaxX, int MaxY) Bounds)> PreviewRooms(
+        (int MinX, int MinY, int MaxX, int MaxY) b, IReadOnlyList<RoomSpecDef> specs)
+    {
+        const int pad = 1;
+        int minC = b.MinX - pad, minR = b.MinY - pad;
+        int cols = b.MaxX - b.MinX + 1 + 2 * pad, rows = b.MaxY - b.MinY + 1 + 2 * pad;
+        var grid = ShipGrid.FromDocumentFramed(Doc!, Doc!.Catalog, minC, minR, cols, rows);
+        var partition = RoomBuilder.Build(grid);
+        RoomCertifier.CertifyAll(partition, specs, Doc.Catalog);
+
+        foreach (var room in partition.Rooms)
+        {
+            // ScreenshotUtil.BuildTargetDict's own filter: void, blank-spec and <=3-tile rooms get no image
+            if (room.Void || room.Tiles.Count <= 3 || room.RoomSpec is "Blank" or "") continue;
+
+            int x0 = int.MaxValue, y0 = int.MaxValue, x1 = int.MinValue, y1 = int.MinValue;
+            foreach (var idx in room.Tiles)
+            {
+                int dx = minC + idx % cols, dy = minR + idx / cols;
+                x0 = Math.Min(x0, dx); y0 = Math.Min(y0, dy);
+                x1 = Math.Max(x1, dx); y1 = Math.Max(y1, dy);
+            }
+            yield return (room.RoomSpec, (x0, y0, x1, y1));
+        }
+    }
+
     /// <summary>
     /// The output dimensions and content→output transform for a snapshot drawn in the editing orientation
     /// (<see cref="ViewRot"/>): the content (a <paramref name="pxW"/>×<paramref name="pxH"/> image) is rotated in
