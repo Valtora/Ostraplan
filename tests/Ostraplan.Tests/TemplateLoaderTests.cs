@@ -23,14 +23,18 @@ public class TemplateLoaderTests
     }
 
     [SkippableFact]
-    public void Babak_grid_dims_and_part_count()
+    public void Babak_grid_dims_and_every_item_resolves()
     {
         if (LoadShip("Babak.json", out var g) is not { } tmpl) return;   // Babak.json absent → data skip
         Assert.Equal(37, tmpl.NCols);
         Assert.Equal(95, tmpl.NRows);
 
+        // FromTemplate emits one part per item and skips only what it cannot resolve, so an exact match IS the
+        // "every def has geometry" claim. It used to be asserted as a part count above a fixed 4000, which said
+        // the same thing only for as long as this one template stayed the size it was in 0.15.1.6: the game has
+        // since redesigned it down to 3985 items and the test failed with "only 3985 of 3985 items resolved".
         var grid = ShipGrid.FromTemplate(tmpl, new PartResolver(g.Index), g.Catalog);
-        Assert.True(grid.Parts.Count > 4000, $"only {grid.Parts.Count} of {tmpl.Items.Count} items resolved");
+        Assert.Equal(tmpl.Items.Count, grid.Parts.Count);
     }
 
     [SkippableFact]

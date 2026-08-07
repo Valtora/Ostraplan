@@ -22,6 +22,7 @@ public sealed class ObtainableStep : WizardStep
     private readonly RadioButton _startWeighted, _startExclusive;
     private readonly TextBlock _problem, _bandHint;
     private readonly Expander _advanced;
+    private readonly WrapPanel _brokerWrap, _specialWrap;
 
     private bool _loaded;
 
@@ -35,15 +36,9 @@ public sealed class ObtainableStep : WizardStep
         {
             Text = "Ship broker kiosks (regular stock):", Foreground = Ink, Margin = new Thickness(0, 2, 0, 3),
         });
-        var brokerWrap = Add(body, new WrapPanel { Margin = new Thickness(6, 0, 0, 2) });
-        foreach (var (pool, label) in KioskExport.BrokerPools)
-        {
-            var cb = new CheckBox { Content = label, Foreground = Ink, Margin = new Thickness(0, 0, 14, 4), MinWidth = 130 };
-            cb.Checked += (_, _) => { SyncAdvanced(); OnChanged(); };
-            cb.Unchecked += (_, _) => { SyncAdvanced(); OnChanged(); };
-            _broker.Add((pool, cb));
-            brokerWrap.Children.Add(cb);
-        }
+        // Filled on Enter, not here: which kiosks exist is a question about the loaded game data, and the step is
+        // constructed before there is a session to ask.
+        _brokerWrap = Add(body, new WrapPanel { Margin = new Thickness(6, 0, 0, 2) });
 
         var weightRow = Add(body, new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(6, 2, 0, 2) });
         weightRow.Children.Add(new TextBlock
@@ -59,15 +54,7 @@ public sealed class ObtainableStep : WizardStep
             Text = "Special Offer (shown only when you own no ship/property):", Foreground = Ink,
             Margin = new Thickness(0, 12, 0, 3),
         });
-        var specialWrap = Add(body, new WrapPanel { Margin = new Thickness(6, 0, 0, 2) });
-        foreach (var (pool, label) in KioskExport.SpecialOfferPools)
-        {
-            var cb = new CheckBox { Content = label, Foreground = Ink, Margin = new Thickness(0, 0, 14, 4), MinWidth = 110 };
-            cb.Checked += (_, _) => { SyncAdvanced(); OnChanged(); };
-            cb.Unchecked += (_, _) => { SyncAdvanced(); OnChanged(); };
-            _special.Add((pool, cb));
-            specialWrap.Children.Add(cb);
-        }
+        _specialWrap = Add(body, new WrapPanel { Margin = new Thickness(6, 0, 0, 2) });
         Note(body,
             "Heads up: the game always lists a Special Offer ship at \"$0\". The real price only shows when you click " +
             "Buy (a game quirk, not a pricing error). Add it to a broker kiosk above for a visible list price.",
@@ -197,6 +184,22 @@ public sealed class ObtainableStep : WizardStep
         _advanced.Opacity = busy ? 0.55 : 1.0;
     }
 
+    /// <summary>Build one checkbox per discovered pool into <paramref name="wrap"/>, recording it against its
+    /// loot name so the plan round-trips by name rather than by position.</summary>
+    private void FillPools(
+        WrapPanel wrap, List<(string Pool, CheckBox Box)> into,
+        IReadOnlyList<(string Pool, string Label)> pools, double minWidth)
+    {
+        foreach (var (pool, label) in pools)
+        {
+            var cb = new CheckBox { Content = label, Foreground = Ink, Margin = new Thickness(0, 0, 14, 4), MinWidth = minWidth };
+            cb.Checked += (_, _) => { SyncAdvanced(); OnChanged(); };
+            cb.Unchecked += (_, _) => { SyncAdvanced(); OnChanged(); };
+            into.Add((pool, cb));
+            wrap.Children.Add(cb);
+        }
+    }
+
     public override void Enter(WizardSession session)
     {
         var mod = session.Plan.Mod;
@@ -206,6 +209,12 @@ public sealed class ObtainableStep : WizardStep
 
         if (!_loaded)
         {
+            // Which kiosks exist is data, not a constant: game 1.0 took the station broker count from five to
+            // thirteen, and a mod can add more. Building the boxes from the loaded loot table means the dialog
+            // offers every kiosk actually present rather than the set that existed when this was written.
+            FillPools(_brokerWrap, _broker, KioskExport.BrokerPoolsIn(session.Index), minWidth: 150);
+            FillPools(_specialWrap, _special, KioskExport.SpecialOfferPoolsIn(session.Index), minWidth: 110);
+
             // the game's own weight is only the starting point: a weight the user set last time has to survive
             mod.BrokerWeight ??= KioskExport.DefaultBrokerWeight(session.Index, "RandomShipBrokerOKLG");
             mod.DerelictWeight ??= KioskExport.DefaultBrokerWeight(session.Index, suggested);

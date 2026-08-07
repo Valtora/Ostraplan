@@ -76,7 +76,7 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 |---|---|---|
 | Placement Law (`CheckFit`, sockets, rotation) | `CheckFitTests`, `EngineTests` | `GameDataTests` |
 | Grid math / coordinate inverse | `CoordinateMapTests`, `EngineTests` | — |
-| Rooms & partitioning | `RoomBuilderTests`, `DocumentAnalysisTests` | `ParityTests` (192-ship corpus) |
+| Rooms & partitioning | `RoomBuilderTests`, `DocumentAnalysisTests` | `ParityTests` (whole core ship corpus, 220 under 1.0.0.7) |
 | Ship rating cutoffs | `RatingGradeTests` | `RatingTests` |
 | Room certification | — | `CertTests`, `ParityTests` |
 | Save-edit inject (write-back) | `SaveEditInjectSyntheticTests` | `SaveEditInjectTests` (real saves) |

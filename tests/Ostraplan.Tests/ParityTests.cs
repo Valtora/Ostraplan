@@ -10,8 +10,9 @@ namespace Ostraplan.Tests;
 /// <summary>
 /// The Law gate: recompute rooms/certification/rating for every core ship template
 /// and compare against the game's own baked <c>aRooms</c>/<c>aRating</c>. All core
-/// templates carry <c>aRooms</c> (192-ship rooms + certification gate); only a
-/// couple carry <c>aRating</c>. No-ops without the install.
+/// templates carry <c>aRooms</c> (220 of them under game 1.0.0.7, up from the 192 this
+/// was written against, which is why the corpus is discovered rather than counted); only
+/// a couple carry <c>aRating</c>. No-ops without the install.
 /// </summary>
 public class ParityTests(ITestOutputHelper output)
 {
@@ -35,12 +36,16 @@ public class ParityTests(ITestOutputHelper output)
     /// Templates whose baked room data a faithful port cannot (and should not) reproduce
     /// — each an exotic ship, none affecting the Law (interior-compartment certification
     /// and rating). Named + justified per the parity-gate rule.
+    ///
+    /// <para>Three entries were retired when the game's own data changed under them, which is
+    /// what the "prune" assertion at the end of the rooms test exists to catch:
+    /// <c>Coffin.json</c> was a malformed template whose stored room rows did not line up with
+    /// its item positions and has since been rebuilt; <c>ResAero01.json</c> no longer contains a
+    /// slant wall at all; and <c>Ostrich A8R.json</c> still has four, but the game now files them
+    /// the way a plain 4-connectivity flood does. None was retired because the port changed.</para>
     /// </summary>
     internal static readonly Dictionary<string, string> RoomExclusions = new()
     {
-        ["Coffin.json"] = "malformed template: stored aRooms tile indices (rows 0-7) are inconsistent with item positions (rows 1-13); no port can reproduce them",
-        ["Ostrich A8R.json"] = "aero slant-wall hull: the game files an ItmWallAero1x2Slant wall tile into the adjacent void room; a stricter-than-game discrepancy (walls don't certify, cannot be a Law false positive)",
-        ["ResAero01.json"] = "aero slant-wall hull: same ItmWallAero1x2Slant quirk as Ostrich A8R (wall tile filed into a Blank room)",
         ["Vector2.json"] = "interceptor airlock: the game separates the airlock opening from the exterior void by a rule 4-connectivity flood does not reproduce; affects only which Blank/void region owns a few exterior tiles",
     };
 

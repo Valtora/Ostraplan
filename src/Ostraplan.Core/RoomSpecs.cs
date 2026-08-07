@@ -69,7 +69,7 @@ public sealed record SpecDiagnosis(
 }
 
 /// <summary>
-/// Port of <c>Room.CreateRoomSpecs</c> / <c>RoomSpec.Matches</c> (verified 0.15.1.6):
+/// Port of <c>Room.CreateRoomSpecs</c> / <c>RoomSpec.Matches</c> (verified 1.0.0.7):
 /// a room certifies as the highest-<c>nPriority</c> spec that matches, else Blank.
 /// A spec matches iff <c>bAllowVoid == room.Void</c>, tile count within
 /// [min,max] (−1 = unbounded), no member part fires any <c>aForbids</c> trigger, and

@@ -39,8 +39,8 @@ A complete file, with every section populated:
   "formatVersion": 1,
   "viewRot": 0,
   "game": {
-    "versionAtSave": "0.15.1.6",
-    "versionVerified": "0.15.1.6"
+    "versionAtSave": "1.0.0.7",
+    "versionVerified": "1.0.0.7"
   },
   "mods": [
     { "name": "Ship's Water", "entry": "ShipsWater|edit" }

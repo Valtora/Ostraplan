@@ -1,7 +1,7 @@
 namespace Ostraplan.Core;
 
 /// <summary>
-/// Port of the game's <c>Visibility.IsCondOwnerLOSVisibleBlocks</c> (verified 0.15.1.6) — the sight test that,
+/// Port of the game's <c>Visibility.IsCondOwnerLOSVisibleBlocks</c> (verified 1.0.0.7) — the sight test that,
 /// alongside range, decides whether a crew member standing on a given tile may actually operate a device.
 ///
 /// <para>The rule, exactly as the game runs it for the interaction gate

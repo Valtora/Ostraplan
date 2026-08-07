@@ -12,7 +12,7 @@ public sealed record PlacedPart(
 /// <see cref="ShipTemplate"/> (parity/import) — and, later, from a live document.
 ///
 /// <para>Coordinate model, ported exactly (CondOwner.TLTileCoords, Ship.UpdateTiles,
-/// Ship.GetTileIndexAtWorldCoords, verified 0.15.1.6): an item's stored (fX,fY) is
+/// Ship.GetTileIndexAtWorldCoords, verified 1.0.0.7): an item's stored (fX,fY) is
 /// its footprint <b>centre</b>. Top-left tile world coords =
 /// (fX − (W/2 − 0.5), fY + (H/2 − 0.5)) using the <b>rotated</b> footprint W×H; tile
 /// (col,row) with col = round(worldX − vShipPos.x), row = −round(worldY − vShipPos.y);

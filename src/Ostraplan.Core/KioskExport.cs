@@ -72,33 +72,74 @@ public static class LootList
 /// </summary>
 public static class KioskExport
 {
-    /// <summary>The five station ship-broker pools, in the order the dialog lists them (OKLG first — the
-    /// starting station). Key = loot <c>strName</c>; Label = the short station tag shown to the user.</summary>
-    public static readonly IReadOnlyList<(string Pool, string Label)> BrokerPools =
-    [
-        ("RandomShipBrokerOKLG", "OKLG (K-Legrange)"),
-        ("RandomShipBrokerBCER", "BCER"),
-        ("RandomShipBrokerBCRS", "BCRS"),
-        ("RandomShipBrokerVenus", "Venus"),
-        ("RandomShipBrokerVORB", "VORB"),
-    ];
+    /// <summary>The loot <c>strName</c> prefix every station's regular ship-broker stock pool carries.</summary>
+    public const string BrokerPoolPrefix = "RandomShipBroker";
 
-    /// <summary>The four "Special Offer" pools (shown only when the player owns no ship/property anywhere).
-    /// Each is a single pinned ship, so adding one is a straight overwrite of the whole pick.</summary>
-    public static readonly IReadOnlyList<(string Pool, string Label)> SpecialOfferPools =
-    [
-        ("RandomShipBrokerSpecialOffer", "OKLG / default"),
-        ("RandomShipBrokerSpecialOfferVENC", "VENC"),
-        ("RandomShipBrokerSpecialOfferVNCA", "VNCA"),
-        ("RandomShipBrokerSpecialOfferVORB", "VORB"),
-    ];
+    /// <summary>The prefix of the "Special Offer" pools, which are <see cref="BrokerPoolPrefix"/> plus a
+    /// marker — so a discovery pass over the broker prefix has to exclude these explicitly.</summary>
+    public const string SpecialOfferPoolPrefix = "RandomShipBrokerSpecialOffer";
+
+    /// <summary>
+    /// The station ship-broker pools the loaded data actually has, newest game and every loaded mod included.
+    ///
+    /// <para><b>Discovered, not listed.</b> This used to be a hardcoded five (OKLG, BCER, BCRS, Venus, VORB),
+    /// which was the whole set in 0.15.1.6. Game 1.0 opened the rest of the system and there are now thirteen, so
+    /// a hardcoded list quietly hid two thirds of the kiosks in the game from the export dialog. Reading them out
+    /// of the effective loot table means a station added by a later patch, or by another ship mod, shows up on its
+    /// own.</para>
+    ///
+    /// <para>OKLG sorts first because it is where a new game starts; the rest are alphabetical.</para>
+    /// </summary>
+    public static IReadOnlyList<(string Pool, string Label)> BrokerPoolsIn(DataIndex index) =>
+        [.. ShipPools(index)
+            .Where(n => n.StartsWith(BrokerPoolPrefix, StringComparison.Ordinal)
+                     && !n.StartsWith(SpecialOfferPoolPrefix, StringComparison.Ordinal))
+            .OrderBy(n => n == "RandomShipBrokerOKLG" ? 0 : 1)
+            .ThenBy(n => n, StringComparer.Ordinal)
+            .Select(n => (n, StationLabel(n[BrokerPoolPrefix.Length..])))];
+
+    /// <summary>The "Special Offer" pools present in the loaded data (shown in game only when the player owns no
+    /// ship or property anywhere). Each is a single pinned ship, so adding one overwrites the whole pick.
+    /// Discovered for the same reason as <see cref="BrokerPoolsIn"/>.</summary>
+    public static IReadOnlyList<(string Pool, string Label)> SpecialOfferPoolsIn(DataIndex index) =>
+        [.. ShipPools(index)
+            .Where(n => n.StartsWith(SpecialOfferPoolPrefix, StringComparison.Ordinal))
+            .OrderBy(n => n.Length)   // the bare default pool first, then the station variants
+            .ThenBy(n => n, StringComparer.Ordinal)
+            .Select(n => (n, n.Length == SpecialOfferPoolPrefix.Length
+                ? "OKLG / default"
+                : StationLabel(n[SpecialOfferPoolPrefix.Length..])))];
+
+    /// <summary>Every <c>strType: "ship"</c> loot pool in the effective (mod-resolved) data.</summary>
+    private static IEnumerable<string> ShipPools(DataIndex index) =>
+        index.Type("loot")
+            .Where(kv => Json.Str(kv.Value.El, "strType") == "ship")
+            .Select(kv => kv.Key);
+
+    /// <summary>
+    /// What to call a station in the dialog. The game shows these as bare four-letter ATC codes almost everywhere,
+    /// so the code is the label, with a gloss appended for the few the world data actually names. An unknown code
+    /// (a later patch, or a mod's own station) falls through to the bare code rather than being dropped.
+    /// </summary>
+    public static string StationLabel(string code) =>
+        StationNames.TryGetValue(code, out var name) ? $"{code} ({name})" : code;
+
+    private static readonly IReadOnlyDictionary<string, string> StationNames =
+        new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["OKLG"] = "K-Legrange",
+            ["EJDR"] = "Old China",
+            ["HQCH"] = "Prokofiev Penal Colony",
+            ["MHNG"] = "Hangzhou",
+            ["MSUZ"] = "Suzhou",
+        };
 
     /// <summary>
     /// The derelict-ring pools: the wrecks scattered through the salvage fields at world generation.
     ///
     /// <para><c>star_systems/star_system.json</c>'s <c>aSpawnDerelictRings</c> names a <c>strType: "ship"</c> loot
     /// pool per ring, so these are the same kind of weighted pick as a broker kiosk and take the same override.
-    /// The spawner is what marks the ship derelict and damages it; every one of the 192 core ship templates
+    /// The spawner is what marks the ship derelict and damages it; every one of the 220 core ship templates
     /// carries <c>DMGStatus = 0</c>, so nothing about being a wreck belongs in the ship file.</para>
     ///
     /// <para><b>Venus is not a leaf.</b> <c>RandomDerelictVenus</c> has an empty <c>aCOs</c> and delegates through
@@ -115,7 +156,7 @@ public static class KioskExport
     ];
 
     /// <summary>
-    /// The part counts of each size band's own members, measured against game 0.15.1.6, so the UI can say what a
+    /// The part counts of each size band's own members, measured against game 1.0.0.7, so the UI can say what a
     /// band actually holds instead of asserting a size.
     ///
     /// <para><b>The bands overlap heavily</b> — Small reaches 800 parts while Medium starts at 319 and Big at 520 —
@@ -126,8 +167,8 @@ public static class KioskExport
     public static readonly IReadOnlyList<(string Pool, int Min, int Median, int Max)> DerelictBands =
     [
         ("RandomDerelictSmall", 107, 252, 800),
-        ("RandomDerelictMedium", 319, 348, 2508),
-        ("RandomDerelictBig", 520, 2321, 5853),
+        ("RandomDerelictMedium", 319, 348, 2509),
+        ("RandomDerelictBig", 520, 2323, 5852),
     ];
 
     /// <summary>The size band whose members a design of <paramref name="partCount"/> parts sits closest to, by

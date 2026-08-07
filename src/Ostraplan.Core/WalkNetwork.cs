@@ -122,7 +122,7 @@ public sealed record WalkOverlay(
 }
 
 /// <summary>
-/// Port of the game's crew walkability and interaction-reach rules (verified 0.15.1.6): which tiles
+/// Port of the game's crew walkability and interaction-reach rules (verified 1.0.0.7): which tiles
 /// <c>Tile.IsWalkable</c> admits, how <c>Ostranauts.Pathing.JumpPointSearch</c> connects them, and the range +
 /// sight gate <c>Interaction.Triggered</c> applies before a device can be used.
 ///

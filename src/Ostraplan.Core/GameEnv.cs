@@ -14,15 +14,17 @@ public sealed class GameEnv
 {
     public const string DefaultGameRoot = @"C:\Program Files (x86)\Steam\steamapps\common\Ostranauts";
 
-    /// <summary>The game version the ported constants/tables were last verified against.</summary>
-    public const string VerifiedGameVersion = "0.15.1.6";
+    /// <summary>The game version the ported constants/tables were last verified against. Moved to 1.0.0.7
+    /// (Steam build 24535205) by a full re-verification pass over every ported system, the compiled render
+    /// shaders included; see docs/GAME-INTERNALS.md.</summary>
+    public const string VerifiedGameVersion = "1.0.0.7";
 
     public required string GameRoot { get; init; }
     public required string DiscoveredVia { get; init; }
     public required string StreamingAssetsDir { get; init; }   // holds data\ and images\
     public required string ModsDir { get; init; }              // holds loading_order.json + local mods
     public string? WorkshopContentDir { get; init; }           // steamapps\workshop\content\1022980
-    public string? InstalledVersion { get; init; }             // e.g. "0.15.1.6"
+    public string? InstalledVersion { get; init; }             // e.g. "1.0.0.7"
 
     public string CoreDataDir => Path.Combine(StreamingAssetsDir, "data");
     public string CoreImagesDir => Path.Combine(StreamingAssetsDir, "images");

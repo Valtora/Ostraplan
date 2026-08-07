@@ -7,11 +7,17 @@ release tags.
 
 Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
-[docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **0.15.1.6**).
+[docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **1.0.0.7**).
 
 ## [Unreleased]
 
 ### Added
+- **Every ship broker kiosk in the game is now offered**, not the five that existed in 0.15.1.6. Game 1.0 opened
+  the rest of the system and there are thirteen station brokers plus four Special Offer slots; the export wizard
+  listed OKLG, BCER, BCRS, Venus and VORB and hid the other eight. The list is now read out of the loaded loot
+  data rather than written down, so a station a later patch adds, or one another mod adds, appears on its own.
+  Stations are labelled by their ATC code, with a name where the world data gives one.
+
 - **An exported mod now ships its own preview art**, so the ship shows a picture wherever the game shows one
   (issue #21). Character creation asks for exactly `images/ships/<ship>/<ship>.png` and has no fallback, so an
   Ostraplan ship offered as a Shipbreaker start drew the game's red missing-image X where its portrait belongs.
@@ -83,6 +89,30 @@ each release was verified against is recorded in
     still loads; its re-stated parts just price as they used to until they are swapped again.
 
 ### Documentation
+- **Re-verified against Ostranauts 1.0.0.7** (Steam build 24535205), the first pass since 0.15.1.6.
+  `GameEnv.VerifiedGameVersion` and every per-system claim in
+  [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) now say 1.0.0.7 because each was actually re-read against
+  that build, not because the string was updated.
+  - **The ported logic held up.** The rating cutoffs and size classes, the coordinate mapping and its
+    away-from-zero rounding, the room flood fill, room certification, the placement law and its docking
+    envelope, ship value down to all eleven gas molar masses, the condition-trigger evaluator, the sixteen-entry
+    autotile table, all eleven propulsion constants and both fusion formulas, the power flood, walkability, line
+    of sight, and the export's contained-item retention gate are unchanged in 1.0.0.7.
+  - **The compiled shaders were re-extracted too**, not just the C# side. `Sprites/LoSPass` still computes
+    `1/(F²(d²+Z²)+0.1)` with `F = 3` and `Z = 0.25`, still decodes normals as `2r-1`, and still blends
+    `OneMinusDstColor One`; `Sprites/DefaultAdditive` still blends `SrcAlpha One`. Light Viz needs no change.
+  - **The corpus grew from 192 ship templates to 220.** The figures measured off it were re-measured: the
+    common template field set is 56 rather than 54, 177 of 220 ships carry boarding spawners rather than 150 of
+    192, 237 of 482 baked void rooms carry a non-zero room value, and the derelict size bands shifted slightly
+    (Medium now reaches 2,509 parts, Big 5,852 with a median of 2,323). Rooms parity is 219/220.
+  - **Three room-parity exclusions were retired** because the game's data changed under them: Coffin.json was a
+    malformed template and has been rebuilt, ResAero01.json no longer has a slant wall at all, and Ostrich
+    A8R.json still has four but the game now files them the way a plain flood fill does. Only the Vector2
+    interceptor's airlock still fails, for the reason already recorded.
+  - A stale test threshold went with it: the Babak loader test asserted a part count above a fixed 4,000, which
+    only ever meant "everything resolved" while that template stayed the size it was. The game has since
+    redesigned it to 3,985 items, so the test now asserts what it always meant.
+
 - **The project's scope is written down** in a new [docs/SCOPE.md](docs/SCOPE.md). Ostraplan designs ships and gets
   them into your game, and that is the whole remit. The doc gives the test that settles nearly every request
   ("does a *design* go into it?"), what is in, what is deliberately out and why, and worked examples either side

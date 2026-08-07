@@ -118,7 +118,7 @@ public sealed record PropulsionEstimate(
 }
 
 /// <summary>
-/// Ports the game's propulsion maths (verified 0.15.1.6): the RCS acceleration and delta-v the nav
+/// Ports the game's propulsion maths (verified 1.0.0.7): the RCS acceleration and delta-v the nav
 /// console's Reserves module shows, and the torch acceleration and reactant clock its Course Plot and
 /// Torch Drive modules show. None of it is surfaced anywhere but that one console in game, which is why
 /// a planner has to recompute it.

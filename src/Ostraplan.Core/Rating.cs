@@ -15,7 +15,7 @@ public sealed record ShipRating(
 }
 
 /// <summary>
-/// Port of <c>Ship.CalculateRating</c> (verified 0.15.1.6; cutoffs hardcoded in the DLL
+/// Port of <c>Ship.CalculateRating</c> (verified 1.0.0.7; cutoffs hardcoded in the DLL
 /// — re-verify after a game patch).
 /// <list type="bullet">
 ///   <item><b>Condition</b> A–E: mean of <c>Clamp01(1 − damageRate)</c> over installed

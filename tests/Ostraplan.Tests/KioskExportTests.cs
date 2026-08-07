@@ -219,4 +219,53 @@ public class KioskExportTests
         Assert.True(delivery.TouchesLoot);   // so the Ostrasort conflict patch still runs
         Assert.False(ShipDelivery.None.IsObtainable);
     }
+
+    // ---- kiosk discovery ----
+
+    /// <summary>
+    /// The broker list is read out of the loaded loot table, not hardcoded. It used to be a fixed five, which was
+    /// the whole set in 0.15.1.6; game 1.0 opened the system and there are thirteen, so a hardcoded list hid most
+    /// of the game's kiosks from the export dialog. This pins the discovery, not a count, so the next station the
+    /// game adds is picked up rather than breaking the test.
+    /// </summary>
+    [SkippableFact]
+    public void Broker_pools_are_discovered_from_the_loaded_data()
+    {
+        var g = TestData.RequireGame();
+        var pools = KioskExport.BrokerPoolsIn(g.Index);
+        if (pools.Count == 0) return;   // no loot data → data skip
+
+        var names = pools.Select(p => p.Pool).ToList();
+        Assert.All(names, n => Assert.StartsWith("RandomShipBroker", n));
+        Assert.DoesNotContain(names, n => n.StartsWith("RandomShipBrokerSpecialOffer", System.StringComparison.Ordinal));
+        Assert.Contains("RandomShipBrokerOKLG", names);
+        Assert.Equal("RandomShipBrokerOKLG", names[0]);   // the starting station leads the list
+        Assert.Equal(names.Count, names.Distinct().Count());
+
+        // every discovered pool is a real, overridable ship pool
+        foreach (var name in names) Assert.True(g.Index.Type("loot").ContainsKey(name));
+
+        // and the label carries the station code, glossed where the world data names it
+        Assert.Equal("OKLG (K-Legrange)", pools[0].Label);
+    }
+
+    [SkippableFact]
+    public void Special_offer_pools_are_discovered_and_kept_out_of_the_broker_list()
+    {
+        var g = TestData.RequireGame();
+        var special = KioskExport.SpecialOfferPoolsIn(g.Index);
+        if (special.Count == 0) return;   // no loot data → data skip
+
+        var names = special.Select(p => p.Pool).ToList();
+        Assert.All(names, n => Assert.StartsWith("RandomShipBrokerSpecialOffer", n));
+        Assert.Equal("RandomShipBrokerSpecialOffer", names[0]);   // the bare default pool leads
+        Assert.Equal("OKLG / default", special[0].Label);
+        Assert.Empty(names.Intersect(KioskExport.BrokerPoolsIn(g.Index).Select(p => p.Pool)));
+    }
+
+    /// <summary>An ATC code the world data does not name still gets an entry, because a station Ostraplan has
+    /// never heard of is exactly the case the old hardcoded list got wrong.</summary>
+    [Fact]
+    public void An_unknown_station_code_labels_as_itself() =>
+        Assert.Equal("ZZZZ", KioskExport.StationLabel("ZZZZ"));
 }

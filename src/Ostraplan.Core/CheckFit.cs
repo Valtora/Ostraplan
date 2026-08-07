@@ -16,7 +16,7 @@ public sealed record FitResult(
 }
 
 /// <summary>
-/// Port of <c>Item.CheckFit</c> (Assembly-CSharp, verified against game 0.15.1.6):
+/// Port of <c>Item.CheckFit</c> (Assembly-CSharp, verified against game 1.0.0.7):
 /// can this part occupy this pose given the ship's accumulated tile conditions?
 ///
 /// <para>Model (traced from CheckFit + CondTrigger.Triggered + Loot.GetLootNames):</para>

@@ -45,7 +45,7 @@ public sealed record PowerOverlay(
 }
 
 /// <summary>
-/// Port of the game's <c>TileUtils.GetPoweredTiles</c> (verified 0.15.1.6). Power flows from installed sources
+/// Port of the game's <c>TileUtils.GetPoweredTiles</c> (verified 1.0.0.7). Power flows from installed sources
 /// (<c>IsPowerGen</c> / <c>IsPowerStorage</c> / <c>IsRechargingContainer</c>, not <c>IsOverrideOff</c>) that carry a
 /// <c>PowerOutput</c> map point: a 4-cardinal BFS from each source's output tile spreads over tiles carrying
 /// <c>IsPowerPath</c> (conduits via <c>TILPowerConduit</c>, powered fixtures via <c>TILPowerFixtureAdds</c>). Tiles

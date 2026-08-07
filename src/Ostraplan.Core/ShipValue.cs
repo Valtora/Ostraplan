@@ -22,7 +22,7 @@ public sealed record ShipValueEstimate(
 ///   pump itself — contributes nothing, exactly as in-game (room value only sums room members).</item>
 /// </list>
 /// <para><b>No Pristine markup — it is unreachable on a designed ship.</b> <c>GetBasePrice</c> adds ×1.25 only
-/// to a CO carrying the runtime <c>IsPristine</c> cond, and there are exactly two grants (verified 0.24.0):
+/// to a CO carrying the runtime <c>IsPristine</c> cond, and there are exactly two grants (verified 1.0.0.7):
 /// <c>Ship.BreakIn</c> (first Edit-load of Derelict/Damaged/Used ships — a 2.5% roll per solid undamaged part,
 /// 25% with the bonus-derelict flag) and <c>Trader.AddNewItems</c> (kiosk stock <b>items</b>). Installing
 /// consumes the item and spawns a fresh CO from the def (which never carries <c>IsPristine</c>), so an installed
@@ -55,7 +55,7 @@ public static class ShipValue
     /// ship to you at 1.2× its value.</summary>
     public const double BrokerBuyFactor = 1.2;
 
-    /// <summary>Molar masses in kg/mol — the hardcoded switch in <c>GasContainer.GetGasMass</c> (0.15.1.6).
+    /// <summary>Molar masses in kg/mol — the hardcoded switch in <c>GasContainer.GetGasMass</c> (1.0.0.7).
     /// A gas missing here (notably He3) weighs 0 in-game too, so its gaseous form carries no value; solid He3
     /// and liquid D2O are priced separately by GetBasePrice (see <see cref="PartValue"/>).</summary>
     private static readonly IReadOnlyDictionary<string, double> MolarMassKgPerMol = new Dictionary<string, double>(StringComparer.Ordinal)
@@ -114,7 +114,7 @@ public static class ShipValue
 
     /// <summary>
     /// Port of the game's O2-pump registration (<c>Ship.AddICO</c> → <c>ShipStatus.GetO2UnderPump</c>,
-    /// decompiled 0.15.1.6): a pump qualifies only when it is an installed air pump
+    /// decompiled 1.0.0.7): a pump qualifies only when it is an installed air pump
     /// (<see cref="PumpTrigger"/>) with an installed O2 RTA canister (<see cref="O2CanTrigger"/>) that
     /// actually holds O2 (<c>StatGasMolO2</c> &gt; 0) at one of its <c>GasInput</c> map-point tiles.
     /// A pump alone — or one feeding an N2/empty can — earns nothing, and only the running (OnG)
@@ -155,7 +155,7 @@ public static class ShipValue
     /// <summary>
     /// The broker value of a single room — Σ (part <c>GetBasePrice()</c> × the room's value modifier), the
     /// game's <c>Room.CalculateRoomValue</c>. <b>Void rooms count too</b>: neither CalculateRoomValue nor
-    /// GetShipValue filters on <c>bVoid</c>, and 192 baked core void rooms carry non-zero <c>roomValue</c>
+    /// GetShipValue filters on <c>bVoid</c>, and 237 of the 482 baked core void rooms carry non-zero <c>roomValue</c>
     /// (the AirRacer's unsealed space is worth $343k — its engines) — so engines and exterior-mounted gear
     /// are valued at the void room's modifier (Blank ×1.0, or CargoRoomExterior ×1.05). Zeroing them (as
     /// Ostraplan did before 0.19.0) undercounts any ship with parts outside sealed rooms. Shared by

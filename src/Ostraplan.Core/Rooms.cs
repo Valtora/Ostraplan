@@ -22,7 +22,7 @@ public sealed class RoomModel
 public sealed record RoomPartition(IReadOnlyList<RoomModel> Rooms, int[] TileRoom);
 
 /// <summary>
-/// Port of <c>Ship.CreateRooms</c> (verified 0.15.1.6). BFS flood fill over
+/// Port of <c>Ship.CreateRooms</c> (verified 1.0.0.7). BFS flood fill over
 /// non-wall, non-portal tiles with 4-connectivity (N/W/E/S — the game's
 /// GetSurroundingTiles cardinal indices). Walls and portals are boundaries; a room
 /// is <b>Void</b> when any member tile lacks <c>IsFloorSealed</c> or the fill reaches
@@ -88,7 +88,7 @@ public static class RoomBuilder
     /// — Ship.CreateRooms' Tile.AddToRoom pass over GetCOs(TIsInstalled). When the anchor
     /// tile has <b>no</b> room — a wall-embedded part such as a wall storage bin, sensor,
     /// antenna, cooler, or ship weapon — the game retries at the part's <c>"use"</c> map
-    /// point and joins <i>that</i> room (Tile.AddToRoom's fallback, decompiled 0.15.1.6).
+    /// point and joins <i>that</i> room (Tile.AddToRoom's fallback, decompiled 1.0.0.7).
     /// Without the fallback those parts vanish from certification (a wall bin never counts
     /// toward Basic/Luxury Quarters) and from room value. The use-point lookup goes through
     /// GetTileAtWorldCoords1, which only returns a tile that triggers TIsShipTileOrSub — so
@@ -111,7 +111,7 @@ public static class RoomBuilder
         }
     }
 
-    /// <summary>The game's TIsShipTileOrSub (core 0.15.1.6): an OR over the tile conds that
+    /// <summary>The game's TIsShipTileOrSub (core 1.0.0.7): an OR over the tile conds that
     /// mark a tile as part of the ship. GetTileAtWorldCoords1 returns null for anything else.</summary>
     private static readonly string[] ShipTileConds =
         ["IsFloor", "IsFixture", "IsObstruction", "IsPortal", "IsWall", "IsSubTile"];

@@ -1,7 +1,7 @@
 namespace Ostraplan.Core;
 
 /// <summary>
-/// Port of <c>CondTrigger.Triggered</c> (verified 0.15.1.6) evaluated against a
+/// Port of <c>CondTrigger.Triggered</c> (verified 1.0.0.7) evaluated against a
 /// CondOwner's <b>condition set</b> — presence means the cond is on the owner with
 /// count &gt; 0 (installed parts carry their starting conds at ≥1, none IsDamaged in a
 /// pristine planner ship). Room certification needs this, unlike CheckFit/autotile

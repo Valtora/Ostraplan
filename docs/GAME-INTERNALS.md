@@ -9,7 +9,8 @@ silently wrong answers). Each system below is described as the game implements i
 with the relevant `Type.Method` citations; a short **Ported in Ostraplan** note
 points to where that system is reimplemented.
 
-**Verified against game `0.15.1.6`** (`GameEnv.VerifiedGameVersion`). Rating
+**Verified against game `1.0.0.7`** (`GameEnv.VerifiedGameVersion`, Steam build 24535205).
+Rating
 cutoffs and other magic numbers are compiled into the DLL and invisible to data
 diffing, so they can drift silently between patches. The version pin exists to
 flag exactly that: re-verify after every game update.
@@ -393,8 +394,8 @@ its `NotBoarding` one. Both are **`SysLootSpawner`** objects (an `IsSystem` def)
 the template's **`aShallowPSpecs`** array (a *different* array from `aItems`),
 distinguished by their `aGPMSettings` prop map: `strType: "Pspec"`, `strLoot:
 "Boarding"` / `"NotBoarding"`, `strRange: "1"`. `Boarding` / `NotBoarding` are
-**personspecs** (`strCT: TIsBoarding` / `TIsNotBoarding`). **150 of 192 core
-templates carry `aShallowPSpecs`** (the 42 without are stations, buoys, and rocks).
+**personspecs** (`strCT: TIsBoarding` / `TIsNotBoarding`). **177 of 220 core
+templates carry `aShallowPSpecs`** (the 43 without are stations, buoys, and rocks).
 
 Without these spawners, arrivals land at a fallback tile (frequently outside the
 hull). A spawnable export must bake both on pressurized (non-void) interior tiles.
@@ -553,7 +554,7 @@ registered O2 pump (see below). `Room.CalculateRoomValue` = Σ member `GetBasePr
 wall-embedded air pump, use point `0,0`) is worth **$0 in-game too**.
 
 **Void rooms count.** Neither `CalculateRoomValue` nor `GetShipValue` filters
-`bVoid`; the 192 baked core void rooms carry non-zero `roomValue` (an unsealed engine
+`bVoid`, and 237 of the corpus's 482 baked void rooms carry a non-zero `roomValue` (an unsealed engine
 bay can be worth hundreds of thousands — its engines). There is **no** wall- or
 atmosphere-specific per-item multiplier: the ×3 is one global flag over the whole
 sum, which is why single-item experiments appear to "show" ×3 on whatever part was
@@ -822,8 +823,8 @@ A ship file is a **top-level array** of ship objects (the ship element carries `
 + `aItems`; roughly a dozen files in core are non-ship). The game (de)serializes with
 **Newtonsoft** — proven by `Dictionary<string,string>` fields (`aDocked`,
 `aMarketConfigs`) that Unity's `JsonUtility` cannot handle — so **missing fields default
-and unknown fields are ignored**. A well-formed template is the **54 top-level fields
-present on all 192 core templates** plus `aRating`; unlisted fields are safely omitted.
+and unknown fields are ignored**. A well-formed template is the **56 top-level fields
+present on all 220 core templates** plus `aRating`; unlisted fields are safely omitted.
 
 - Values are pristine/neutral (wear and runtime physics caches 0), `origin` /
   `publicName` = `"$TEMPLATE"`, `nConstructionProgress` 100. **The shallow-state block is
@@ -1065,7 +1066,7 @@ Three consequences a planner has to respect:
   single `|`-delimited `aCOs` pick, so `KioskExport.BrokerPoolOverride` works verbatim.
 - **It is world generation, so a mod only reaches a NEW GAME.** Rings are populated when
   the world is built; an existing save never grows one.
-- **Being a wreck is not in the ship file.** All **192** core ship templates carry
+- **Being a wreck is not in the ship file.** All **220** core ship templates carry
   `DMGStatus = 0`. The spawner marks the ship derelict and `Ship.BreakIn` damages it on
   first Edit-load, so an export aimed at a ring should bake **no** wear of its own or the
   two compound.
@@ -1075,13 +1076,13 @@ Three consequences a planner has to respect:
 `RandomScavShip` (0.15) — its own `aCOs` is empty — so the honest write target for "put my
 ship in the Venus fields" is the VNCA leaf, not the composer.
 
-The size bands **overlap heavily**, measured by member part count against 0.15.1.6:
+The size bands **overlap heavily**, measured by member part count against 1.0.0.7:
 
 | Pool | Members | Parts (min–max) | Median |
 | --- | --- | --- | --- |
 | `RandomDerelictSmall` | 12 | 107–800 | ~252 |
-| `RandomDerelictMedium` | 11 | 319–2508 | 348 |
-| `RandomDerelictBig` | 21 | 520–5853 | 2321 |
+| `RandomDerelictMedium` | 11 | 319–2509 | 348 |
+| `RandomDerelictBig` | 21 | 520–5852 | 2323 |
 
 No threshold separates them, so any claim that a given hull "is" Small or Big would be
 invented. Nearest-median is the most a planner can honestly offer, with the ranges shown
@@ -1357,7 +1358,7 @@ This is the part that is easy to get wrong, because the strict-looking range tes
 > `LineOfSight` (the sight test), `LightNetwork.Occluders` (the shared occluder source),
 > surfaced as the **WalkViz** overlay (`K`) and as advisory findings in the Law report.
 > Two exclusions keep the output honest rather than merely literal, both measured against the
-> 192-ship corpus: **mineable terrain** (`IsMineable` — 28 rock/ice defs, none buildable) names
+> 220-ship corpus: **mineable terrain** (`IsMineable` — 28 rock/ice defs, none buildable) names
 > an `ACTMine` interaction and so parses as an operable fitting, but a block inside an asteroid
 > is unreachable by definition (Port Mojave alone: 1,811 false findings); and a device with no
 > interior standing tile is re-tested with the exterior counted and reported as **EVA-only**
@@ -1438,7 +1439,7 @@ This is the part that is easy to get wrong, because the strict-looking range tes
 - **The ×3 atmo bonus needs a FED pump** (`TIsAirPump02Installed` + a fed installed O2 RTA)
   (§11).
 - **Ship files are top-level arrays** — the ship is an element with `nCols` + `aItems`;
-  skip non-ship files. All 192 carry `aRooms`; only 2 carry `aRating` (§17).
+  skip non-ship files. All 220 carry `aRooms`; only 2 carry `aRating` (§17).
 - **A loading ship rebuilds its own grid** — the frame is `bbox(item footprints) ± a
   one-tile margin`; write a room/zone index in any other frame and it decodes wrong,
   drifting a column per row (§18).
@@ -1463,17 +1464,18 @@ This is the part that is easy to get wrong, because the strict-looking range tes
 
 ### The parity corpus (ground truth)
 
-The corpus is **192 core ship objects** that carry baked `aRooms` (roomSpec + bVoid + tile
-sets), giving a 192-ship rooms **and** certification gate. Only **Babak / Babak Refit**
+The corpus is **220 core ship objects** that carry baked `aRooms` (roomSpec + bVoid + tile
+sets), giving a 220-ship rooms **and** certification gate. Only **Babak / Babak Refit**
 (both damaged derelicts) carry baked `aRating`. Notes:
 
 - The Babaks' baked `aRating` room slot is **stale** (`aRating[2] = "18"` while their
   current `aRooms` certify 20 non-Blank rooms), so a rating check bounds the recomputed
   count against `aRooms`, not the `aRating` string.
-- A faithful room partition reproduces the baked `aRooms` for **188/192** (4 exotic
-  exclusions: a malformed Coffin, two aero slant-wall hulls, one interceptor airlock);
-  portal-tile filing and exterior-void over-claim are compared leniently because neither
-  affects the Law.
+- A faithful room partition reproduces the baked `aRooms` for **219/220**. The one
+  exclusion is the Vector2 interceptor's airlock. Three others (a malformed Coffin and two
+  aero slant-wall hulls) were retired at 1.0.0.7 because the game's own data changed, not
+  because the port did. Portal-tile filing and exterior-void over-claim are compared
+  leniently because neither affects the Law.
 - Certification reproduces the baked `roomSpec` with **zero over-certifications** of a real
   compartment. The residual diffs are two documented corpus-only artifacts:
   contained/slotted cargo the top-level loader cannot count (under-certification), and the
