@@ -319,8 +319,15 @@ public static class ShipExport
         {
             if (catalog.Lookup(lo.DefName) is not { } part) { warnings?.Add($"Loose item '{lo.DefName}' has no def; skipped."); continue; }
             var (w, h) = GridMath.Size(part.Item.Width, part.Item.Height, lo.Rot);
-            var fx = lo.X + (w / 2.0 - 0.5);
-            var fy = -(lo.Y + (h / 2.0 - 0.5));
+            // A LooseObject stores DOCUMENT tile coords, but the file is written in GRID coords (vShipPos is
+            // (0,0) and every part above comes from PlacedPart.TopLeftCol/Row). Rebase through the grid origin
+            // — ShipGrid.VShipPos holds the document tile at grid (0,0), i.e. the bbox minus the one-tile pad —
+            // or every loose item lands displaced by that origin, which is (0,0) only for a design whose bounds
+            // start at (1,1). Zones do the same conversion via ZoneGeometry.DocToIndex.
+            var gx = lo.X - (int)grid.VShipPosX;
+            var gy = lo.Y - (int)grid.VShipPosY;
+            var fx = gx + (w / 2.0 - 0.5);
+            var fy = -(gy + (h / 2.0 - 0.5));
             var rot = GridMath.Norm(-lo.Rot);
             var headId = Guid.NewGuid().ToString();
             var qty = Math.Clamp(lo.Quantity, 1, Math.Max(1, part.StackLimit));

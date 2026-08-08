@@ -83,6 +83,23 @@ each release was verified against is recorded in
   refuses, so the wall is visible before you hit it rather than only once you try to move on.
 
 ### Fixed
+- **Loose items now export onto the tile you dropped them on.** An item from the Items palette was written into
+  the exported ship in the editor's own tile coordinates, while every part around it was written in the file's
+  grid coordinates. So the whole scattering came out displaced by one fixed amount: the design's bounding box
+  corner, minus the one-tile margin the game pads around a ship. That offset happens to be zero only for a design
+  whose parts begin at tile (1, 1), which is why items landed a couple of tiles off the corner or the centre of
+  the room they were placed in, and stayed the same distance off wherever else they were put. A stack keeps every
+  copy on the head's tile. (#20)
+  - **Writing a design into a save was never affected**, nor was the editor view. Only an exported mod ship, and
+    the kiosk and Special Offer copies built from one.
+  - **A displaced item could take the ship's rooms with it.** The game rebuilds a ship's tile grid on load by
+    padding one tile around every free-standing item, and a loose item counts even though it is structurally
+    inert. One shoved past the hull's own margin therefore widened the grid, and the room and zone tiles baked
+    into the file are flat indices that then decode a column further along on each row: rooms binding to the
+    wrong tiles, zones sliding. Only designs with an item near an edge were exposed, and it took a full load to
+    show, which is why it read as a cosmetic offset. The export now checks its own declared grid against the one
+    the game will rebuild.
+
 - **An exported ship no longer weighs nothing and no longer reads as having no thrusters.** The block of
   shallow-load state every core template carries (`fShallowMass`, `fShallowRCSRemass`/`Max`, `nRCSCount`,
   `nRCSDistroCount`, and the torch figures) was declared on the export but never filled in, so it went out as

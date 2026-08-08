@@ -846,6 +846,35 @@ present on all 220 core templates** plus `aRating`; unlisted fields are safely o
 `roomValue` (the **parts** value `Room.CalculateRoomValue` sums, which `GetShipValue`
 reads on a shallow load — **not** the physical `Volume`).
 
+### Which items build the grid, and when
+
+The frame rule of §18 is not a save-only concern: a **template** spawn rebuilds its grid
+by the same route, so a `data/ships` file's `nCols` / `vShipPos` must agree with what the
+loader will derive or its own `aRooms` / `aZones` decode against a different grid.
+
+Two gates decide whether an item contributes:
+
+- **Load state.** `Ship.SpawnItems` passes `bTiles = nLoad > Loaded.Shallow` to `AddCO`,
+  and only a true `bTiles` reaches `UpdateTiles`. A **Shallow** ship therefore builds no
+  tilemap at all (`aTiles` stays empty, and `SetZoneData` early-returns on that), which is
+  why the file's own `nCols` is what the shallow view reads.
+- **Parentage.** Only a **top-level** (parentless, unslotted) item is `AddCO`'d. A
+  contained or slotted one is attached to its parent instead
+  (`objContainer.AddCOSimple` / `compSlots.SlotItem`) and never touches the tilemap. So
+  cargo, equipped gear, nav-console modules and the members of a stack pad nothing.
+
+Everything else pads, and `UpdateTiles` pads **before** it reads `aSocketAdds`: the margin
+is applied for any CO carrying an `Item` and no `Pathfinder` (crew), regardless of whether
+it contributes a single tile condition. A **loose floor item is a top-level item**, so it
+grows the frame exactly like an installed part despite being non-structural everywhere
+else. Written outside the intended frame it widens the rebuilt grid, and on the next load
+above Shallow `SetZoneData` indexes `aTiles[storedIndex]` directly while `CreateRooms`
+looks up its `mapTileRooms` by rebuilt tile index — so both decode onto the wrong tiles.
+
+> **Ported in Ostraplan:** the export's declared grid is asserted to equal the frame the
+> game will rebuild (bbox of the top-level items ± 1) in `ShipExportMappingTests`; the
+> save-edit side of the same rule is `SaveEditFrameTests`.
+
 ### The shallow-state block is real data, not a cache
 
 `Ship.GetJSON` writes a block of derived figures on save, and `Ship.InitShip` reads them
@@ -958,8 +987,10 @@ A full load does **not** trust `nCols` / `vShipPos`; they feed only the *shallow
 (unloaded) view (`x = (LoadState > Loaded.Shallow) ? nCols : json.nCols`).
 `Ship.UpdateTiles` re-derives the tilemap as each item spawns: it seeds `vShipPos` off
 the first item's `TLTileCoords`, then `TileUtils.PadTilemap`s a **one-tile margin**
-around every subsequent item (`Vector2(-1f, 1f)`; `IsRoom` COs get `Vector2.zero` and pad
-nothing). So the loaded grid is always:
+around every subsequent **top-level** item (`Vector2(-1f, 1f)`; `IsRoom` COs get
+`Vector2.zero` and pad nothing). Which items qualify, and the load-state gate that
+decides whether any of this runs, are in [§17](#17-ship-serialization-templates-and-saves)
+and apply to a template export just as much as to a save. So the loaded grid is always:
 
 > **frame = bounding box of all item footprints, plus a one-tile margin on every edge.**
 

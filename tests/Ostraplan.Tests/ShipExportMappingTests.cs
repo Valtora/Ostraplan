@@ -76,6 +76,80 @@ public class ShipExportMappingTests
     }
 
     [Fact]
+    public void A_loose_item_loads_back_onto_the_tile_it_was_dropped_on()
+    {
+        // Regression (#20): a LooseObject carries DOCUMENT coords while the file is written in GRID coords, so
+        // exporting one verbatim displaced every loose item by the grid origin (the bbox minus the one-tile pad).
+        // Bounds deliberately start away from (1,1) so the origin is non-zero on BOTH axes — a design anchored at
+        // (1,1) hides the bug, and one anchored at (0,0) hides only half of it.
+        var fx = new Fixtures().Floor("Floor").Part("Junk", stackLimit: 4);
+        var cat = fx.Build();
+        var doc = Fixtures.Doc(cat,
+            Fixtures.P("Floor", -1, 0), Fixtures.P("Floor", 0, 0), Fixtures.P("Floor", 0, 1));
+        new PlaceLooseCommand(new LooseObject { DefName = "Junk", X = 0, Y = 1 }).Do(doc);
+        var grid = ShipGrid.FromDocument(doc, cat);
+
+        var (ship, _, _) = ShipExport.Build(doc, cat, NoSpecs, "T");
+
+        var floor = Assert.Single(ship.AItems, i => i.StrName == "Floor" && i.FY == -2);   // the (0,1) floor
+        var loose = Assert.Single(ship.AItems, i => i.StrName == "Junk");
+        Assert.Equal((floor.FX, floor.FY), (loose.FX, loose.FY));   // sitting ON its floor, not beside it
+
+        var def = cat.ByDefName["Junk"];
+        var recovered = ShipGrid.TemplateTile(loose.FX, loose.FY, loose.FRotation, def.Item.Width, def.Item.Height, 0, 0);
+        Assert.Equal((0 - (int)grid.VShipPosX, 1 - (int)grid.VShipPosY, 0), recovered);
+    }
+
+    [Fact]
+    public void A_loose_stack_keeps_every_member_on_the_head_s_tile()
+    {
+        var fx = new Fixtures().Floor("Floor").Part("Junk", stackLimit: 4);
+        var cat = fx.Build();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Floor", 3, 2));
+        new PlaceLooseCommand(new LooseObject { DefName = "Junk", X = 3, Y = 2, Quantity = 3 }).Do(doc);
+
+        var (ship, _, _) = ShipExport.Build(doc, cat, NoSpecs, "T");
+
+        var floor = Assert.Single(ship.AItems, i => i.StrName == "Floor");
+        var emitted = ship.AItems.Where(i => i.StrName == "Junk").ToList();
+        Assert.Equal(3, emitted.Count);
+        Assert.All(emitted, i => Assert.Equal((floor.FX, floor.FY), (i.FX, i.FY)));
+    }
+
+    [Fact]
+    public void The_declared_grid_is_the_frame_the_game_rebuilds_around_the_top_level_items()
+    {
+        // Ship.UpdateTiles pads a one-tile margin (TileUtils.PadTilemap, Vector2(-1,1)) around every TOP-LEVEL
+        // item as it spawns; a contained or slotted item is attached to its parent and never reaches the tilemap.
+        // So the grid the game comes up with is the top-level footprint bbox plus one tile, and every baked
+        // aRooms/aZones entry is a flat col + row·nCols index against THAT grid. An item written outside the
+        // declared frame widens the rebuilt one and skews every stored index (rooms bind to the wrong tiles,
+        // zones shift by a column per row) — which is what a document-coord loose item used to do (#20).
+        var fx = new Fixtures().Floor("Floor").Fixture("Box", 2, 1).Part("Junk", stackLimit: 4);
+        var cat = fx.Build();
+        var doc = Fixtures.Doc(cat,
+            Fixtures.P("Floor", -3, -2), Fixtures.P("Floor", -2, -2), Fixtures.P("Floor", -2, -1),
+            Fixtures.P("Box", -3, -1, 90));
+        new PlaceLooseCommand(new LooseObject { DefName = "Junk", X = -3, Y = -2 }).Do(doc);   // a corner tile
+
+        var (ship, _, _) = ShipExport.Build(doc, cat, NoSpecs, "T");
+
+        int minC = int.MaxValue, minR = int.MaxValue, maxC = int.MinValue, maxR = int.MinValue;
+        foreach (var it in ship.AItems.Where(i => i.StrParentID is null && i.StrSlotParentID is null))
+        {
+            var def = cat.ByDefName[it.StrName];
+            var (col, row, rot) = ShipGrid.TemplateTile(it.FX, it.FY, it.FRotation, def.Item.Width, def.Item.Height, 0, 0);
+            var (w, h) = GridMath.Size(def.Item.Width, def.Item.Height, rot);
+            minC = Math.Min(minC, col); maxC = Math.Max(maxC, col + w - 1);
+            minR = Math.Min(minR, row); maxR = Math.Max(maxR, row + h - 1);
+        }
+
+        // the margin is intact on all four edges: nothing sits on or past the declared edge
+        Assert.Equal((1, 1), (minC, minR));
+        Assert.Equal((ship.NCols - 2, ship.NRows - 2), (maxC, maxR));
+    }
+
+    [Fact]
     public void An_empty_nav_console_gets_the_standard_module_set_parented_to_it()
     {
         var fx = new Fixtures().Part("Nav", startingConds: ["IsNavStation"]);
