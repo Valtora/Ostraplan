@@ -12,6 +12,20 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **A SPECIAL palette tab, for the structure the game places but never lets you build.** Asteroid and ice
+  cores, regolith walls, floor signs and emblems, station kiosks, embassies, terminals and transit lifts,
+  station floors and furniture, and the running states of things like a reactor or a blast door: 139 parts on
+  a stock 1.0.0.7 install, plus whatever your mods add. None of them has an install job, which is exactly why
+  they never appeared in the eight build tabs, and until now the only way to get one into a design was to copy
+  it out of a ship template ([#18](https://github.com/Valtora/Ostraplan/issues/18)).
+  - They are ordinary placements once down: they autotile, seal rooms, obey the Law, count towards the rating
+    and travel through both export routes. What they cannot do is be *built* — no install job means no install
+    kit, so the bill of materials counts them under "not buildable" alongside raw hull and the fixed airlock.
+  - The tab is derived, not a hand-written list, so a game patch or a mod that adds one gets it for free. Two
+    kinds of def are deliberately left out: a runtime state of something already buildable (a damaged or
+    patched wall, a switched-off or locked device), and a def the game data never named, which is a dev or
+    test artefact rather than a part.
+
 - **A basic ship checklist, using the game's own Ship Diagnostics tooling.** A new **Diagnostics** toolbar
   button runs the sixteen-row status page the game's nav console prints (`NavModDiagnostics` →
   `ShipStatus.PrintStatus`) against your design, on the game's own pass/fail thresholds: rating code and mass,

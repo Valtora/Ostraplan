@@ -179,6 +179,12 @@ public partial class MainWindow : Window
                 vms.AddRange(cat.LooseItems
                     .Where(p => p.SpriteAbs is not null)
                     .Select(p => new PartVM(p with { Category = ItemsCategory }, spr.Thumb(p), isLoose: true)));
+                // The Special tab: the installed structure the game places but never offers a build job for
+                // (asteroids, signs, station fixtures). Same re-tagging trick as Items, but these are ordinary
+                // installed placements rather than loose drops, so they arm and build like any palette part.
+                vms.AddRange(cat.SpecialItems
+                    .Where(p => p.SpriteAbs is not null)
+                    .Select(p => new PartVM(p with { Category = SpecialCategory }, spr.Thumb(p))));
                 return (idx, cat, spr, vms);
             });
         }
@@ -232,6 +238,17 @@ public partial class MainWindow : Window
     /// the uppercase tab header, matching the game's HULL/HVAC/… tabs.</summary>
     private const string ItemsCategory = "ITEMS";
 
+    /// <summary>The synthetic palette category for non-buildable installed structure (the SPECIAL tab) — the
+    /// asteroids, signs and station fixtures of <see cref="Catalog.SpecialItems"/>. Like
+    /// <see cref="ItemsCategory"/> it is a tab label, not a game build category, and only the def name survives
+    /// into a placement.</summary>
+    private const string SpecialCategory = "SPECIAL";
+
+    /// <summary>True for the two tabs that are Ostraplan's own rather than the game's build menu. They are kept
+    /// out of "All", which is the buildable catalogue.</summary>
+    private static bool IsSyntheticCategory(string category) =>
+        category is ItemsCategory or SpecialCategory;
+
     private void BuildPalette()
     {
         Tabs.Items.Clear();
@@ -240,7 +257,7 @@ public partial class MainWindow : Window
         // ★ Favorites / Recent, always the first tab (see BuildQuickTab).
         Tabs.Items.Add(BuildQuickTab());
 
-        foreach (var category in new[] { "All" }.Concat(Catalog.Categories).Append(ItemsCategory))
+        foreach (var category in new[] { "All" }.Concat(Catalog.Categories).Append(ItemsCategory).Append(SpecialCategory))
         {
             var list = NewPaletteList(category == "All" ? null : category);
             _paletteLists.Add(list);
@@ -333,9 +350,10 @@ public partial class MainWindow : Window
             if (ReferenceEquals(list, _favList) || ReferenceEquals(list, _recentList)) continue;   // ★ lists handled below
             var category = (string?)list.Tag;
             // The "All" tab (null Tag) is the buildable palette only — the huge loose universe stays in its own
-            // Items tab, so it doesn't drown the structure parts.
+            // Items tab, and the non-buildable structure in Special, so neither drowns the structure parts.
             list.ItemsSource = _allParts
-                .Where(vm => (category is null ? vm.Part.Category != ItemsCategory : vm.Part.Category == category) && vm.Matches(search))
+                .Where(vm => (category is null ? !IsSyntheticCategory(vm.Part.Category) : vm.Part.Category == category)
+                             && vm.Matches(search))
                 .ToList();
         }
         RefreshQuickLists(search);
@@ -461,8 +479,8 @@ public partial class MainWindow : Window
     /// adopted as well as its def: without that you get the part at whatever angle the brush was last left at,
     /// which reads as the tile turning itself on the way into the cursor. The rotation is applied first so the
     /// arming is logged at the angle it actually lands on. Selecting its palette entry (when visible) both arms
-    /// it and syncs the highlight; if it is filtered out by the search, arm directly. Non-buildable parts (the
-    /// primary airlock, a closed door) are not in the palette and so are ignored — nothing to paint.
+    /// it and syncs the highlight; if it is filtered out by the search, arm directly. A part with no palette row
+    /// at all (the primary airlock, a closed door) is ignored — nothing to paint.
     /// </summary>
     private void OnArmFromTile(string defName, int rot)
     {

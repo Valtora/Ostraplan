@@ -37,7 +37,7 @@ right, but treat a mismatch as "double-check in-game".
 
 | Region | What's there |
 |---|---|
-| **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**, an **ITEMS** tab for loose floor cargo, and a **FAV/REC** tab at the front for the parts you pinned and the ones you just placed. Search by friendly or internal name. Modded parts show a small origin badge. |
+| **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**, an **ITEMS** tab for loose floor cargo, a **SPECIAL** tab for the structure the game places but never lets you build, and a **FAV/REC** tab at the front for the parts you pinned and the ones you just placed. Search by friendly or internal name. Modded parts show a small origin badge. |
 | **Canvas** (centre) | The tile grid. Place, paint, select, pan and zoom here. |
 | **Inspector** (right) | The selected part's details, ship stats, the **Problems** list, and the **Law report**. |
 | **Toolbar** (top) | Grouped **File · Edit · Design · Analyse**, then the view overlay toggles **Zones · Rooms · Power · Light · Walk · Wire** (each highlights in the accent colour while active) and the **View ▾** menu (fit, symmetry, Light Viz daylight, walk-overlay switches, mod overrides), with the theme picker and the **Help ▾** menu on the right. When a newer release exists it is downloaded quietly in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
@@ -60,6 +60,24 @@ right, but treat a mismatch as "double-check in-game".
   when the selection is a genuine mirror set (its partners are selected too); an
   arbitrary selection, such as a fresh paste on one side of the axis, rotates about its
   own centre and moves rigidly instead.
+
+### Parts you can't build — SPECIAL
+
+The build tabs hold what the game will let a character install. The **SPECIAL** tab holds
+the rest of the placeable structure: asteroid and ice cores, regolith walls, floor signs
+and emblems, station kiosks, embassies, terminals and transit lifts, station floors and
+furniture, and the running states of things like a reactor or a blast door. The game
+places all of it and none of it has a build job, so short of copying it out of a ship
+template there was previously no way to get one into a design.
+
+They place, autotile, seal rooms and count towards the rating exactly like anything else,
+and both export routes carry them: a mod spawns the ship whole, and a save write injects
+them the same way it injects any part.
+
+What they cannot do is be *built*. No install job means no install kit, so the bill of
+materials counts them under **not buildable** alongside raw hull and the fixed airlock,
+and no character could assemble the ship from parts. Most carry no `StatBasePrice`
+either, so they add nothing to the save-edit cost estimate.
 
 ### Finding a part again — FAV/REC
 

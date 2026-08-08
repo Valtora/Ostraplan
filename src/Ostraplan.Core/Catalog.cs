@@ -239,6 +239,29 @@ public sealed class Catalog
     /// Sorted by friendly name. Empty in synthetic test catalogs.</summary>
     public IReadOnlyList<PartDef> LooseItems { get; init; } = [];
 
+    /// <summary>
+    /// Installed structure the game places itself but offers no install job for — asteroid and ice cores,
+    /// regolith walls, floor signs and emblems, station kiosks, terminals and transit lifts, station furniture.
+    /// They resolve, render, and go through the placement law like any other part; they simply never reach the
+    /// buildable tabs, which is why copying one out of a ship template used to be the only way to get one.
+    /// <para>
+    /// Two kinds of def are deliberately left out. A <b>runtime state</b> of a part the palette already offers
+    /// (<see cref="StateOnlyConds"/>: a damaged or patched wall, a switched-off or locked device) is not a design
+    /// choice, it is what happens to a design. And a def the data never named (<c>strNameFriendly</c> absent, so
+    /// <see cref="PartDef.Friendly"/> falls back to the internal name) is a dev/test artefact rather than
+    /// something a ship is built from.
+    /// </para>
+    /// Sorted by friendly name. Empty in synthetic test catalogs.
+    /// </summary>
+    public IReadOnlyList<PartDef> SpecialItems { get; init; } = [];
+
+    /// <summary>Conds that mark a placed def as a runtime <b>state</b> of some other part rather than a part in
+    /// its own right. The game reaches these through damage, repair, and power toggles, never through a build
+    /// job, so they would otherwise all pile into <see cref="SpecialItems"/> as near-duplicates of the buildable
+    /// entry they came from.</summary>
+    private static readonly HashSet<string> StateOnlyConds =
+        new(StringComparer.Ordinal) { "IsDamaged", "IsPatched", "IsOff", "IsLocked" };
+
     /// <summary>Installed def → its loose/packaged form, from the game's own <c>uninstall</c> jobs (the job's
     /// <c>strActionCO</c> → <c>aLootCOs</c>, or <c>strLootOut</c>, or — when both name only a runtime marker with
     /// no condowner, as the Nav Station and Transponder families do — the inverse of the matching <c>install</c>
@@ -434,21 +457,27 @@ public sealed class Catalog
         // offers every one of them, so enumerating condowners alone left the picker with a single generic
         // "Floor (Loose)" and no real nav modules. A cooverlay is type-checked through its base condowner (the skin
         // itself has no strType). Narrowed per container by ContainerFilter, so a broad universe is safe.
+        //
+        // The same sweep also collects every INSTALLED def it meets, because the non-buildable ones among them
+        // are what SpecialItems is made of. Which those are can only be decided once the buildable menu exists,
+        // so the split happens further down; resolving each def is the expensive half and this way it happens
+        // once.
         var owners = index.Type("condowners");
         var looseItems = new List<PartDef>();
-        var looseSeen = new HashSet<string>(StringComparer.Ordinal);
-        void AddLoose(string defName, string origin, bool typeIsItem)
+        var installedItems = new List<PartDef>();
+        var itemSeen = new HashSet<string>(StringComparer.Ordinal);
+        void AddItem(string defName, string origin, bool typeIsItem)
         {
-            if (!typeIsItem || !looseSeen.Add(defName)) return;
-            if (ResolveDef(index, defName, "—", origin, [], []) is { } it && !it.StartingConds.Contains("IsInstalled"))
-                looseItems.Add(it);
+            if (!typeIsItem || !itemSeen.Add(defName)) return;
+            if (ResolveDef(index, defName, "—", origin, [], []) is not { } it) return;
+            (it.StartingConds.Contains("IsInstalled") ? installedItems : looseItems).Add(it);
         }
         foreach (var (name, (el, origin)) in owners)
-            AddLoose(name, origin, Json.Str(el, "strType") == "Item");
+            AddItem(name, origin, Json.Str(el, "strType") == "Item");
         foreach (var (name, (el, origin)) in index.Type("cooverlays"))
         {
             var baseName = Json.Str(el, "strCOBase");
-            AddLoose(name, origin, !string.IsNullOrEmpty(baseName)
+            AddItem(name, origin, !string.IsNullOrEmpty(baseName)
                 && owners.TryGetValue(baseName, out var baseCo)
                 && Json.Str(baseCo.El, "strType") == "Item");
         }
@@ -560,6 +589,16 @@ public sealed class Catalog
                 byDefName[closed] = cp;
         }
 
+        // SpecialItems: the installed defs swept up above that the buildable menu never reaches. byDefName is the
+        // right thing to subtract, not parts — it already accounts for the two defs registered by hand (the primary
+        // airlock, each door's closed counterpart), so neither shows up twice.
+        var specialItems = installedItems
+            .Where(p => !byDefName.ContainsKey(p.DefName)
+                        && !p.StartingConds.Any(StateOnlyConds.Contains)
+                        && p.Friendly != p.DefName)
+            .OrderBy(p => p.Friendly, StringComparer.OrdinalIgnoreCase)
+            .ToList();
+
         return new Catalog
         {
             Parts = parts.Values.OrderBy(p => p.Category).ThenBy(p => p.Friendly, StringComparer.OrdinalIgnoreCase).ToList(),
@@ -574,6 +613,7 @@ public sealed class Catalog
             ParallaxDefs = parallaxDefs,
             InteractionDefs = interactionDefs,
             LooseItems = looseItems,
+            SpecialItems = specialItems,
             LooseForms = looseForms,
             InstalledForms = installedForms,
             Warnings = warnings,
