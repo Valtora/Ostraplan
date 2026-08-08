@@ -9,7 +9,7 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **1.0.0.7**).
 
-## [Unreleased]
+## [0.66.0] 2026-08-08, Ostranauts 1.0, the ship checklist, and export art
 
 ### Added
 - **A SPECIAL palette tab, for the structure the game places but never lets you build.** Asteroid and ice
