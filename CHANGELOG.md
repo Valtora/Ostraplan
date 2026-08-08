@@ -12,6 +12,29 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **A basic ship checklist, using the game's own Ship Diagnostics tooling.** A new **Diagnostics** toolbar
+  button runs the sixteen-row status page the game's nav console prints (`NavModDiagnostics` →
+  `ShipStatus.PrintStatus`) against your design, on the game's own pass/fail thresholds: rating code and mass,
+  transponder, transponder antenna, nav station, reactor and its helium-3 and deuterium, RCS thrusters, RCS
+  distributor, reaction mass, backup power, and the four life-support rows. In game the page is reachable only
+  by sitting at a console on a ship that already exists, so until now the way to find out a design had no
+  transponder antenna was to build it. Every red row says what is missing and which build tab it comes from,
+  and **Copy report** puts the whole readout on the clipboard.
+  - The cutoffs are the game's, including the ones people misread: **more than one** switched-on RCS cluster
+    (a single thruster can push but not turn the ship), >100 kg He3, >1000 kg D2O, ≥200 kg reaction mass,
+    ≥20 kWh backup power, >35 kg O2 stores. They are literals inside the DLL, invisible to data diffing, so
+    they are pinned by a test that fails if a patch moves them.
+  - Two rows are measured where the game measures them, not ship-wide. **Backup power** is read at the nav
+    console's own power inputs, so a battery the conduit network never reaches counts for nothing. **O2
+    stores** are the oxygen in the canisters on a pump's gas-input tile, so a hold full of O2 with no pump
+    plumbed to a can reads zero — which is what it reads in game.
+  - Three rows are answered differently than at a console, because a plan is not a running ship, and each
+    says so in the report: **NAV STATION** is a real presence test (the console hardcodes ONLINE, since the
+    page is read at it), **TRANSPONDER** shows INSTALLED where the console shows the registration ID assigned
+    at spawn, and **REACTOR** shows INSTALLED where the console shows OFFLINE until the reactor is lit — which
+    a planned one never is. Quantities are as-spawned, so this is the readout a freshly built or freshly
+    bought ship gives.
+
 - **Every ship broker kiosk in the game is now offered**, not the five that existed in 0.15.1.6. Game 1.0 opened
   the rest of the system and there are thirteen station brokers plus four Special Offer slots; the export wizard
   listed OKLG, BCER, BCRS, Venus and VORB and hid the other eight. The list is now read out of the loaded loot

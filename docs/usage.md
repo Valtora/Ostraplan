@@ -160,6 +160,33 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
     docked ship's mass, and it is saved with the design. It is **not** fuel — it adds no
     reaction mass, so raising it only makes the numbers worse. Stowed container cargo
     weighs nothing in game either, so put it here if you want it counted.
+- **Diagnostics** (toolbar): the game's **own** ship checklist, off your plan. Sitting at
+  a nav console in game, the Diagnostics module prints sixteen rows in green or red —
+  transponder, transponder antenna, nav station, reactor and its helium-3 and deuterium,
+  RCS thrusters, RCS distributor, reaction mass, backup power, and the four life-support
+  rows (working O2 pumps, O2 stores, heat, cool), under the rating code and the ship's
+  mass. Ostraplan answers all sixteen from the design, on the game's own pass/fail
+  thresholds, so you find out you forgot the antenna before you build the ship rather than
+  after. Every red row says what is missing and which build tab it comes from, and **Copy
+  report** puts the lot on the clipboard.
+  - Some thresholds surprise people, and they are the game's, not ours: **two** switched-on
+    RCS clusters (one thruster can push but not turn), more than 100 kg of helium-3, more
+    than 1000 kg of deuterium, at least 200 kg of reaction mass, at least 20 kWh of backup
+    power, and more than 35 kg of O2 stores.
+  - Two rows are measured somewhere specific rather than ship-wide. **Backup power** is
+    read at the nav console's own power inputs, so a battery your conduits never reach
+    counts for nothing (turn on PowerViz to see which runs are live). **O2 stores** are the
+    oxygen in the canisters sitting on a pump's gas-input tile, so a hold full of O2 with
+    no pump plumbed to a can reads zero — in game too.
+  - Three rows read differently here than at a console, because a plan is not a running
+    ship, and each says so in the report: **NAV STATION** is a real presence test (the
+    console hardcodes ONLINE, since you are reading the page at it), **TRANSPONDER** shows
+    INSTALLED where the console shows the registration ID the game assigns at spawn, and
+    **REACTOR** shows INSTALLED where the console shows OFFLINE until the reactor is lit —
+    which a planned one never is. Quantities are what the ship spawns holding, so this is
+    the readout a freshly built or freshly bought ship gives.
+  - It is the game's checklist, not the whole Law: rooms, airtightness, certification and
+    the full propulsion figures are the Ship Rating report above.
 - **RoomViz overlay** — the **Rooms** toolbar button or **C**. The same
   certification, live on the canvas: every compartment tinted in its own colour and
   labelled with what it certifies as, its tile count and its value. An uncertified

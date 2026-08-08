@@ -104,6 +104,8 @@
                     <Button x:Name="BtnRating" Content="Ship Rating" Padding="10,3" Margin="0,0,3,0" Click="OnShipRatingClick"
                             Background="{DynamicResource AccentBg}" Foreground="{DynamicResource AccentText}"
                             ToolTip="Analyse rooms, airtightness, certification and the Ship Rating for the current design"/>
+                    <Button x:Name="BtnDiagnostics" Content="Diagnostics" Padding="10,3" Margin="0,0,3,0" Click="OnDiagnosticsClick"
+                            ToolTip="The game's own nav-console checklist: transponder, antenna, reactor, thrusters, power and life support"/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 

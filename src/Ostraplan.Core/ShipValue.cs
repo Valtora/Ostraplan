@@ -122,12 +122,28 @@ public static class ShipValue
     /// applies ×3 when <b>any</b> pump qualifies: the bonus is a flag, so a second pump adds nothing.
     /// The count itself is what a template bakes as <c>nO2PumpCount</c>.
     /// </summary>
-    public static int CountO2Pumps(ShipGrid grid, Catalog catalog)
+    public static int CountO2Pumps(ShipGrid grid, Catalog catalog) => ScanO2Supply(grid, catalog).Fed;
+
+    /// <summary>
+    /// The whole O2 supply in one walk: how many air pumps are installed, how many of those are actually fed,
+    /// and the O2 mass sitting at the fed pumps' gas inputs. <see cref="CountO2Pumps"/> is the <c>Fed</c> count
+    /// (the ×3 value flag); the diagnostic readout (<see cref="ShipDiagnostics"/>) shows all three, because the
+    /// game's own console prints "working / installed" and the stores under them as separate rows.
+    ///
+    /// <para><b>Stores are measured under the pumps, not across the ship</b> — that is <c>ShipStatus</c>'s own
+    /// rule, and it is why a hold full of O2 canisters with no pump plumbed to one reads 0.00 kg in game. Each
+    /// core air pump declares exactly one <c>GasInput</c> point, which collapses the game's per-point
+    /// last-writer-wins accumulation (<c>GetO2UnderPump</c> assigns <c>Item1</c> rather than adding to it) to a
+    /// straight sum over pumps.</para>
+    /// </summary>
+    public static (int Installed, int Fed, double O2Mass) ScanO2Supply(ShipGrid grid, Catalog catalog)
     {
-        var count = 0;
+        int installed = 0, fed = 0;
+        double mass = 0;
         foreach (var pump in grid.Parts)
         {
             if (!Fires(PumpTrigger, pump, catalog)) continue;
+            installed++;
             foreach (var (key, px) in pump.Part.MapPoints)
             {
                 // game: mapPoint.Key.IndexOf("GasInput") >= 0
@@ -135,16 +151,16 @@ public static class ShipValue
                 var tile = grid.MapPointTile(pump, px);
                 if (tile < 0) continue;
                 // GetCOsAtWorldCoords1: the can occupying that tile (RTA cans are 1×1, so anchor == tile)
-                if (grid.Parts.Any(can => can.AnchorIndex == tile
-                    && Fires(O2CanTrigger, can, catalog)
-                    && can.Part.StartingCondValues.GetValueOrDefault("StatGasMolO2") > 0))
-                {
-                    count++;
-                    break;
-                }
+                var can = grid.Parts.FirstOrDefault(c => c.AnchorIndex == tile
+                    && Fires(O2CanTrigger, c, catalog)
+                    && c.Part.StartingCondValues.GetValueOrDefault("StatGasMolO2") > 0);
+                if (can is null) continue;
+                fed++;
+                mass += MolarMass("O2") * can.Part.StartingCondValues.GetValueOrDefault("StatGasMolO2");
+                break;
             }
         }
-        return count;
+        return (installed, fed, mass);
     }
 
     private static bool Fires(string trigger, PlacedPart part, Catalog catalog) =>

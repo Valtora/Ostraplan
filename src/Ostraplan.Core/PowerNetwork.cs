@@ -66,34 +66,8 @@ public static class PowerNetwork
         var poweredSegs = new HashSet<(int, int)>();
 
         // 1. Flood from every installed power source's output tile over connected IsPowerPath tiles.
-        foreach (var part in grid.Parts)
-        {
-            if (catalog.Lookup(part.Part.DefName) is not { } def) continue;
-            if (def.PowerOutputPoint is not { } outPt) continue;
-            if (!def.StartingConds.Contains("IsInstalled")) continue;
-            if (def.StartingConds.Contains("IsOverrideOff")) continue;
-            if (!SourceConds.Any(def.StartingConds.Contains)) continue;
-
-            var seed = grid.MapPointTile(part, outPt);
-            if (seed < 0) continue;
-
-            // BFS. The seed (the source's output tile) is powered; it only spreads if it is itself on a power path.
-            var queue = new Queue<int>();
-            var seen = new HashSet<int> { seed };
-            powered.Add(seed);
-            queue.Enqueue(seed);
-            while (queue.Count > 0)
-            {
-                var t = queue.Dequeue();
-                if (!grid.Has(t, "IsPowerPath")) continue;
-                foreach (var nt in Cardinals(grid, t))
-                {
-                    if (nt < 0 || !grid.Has(nt, "IsPowerPath")) continue;
-                    poweredSegs.Add(Seg(t, nt));
-                    if (seen.Add(nt)) { powered.Add(nt); queue.Enqueue(nt); }
-                }
-            }
-        }
+        foreach (var source in Sources(grid, catalog))
+            powered.UnionWith(FloodFrom(grid, source.Seed, poweredSegs));
 
         // 2. Any IsPowerPath tile the flood never reached is an orphaned run — flood those separately.
         var unpoweredSegs = new HashSet<(int, int)>();
@@ -149,6 +123,71 @@ public static class PowerNetwork
             result.PoweredSegments.Select(Segment).ToArray(),
             result.UnpoweredSegments.Select(Segment).ToArray(),
             plugs);
+    }
+
+    /// <summary>
+    /// Σ <c>StatPower</c> over the installed sources whose flood reaches any of <paramref name="tiles"/> — the
+    /// game's <c>Powered.PowerConnected</c> for a device plugged in at those input points, which is what the nav
+    /// console's BACKUP POWER row reads (<see cref="ShipDiagnostics"/>).
+    ///
+    /// <para><c>Powered.UsePower</c> totals <c>QueryPower</c> over the tile's <c>aConnectedPowerCOs</c>, and
+    /// <c>TileUtils.GetPoweredTiles</c> files a source on <b>every</b> tile its own flood walked. So "connected"
+    /// here is exactly the flood in <see cref="Build"/>, resolved per source rather than as one union.
+    /// <c>QueryPower</c> skips a non-positive charge, so a flat battery contributes nothing. The device's own
+    /// internal charge is deliberately not added: the game only falls back to it once external power has already
+    /// come up short, and the core nav console carries none.</para>
+    /// </summary>
+    public static double PowerConnectedTo(ShipGrid grid, Catalog catalog, IReadOnlyCollection<int> tiles)
+    {
+        if (tiles.Count == 0) return 0;
+        var wanted = tiles as IReadOnlySet<int> ?? new HashSet<int>(tiles);
+
+        double total = 0;
+        foreach (var source in Sources(grid, catalog))
+        {
+            var charge = source.Def.StartingCondValues.GetValueOrDefault("StatPower");
+            if (charge <= 0) continue;   // QueryPower: only a positive charge counts
+            if (FloodFrom(grid, source.Seed, null).Overlaps(wanted)) total += charge;
+        }
+        return total;
+    }
+
+    /// <summary>The installed power sources that can feed the network, with the tile their <c>PowerOutput</c>
+    /// point lands on — the seeds <c>TileUtils.GetPoweredTiles</c> floods from.</summary>
+    private static IEnumerable<(PartDef Def, int Seed)> Sources(ShipGrid grid, Catalog catalog)
+    {
+        foreach (var part in grid.Parts)
+        {
+            if (catalog.Lookup(part.Part.DefName) is not { } def) continue;
+            if (def.PowerOutputPoint is not { } outPt) continue;
+            if (!def.StartingConds.Contains("IsInstalled")) continue;
+            if (def.StartingConds.Contains("IsOverrideOff")) continue;
+            if (!SourceConds.Any(def.StartingConds.Contains)) continue;
+
+            var seed = grid.MapPointTile(part, outPt);
+            if (seed >= 0) yield return (def, seed);
+        }
+    }
+
+    /// <summary>The tiles one source reaches. The seed (its output tile) always counts; the flood only spreads
+    /// from a tile that is itself on a power path. <paramref name="segs"/> collects the runs walked, for drawing.</summary>
+    private static HashSet<int> FloodFrom(ShipGrid grid, int seed, HashSet<(int, int)>? segs)
+    {
+        var seen = new HashSet<int> { seed };
+        var queue = new Queue<int>();
+        queue.Enqueue(seed);
+        while (queue.Count > 0)
+        {
+            var t = queue.Dequeue();
+            if (!grid.Has(t, "IsPowerPath")) continue;
+            foreach (var nt in Cardinals(grid, t))
+            {
+                if (nt < 0 || !grid.Has(nt, "IsPowerPath")) continue;
+                segs?.Add(Seg(t, nt));
+                if (seen.Add(nt)) queue.Enqueue(nt);
+            }
+        }
+        return seen;
     }
 
     /// <summary>A segment keyed order-independently so the two BFS directions record it once.</summary>

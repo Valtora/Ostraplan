@@ -38,6 +38,7 @@ flag exactly that: re-verify after every game update.
 - [19. Obtaining a ship in-game (brokers, chargen)](#19-obtaining-a-ship-in-game-brokers-chargen)
 - [20. Propulsion (RCS and the torch drive)](#20-propulsion-rcs-and-the-torch-drive)
 - [21. Crew walkability and interaction reach](#21-crew-walkability-and-interaction-reach)
+- [22. The ship diagnostic (`ShipStatus.PrintStatus`)](#22-the-ship-diagnostic-shipstatusprintstatus)
 - [Appendix A — Quick reference](#appendix-a--quick-reference)
 - [Appendix B — Ported / deferred / excluded](#appendix-b--ported--deferred--excluded)
 
@@ -66,6 +67,8 @@ updates. The members that matter most:
 | `Room.cs` / `RoomSpec.cs` | `CreateRoomSpecs`, `Matches`, `CalculateRoomValue` |
 | `CondOwner.cs` | `TLTileCoords` (item centre → top-left tile), `GetBasePrice`, `BreakIn` |
 | `Visibility.cs` | `LateUpdate` (the light shadow-mesh geometry) |
+| `ShipStatus.cs` | `PrintStatus` (the nav console's ship diagnostic), `GetO2UnderPump` |
+| `Powered.cs` | `UsePower` / `QueryPower` (what "connected power" totals at a device) |
 
 **Re-verification checklist after a game patch:**
 1. Re-decompile; diff `CheckFit`, `SetData`, `RotateCW`, `CalculateRating`
@@ -1390,6 +1393,87 @@ This is the part that is easy to get wrong, because the strict-looking range tes
 
 ---
 
+## 22. The ship diagnostic (`ShipStatus.PrintStatus`)
+
+The game has exactly one place where it enumerates the systems a working ship is expected
+to carry: the **Diagnostics** module on a nav console
+(`Ostranauts.ShipGUIs.NavStation.NavModDiagnostics`). Ticking its status box runs
+`ShipStatus.PrintStatus`, which fills sixteen fixed rows named by `ShipStatus.aNames` and
+wraps each value in `<color=#009900>` (good) or `<color=#990000>` (bad). It is the game's
+own ship checklist, and it is reachable only by sitting at a console on a ship that already
+exists — which is why a planner has to recompute it.
+
+The module is a physical item like every other nav module (`ItmNavModDiagnostics`, §Nav
+console loadout in `NavConsole`), so a console without it shows no diagnostic page at all.
+
+### The sixteen rows
+
+| # | `aNames` caption | Source | Green when |
+|---|---|---|---|
+| 0 | `VESSEL RATING CODE:` | `Ship.GetRatingString()` (§10) | *(no colour — informational)* |
+| 1 | `VESSEL MASS:` | `Ship.Mass` (§20 — top-level walk, no `IsInstalled` filter) | *(no colour)* |
+| 2 | `TRANSPONDER:` | `Ship.strXPDR`, else `TIsXPDRInstalled` present | a registration ID is set |
+| 3 | `TRANSPONDER ANTENNA:` | `TIsXPDRAnt`, minus `IsOff` | ≥1 switched on |
+| 4 | `NAV STATION:` | *hardcoded* `ONLINE` | always |
+| 5 | `REACTOR:` | `TIsReactorIC` + `IsInstalled`, `StatPower != 0` | the core is **lit** |
+| 6 | `REACTOR HE3:` | Σ `StatSolidHe3` over `TIsCanisterLHe02Installed` | `> 100` kg |
+| 7 | `REACTOR D2O:` | Σ `StatLiqD2O` over `TIsCanisterLH02Installed` | `> 1000` kg |
+| 8 | `RCS THRUSTERS:` | `TIsRCSClusterInstalled`, minus `IsOff` | **`> 1`** switched on |
+| 9 | `RCS DISTRIBUTOR:` | `TIsRCSDistroInstalled`, first not `IsOff` wins | ≥1 switched on |
+| 10 | `RCS REMASS:` | `Ship.GetRCSRemain()` (§20) | `>= 200` kg |
+| 11 | `BACKUP POWER:` | `Powered.PowerConnected` **at the console** | `>= 20` kWh |
+| 12 | `LIFE SUPPORT WORKING O2 PUMPS:` | fed / installed, `TIsAirPump02Installed` | ≥1 fed |
+| 13 | `LIFE SUPPORT O2 STORES:` | O2 mass under those pumps | `> 35` kg |
+| 14 | `LIFE SUPPORT HEAT:` | `TIsHeater01Installed`, first not `IsOff` wins | ≥1 switched on |
+| 15 | `LIFE SUPPORT COOL:` | `TIsCooler01Installed`, first not `IsOff` wins | ≥1 switched on |
+
+Every cutoff is a **literal compiled into the DLL**, invisible to data diffing — the same
+hazard as the rating cutoffs (§10). Row 8's `num2 > 1.0` is the one people misread: a
+single healthy thruster reads red, because one thruster can push but not turn the ship.
+
+### Two rows are measured somewhere specific, not ship-wide
+
+**Backup power** is `COSelf.GetComponent<Powered>().PowerConnected` on the **console**, so
+it totals only sources whose flood reached the console's own `aInputPts` tiles
+(`Powered.UsePower` → `QueryPower` over `Tile.aConnectedPowerCOs`, which
+`TileUtils.GetPoweredTiles` files per source, §13). A battery the conduit network never
+reaches counts for nothing. `QueryPower` skips a non-positive charge.
+
+**O2 stores** are read by `ShipStatus.GetO2UnderPump`: for each switched-on pump, the
+`TIsRTAO2Installed` can sitting at its `GasInput` map point. A hold full of oxygen with no
+pump plumbed to a can reads `0.00 kg`. Each core air pump declares exactly **one**
+`GasInput` point, which collapses the method's per-point last-writer-wins accumulation
+(it *assigns* `Item1` rather than adding to it) to a straight sum over pumps — so the
+quirk is unreachable on core data. This is the same scan as the ×3 atmo bonus (§11.3).
+
+### What a planner cannot reproduce exactly
+
+Four rows ask about a *running* ship rather than a design, and are answered differently:
+
+- **Row 4** is hardcoded `ONLINE` because the page is being read at that very console, so
+  it cannot report its own absence. A design can easily have none, so it becomes a real
+  `TIsNavStationInstalled` presence test.
+- **Row 2** prints the registration ID the game assigns at spawn. A plan has none, so an
+  installed, switched-on transponder reports installation instead.
+- **Row 5** needs `StatPower != 0`, which the fusion sim sets once the core is lit; **no
+  reactor def carries it**. A planned or freshly bought reactor is always installed unlit,
+  so a literal port would read `OFFLINE` on every design ever made. Same divergence, same
+  reason, as reading `StatICVe` off the ignited core (§20).
+- **Rows 6, 7, 10, 11, 13** are quantities, reported as-spawned — what a newly built or
+  newly bought ship reads, not a claim about a save in progress.
+
+> **Ported in Ostraplan:** `ShipDiagnostics` (`Build` for the rows, `Analyze` for the whole
+> run), with the cutoffs in `ShipDiagnosticsThresholds` and the readout on its own
+> **Diagnostics** toolbar action. Backup power goes through
+> `PowerNetwork.PowerConnectedTo`; O2 through `ShipValue.ScanO2Supply` (which
+> `CountO2Pumps` now delegates to); mass and remass through `Propulsion`. The four
+> divergences above are stated in the report's own text, not hidden.
+> **Re-verify per patch:** `aNames` (captions and order), every cutoff in the table, and
+> whether any row's source trigger changed — `ShipDiagnosticsTests` pins the captions and
+> the cutoffs, so drift surfaces there.
+
+---
+
 ## Appendix A — Quick reference
 
 - **`nLayer` is always 0** — rank by contributed conditions (§15).
@@ -1504,7 +1588,8 @@ sets), giving a 220-ship rooms **and** certification gate. Only **Babak / Babak 
 | Ship Rating (`CalculateRating`) | ported | `Rating` |
 | Ship value (`GetShipValue` / `GetBasePrice`) | ported | `ShipValue`, `Catalog.GasPrices` |
 | Propulsion (`RCSAccelMax`, `DeltaVRemainingRCS`, `GetRCSRemain`/`Max`, `FusionIC` + `GetMaxTorchThrust`) | ported (map-point lookup approximates a raycast) | `Propulsion` |
-| Power connectivity (`GetPoweredTiles`) | ported | `PowerNetwork` |
+| Power connectivity (`GetPoweredTiles`, `Powered.PowerConnected`) | ported | `PowerNetwork` |
+| Ship diagnostic (`ShipStatus.PrintStatus` / `NavModDiagnostics`) | ported (4 rows diverge — a plan is not a running ship, §22) | `ShipDiagnostics` |
 | Crew walkability + JPS adjacency (`Tile.IsWalkable`, `JumpPointSearch`) | ported (fire and the EVA-gravity gate excluded; door pressure approximated by room Void) | `WalkNetwork` |
 | Interaction reach (`Interaction.Triggered` range + LOS) | ported | `WalkNetwork`, `LineOfSight` |
 | Crew pathing itself (costs, occupancy, doors opening over time) | excluded (a simulation, not a plan) | never ported |

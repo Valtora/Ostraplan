@@ -49,8 +49,8 @@ public partial class MainWindow : Window
     // good — which clears this and lifts the hold. See OpenFile / GuardIncompleteSave.
     private IReadOnlyList<OplanPart> _unresolvedParts = [];
     private bool _syncingPalette;
-    private IReadOnlyList<RoomSpecDef>? _roomSpecs;   // lazily loaded once for the Ship Rating analysis
-    private bool _analysing;
+    private IReadOnlyList<RoomSpecDef>? _roomSpecs;   // lazily loaded once for the Ship Rating / Diagnostics analyses
+    private bool _analysing;                          // one gate for both on-demand analyses (each freezes the live doc)
     private FreezeGate _freeze = null!;               // raised while an off-thread read of the LIVE _doc is in flight — see FreezeDoc
     private (int X, int Y)? _hoverCell;               // last hovered tile — the paste anchor
     private List<(string Def, int X, int Y, int Rot, IReadOnlyList<CargoItem> Cargo)> _clip = [];   // copied selection, relative to its top-left (with container contents)
@@ -620,7 +620,7 @@ public partial class MainWindow : Window
         }
 
         _analysing = true;
-        BtnRating.IsEnabled = false;
+        BtnRating.IsEnabled = BtnDiagnostics.IsEnabled = false;
         _roomSpecs ??= RoomCertifier.LoadSpecs(_index);
         var (doc, catalog, specs) = (_doc, _catalog, _roomSpecs);
 
@@ -647,7 +647,7 @@ public partial class MainWindow : Window
             finally
             {
                 progress.Close();
-                BtnRating.IsEnabled = true;
+                BtnRating.IsEnabled = BtnDiagnostics.IsEnabled = true;
                 _analysing = false;
             }
         }
@@ -661,6 +661,54 @@ public partial class MainWindow : Window
             new RatingReportWindow(report, value, snapshot, cells => Board.SetLeakCells(cells), snapshotSvg,
                 kg => SetExtraMass(doc, kg)) { Owner = this }.ShowDialog();
         }
+    }
+
+    // ---- Diagnostics (the game's own nav-console ship checklist) ----
+
+    /// <summary>
+    /// Runs <see cref="ShipDiagnostics"/> over the live design and shows the checklist. Same shape as the Ship
+    /// Rating action — it certifies rooms for the rating-code row, so it is real work rather than a lookup, and
+    /// it takes the same freeze and the same one-at-a-time gate.
+    /// </summary>
+    private async void OnDiagnosticsClick(object sender, RoutedEventArgs e)
+    {
+        if (_analysing || _doc is null || _catalog is null || _index is null) return;
+        if (_doc.Placements.Count == 0)
+        {
+            Dlg.Show(this, "Place some parts before running the diagnostic.", "Ship Diagnostics",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        _analysing = true;
+        BtnRating.IsEnabled = BtnDiagnostics.IsEnabled = false;
+        _roomSpecs ??= RoomCertifier.LoadSpecs(_index);
+        var (doc, catalog, specs) = (_doc, _catalog, _roomSpecs);
+
+        var progress = new DiagnosticsProgressDialog { Owner = this };
+        var reporter = new Progress<(string Stage, double Frac)>(p => progress.Update(p.Stage, p.Frac));
+        ShipDiagnosticReport? report = null;
+        progress.Show();
+        // Pure computation over the live document, like the rating: anything it throws is our bug, so it reaches
+        // the app handler and the stack lands in error.log. allowUiCapture for the same reason as the rating —
+        // the reporter's Progress<T> posts back to the UI thread by design (see OnShipRatingClick).
+        using (FreezeDoc())
+        {
+            try
+            {
+                report = await Ui.OffThread(
+                    () => ShipDiagnostics.Analyze(doc, catalog, specs, reporter), allowUiCapture: true);
+            }
+            finally
+            {
+                progress.Close();
+                BtnRating.IsEnabled = BtnDiagnostics.IsEnabled = true;
+                _analysing = false;
+            }
+        }
+
+        if (report is not null)
+            new DiagnosticsWindow(report, _meta.Name) { Owner = this }.ShowDialog();
     }
 
     // ---- Bill of materials ----
@@ -3199,6 +3247,7 @@ public partial class MainWindow : Window
             ("New / open / save", "Ctrl+N / O / S", "New · open · save (Ctrl+Shift+S = Save As)."),
             ("Export", "Ctrl+E", "Export the design as a spawnable local data mod."),
             ("Ship Info / Materials", "Ctrl+I / Ctrl+B", "Edit the in-game identity · open the bill of materials."),
+            ("Diagnostics", "Toolbar", "The game's own ship checklist, from the nav console's Diagnostics module: transponder, antenna, nav station, reactor and its helium-3 and deuterium, RCS thrusters, distributor and reaction mass, backup power, and the four life-support rows — each green or red on the game's own thresholds, with what's missing spelled out under every red one. Backup power is measured at the console's power inputs and O2 stores at the pumps' gas inputs, exactly as the game measures them, so a battery your conduits never reach counts for nothing."),
             ("Help", "F1", "Open this window."),
         ];
 
