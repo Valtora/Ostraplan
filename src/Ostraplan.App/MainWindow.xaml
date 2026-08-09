@@ -83,7 +83,7 @@
             <DockPanel>
                 <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
                     <Button x:Name="BtnFileMenu" Content="File ▾" Padding="10,3" Margin="0,0,3,0" Click="OnFileMenuClick"
-                            ToolTip="New, Open, Save, Import, Export, and write-back to a save"/>
+                            ToolTip="New, Open, Save, Auto-save, Import, Export, and write-back to a save"/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 

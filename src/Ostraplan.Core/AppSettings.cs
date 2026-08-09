@@ -97,6 +97,17 @@ public sealed class AppSettings
     /// <summary>WalkViz: treat painted Forbid zones as impassable. The game's test is per crew member (a zone
     /// matches a PersonSpec), so this is the "for a crew member the zone binds" reading. On by default.</summary>
     [JsonPropertyName("walkRespectForbidZones")] public bool WalkRespectForbidZones { get; set; } = true;
+    /// <summary>Take a rotating snapshot of the open design every <see cref="AutoSaveMinutes"/> minutes (see
+    /// <see cref="AutoSaveStore"/>). Opt-in: off until the user turns it on, since it writes to disk on a timer.
+    /// A snapshot never touches the user's own .oplan — Ctrl+S stays the only thing that writes it.</summary>
+    [JsonPropertyName("autoSave")] public bool AutoSave { get; set; }
+    /// <summary>Minutes between auto-save snapshots. Clamped to
+    /// <see cref="AutoSaveStore.MinIntervalMinutes"/>..<see cref="AutoSaveStore.MaxIntervalMinutes"/> at use, so a
+    /// hand-edited settings file can't produce a zero-interval timer.</summary>
+    [JsonPropertyName("autoSaveMinutes")] public int AutoSaveMinutes { get; set; } = AutoSaveStore.DefaultIntervalMinutes;
+    /// <summary>How many snapshots each design keeps; older ones rotate out. Clamped like
+    /// <see cref="AutoSaveMinutes"/>.</summary>
+    [JsonPropertyName("autoSaveKeep")] public int AutoSaveKeep { get; set; } = AutoSaveStore.DefaultKeep;
     /// <summary>Parts the user pinned for quick access (the palette's ★ tab's Favorites group), in pin order.</summary>
     [JsonPropertyName("favorites")] public List<PartRef> Favorites { get; set; } = [];
     /// <summary>The most-recently-placed parts, newest first, capped at <see cref="RecentCap"/> (the ★ tab's Recent group).</summary>

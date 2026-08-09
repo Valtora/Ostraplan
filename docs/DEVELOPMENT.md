@@ -141,8 +141,8 @@ Ostraplan installs per-user, with no admin rights and nothing written outside th
 profile:
 
 - **Install root:** `%LOCALAPPDATA%\Ostraplan`
-- **User data:** `%APPDATA%\Ostraplan` (settings, activity log, bug-report diagnostics).
-  It survives updates and uninstalls.
+- **User data:** `%APPDATA%\Ostraplan` (settings, activity log, bug-report diagnostics,
+  and the `autosave\` snapshot store). It survives updates and uninstalls.
 
 `VelopackApp.Build().Run()` is the first statement of an explicit `Program.Main`
 (App.xaml is compiled as a `Page` so the SDK does not also generate one): the

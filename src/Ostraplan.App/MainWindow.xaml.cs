@@ -58,6 +58,8 @@ public partial class MainWindow : Window
     private readonly DispatcherTimer _scanTimer;      // debounces the (now off-thread) problem scan
     private CancellationTokenSource? _scanCts;        // cancels a superseded scan
     private List<Problem> _lastProblems = [];         // the most recent scan result, re-rendered when an alert is dismissed/restored
+    private readonly DispatcherTimer _autoSaveTimer;  // opt-in rotating snapshots of the open design (see RunAutoSave)
+    private bool _autoSaveWarned;                     // a failing auto-save says so once, then only logs — see RunAutoSave
 
 
     public MainWindow()
@@ -113,6 +115,10 @@ public partial class MainWindow : Window
 
         _scanTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
         _scanTimer.Tick += (_, _) => RunScan();
+
+        _autoSaveTimer = new DispatcherTimer();
+        _autoSaveTimer.Tick += (_, _) => RunAutoSave();
+        RestartAutoSaveTimer();   // off unless the user has opted in
 
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewKeyUp += OnPreviewKeyUp;
@@ -990,6 +996,170 @@ public partial class MainWindow : Window
         return true;
     }
 
+    // ---- auto-save ----
+
+    /// <summary>
+    /// Take a rotating snapshot of the open design (see <see cref="AutoSaveStore"/>). Opt-in, and deliberately not a
+    /// save: it writes into <c>%APPDATA%\Ostraplan\autosave</c> and never touches the user's own .oplan, so the
+    /// unsaved-changes star stays up and Ctrl+S remains the only thing that writes the file they opened.
+    ///
+    /// <para>A tick is skipped when there is nothing worth snapshotting, or when taking one would be wrong: no
+    /// document, no unsaved changes, a design held read-only because its mods are missing (the .oplan on disk is the
+    /// complete one, and a snapshot would be the version with the parts dropped), or an engine reading the live
+    /// document off-thread.</para>
+    /// </summary>
+    private void RunAutoSave()
+    {
+        if (_doc is null || _index is null) return;
+        if (!_stack.Dirty && !_stateDirty) return;
+        if (_unresolvedParts.Count > 0) return;
+        if (_freeze.IsFrozen) return;
+
+        var name = _doc.FilePath is { } f ? Path.GetFileNameWithoutExtension(f) : _meta.Name;
+        try
+        {
+            var file = OplanFile.FromDocument(_doc, _index, _meta);
+            file.ViewRot = Board.ViewRot;   // a recovered snapshot reopens in the orientation it was taken in
+            var written = AutoSaveStore.Default.Write(
+                file, name, _doc.FilePath, AutoSaveStore.ClampKeep(_settings.AutoSaveKeep), DateTime.Now);
+            AuditLog.Add($"Auto-saved \"{name}\" to {written}.");
+        }
+        catch (Exception ex)
+        {
+            AuditLog.Add($"Auto-save of \"{name}\" failed: {ex.Message}");
+            if (_autoSaveWarned) return;
+            _autoSaveWarned = true;   // said once, then only logged — a broken folder must not interrupt every interval
+            Dlg.Warn(this, "Auto-save failed",
+                "Ostraplan could not write an auto-save snapshot:\n\n" + ex.Message + "\n\n" +
+                "Auto-save stays on and keeps trying, but this won't be reported again this session. " +
+                "Save your work with Ctrl+S.");
+        }
+    }
+
+    /// <summary>Start, stop, or re-interval the auto-save timer from the current settings. Called at startup and
+    /// after any change to the switch or the interval.</summary>
+    private void RestartAutoSaveTimer()
+    {
+        _autoSaveTimer.Stop();
+        if (!_settings.AutoSave) return;
+        _autoSaveTimer.Interval = TimeSpan.FromMinutes(AutoSaveStore.ClampMinutes(_settings.AutoSaveMinutes));
+        _autoSaveTimer.Start();
+    }
+
+    private void SetAutoSaveEnabled(bool on)
+    {
+        _settings.AutoSave = on;
+        _settings.Save();
+        _autoSaveWarned = false;   // a fresh opt-in earns a fresh warning if the store still can't be written
+        RestartAutoSaveTimer();
+        AuditLog.Setting("Auto-save", on
+            ? $"on, every {AutoSaveStore.ClampMinutes(_settings.AutoSaveMinutes)} min, keeping " +
+              $"{AutoSaveStore.ClampKeep(_settings.AutoSaveKeep)} per design"
+            : "off");
+    }
+
+    /// <summary>Persist the auto-save interval and restart the timer on it, so a change takes effect from now rather
+    /// than after the interval already running has elapsed.</summary>
+    private void SetAutoSaveMinutes(double minutes)
+    {
+        // AwayFromZero, to match how the row's numeric box formats the same slider value
+        var value = AutoSaveStore.ClampMinutes((int)Math.Round(minutes, MidpointRounding.AwayFromZero));
+        if (value == _settings.AutoSaveMinutes) return;
+        _settings.AutoSaveMinutes = value;
+        _settings.Save();
+        RestartAutoSaveTimer();
+    }
+
+    /// <summary>Persist how many snapshots each design keeps. Lowering it takes effect on that design's next
+    /// snapshot, which is when its set is next rotated.</summary>
+    private void SetAutoSaveKeep(double keep)
+    {
+        var value = AutoSaveStore.ClampKeep((int)Math.Round(keep, MidpointRounding.AwayFromZero));
+        if (value == _settings.AutoSaveKeep) return;
+        _settings.AutoSaveKeep = value;
+        _settings.Save();
+    }
+
+    /// <summary>The File ▸ "Auto-save" submenu: the opt-in switch, the interval, how many snapshots each design keeps,
+    /// and recovery. Built fresh whenever the File menu opens, so the check state, the slider positions and the
+    /// snapshot count are all read live.</summary>
+    private MenuItem AutoSaveMenuItem()
+    {
+        var menu = new MenuItem { Header = "Auto-save" };
+        menu.Items.Add(MenuAction("Enabled", () => SetAutoSaveEnabled(!_settings.AutoSave), check: _settings.AutoSave));
+        menu.Items.Add(MenuSliderRow("Every", AutoSaveStore.MinIntervalMinutes, AutoSaveStore.MaxIntervalMinutes,
+            AutoSaveStore.ClampMinutes(_settings.AutoSaveMinutes), "0", SetAutoSaveMinutes, suffix: "min"));
+        menu.Items.Add(MenuSliderRow("Keep", AutoSaveStore.MinKeep, AutoSaveStore.MaxKeep,
+            AutoSaveStore.ClampKeep(_settings.AutoSaveKeep), "0", SetAutoSaveKeep, suffix: "per design"));
+        menu.Items.Add(new Separator());
+
+        var snapshots = AutoSaveStore.Default.List();
+        menu.Items.Add(MenuAction($"Recover auto-save… ({snapshots.Count})", () => RecoverAutoSave(snapshots),
+            enabled: snapshots.Count > 0));
+        menu.Items.Add(MenuAction("Open auto-save folder", OpenAutoSaveFolder));
+        return menu;
+    }
+
+    /// <summary>
+    /// Recover an auto-save snapshot: pick one, then load it as the active document.
+    ///
+    /// <para>A snapshot records the design's own file path (<see cref="OplanFile.AutoSaveOf"/>), so a recovered design
+    /// goes back onto that file and Ctrl+S writes where the user expects. It arrives with unsaved changes either way,
+    /// because what is now on the canvas is not what is on disk: keeping the recovery is the user's call, and nothing
+    /// is written until they make it.</para>
+    /// </summary>
+    private void RecoverAutoSave(IReadOnlyList<AutoSaveEntry> entries)
+    {
+        if (_catalog is null || entries.Count == 0 || !ConfirmDiscardChanges()) return;
+
+        var picker = new AutoSaveRecoveryDialog(entries, DateTime.Now) { Owner = this };
+        if (picker.ShowDialog() != true || picker.Selected is not { } entry) return;
+
+        OplanFile file;
+        List<OplanPart> missing;
+        ShipDocument doc;
+        try
+        {
+            file = OplanFile.Load(entry.Path);
+            (doc, missing) = file.ToDocument(_catalog);
+        }
+        catch (Exception ex)
+        {
+            Dlg.Show(this, ex.Message, "Recover failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            return;
+        }
+
+        AdoptLoadedDocument(file, doc, missing, file.AutoSaveOf, dirty: true);
+        AuditLog.Add($"Recovered the auto-save snapshot {entry.Path}.");
+
+        // Same as reopening a save-derived .oplan: the snapshot carries layout only, so re-hang the container
+        // contents from its source save if that save is still where it was.
+        if (doc.SourceSave is { } srcSave) AttachSavedCargoAsync(doc, srcSave);
+
+        var onto = file.AutoSaveOf is { } path
+            ? $"Saving writes it back to {Path.GetFileName(path)}."
+            : "This design had never been saved, so saving will ask where to put it.";
+        var incomplete = missing.Count > 0
+            ? $"\n\nIt uses {missing.Count} part(s) from mods that aren't loaded, so it is held read-only until you " +
+              "enable them and reopen. See the warning in the title bar."
+            : "";
+        Dlg.Info(this, "Recovered",
+            $"Recovered \"{_meta.Name}\" as it stood at {entry.SavedAt:HH:mm} on {entry.SavedAt:ddd d MMM}.\n\n" +
+            $"It is loaded as unsaved changes — nothing has been written yet. {onto}{incomplete}");
+    }
+
+    /// <summary>Open the auto-save folder in Explorer, so the snapshots can be inspected, copied or cleared out by
+    /// hand (rotation only ever prunes a design that is still being snapshotted).</summary>
+    private void OpenAutoSaveFolder()
+    {
+        try
+        {
+            Directory.CreateDirectory(AutoSaveStore.Default.Root);
+            OpenUrl(AutoSaveStore.Default.Root);
+        }
+        catch (Exception ex) { Dlg.Error(this, "Auto-save", ex.Message); }
+    }
+
     private void OpenFile()
     {
         if (_catalog is null || !ConfirmDiscardChanges()) return;
@@ -1010,24 +1180,7 @@ public partial class MainWindow : Window
             return;
         }
 
-        // designs saved before the primary-airlock convention gain one at the origin
-        if (_catalog.ByDefName.ContainsKey(Catalog.PrimaryDocksysDef) && !doc.Placements.Any(doc.IsLocked))
-            new PlaceCommand(new Placement { DefName = Catalog.PrimaryDocksysDef, X = 0, Y = 0 }).Do(doc);
-
-        if (_doc is not null) _doc.Changed -= OnDocChanged;
-        _doc = doc;
-        _doc.FilePath = dlg.FileName;
-        _doc.Changed += OnDocChanged;
-        _meta = file.Meta;
-        _stateDirty = false;
-        _saveContext = null;   // a reopened save-derived design re-locates its context on demand (from SourceSave)
-        _unresolvedParts = missing;   // a design missing its mods is incomplete: read-only until they're enabled
-        _stack.Reset();
-        Board.SetDocument(_doc);
-        Board.SetViewRot(file.ViewRot);   // restore the saved plan-view orientation
-        Board.FitContent();
-        OnDocChanged();
-        UpdateInspector();
+        AdoptLoadedDocument(file, doc, missing, dlg.FileName, dirty: false);
         _settings.Touch(dlg.FileName);
         _settings.Save();
         AuditLog.Add($"Opened {dlg.FileName}.");
@@ -1035,8 +1188,8 @@ public partial class MainWindow : Window
         // A reopened save-derived design carries no cargo (the .oplan stores only layout); re-locate its
         // source save and hang each container's contents back on its placement, so the inventory viewer works
         // right away. Eager, off-thread, and silent if the save has moved.
-        if (_doc.SourceSave is { } srcSave)
-            AttachSavedCargoAsync(_doc, srcSave);
+        if (doc.SourceSave is { } srcSave)
+            AttachSavedCargoAsync(doc, srcSave);
 
         if (missing.Count > 0)
             Dlg.Warn(this, "This design is missing mods",
@@ -1051,6 +1204,37 @@ public partial class MainWindow : Window
                 "over the space where they belong (or moving parts into it) can produce a ship that's invalid in game.\n\n" +
                 "If you're done with those mods and want the parts gone, Save and confirm: it will drop them and the " +
                 "design becomes editable as it stands.");
+    }
+
+    /// <summary>
+    /// Swap a loaded <c>.oplan</c> in as the active document — the shared tail of Open and auto-save recovery.
+    ///
+    /// <para><paramref name="filePath"/> is the file Ctrl+S will write, or null to leave the design untitled.
+    /// <paramref name="dirty"/> starts it with unsaved changes, which a recovered snapshot always has: what is on the
+    /// canvas is by definition not what is on disk.</para>
+    /// </summary>
+    private void AdoptLoadedDocument(OplanFile file, ShipDocument doc, List<OplanPart> missing, string? filePath, bool dirty)
+    {
+        if (_catalog is not { } catalog) return;
+
+        // designs saved before the primary-airlock convention gain one at the origin
+        if (catalog.ByDefName.ContainsKey(Catalog.PrimaryDocksysDef) && !doc.Placements.Any(doc.IsLocked))
+            new PlaceCommand(new Placement { DefName = Catalog.PrimaryDocksysDef, X = 0, Y = 0 }).Do(doc);
+
+        if (_doc is not null) _doc.Changed -= OnDocChanged;
+        _doc = doc;
+        _doc.FilePath = filePath;
+        _doc.Changed += OnDocChanged;
+        _meta = file.Meta;
+        _stateDirty = dirty;
+        _saveContext = null;   // a reopened save-derived design re-locates its context on demand (from SourceSave)
+        _unresolvedParts = missing;   // a design missing its mods is incomplete: read-only until they're enabled
+        _stack.Reset();
+        Board.SetDocument(_doc);
+        Board.SetViewRot(file.ViewRot);   // restore the saved plan-view orientation
+        Board.FitContent();
+        OnDocChanged();
+        UpdateInspector();
     }
 
     /// <summary>
@@ -2428,7 +2612,7 @@ public partial class MainWindow : Window
             foreach (var p in cat.ParallaxDefs.Values.Where(p => p.SunLightNames.Length > 0).OrderBy(p => p.Name, StringComparer.OrdinalIgnoreCase))
                 sunMenu.Items.Add(MenuAction(p.Name, () => SetSunParallax(p.Name), check: current == p.Name));
         menu.Items.Add(sunMenu);
-        menu.Items.Add(LightSliderRow("Sun angle", 0, 360, _settings.LightSunAngle, "0", SetSunAngle));
+        menu.Items.Add(MenuSliderRow("Sun angle", 0, 360, _settings.LightSunAngle, "0", SetSunAngle));
         return menu;
     }
 
@@ -2459,8 +2643,10 @@ public partial class MainWindow : Window
 
     /// <summary>A labelled slider plus an editable numeric box hosted in a menu (stays open while adjusting): drag
     /// the slider or type an exact value (committed on Enter or focus loss). Both push through
-    /// <paramref name="onChange"/> live, and the box shows the current value in <paramref name="format"/>.</summary>
-    private static MenuItem LightSliderRow(string label, double min, double max, double value, string format, Action<double> onChange)
+    /// <paramref name="onChange"/> live, and the box shows the current value in <paramref name="format"/>. An
+    /// optional <paramref name="suffix"/> is the unit, shown after the box ("min", "per design").</summary>
+    private static MenuItem MenuSliderRow(string label, double min, double max, double value, string format,
+        Action<double> onChange, string? suffix = null)
     {
         var slider = new Slider
         {
@@ -2496,6 +2682,12 @@ public partial class MainWindow : Window
         row.Children.Add(new TextBlock { Text = label, Width = 72, VerticalAlignment = VerticalAlignment.Center });
         row.Children.Add(slider);
         row.Children.Add(box);
+        if (suffix is { Length: > 0 })
+            row.Children.Add(new TextBlock
+            {
+                Text = suffix, Foreground = ThemeManager.Dim, VerticalAlignment = VerticalAlignment.Center,
+                Margin = new Thickness(6, 0, 0, 0),
+            });
         return new MenuItem { Header = row, StaysOpenOnClick = true };
     }
 
@@ -2516,7 +2708,8 @@ public partial class MainWindow : Window
         if (Board.ShowLight) ScheduleScan();
     }
 
-    /// <summary>The File ▾ dropdown: document lifecycle, import, export, and write-back to a save.</summary>
+    /// <summary>The File ▾ dropdown: document lifecycle, auto-save and recovery, import, export, and write-back to a
+    /// save.</summary>
     private void OnFileMenuClick(object sender, RoutedEventArgs e)
     {
         var m = new ContextMenu();
@@ -2524,6 +2717,7 @@ public partial class MainWindow : Window
         m.Items.Add(MenuAction("Open…", () => OnOpenClick(this, e), gesture: "Ctrl+O"));
         m.Items.Add(MenuAction("Save", () => OnSaveClick(this, e), gesture: "Ctrl+S"));
         m.Items.Add(MenuAction("Save As…", () => OnSaveAsClick(this, e), gesture: "Ctrl+Shift+S"));
+        m.Items.Add(AutoSaveMenuItem());
         m.Items.Add(new Separator());
         m.Items.Add(BuildImportSubmenu());
         m.Items.Add(MenuAction("Export…", () => OnExportClick(this, e), gesture: "Ctrl+E"));

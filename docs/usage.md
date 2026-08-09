@@ -275,6 +275,35 @@ Two ways out, and it's your call which:
 - **You're done with those mods:** just **Save** and confirm. The parts are dropped,
   the warning clears, and the design carries on as a normal, complete one.
 
+### Auto-save
+
+**File ▸ Auto-save** takes a rotating snapshot of the open design on a timer. It is
+**off until you turn it on**, and the defaults are then **every 10 minutes**, keeping
+**3 snapshots per design**. Both are adjustable in the same submenu (1 to 60 minutes,
+1 to 20 kept).
+
+Auto-save never writes your `.oplan`. **Ctrl+S is still the only thing that does.**
+Snapshots go to `%APPDATA%\Ostraplan\autosave` and the unsaved-changes star stays up,
+so an auto-save can't quietly commit an edit you were going to undo.
+
+Each design keeps its own set, keyed on its file path, so two ships that happen to
+both be called `Kestrel.oplan` in different folders never rotate each other out.
+A design you have never saved has no path to key on, so all such designs share one
+set of snapshots between them.
+
+**Recovering:** **File ▸ Auto-save ▸ Recover auto-save…** lists every snapshot,
+newest first. Recovering one loads it as *unsaved changes* to the design it came
+from: nothing is written until you save, and saving goes back to that design's own
+file. A snapshot of a design that had never been saved will ask you where to put it.
+**Open auto-save folder** shows the files themselves, which is also how you clear out
+snapshots of a design you have since deleted (rotation only prunes designs that are
+still being snapshotted).
+
+A tick is skipped when there is nothing to record or recording would be wrong: no
+unsaved changes, a design held read-only because its mods are missing, or an analysis
+reading the design at that moment. If a snapshot can't be written at all, Ostraplan
+says so once and then only logs it, rather than interrupting you every interval.
+
 ### Snapshots
 
 **PNG snapshot** exports the current design as an image for sharing. The **Ship

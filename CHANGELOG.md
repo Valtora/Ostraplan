@@ -9,6 +9,27 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **1.0.0.7**).
 
+## [Unreleased]
+
+### Added
+- **Opt-in auto-save, under File ▸ Auto-save.** Turn it on and Ostraplan takes a rotating snapshot of the
+  open design every **10 minutes**, keeping the **3 most recent per design** and rotating out anything
+  older. Both figures are yours to set in the same submenu: 1 to 60 minutes, and 1 to 20 snapshots kept.
+  - **It never writes your `.oplan`.** Ctrl+S is still the only thing that does. Snapshots go to
+    `%APPDATA%\Ostraplan\autosave` and the unsaved-changes star stays up, so an auto-save cannot commit an
+    edit you were about to undo, and it cannot overwrite a good file with a mid-thought one.
+  - **Each design keeps its own three.** Rotation is keyed on the design's full path, so two ships that
+    happen to both be called `Kestrel.oplan` in different folders never evict each other. A design you have
+    never saved has no path to key on, so all such designs share one set between them.
+  - **Recover auto-save…** lists every snapshot newest first and loads the one you pick as *unsaved
+    changes* to the design it came from. Nothing is written until you save, and saving goes back to that
+    design's own file, because the snapshot records which file that was. One of a design that had never
+    been saved asks you where to put it, as it should.
+  - A tick is skipped when there is nothing to record or recording would be wrong: no unsaved changes, a
+    design held read-only because its mods are missing (the copy on disk is the complete one), or an
+    analysis reading the design at that moment. A snapshot that cannot be written says so once and is
+    logged thereafter, rather than interrupting you every ten minutes.
+
 ## [0.66.0] 2026-08-08, Ostranauts 1.0, the ship checklist, and export art
 
 ### Added

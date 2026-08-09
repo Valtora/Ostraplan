@@ -44,6 +44,12 @@ public sealed class OplanFile
     /// <see cref="ShipDocument.ExtraMassKg"/>). Additive at format v1, like <see cref="Zones"/>: an older build
     /// ignores it and round-trips it via <see cref="Extra"/>, so no version bump. Omitted when zero.</summary>
     [JsonPropertyName("extraMassKg")] public double? ExtraMassKg { get; set; }
+    /// <summary>Set <b>only</b> by the auto-save snapshot writer (see <see cref="AutoSaveStore.Write"/>): the path of
+    /// the design's own file at the moment the snapshot was taken, so recovering it puts the design back on that file
+    /// rather than leaving an orphan. Null in a snapshot of a design that had never been saved, and null in every file
+    /// an explicit Save writes — <see cref="FromDocument"/> never sets it. Additive at format v1, like
+    /// <see cref="Zones"/>.</summary>
+    [JsonPropertyName("autoSaveOf")] public string? AutoSaveOf { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 
     private static readonly JsonSerializerOptions Options = new()

@@ -99,7 +99,7 @@ A complete file, with every section populated:
   and any per-part `origin` / `swappedFrom` / `swappedFromDef` / `cargo` that is null.
 - Property order follows the field order below (`formatVersion`, `viewRot`, `game`,
   `mods`, `meta`, `source`, `parts`, `zones`, `looseObjects`, `links`,
-  `dismissedAlerts`, `extraMassKg`).
+  `dismissedAlerts`, `extraMassKg`, `autoSaveOf`).
 - Rotations are one of `0`, `90`, `180`, `270`, normalized on load.
 
 ## Field reference
@@ -120,6 +120,7 @@ A complete file, with every section populated:
 | `links` | array | Device signal connections (below). Additive since v1. |
 | `dismissedAlerts` | array of string | Problem-warning keys the user dismissed, so a dismissed warning stays dismissed across reopens. Additive since v1. |
 | `extraMassKg` | double / absent | Dead weight the design is expected to haul (a tow, or a hold of salvage), in kg. Feeds the **propulsion** figures only, dividing in exactly where the game puts a docked ship's mass; it is not reaction mass. **Omitted when zero.** Additive since v1. |
+| `autoSaveOf` | string / absent | Present **only** in an auto-save snapshot (`%APPDATA%\Ostraplan\autosave`): the path of the design's own file when the snapshot was taken, so recovering it puts the design back on that file. Absent in a snapshot of a design that had never been saved, and absent from every file **Save** writes. Additive since v1. |
 
 Unknown fields at **every** level are preserved on round-trip.
 
