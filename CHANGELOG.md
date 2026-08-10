@@ -9,7 +9,7 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **1.0.0.7**).
 
-## [Unreleased]
+## [0.68.3] 2026-08-10, auto-save, reports you can work beside, and a warning badge worth reading
 
 ### Added
 - **The Ship Rating and Diagnostics reports no longer block the editor.** Both open beside the design instead
