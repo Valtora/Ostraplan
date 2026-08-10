@@ -12,6 +12,18 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **The Ship Rating and Diagnostics reports no longer block the editor.** Both open beside the design instead
+  of over it, so you can leave one up and carry on placing parts while you read it. That is what makes the
+  Ship Rating's **Show** buttons and its **Value Opportunities** list actually usable: the room a hint names is
+  highlighted on a canvas you can still work on, which was the request
+  ([discussion #22](https://github.com/Valtora/Ostraplan/discussions/22)).
+  - A report measures the design as it stood when it ran, and being modal was what used to guarantee it still
+    matched the canvas. So it now says when it does not: edit anything and a bar appears across the top of the
+    report, with a **Re-run** button that recomputes in place. Running the report again from the toolbar
+    refreshes the open window rather than stacking a second one.
+  - Opening or importing a different design closes an open report, since its figures, its leak highlight and
+    its dead-weight box all belong to the design that produced them.
+
 - **Opt-in auto-save, under File ▸ Auto-save.** Turn it on and Ostraplan takes a rotating snapshot of the
   open design every **10 minutes**, keeping the **3 most recent per design** and rotating out anything
   older. Both figures are yours to set in the same submenu: 1 to 60 minutes, and 1 to 20 snapshots kept.

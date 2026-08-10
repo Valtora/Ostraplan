@@ -205,6 +205,16 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
     the readout a freshly built or freshly bought ship gives.
   - It is the game's checklist, not the whole Law: rooms, airtightness, certification and
     the full propulsion figures are the Ship Rating report above.
+- **Both reports stay out of your way.** Neither blocks the editor: leave a report open,
+  carry on placing parts, and read it against the ship it describes. That is what makes the
+  Ship Rating's **Show** buttons and its **Value Opportunities** list usable, since the room
+  a hint is talking about is highlighted on a canvas you can still work on.
+  - A report measures the design as it stood when it ran, so the moment you edit anything a
+    bar appears across the top saying its figures describe the earlier ship. **Re-run**
+    recomputes in place. Running the report again from the toolbar refreshes the window that
+    is already open rather than stacking another one.
+  - Opening or importing a different design closes an open report, since its figures and its
+    dead-weight box belong to the design that produced them.
 - **RoomViz overlay** — the **Rooms** toolbar button or **C**. The same
   certification, live on the canvas: every compartment tinted in its own colour and
   labelled with what it certifies as, its tile count and its value. An uncertified

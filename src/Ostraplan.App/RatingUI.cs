@@ -113,24 +113,44 @@ public sealed class RatingProgressDialog : Window
 /// The Ship Rating law report: the six-slot rating, certified compartments, rooms that
 /// nearly certify (with what they're missing), and airtightness breaches whose unsealed
 /// tiles can be highlighted on the canvas.
+///
+/// <para>Modeless (see <see cref="ReportWindow"/>): the callbacks it needs are fixed for the life of the window and
+/// arrive in the constructor, while the measured figures arrive per run through <see cref="SetReport"/>, so a
+/// re-run refreshes the open window rather than replacing it.</para>
 /// </summary>
-public sealed class RatingReportWindow : Window
+public sealed class RatingReportWindow : ReportWindow
 {
     private static Brush Ink => ThemeManager.Ink;
     private static Brush Dim => ThemeManager.Dim;
     private static Brush Accent => ThemeManager.Accent;
     private static Brush Warn => ThemeManager.Warn;
 
-    public RatingReportWindow(AnalysisReport report, ShipValueEstimate value, BitmapSource? snapshot,
-        Action<IReadOnlyList<(int X, int Y)>> highlightLeak, string? snapshotSvg = null,
+    private readonly Action<IReadOnlyList<(int X, int Y)>> _highlightLeak;
+    private readonly Action<double>? _onExtraMassChanged;
+
+    public RatingReportWindow(Action<IReadOnlyList<(int X, int Y)>> highlightLeak,
         Action<double>? onExtraMassChanged = null)
     {
+        _highlightLeak = highlightLeak;
+        _onExtraMassChanged = onExtraMassChanged;
+
         Title = "Ship Rating";
         // roomy default (the report grew sections), clamped so it still fits smaller screens
         Width = Math.Min(640, SystemParameters.WorkArea.Width - 40);
         Height = Math.Min(1000, SystemParameters.WorkArea.Height - 40);
-        WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = ThemeManager.WindowBg;
+
+        // whichever way this window goes away, the canvas must not keep a highlight it can no longer explain
+        Closed += (_, _) => highlightLeak([]);
+    }
+
+    /// <summary>Show a run's figures, replacing whatever this window was showing. Clears any leak highlight the
+    /// previous run left, since its Show buttons are gone with it.</summary>
+    public void SetReport(AnalysisReport report, ShipValueEstimate value, BitmapSource? snapshot,
+        string? snapshotSvg = null)
+    {
+        var highlightLeak = _highlightLeak;
+        var onExtraMassChanged = _onExtraMassChanged;
+        highlightLeak([]);
 
         var body = new StackPanel { Margin = new Thickness(18) };
 
@@ -222,7 +242,6 @@ public sealed class RatingReportWindow : Window
         // airtightness — each breach's leak points highlight on the canvas. Show toggles to
         // Hide (one highlight at a time, shared with the value-opportunity room highlights);
         // closing this window clears the highlight so it doesn't linger until the next Ship Rating.
-        Closed += (_, _) => highlightLeak([]);
         var showButtons = new List<Button>();
         Button MakeShow(IReadOnlyList<(int X, int Y)> tiles)
         {
@@ -338,7 +357,7 @@ public sealed class RatingReportWindow : Window
         close.Click += (_, _) => Close();
         body.Children.Add(close);
 
-        Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = body };
+        SetBody(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = body });
     }
 
     private static string Money(double v) => "$" + v.ToString("#,##0", CultureInfo.InvariantCulture);

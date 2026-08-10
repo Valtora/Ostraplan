@@ -51,6 +51,10 @@ public partial class MainWindow : Window
     private bool _syncingPalette;
     private IReadOnlyList<RoomSpecDef>? _roomSpecs;   // lazily loaded once for the Ship Rating / Diagnostics analyses
     private bool _analysing;                          // one gate for both on-demand analyses (each freezes the live doc)
+    // The two analysis reports, held open beside the editor rather than over it (discussion #22). One of each at
+    // most: a re-run refreshes the window that is up. See ShowRatingReport / ShowDiagnosticsReport.
+    private RatingReportWindow? _ratingReport;
+    private DiagnosticsWindow? _diagnosticsReport;
     private FreezeGate _freeze = null!;               // raised while an off-thread read of the LIVE _doc is in flight — see FreezeDoc
     private (int X, int Y)? _hoverCell;               // last hovered tile — the paste anchor
     private List<(string Def, int X, int Y, int Rot, IReadOnlyList<CargoItem> Cargo)> _clip = [];   // copied selection, relative to its top-left (with container contents)
@@ -110,8 +114,15 @@ public partial class MainWindow : Window
         // ("Place Nav Station @(12,7)") rather than a context-free "Place" — the detail a bug report needs.
         _stack.Applied += (cmd, action) => AuditLog.Command(action, cmd, DefFriendlyName);
 
-        // the whole editing surface goes dead while an engine reads the live document off-thread (FreezeDoc)
-        _freeze = new FreezeGate(frozen => Chrome.IsEnabled = !frozen);
+        // The whole editing surface goes dead while an engine reads the live document off-thread (FreezeDoc). An open
+        // report window is an edit route too now that it is modeless — its dead-weight box writes to the live
+        // document — so it goes dead with the rest of them rather than being left as the one way in.
+        _freeze = new FreezeGate(frozen =>
+        {
+            Chrome.IsEnabled = !frozen;
+            if (_ratingReport is not null) _ratingReport.IsEnabled = !frozen;
+            if (_diagnosticsReport is not null) _diagnosticsReport.IsEnabled = !frozen;
+        });
 
         _scanTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
         _scanTimer.Tick += (_, _) => RunScan();
@@ -506,6 +517,7 @@ public partial class MainWindow : Window
     private void NewDocument()
     {
         if (_catalog is null) return;
+        CloseReports();
         if (_doc is not null) _doc.Changed -= OnDocChanged;
         _doc = new ShipDocument(_catalog);
         // every ship owns exactly one Primary Airlock, fixed at the root - seeded
@@ -531,9 +543,22 @@ public partial class MainWindow : Window
         var dims = bounds is { } b ? $" · {b.MaxX - b.MinX + 1}×{b.MaxY - b.MinY + 1} tiles" : "";
         TxtParts.Text = $"{_doc?.Placements.Count ?? 0} parts{dims}";
         Board.SetLeakCells([]);   // any Ship Rating leak highlight is stale once the design changes
+        // An open report measured the design as it was a moment ago, so an edit is what makes it out of date. It says
+        // so rather than going on showing figures for a ship that no longer exists (see ReportWindow).
+        _ratingReport?.MarkStale();
+        _diagnosticsReport?.MarkStale();
         ScheduleScan();
         UpdateZones();
         RefreshChrome();
+    }
+
+    /// <summary>Close the open analysis reports. Their figures, their leak highlight and their dead-weight box all
+    /// belong to the document that produced them, so a document swap takes them with it rather than leaving a report
+    /// describing one ship while writing into another.</summary>
+    private void CloseReports()
+    {
+        _ratingReport?.Close();
+        _diagnosticsReport?.Close();
     }
 
     /// <summary>
@@ -633,7 +658,14 @@ public partial class MainWindow : Window
 
     // ---- Ship Rating (rooms · airtightness · certification · rating) ----
 
-    private async void OnShipRatingClick(object sender, RoutedEventArgs e)
+    private async void OnShipRatingClick(object sender, RoutedEventArgs e) => await ShowRatingReport();
+
+    /// <summary>
+    /// Run the Ship Rating and show it, or refresh the report already open (the Re-run button on its stale bar comes
+    /// back through here). The report is modeless, so the design can move on underneath it; what keeps that honest is
+    /// <see cref="ReportWindow.MarkStale"/> from <see cref="OnDocChanged"/> and this path to recompute.
+    /// </summary>
+    private async Task ShowRatingReport()
     {
         if (_analysing || _doc is null || _catalog is null || _index is null) return;
         if (_doc.Placements.Count == 0)
@@ -676,14 +708,30 @@ public partial class MainWindow : Window
             }
         }
 
-        if (report is not null)
+        if (report is null) return;
+
+        var value = ShipValue.Estimate(doc, catalog, specs);
+        var snapshot = Board.RenderRatingSnapshot(specs);
+        var snapshotSvg = Board.RenderRatingSnapshotSvg(specs);   // scalable variant for the "Save image…" dialog
+
+        if (_ratingReport is null)
         {
-            Board.SetLeakCells([]);
-            var value = ShipValue.Estimate(doc, catalog, specs);
-            var snapshot = Board.RenderRatingSnapshot(specs);
-            var snapshotSvg = Board.RenderRatingSnapshotSvg(specs);   // scalable variant for the "Save image…" dialog
-            new RatingReportWindow(report, value, snapshot, cells => Board.SetLeakCells(cells), snapshotSvg,
-                kg => SetExtraMass(doc, kg)) { Owner = this }.ShowDialog();
+            // The callbacks are bound to the document that produced the report, which is why CloseReports drops the
+            // window on a document swap rather than letting a stale one write into the new design.
+            var window = new RatingReportWindow(cells => Board.SetLeakCells(cells), kg => SetExtraMass(doc, kg))
+            {
+                Owner = this,
+            };
+            window.RerunRequested += async () => await ShowRatingReport();
+            window.Closed += (_, _) => _ratingReport = null;
+            _ratingReport = window;
+            window.SetReport(report, value, snapshot, snapshotSvg);
+            window.Show();
+        }
+        else
+        {
+            _ratingReport.SetReport(report, value, snapshot, snapshotSvg);
+            _ratingReport.Activate();
         }
     }
 
@@ -694,7 +742,10 @@ public partial class MainWindow : Window
     /// Rating action — it certifies rooms for the rating-code row, so it is real work rather than a lookup, and
     /// it takes the same freeze and the same one-at-a-time gate.
     /// </summary>
-    private async void OnDiagnosticsClick(object sender, RoutedEventArgs e)
+    private async void OnDiagnosticsClick(object sender, RoutedEventArgs e) => await ShowDiagnosticsReport();
+
+    /// <inheritdoc cref="ShowRatingReport"/>
+    private async Task ShowDiagnosticsReport()
     {
         if (_analysing || _doc is null || _catalog is null || _index is null) return;
         if (_doc.Placements.Count == 0)
@@ -731,8 +782,22 @@ public partial class MainWindow : Window
             }
         }
 
-        if (report is not null)
-            new DiagnosticsWindow(report, _meta.Name) { Owner = this }.ShowDialog();
+        if (report is null) return;
+
+        if (_diagnosticsReport is null)
+        {
+            var window = new DiagnosticsWindow { Owner = this };
+            window.RerunRequested += async () => await ShowDiagnosticsReport();
+            window.Closed += (_, _) => _diagnosticsReport = null;
+            _diagnosticsReport = window;
+            window.SetReport(report, _meta.Name);
+            window.Show();
+        }
+        else
+        {
+            _diagnosticsReport.SetReport(report, _meta.Name);
+            _diagnosticsReport.Activate();
+        }
     }
 
     // ---- Bill of materials ----
@@ -1254,6 +1319,7 @@ public partial class MainWindow : Window
     private void AdoptLoadedDocument(OplanFile file, ShipDocument doc, List<OplanPart> missing, string? filePath, bool dirty)
     {
         if (_catalog is not { } catalog) return;
+        CloseReports();
 
         // designs saved before the primary-airlock convention gain one at the origin
         if (catalog.ByDefName.ContainsKey(Catalog.PrimaryDocksysDef) && !doc.Placements.Any(doc.IsLocked))
@@ -3048,6 +3114,7 @@ public partial class MainWindow : Window
     /// optional context is retained when the ship was imported FOR EDITING, enabling write-back to the save.</summary>
     private void InstallImportedDocument(ImportResult result, SaveShipContext? context = null)
     {
+        CloseReports();
         if (_doc is not null) _doc.Changed -= OnDocChanged;
         _doc = result.Doc;
         _doc.FilePath = null;

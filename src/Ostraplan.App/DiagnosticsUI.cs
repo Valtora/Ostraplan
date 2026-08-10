@@ -42,8 +42,11 @@ public sealed class DiagnosticsProgressDialog : Window
 /// <para>Laid out as the console lays it out — captions in one column, values right-aligned in a second — so a
 /// player can read the two side by side. "Copy report" puts a plain-text copy on the clipboard for a bug report
 /// or a forum post.</para>
+///
+/// <para>Modeless (see <see cref="ReportWindow"/>): the checklist is read against the ship, so a re-run refreshes
+/// the open window through <see cref="SetReport"/> rather than replacing it.</para>
 /// </summary>
-public sealed class DiagnosticsWindow : Window
+public sealed class DiagnosticsWindow : ReportWindow
 {
     private static Brush Ink => ThemeManager.Ink;
     private static Brush Dim => ThemeManager.Dim;
@@ -51,19 +54,21 @@ public sealed class DiagnosticsWindow : Window
     private static Brush Good => ThemeManager.Good;
     private static Brush Bad => ThemeManager.Bad;
 
-    private readonly ShipDiagnosticReport _report;
-    private readonly string _designName;
+    private ShipDiagnosticReport _report = new([]);
+    private string _designName = "";
 
-    public DiagnosticsWindow(ShipDiagnosticReport report, string designName)
+    public DiagnosticsWindow()
     {
-        _report = report;
-        _designName = designName;
-
         Title = "Ship Diagnostics";
         Width = Math.Min(560, SystemParameters.WorkArea.Width - 40);
         Height = Math.Min(820, SystemParameters.WorkArea.Height - 40);
-        WindowStartupLocation = WindowStartupLocation.CenterOwner;
-        Background = ThemeManager.WindowBg;
+    }
+
+    /// <summary>Show a run's checklist, replacing whatever this window was showing.</summary>
+    public void SetReport(ShipDiagnosticReport report, string designName)
+    {
+        _report = report;
+        _designName = designName;
 
         var body = new StackPanel { Margin = new Thickness(18) };
 
@@ -154,7 +159,7 @@ public sealed class DiagnosticsWindow : Window
         buttons.Children.Add(close);
         body.Children.Add(buttons);
 
-        Content = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = body };
+        SetBody(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = body });
     }
 
     /// <summary>The console's readout is a fixed-width table; borrowing a monospace face is what keeps the value
