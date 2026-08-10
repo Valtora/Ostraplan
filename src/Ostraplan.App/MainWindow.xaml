@@ -123,7 +123,7 @@
                     <ToggleButton x:Name="BtnWalk" Content="Walk" Style="{StaticResource OverlayToggle}" Click="OnWalkToggleClick"
                             ToolTip="Walk overlay (K): show which tiles crew can reach, and which fittings they can operate"/>
                     <ToggleButton x:Name="BtnWire" Content="Wire" Style="{StaticResource OverlayToggle}" Click="OnWireToggleClick"
-                            ToolTip="Wire mode: click a device, then another, to connect their signals"/>
+                            ToolTip="Wire mode: show the signal wiring, and click a device then another to connect them"/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 

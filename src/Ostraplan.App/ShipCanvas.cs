@@ -92,9 +92,14 @@ public sealed class ShipCanvas : FrameworkElement
     private static readonly Pen PowerWarnPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xE0, 0xF0, 0xB8, 0x40)), 2));
 
     // Device signal connections (wire mode). Violet, to stand apart from the blue selection and the cyan power flow.
+    // Drawn heavy: a wire crosses a busy, high-contrast deck at any angle, and a hairline was lost in it. The
+    // preview matches the committed width so a wire doesn't change weight the moment it is committed — the dashes
+    // and the lower alpha are what separate the two.
+    private const double WireWidth = 4;
+    private const double WireDotRadius = 4;
     private static readonly Brush WireDotBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xC0, 0x8C, 0xF0)));
-    private static readonly Pen WirePen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xCC, 0xC0, 0x8C, 0xF0)), 1.5) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round });
-    private static readonly Pen WirePreviewPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x99, 0xD8, 0xB0, 0xFF)), 1.5) { DashStyle = new DashStyle([3, 3], 0), StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round });
+    private static readonly Pen WirePen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xCC, 0xC0, 0x8C, 0xF0)), WireWidth) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round });
+    private static readonly Pen WirePreviewPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x99, 0xD8, 0xB0, 0xFF)), WireWidth) { DashStyle = new DashStyle([2, 2], 0), StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round });
     private static readonly Pen WireNodePen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x70, 0xC0, 0x8C, 0xF0)), 1.2));
     private static readonly Pen WireSourcePen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0xD8, 0xB0, 0xFF)), 2.5));
 
@@ -2205,7 +2210,7 @@ public sealed class ShipCanvas : FrameworkElement
         DrawOutOfBounds(dc, view);
         DrawOriginMarker(dc);
         if (ShowPower) DrawPowerOverlay(dc);
-        DrawDeviceLinks(dc);
+        if (WireMode) DrawDeviceLinks(dc);   // wiring is an overlay like the rest: gated here, not half-gated inside
         if (SymMode != SymmetryMode.Off) DrawSymmetryAxes(dc, view);
 
         foreach (var p in Doc.Placements.Where(p => SelectedIds.Contains(p.Id)))
@@ -2875,8 +2880,10 @@ public sealed class ShipCanvas : FrameworkElement
     }
 
     /// <summary>Draw the device signal connections: a violet line from each source device's centre to its target,
-    /// a dot at the target end (source → target = signaller → driven). In wire mode it additionally rings every
-    /// connectable device, brightly rings the armed source, and previews a wire to the device under the cursor.</summary>
+    /// a dot at the target end (source → target = signaller → driven). It also rings every connectable device,
+    /// brightly rings the armed source, and previews a wire to the device under the cursor.
+    /// <para>Wire-mode only, gated by the caller. The committed wires used to draw whatever the mode was, so a
+    /// wired-up ship stayed criss-crossed with violet lines over every other view.</para></summary>
     private void DrawDeviceLinks(DrawingContext dc)
     {
         if (Doc is null) return;
@@ -2886,10 +2893,8 @@ public sealed class ShipCanvas : FrameworkElement
             var a = DeviceCentre(source);
             var b = DeviceCentre(target);
             dc.DrawLine(WirePen, a, b);
-            dc.DrawEllipse(WireDotBrush, null, b, 2.5, 2.5);
+            dc.DrawEllipse(WireDotBrush, null, b, WireDotRadius, WireDotRadius);
         }
-
-        if (!WireMode) return;
 
         foreach (var p in Doc.Placements)
             if (DeviceLinks.IsConnectable(Doc, p))

@@ -569,7 +569,10 @@ the in-game rewire tool does it. Turn on **Wire mode** (the **Wire** toolbar but
 installed device to arm it as the signal **source**, then click another to **connect**
 (or a connected one to **disconnect**). The source stays armed so you can wire it to
 several targets; **Esc** or right-click cancels. Connectable devices ring violet, and
-each link draws as a violet line from source to target. The connection is directional
+each link draws as a violet line from source to target. The wiring is part of Wire mode,
+so it shows while that mode is on and is out of the way the rest of the time: a
+thoroughly wired ship is not left criss-crossed with violet lines over every other view.
+The connection is directional
 (source drives target) and has no distance requirement, so the only rule is "two
 distinct installed signalable parts". The wiring is baked into an **exported** ship, so
 it spawns already connected. Gate and threshold logic stays with the in-game signal

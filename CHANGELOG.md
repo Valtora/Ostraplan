@@ -44,6 +44,15 @@ each release was verified against is recorded in
     analysis reading the design at that moment. A snapshot that cannot be written says so once and is
     logged thereafter, rather than interrupting you every ten minutes.
 
+### Fixed
+- **Device wiring no longer shows when Wire mode is off.** Committed wires drew whatever view you were in, so a
+  thoroughly wired ship stayed criss-crossed with violet lines over the sprites, the room tints and the lighting.
+  Only the rings and the drag preview were ever gated on the mode; the wires themselves were not. The wiring is
+  now part of Wire mode in full, like every other overlay is part of its own toggle.
+- **Wires are drawn heavier**, since a hairline crossing a busy, high-contrast deck at an arbitrary angle was
+  easy to lose. The drag preview matches the committed width, so a wire no longer changes weight the moment you
+  commit it; the dashes and the lighter tint are what tell the two apart.
+
 ## [0.66.0] 2026-08-08, Ostranauts 1.0, the ship checklist, and export art
 
 ### Added
