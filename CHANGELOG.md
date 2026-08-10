@@ -15,6 +15,8 @@ each release was verified against is recorded in
 - **Opt-in auto-save, under File ▸ Auto-save.** Turn it on and Ostraplan takes a rotating snapshot of the
   open design every **10 minutes**, keeping the **3 most recent per design** and rotating out anything
   older. Both figures are yours to set in the same submenu: 1 to 60 minutes, and 1 to 20 snapshots kept.
+  The switch is a check box reading **Enabled** or **Disabled**, and turning it off greys out the two
+  settings, so the submenu says whether the feature is running rather than leaving you to read a tick.
   - **It never writes your `.oplan`.** Ctrl+S is still the only thing that does. Snapshots go to
     `%APPDATA%\Ostraplan\autosave` and the unsaved-changes star stays up, so an auto-save cannot commit an
     edit you were about to undo, and it cannot overwrite a good file with a mid-thought one.

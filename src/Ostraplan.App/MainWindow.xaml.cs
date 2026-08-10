@@ -1080,17 +1080,55 @@ public partial class MainWindow : Window
         _settings.Save();
     }
 
-    /// <summary>The File ▸ "Auto-save" submenu: the opt-in switch, the interval, how many snapshots each design keeps,
-    /// and recovery. Built fresh whenever the File menu opens, so the check state, the slider positions and the
-    /// snapshot count are all read live.</summary>
+    /// <summary>
+    /// The File ▸ "Auto-save" submenu: the opt-in switch, the interval, how many snapshots each design keeps, and
+    /// recovery. Built fresh whenever the File menu opens, so the switch, the slider positions and the snapshot count
+    /// are all read live.
+    ///
+    /// <para>The switch is a real check box reading "Enabled"/"Disabled" rather than a menu tick, because a tick that
+    /// is simply absent reads as an unticked <i>option</i> rather than an <i>off feature</i>. Turning it off greys the
+    /// interval and keep rows on the spot (the menu stays open through the toggle), so the whole submenu says the
+    /// feature is inactive rather than leaving two live-looking sliders that do nothing. Recovery stays available
+    /// either way: snapshots already taken are still recoverable once auto-save is switched off.</para>
+    /// </summary>
     private MenuItem AutoSaveMenuItem()
     {
-        var menu = new MenuItem { Header = "Auto-save" };
-        menu.Items.Add(MenuAction("Enabled", () => SetAutoSaveEnabled(!_settings.AutoSave), check: _settings.AutoSave));
-        menu.Items.Add(MenuSliderRow("Every", AutoSaveStore.MinIntervalMinutes, AutoSaveStore.MaxIntervalMinutes,
-            AutoSaveStore.ClampMinutes(_settings.AutoSaveMinutes), "0", SetAutoSaveMinutes, suffix: "min"));
-        menu.Items.Add(MenuSliderRow("Keep", AutoSaveStore.MinKeep, AutoSaveStore.MaxKeep,
-            AutoSaveStore.ClampKeep(_settings.AutoSaveKeep), "0", SetAutoSaveKeep, suffix: "per design"));
+        var enabled = _settings.AutoSave;
+        var minutes = AutoSaveStore.ClampMinutes(_settings.AutoSaveMinutes);
+
+        // The parent row states the setting too, so the File menu answers "is auto-save on?" without opening this.
+        var menu = new MenuItem { Header = enabled ? $"Auto-save (every {minutes} min)" : "Auto-save (off)" };
+
+        var interval = MenuSliderRow("Every", AutoSaveStore.MinIntervalMinutes, AutoSaveStore.MaxIntervalMinutes,
+            minutes, "0", SetAutoSaveMinutes, suffix: "min");
+        var keep = MenuSliderRow("Keep", AutoSaveStore.MinKeep, AutoSaveStore.MaxKeep,
+            AutoSaveStore.ClampKeep(_settings.AutoSaveKeep), "0", SetAutoSaveKeep, suffix: "per design");
+        interval.IsEnabled = keep.IsEnabled = enabled;
+
+        // The box is the indicator, not the click target: a menu row swallows a click aimed at a control in its
+        // header, so the whole row toggles and the box just reflects the state.
+        var box = new CheckBox
+        {
+            IsChecked = enabled,
+            Content = enabled ? "Enabled" : "Disabled",
+            IsHitTestVisible = false,
+            Focusable = false,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(8, 3, 8, 3),
+        };
+        var toggle = new MenuItem { Header = box, StaysOpenOnClick = true };
+        toggle.Click += (_, _) =>
+        {
+            var on = !_settings.AutoSave;
+            SetAutoSaveEnabled(on);
+            box.IsChecked = on;
+            box.Content = on ? "Enabled" : "Disabled";
+            interval.IsEnabled = keep.IsEnabled = on;
+        };
+
+        menu.Items.Add(toggle);
+        menu.Items.Add(interval);
+        menu.Items.Add(keep);
         menu.Items.Add(new Separator());
 
         var snapshots = AutoSaveStore.Default.List();
