@@ -45,6 +45,31 @@ each release was verified against is recorded in
     logged thereafter, rather than interrupting you every ten minutes.
 
 ### Fixed
+- **Eight core data files no longer fail to load, and the station fittings that depend on them work again.**
+  Core writes multi-line descriptions with real line breaks inside a JSON string, which the game's own parser
+  accepts and the JSON spec does not, so Ostraplan's stricter reader threw the whole file away. On a stock
+  1.0.0.7 install that was `interactions_encounters.json` and seven of the plot files, and it cost twelve
+  interactions that real parts reference: the Venus embassy and OKLG medical kiosks, the Venus racing kiosk,
+  the express transit door and the Ceres plot crate. They are all SPECIAL-tab fittings, so the damage showed
+  up as the **Walk** overlay reading them as having no usable actions at all.
+  - Such a file is now mended and re-read rather than dropped. The mend only ever replaces a control character
+    with its own escape, which denotes the same character, and it has to parse before it is accepted, so a file
+    that is broken some other way still fails honestly.
+  - Mended files are listed in the bug-report diagnostics instead of being counted, since nothing was lost and
+    there is nothing for you to do about them.
+
+- **The data-warning badge now only reports things you can actually do something about.** Every warning is
+  attributed to the source that carries it, and a defect in the **game's own** data is logged and folded into a
+  bug report but no longer counted on the toolbar. Ostraplan never writes core data and no player can fix it, so
+  standing there as a permanent count it taught you to ignore the badge, which is exactly when the next one,
+  about a mod you can disable or update, needs reading.
+  - A stock 1.0.0.7 install goes from **9 warnings to none**. The last one was core's `FloorLDPH04AInstall`,
+    which installs an `ItmFloorLDPH04A` that core never defines, so that floor variant cannot be offered no
+    matter what Ostraplan does. It is in the activity log, where it belongs.
+  - Anything a mod brings in still surfaces exactly as before, as does a mod folder or Workshop item named in
+    your load order that is not on disk. Attribution is by source identity rather than by name, so a mod calling
+    itself "core" cannot pass its own defects off as the game's.
+
 - **Device wiring no longer shows when Wire mode is off.** Committed wires drew whatever view you were in, so a
   thoroughly wired ship stayed criss-crossed with violet lines over the sprites, the room tints and the lighting.
   Only the rings and the drag preview were ever gated on the mode; the wires themselves were not. The wiring is

@@ -13,6 +13,23 @@ public sealed record ModSource(string Label, string RootDir, bool IsCore, string
 }
 
 /// <summary>
+/// One complaint about the loaded game data, attributed to the source that carries it.
+///
+/// <para><see cref="Core"/> marks a defect in the <b>game's own</b> data. Ostraplan never writes that data and a
+/// player cannot fix it, so those are logged and carried into a bug report but never counted in the toolbar's
+/// data-warning badge. Putting an unfixable core defect in front of someone only teaches them the badge is noise,
+/// which is exactly when the next one, about a mod they can actually do something about, needs reading. Core's
+/// stock 1.0.0.7 <c>FloorLDPH04AInstall</c> gap is the case in point: permanent, harmless, and not the user's.</para>
+/// </summary>
+/// <param name="Source">The source's label, as it appears in the load order ("core", a mod's name).</param>
+/// <param name="Message">What is wrong, without the source prefix.</param>
+/// <param name="Core">True when <paramref name="Source"/> is the game's own data.</param>
+public sealed record DataWarning(string Source, string Message, bool Core)
+{
+    public override string ToString() => $"{Source}: {Message}";
+}
+
+/// <summary>
 /// Read-only view of loading_order.json, resolved to on-disk folders exactly as
 /// the game does: "core", local folder names (optional "|edit"), absolute paths
 /// for Workshop subscriptions. Ostraplan NEVER writes this file - registration
@@ -22,11 +39,16 @@ public sealed class LoadOrder
 {
     public required IReadOnlyList<ModSource> Sources { get; init; }   // core first, then mods in order
     public required string[] IgnorePatterns { get; init; }            // sanitized, from [0].aIgnorePatterns
-    public required List<string> Warnings { get; init; }
+    public required List<DataWarning> Warnings { get; init; }
+
+    /// <summary>The load order's own problems are the player's setup, never core's — a mod folder that isn't there
+    /// is something they can put back — so these are attributed to the file itself and always surface.</summary>
+    private const string OrderSource = "loading_order.json";
 
     public static LoadOrder Read(GameEnv env)
     {
-        var warnings = new List<string>();
+        var warnings = new List<DataWarning>();
+        void Warn(string message) => warnings.Add(new DataWarning(OrderSource, message, Core: false));
         var sources = new List<ModSource>();
         string[] patterns = [];
 
@@ -51,12 +73,12 @@ public sealed class LoadOrder
             }
             else
             {
-                warnings.Add("loading_order.json is not a top-level JSON array - falling back to core only.");
+                Warn("not a top-level JSON array - falling back to core only.");
             }
         }
         catch (JsonException e)
         {
-            warnings.Add($"loading_order.json unreadable ({e.Message}) - falling back to core only.");
+            Warn($"unreadable ({e.Message}) - falling back to core only.");
         }
 
         if (!order.Contains("core")) order.Insert(0, "core");
@@ -73,7 +95,7 @@ public sealed class LoadOrder
             {
                 if (!Directory.Exists(raw))
                 {
-                    warnings.Add($"Workshop entry not on disk, skipped: {raw}");
+                    Warn($"Workshop entry not on disk, skipped: {raw}");
                     continue;
                 }
                 var id = Path.GetFileName(raw.TrimEnd('\\', '/'));
@@ -86,7 +108,7 @@ public sealed class LoadOrder
             var dir = Path.Combine(env.ModsDir, name);
             if (!Directory.Exists(dir))
             {
-                warnings.Add($"Local mod folder missing, skipped: {name}");
+                Warn($"Local mod folder missing, skipped: {name}");
                 continue;
             }
             sources.Add(new ModSource(DisplayName(dir) ?? name, dir, IsCore: false, raw));

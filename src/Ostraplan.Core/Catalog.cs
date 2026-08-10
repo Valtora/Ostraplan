@@ -142,7 +142,7 @@ public sealed class Catalog
     public required IReadOnlyDictionary<string, PartDef> ByDefName { get; init; }
     public required IReadOnlyDictionary<string, LootDef> Loots { get; init; }
     public required IReadOnlyDictionary<string, CondTriggerDef> Triggers { get; init; }
-    public required List<string> Warnings { get; init; }
+    public required List<DataWarning> Warnings { get; init; }
 
     /// <summary>The effective data, kept so any <b>placed</b> def can be resolved on demand
     /// (imports reference far more than the buildable menu). Null in synthetic test catalogs.</summary>
@@ -434,7 +434,11 @@ public sealed class Catalog
 
     public static Catalog Build(DataIndex index)
     {
-        var warnings = new List<string>();
+        var warnings = new List<DataWarning>();
+        // Attributed to the source the def came from, so a defect in the game's own data can be told apart from one
+        // in a mod. See DataWarning: only the latter is worth putting in front of a user.
+        void Warn(string origin, string message) =>
+            warnings.Add(new DataWarning(origin, message, index.IsCoreSource(origin)));
 
         var loots = index.Type("loot").ToDictionary(kv => kv.Key, kv => LootDef.Parse(kv.Value.El), StringComparer.Ordinal);
         var trigs = index.Type("condtrigs").ToDictionary(kv => kv.Key, kv => CondTriggerDef.Parse(kv.Value.El), StringComparer.Ordinal);
@@ -540,7 +544,7 @@ public sealed class Catalog
         {
             var part = ResolveDef(index, defName, category, fallbackOrigin, inputs, tools);
             if (part is not null && part.SpriteAbs is null && warnMissingSprite)
-                warnings.Add($"No sprite on disk for '{defName}' (strImg '{part.Item.Img}').");
+                Warn(part.Origin, $"No sprite on disk for '{defName}' (strImg '{part.Item.Img}').");
             return part;
         }
 
@@ -556,7 +560,7 @@ public sealed class Catalog
             var part = Resolve(placedDef, inst.BuildType, origin, inst.Inputs, inst.Tools, warnMissingSprite: true);
             if (part is null)
             {
-                warnings.Add($"Installable '{name}' places '{placedDef}' but no items def exists - skipped.");
+                Warn(origin, $"Installable '{name}' places '{placedDef}' but no items def exists - skipped.");
                 continue;
             }
             parts[placedDef] = part;

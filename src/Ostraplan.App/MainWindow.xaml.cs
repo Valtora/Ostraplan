@@ -225,11 +225,18 @@ public partial class MainWindow : Window
         AuditLog.Add($"Loaded game data (Game {v}).");
         TxtVersion.Text = $"Game {v}";
 
+        // Everything goes to the activity log and into a bug report. Only what the user can act on reaches the
+        // toolbar: a defect in the game's own data is permanent and none of their doing (see DataWarning), and
+        // standing there as a count it just trains them to ignore the badge that matters.
         var warnings = index.Warnings.Concat(catalog.Warnings).ToList();
-        if (warnings.Count > 0)
+        foreach (var w in warnings) AuditLog.Add($"Data warning: {w}");
+        foreach (var r in index.Repaired) AuditLog.Add($"Data mended on load: {r}");
+
+        var actionable = warnings.Where(w => !w.Core).ToList();
+        if (actionable.Count > 0)
         {
-            TxtWarnings.Text = $"{warnings.Count} data warnings";
-            TxtWarnings.ToolTip = string.Join("\n", warnings.Take(40));
+            TxtWarnings.Text = actionable.Count == 1 ? "1 data warning" : $"{actionable.Count} data warnings";
+            TxtWarnings.ToolTip = string.Join("\n", actionable.Take(40).Select(w => w.ToString()));
         }
 
         UpdateZoomText();
@@ -3291,7 +3298,11 @@ public partial class MainWindow : Window
                     : $"## {title}\n\n```\n{string.Join("\n", lines)}\n```\n\n";
 
             var errors = LogTail.LastLines(ErrorLogPath, 200);
-            var warnings = _catalog?.Warnings ?? [];
+            // A bug report gets ALL of them, core included: unfixable for the user is not the same as uninteresting
+            // to me, and a core defect is often exactly what explains the behaviour being reported.
+            var warnings = (_index?.Warnings ?? []).Concat(_catalog?.Warnings ?? [])
+                                                   .Select(w => w.ToString()).ToList();
+            var repaired = _index?.Repaired ?? [];   // loaded fine, but only after mending — see DataIndex.Parse
             var trail = AuditLog.SessionTrail();
 
             var content =
@@ -3300,6 +3311,7 @@ public partial class MainWindow : Window
                 "## Environment\n\n" + DiagnosticsHeader() + "\n" +
                 Section("Recent errors (error.log)", errors, "_None recorded this session or last._") +
                 (warnings.Count > 0 ? Section("Catalog load warnings", warnings.Take(200).ToList(), "") : "") +
+                (repaired.Count > 0 ? Section("Data files mended on load", repaired.Take(200).ToList(), "") : "") +
                 Section("Activity trail (this session, most-recent-last)", trail, "_Nothing logged yet._");
 
             var dir = Path.Combine(AuditLog.Dir, "reports");

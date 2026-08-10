@@ -91,6 +91,45 @@ bool, `a` array, `map` key/value list, `json` nested object.
 > **Ported in Ostraplan:** `DataIndex` (effective-data resolution, adapted from
 > Ostrasort), `Catalog`.
 
+### Core data is not always valid JSON
+
+The game's own parser accepts raw control characters inside a string literal, which the
+spec does not (RFC 8259 requires them escaped). Core uses this freely for multi-line
+prose: a `strDesc` in `data/interactions` is written with real line breaks between the
+quotes.
+
+```json
+"strDesc" : "At long last, you approach the location of your many visions.
+                                      <- a real CRLF, inside the string
+Before you you see an enormous golden sphere. …"
+```
+
+`System.Text.Json` rejects those files outright. On a stock **1.0.0.7** install that was
+eight core files (`interactions_encounters.json` and seven under `interactions/plotIAs/`),
+and dropping them cost twelve interactions that real parts reference: the Venus embassy
+and OKLG medical kiosks, the Venus racing kiosk, the express transit door, and the Ceres
+plot crate. Those are `SPECIAL`-tab fittings, so the loss showed up as the Walk overlay
+reading them as having no actions at all.
+
+`DataIndex.Parse` therefore falls back a third time, escaping control characters found
+inside string literals and re-parsing. It cannot change meaning (a control character and
+its escape denote the same character) and it is validated rather than assumed, since the
+mended text still has to parse before it is accepted. Files mended this way are recorded
+in `DataIndex.Repaired` and reported in the bug-report diagnostics, but they are **not**
+warnings: nothing is lost and there is nothing for a user to do.
+
+What remains a warning is data that is genuinely incomplete, such as core's
+`FloorLDPH04AInstall`, whose `strStartInstall` names an `ItmFloorLDPH04A` that no def
+declares (its `03A` / `04B` / `04C` siblings all have one). That installable is skipped,
+so the floor is absent from the palette, and no amount of parsing recovers it.
+
+Every warning carries the source that produced it (`DataWarning`), because that decides
+whether anyone can act on it. A defect in **core** is permanent and not the player's
+doing, so it is logged and folded into a bug report but kept off the toolbar's badge; a
+defect a mod brought in is theirs to disable or update, so it surfaces. Attribution is by
+source identity, not by comparing the label to `"core"`, so a mod named that way cannot
+launder its own defects.
+
 ### The palette join
 
 A build-menu entry becomes a placeable part by a chain of lookups
