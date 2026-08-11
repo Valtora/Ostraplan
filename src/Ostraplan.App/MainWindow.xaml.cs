@@ -3511,15 +3511,27 @@ public partial class MainWindow : Window
         finally { _updateCheckBusy = false; }
     }
 
-    /// <summary>Confirms, then applies the downloaded update and restarts (does not return on success).</summary>
+    /// <summary>
+    /// Confirms, then applies the downloaded update and restarts (does not return on success).
+    ///
+    /// <para>Velopack ends the process itself, so <see cref="Window.Closing"/> never runs — and with it neither
+    /// the unsaved-changes prompt that guards every other way out nor the settings write. Both therefore happen
+    /// here, by hand, exactly as that handler does them. v0.68.3 shipped without this: clicking the update button
+    /// with edits on the canvas threw them away without asking. Cancelling the save prompt cancels the restart,
+    /// so the answer "actually, not now" still means what it says.</para>
+    /// </summary>
     private void PromptRestartAndApply()
     {
         if (_updater is null || _pendingUpdate is null) return;
         var ver = VeloUpdate.VersionOf(_pendingUpdate);
+        var dirty = _doc is not null && (_stack.Dirty || _stateDirty);
         if (!Dlg.Confirm(this, DlgKind.Info, "Restart to finish updating",
-                $"Ostraplan v{ver} has been downloaded.\n\nOstraplan will close, apply the update, and reopen.",
+                $"Ostraplan v{ver} has been downloaded.\n\nOstraplan will close, apply the update, and reopen." +
+                (dirty ? "\n\nYou'll be asked about your unsaved changes first." : ""),
                 "Restart now", "Later"))
             return;
+        if (!ConfirmDiscardChanges()) return;   // Cancel there cancels the restart, not just the save
+        _settings.Save();
         try
         {
             AuditLog.Add($"Applying update v{ver} and restarting.");

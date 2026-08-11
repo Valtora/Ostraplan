@@ -9,6 +9,16 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **1.0.0.7**).
 
+## [Unreleased]
+
+### Fixed
+- **Restarting to update no longer throws away unsaved changes.** Every other way out of Ostraplan — closing
+  the window, starting a new design, opening or importing another one — asks whether to save first. The
+  update button did not: Velopack ends the process itself, so the window never got the close event that
+  carries the prompt, and clicking **Restart to update** discarded the design with no warning. It now asks
+  exactly as closing does, and answering **Cancel** cancels the restart rather than only the save. Your
+  settings are written on that path too, which they also were not. Thanks to HailePrime for the report.
+
 ## [0.68.3] 2026-08-10, auto-save, reports you can work beside, and a warning badge worth reading
 
 ### Added
