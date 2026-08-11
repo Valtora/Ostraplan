@@ -489,17 +489,22 @@ identity*, so you can redesign the structure out-of-game and write it back.
 - **Analyse ▸ "Update Ship in Save…"** opens the export wizard with the **Update a ship
   in a save** destination already selected. (**Export** reaches the same place; the menu
   item is the shortcut.) It writes the result back into a **copy** of the save by
-  default: crew, cargo, world position and ship identity preserved, the original
-  untouched. Overwriting in place is an explicit opt-in and keeps a backup save unless
+  default: crew, cargo and world position preserved, the original untouched.
+  Overwriting in place is an explicit opt-in and keeps a backup save unless
   you untick it. Do it from the game's **Main Menu**, not while the save is loaded, or
   the game will overwrite your edit on its next autosave. In the in-game Load menu,
   press **Refresh** to see the just-written copy.
 - There is **no save picker** on this destination: the design already names the save and
   the ship it came from. Selecting it re-locates that ship, and if the save has moved or
   been deleted it says so there rather than at the write.
-- The ship's **identity is read-only** here, shown greyed with a note. A save edit
-  rewrites the ship's structure, not who it is. Export as a mod to give a design a new
-  identity.
+- The ship's **identity is editable** here, and it is written onto the ship. The import
+  seeds it from the ship's own record, so **Ship Info** and **The ship** open on what the
+  ship really is (make, model, year, designation, description) rather than on blanks.
+  Change any of them and the write-back changes them in game. The one field that reads
+  differently is the **in-game name**: leave it blank and the ship keeps the name it has,
+  because a ship with no stored name gets a random one on every load. **Review** restates
+  the identity and says whether it changed, so an accidental edit is visible before an
+  in-place write.
 - The **Write target & cost** step carries the cost model: **two multipliers over base
   value**, one for parts you added (default **2.0×**) and one for parts you **moved or
   un/installed** (default **1.0×**). Deleted parts are free, and authored cargo is priced

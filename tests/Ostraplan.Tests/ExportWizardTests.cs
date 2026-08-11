@@ -135,20 +135,38 @@ public class ExportWizardTests
     }
 
     [SkippableFact]
-    public void Identity_is_read_only_when_updating_a_ship_in_a_save()
+    public void Identity_is_editable_when_updating_a_ship_in_a_save()
     {
         var g = TestData.RequireGame();
         RunSta(() =>
         {
-            // SaveEdit preserves the original record's identity verbatim, so offering to edit it would be a lie
+            // SaveEdit writes the identity onto the ship on this path, so the boxes have to accept an edit
             var session = Session(g, ExportDestination.UpdateShipInSave);
             var step = new ShipStep();
             step.Enter(session);
 
             var boxes = Descendants<TextBox>(step).ToList();
-            Assert.Equal("Test Ship", boxes[0].Text);        // the design name stays editable
-            Assert.False(boxes[0].IsReadOnly);
-            Assert.All(boxes.Skip(1), b => Assert.True(b.IsReadOnly));
+            Assert.Equal("Test Ship", boxes[0].Text);        // the design name
+            Assert.All(boxes, b => Assert.False(b.IsReadOnly));
+            Assert.All(boxes, b => Assert.True(b.IsEnabled));
+        });
+    }
+
+    [SkippableFact]
+    public void Identity_edited_when_updating_a_ship_in_a_save_flows_back_onto_the_plan()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var session = Session(g, ExportDestination.UpdateShipInSave);
+            var step = new ShipStep();
+            step.Enter(session);
+            // 0 name, 1 in-game name, 2 make, 3 model
+            Descendants<TextBox>(step).ToList()[3].Text = "Ibex";
+
+            step.Leave(session);
+
+            Assert.Equal("Ibex", session.Plan.Identity.Model);
         });
     }
 

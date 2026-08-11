@@ -5,8 +5,8 @@ using Ostraplan.Core;
 namespace Ostraplan.App.Wizard;
 
 /// <summary>
-/// The update destination: the ship this design was imported from, rewritten in its own save with its crew, cargo,
-/// world position and identity intact.
+/// The update destination: the ship this design was imported from, rewritten in its own save with its crew, cargo
+/// and world position intact.
 ///
 /// <para>There is no save picker. <see cref="ShipDocument.SourceSave"/> already names the save and the ship, so
 /// selecting this destination re-locates that context instead of asking. A design reopened from a <c>.oplan</c>
@@ -30,8 +30,8 @@ public sealed class UpdateDriver : ExportDriver
     public override ExportDestination Destination => ExportDestination.UpdateShipInSave;
     public override string Name => "Update a ship in a save";
     public override string Blurb =>
-        "Rewrites the ship this design came from, in its own save, keeping its crew, cargo, world position and " +
-        "identity. Writes a copy by default; can edit the original in place.";
+        "Rewrites the ship this design came from, in its own save, keeping its crew, cargo and world position. " +
+        "Writes a copy by default; can edit the original in place.";
     public override string CommitVerb => "Write";
 
     public override string? Unavailable(WizardSession session) =>
@@ -82,8 +82,24 @@ public sealed class UpdateDriver : ExportDriver
             session.SaveContext = _ctx;   // cache for the rest of the session, as the menu action always did
         }
 
+        SeedIdentityFromShip(session);
         Recost(session);
         return null;
+    }
+
+    /// <summary>
+    /// Fill a blank identity from the ship's own record. An import seeds this already, so this is for a design
+    /// reopened from a <c>.oplan</c> — including every one saved before the identity became writable, which
+    /// carries no identity at all. Without it those designs would write six blanks over a real make, model and
+    /// designation the moment they were updated.
+    ///
+    /// <para>Only a wholly blank identity is filled, so a design that carries a deliberate one keeps it: the
+    /// user's saved answer beats the ship's current state.</para>
+    /// </summary>
+    private void SeedIdentityFromShip(WizardSession session)
+    {
+        if (_ctx is not { } ctx || session.Plan.Identity != new ExportMetadata()) return;
+        session.Plan.Identity = SaveEdit.ReadIdentity(ctx);
     }
 
     private static Task<SaveShipContext> RelocateOffThread(string zipPath, string saveName, string regId, Catalog catalog) =>
@@ -155,7 +171,8 @@ public sealed class UpdateDriver : ExportDriver
             ? new EditCharge(coId, Cost(plan), bal - Cost(plan))
             : null;
 
-        (_ship, _report) = await BuildOffThread(session.Doc, ctx, session.Catalog, session.Specs, charge, _pinnedWear);
+        (_ship, _report) = await BuildOffThread(session.Doc, ctx, session.Catalog, session.Specs, charge, _pinnedWear,
+            plan.Identity);
 
         var target = plan.Update.InPlace
             ? $"the original save \"{ctx.Source.SaveName}\", in place"
@@ -164,6 +181,7 @@ public sealed class UpdateDriver : ExportDriver
         var facts = new List<ReviewFact>
         {
             new("Ship", $"{ctx.Source.RegId} in \"{ctx.Source.SaveName}\""),
+            new("Identity", IdentitySummary(ctx, plan.Identity)),
             new("Changes", ChangeSummary(_report)),
             new("Grid", _report.GridReframed
                 ? $"reframed to {_report.NCols} x {_report.NRows}"
@@ -209,8 +227,8 @@ public sealed class UpdateDriver : ExportDriver
 
     private static Task<(JsonObject Ship, InjectReport Report)> BuildOffThread(
         ShipDocument doc, SaveShipContext ctx, Catalog catalog, IReadOnlyList<RoomSpecDef> specs,
-        EditCharge? charge, WearOptions wear) =>
-        Ui.OffThread(() => SaveEdit.BuildInjectedShip(doc, ctx, catalog, specs, charge, wear));
+        EditCharge? charge, WearOptions wear, ExportMetadata identity) =>
+        Ui.OffThread(() => SaveEdit.BuildInjectedShip(doc, ctx, catalog, specs, charge, wear, identity));
 
     // ---- commit ----
 
@@ -296,6 +314,22 @@ public sealed class UpdateDriver : ExportDriver
               "There will be no backup to roll back to if the edit goes wrong.";
         return Dlg.Confirm(session.Owner, DlgKind.Danger, $"Overwrite {saveName} in place?",
             $"{gameWarn}{backupLine}", "Overwrite in place");
+    }
+
+    /// <summary>How the ship will read in game, and whether that is a change. This destination writes the identity
+    /// rather than preserving it, and the in-place write is irreversible, so an unintended edit is worth seeing
+    /// before it lands rather than after.</summary>
+    private static string IdentitySummary(SaveShipContext ctx, ExportMetadata id)
+    {
+        var was = SaveEdit.ReadIdentity(ctx);
+        // a blank in-game name keeps the ship's own, so compare (and report) what will actually be written
+        var name = id.PublicName.Trim() is { Length: > 0 } typed && typed != "$TEMPLATE" ? typed : was.PublicName;
+        var effective = id with { PublicName = name };
+
+        var flavor = string.Join(" ", new[] { effective.Make, effective.Model, effective.Designation }
+            .Where(s => s.Length > 0));
+        var text = string.Join("  ·  ", new[] { name.Length > 0 ? name : "unnamed", flavor }.Where(s => s.Length > 0));
+        return effective == was ? $"{text}, unchanged" : $"{text} (changed)";
     }
 
     /// <summary>The structural change summary. Re-stated parts (uninstalled, installed, a door toggled) are named

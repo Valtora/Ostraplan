@@ -2631,22 +2631,34 @@ public partial class MainWindow : Window
             RefreshChrome();
         }
 
-        // Identity edited in the wizard flows back onto the design's saved metadata, so the two never drift.
-        ApplyExportedIdentity(session.Plan.Identity);
+        // Name and identity edited in the wizard flow back onto the design's saved metadata, so the two never drift.
+        ApplyExportedIdentity(session.Plan.ShipName, session.Plan.Identity);
     }
 
-    /// <summary>Fold the identity the user typed in the export wizard back into the design's own metadata, marking
-    /// the design dirty only when something actually changed.</summary>
-    private void ApplyExportedIdentity(ExportMetadata id)
+    /// <summary>Fold the name and identity the user typed in the export wizard back into the design's own metadata,
+    /// marking the design dirty only when something actually changed. The name is folded back for the same reason
+    /// the rest is: without it the wizard's "Ship name" box holds for that one export and then reverts, because
+    /// every export re-seeds it from the design.</summary>
+    private void ApplyExportedIdentity(string name, ExportMetadata id)
     {
-        if (id.PublicName == _meta.PublicName && id.Make == _meta.Make && id.Model == _meta.Model
+        var newName = name.Length > 0 ? name : _meta.Name;   // a cancel before the ship step leaves it unset
+        if (newName == _meta.Name
+            && id.PublicName == _meta.PublicName && id.Make == _meta.Make && id.Model == _meta.Model
             && id.Year == _meta.Year && id.Designation == _meta.Designation && id.Description == _meta.Description)
             return;
 
-        _meta.PublicName = id.PublicName; _meta.Make = id.Make; _meta.Model = id.Model;
-        _meta.Year = id.Year; _meta.Designation = id.Designation; _meta.Description = id.Description;
+        _meta.Name = newName;
+        SetMetaIdentity(id);
         _stateDirty = true;
         RefreshChrome();
+    }
+
+    /// <summary>Copy an <see cref="ExportMetadata"/> onto the design's metadata. Does not touch the design name or
+    /// the dirty flag: the two callers differ on both.</summary>
+    private void SetMetaIdentity(ExportMetadata id)
+    {
+        _meta.PublicName = id.PublicName; _meta.Make = id.Make; _meta.Model = id.Model;
+        _meta.Year = id.Year; _meta.Designation = id.Designation; _meta.Description = id.Description;
     }
 
     /// <summary>Save a PNG image of the ship (sprites only — no grid, overlays or UI) for sharing or reference.</summary>
@@ -3116,7 +3128,11 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Swap an imported ship in as the active document (no file path — Save prompts Save As). The
-    /// optional context is retained when the ship was imported FOR EDITING, enabling write-back to the save.</summary>
+    /// optional context is retained when the ship was imported FOR EDITING, enabling write-back to the save.
+    ///
+    /// <para>A ship imported for editing brings its in-game identity with it, because that path can write the
+    /// identity back: opening Ship Info on blanks would invite typing over an identity the ship already has,
+    /// with no way to see what it was.</para></summary>
     private void InstallImportedDocument(ImportResult result, SaveShipContext? context = null)
     {
         CloseReports();
@@ -3125,6 +3141,7 @@ public partial class MainWindow : Window
         _doc.FilePath = null;
         _doc.Changed += OnDocChanged;
         _meta = new OplanMeta { Name = result.ShipName };
+        if (context is not null) SetMetaIdentity(SaveEdit.ReadIdentity(context));
         _stateDirty = false;
         _saveContext = context;
         _unresolvedParts = [];   // a fresh import is a complete, saveable design (unlike a reopened .oplan missing its mods)

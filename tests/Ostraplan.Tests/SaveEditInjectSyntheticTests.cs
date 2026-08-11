@@ -266,4 +266,81 @@ public class SaveEditInjectSyntheticTests
         var headCo = ((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()).Single(o => (string)o["strID"]! == (string)head["strID"]!);
         Assert.Equal(2, ((JsonArray)headCo["aStack"]!).Count);                  // head lists its members
     }
+
+    // ---- identity ----
+
+    /// <summary>A one-part no-op edit with the ship's flavour identity stamped on: the smallest fixture that can
+    /// show what the inject does (and does not do) to the identity fields.</summary>
+    private static (SaveShipContext Ctx, ShipDocument Doc, Catalog Cat) IdentityFixture(string publicName = "Rusty Nail")
+    {
+        var cat = new Fixtures().Floor("Floor").Build();
+        var ctx = Context(
+            new JsonArray(Item("a", "Floor", 100, 200)),
+            new JsonArray(Co("a", "Floor")),
+            new() { ["a"] = new OriginPart(0, 0, 0, []) });
+        var record = ctx.ShipRecord.AsObject();
+        record["publicName"] = publicName;
+        record["make"] = "Testudo";
+        record["model"] = "Ibex";
+        record["year"] = "2062";
+        record["designation"] = "Salvage Tug";
+        record["description"] = "It floats.";
+        return (ctx, Fixtures.Doc(cat, new Placement { DefName = "Floor", X = 0, Y = 0, OriginStrID = "a" }), cat);
+    }
+
+    [Fact]
+    public void The_identity_is_kept_verbatim_when_none_is_passed()
+    {
+        var (ctx, doc, cat) = IdentityFixture();
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
+
+        Assert.Equal("Rusty Nail", (string)ship["publicName"]!);
+        Assert.Equal("Salvage Tug", (string)ship["designation"]!);
+        Assert.Equal("Testudo", (string)ship["make"]!);
+    }
+
+    [Fact]
+    public void A_passed_identity_is_written_over_the_ships_own()
+    {
+        var (ctx, doc, cat) = IdentityFixture();
+        var id = new ExportMetadata("Kestrel", "Langdon Phillips", "Babak", "2058", "Transport", "Rebuilt.");
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs, identity: id);
+
+        Assert.Equal("Kestrel", (string)ship["publicName"]!);
+        Assert.Equal("Langdon Phillips", (string)ship["make"]!);
+        Assert.Equal("Babak", (string)ship["model"]!);
+        Assert.Equal("2058", (string)ship["year"]!);
+        Assert.Equal("Transport", (string)ship["designation"]!);
+        Assert.Equal("Rebuilt.", (string)ship["description"]!);
+        // the registration is what the rest of the save references the ship by, so it is never rewritten
+        Assert.Equal("H-ABC", (string)ship["strRegID"]!);
+        Assert.Equal("Test", (string)ship["strName"]!);
+    }
+
+    [Fact]
+    public void A_cleared_flavour_field_is_written_as_blank_but_a_cleared_in_game_name_keeps_the_ships_own()
+    {
+        var (ctx, doc, cat) = IdentityFixture();
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs, identity: new ExportMetadata());
+
+        Assert.Equal("", (string)ship["designation"]!);
+        Assert.Equal("", (string)ship["make"]!);
+        // blank/"$TEMPLATE" makes the game re-roll a random name on every load, so a blank must not be written
+        Assert.Equal("Rusty Nail", (string)ship["publicName"]!);
+    }
+
+    [Fact]
+    public void The_template_sentinel_reads_back_as_no_name()
+    {
+        var (ctx, _, _) = IdentityFixture(publicName: "$TEMPLATE");
+
+        var id = SaveEdit.ReadIdentity(ctx);
+
+        Assert.Equal("", id.PublicName);        // the sentinel is an instruction to roll a name, not a name
+        Assert.Equal("Ibex", id.Model);
+        Assert.Equal("Salvage Tug", id.Designation);
+    }
 }

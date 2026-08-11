@@ -41,8 +41,10 @@ public sealed record InjectReport(
 /// (cargo shifted with them), new parts as a fresh item entry <b>plus a synthesized pristine CO</b> (a save
 /// load skips any item lacking one), deleted parts (and their cargo) dropped; <c>aRooms</c>/<c>aRating</c>/grid
 /// are recomputed by the P2 engine, and every
-/// other field — crew, world position, docking, economy, identity — is preserved verbatim off the retained
-/// record. Then it writes to a <b>copy</b> of the save (the original is never opened for writing).
+/// other field — crew, world position, docking, economy — is preserved verbatim off the retained
+/// record. The ship's flavour identity is preserved too <b>unless</b> the caller passes one to write
+/// (see <see cref="ApplyIdentity"/>). Then it writes to a <b>copy</b> of the save (the original is never
+/// opened for writing).
 ///
 /// <para>Coordinate care (plan §6): kept items keep their world-absolute <c>fX/fY</c> verbatim (zero
 /// rounding drift); new/moved items map document-tile → world in the <b>original</b> <c>vShipPos</c> frame;
@@ -60,10 +62,13 @@ public static class SaveEdit
 
     /// <summary>Build the rebuilt ship object (a standalone clone) + report, without any file I/O. Throws
     /// <see cref="InvalidDataException"/> on a hard integrity failure (dangling reference, lost CO, duplicate id);
-    /// placement-law problems are collected as warnings, not thrown (warn-and-allow).</summary>
+    /// placement-law problems are collected as warnings, not thrown (warn-and-allow).
+    ///
+    /// <para><paramref name="identity"/> is the ship's in-game flavour identity to write over the retained
+    /// record's; null (the default) keeps whatever the ship already has. See <see cref="ApplyIdentity"/>.</para></summary>
     public static (JsonObject Ship, InjectReport Report) BuildInjectedShip(
         ShipDocument doc, SaveShipContext ctx, Catalog catalog, IReadOnlyList<RoomSpecDef> specs, EditCharge? charge = null,
-        WearOptions? wear = null)
+        WearOptions? wear = null, ExportMetadata? identity = null)
     {
         // Every surviving structural part's strID (kept / moved / new), collected as the item/CO tree is rebuilt.
         // The optional wear pass (below) re-rolls StatDamage on exactly this set — the installed structure the
@@ -410,6 +415,7 @@ public static class SaveEdit
                 continue;
             ship[kv.Key] = kv.Value?.DeepClone();
         }
+        if (identity is not null) ApplyIdentity(ship, identity);
         ship["aItems"] = outItems;
         ship["aCOs"] = outCOs;
         ship["aRooms"] = roomsArr;
@@ -560,6 +566,49 @@ public static class SaveEdit
         var saveInfoPath = Path.Combine(SourceDir(ctx), "saveInfo.json");
         if (newMoney is not null && File.Exists(saveInfoPath)) UpdateSaveInfo(saveInfoPath, null, newMoney);
         return backupDir;
+    }
+
+    // ---- identity ----
+
+    /// <summary>
+    /// The ship's in-game flavour identity as it stands in the save, for seeding the editor when a design is
+    /// imported. A save's ship carries its make/model/designation copied off the template it spawned from, and
+    /// its <c>strName</c> is the registration rather than a display name (see <see cref="SaveGrant"/>), so the
+    /// name here is <c>publicName</c> — blanked when it is still the <c>"$TEMPLATE"</c> sentinel, which is not a
+    /// name but the game's instruction to roll one.
+    /// </summary>
+    public static ExportMetadata ReadIdentity(SaveShipContext ctx)
+    {
+        var r = ctx.ShipRecord;
+        var publicName = Str(r, "publicName") ?? "";
+        return new ExportMetadata(
+            publicName == "$TEMPLATE" ? "" : publicName,
+            Str(r, "make") ?? "", Str(r, "model") ?? "", Str(r, "year") ?? "",
+            Str(r, "designation") ?? "", Str(r, "description") ?? "");
+    }
+
+    /// <summary>
+    /// Write <paramref name="identity"/> over the rebuilt record's own. The five flavour fields are written as
+    /// given, blanks included, because a user who cleared one meant to clear it: no game logic reads them beyond
+    /// display (see <see cref="ExportOptions.Make"/>).
+    ///
+    /// <para><c>publicName</c> is the exception twice over. A blank one is left alone rather than written,
+    /// because on this path blank means "keep the name it already has" and because the game re-rolls a random
+    /// name on every load for a ship whose stored value is blank or <c>"$TEMPLATE"</c> (verified against
+    /// decompiled <c>Ship.InitShip</c>) — so writing a blank would not clear the name, it would make it unstable.
+    /// <c>strName</c>/<c>strRegID</c>/<c>strXPDR</c> are never touched: on a save's ship those are the
+    /// registration, which the rest of the save references the ship by.</para>
+    /// </summary>
+    private static void ApplyIdentity(JsonObject ship, ExportMetadata identity)
+    {
+        ship["make"] = identity.Make;
+        ship["model"] = identity.Model;
+        ship["year"] = identity.Year;
+        ship["designation"] = identity.Designation;
+        ship["description"] = identity.Description;
+
+        var publicName = identity.PublicName.Trim();
+        if (publicName.Length > 0 && publicName != "$TEMPLATE") ship["publicName"] = publicName;
     }
 
     // ---- internals ----

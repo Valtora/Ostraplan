@@ -12,6 +12,20 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Your ship's name and identity are yours to change when you edit it in a save.** Editing your live ship let
+  you type a make, model, designation or description into **Ship Info**, saved them with the design, and then
+  ignored every one of them at the write: the write-back cloned the ship's identity off the original record, so
+  a ship that started life as a Testudo Salvage Tug stayed one whatever you wrote. Two people reported it,
+  which is two more than a field that does nothing deserves. The identity fields now write onto the ship, and
+  the **The ship** step accepts them instead of showing them greyed.
+  - **The import brings the ship's identity with it**, so Ship Info opens on the ship's real make, model, year,
+    designation and description rather than on blanks. Editing over something you can see is the point: blanks
+    invited exactly the typing that then went nowhere.
+  - **A blank in-game name keeps the name the ship has**, rather than falling back to the design name. A ship
+    with no stored name gets a fresh random one every load, so blank cannot mean "no name" here.
+  - **Review restates the identity** and says whether it changed, since the in-place write is irreversible.
+  - The registration (`strRegID`, and the `strName` that mirrors it on a save's ship) is still never touched.
+    The rest of the save refers to your ship by it.
 - **A Settings window, and UI scaling.** New **⚙ Settings** button on the toolbar (or **Ctrl+,**), holding
   everything that is Ostraplan's own preference rather than part of a design.
   - **UI scale, 100% to 200% in 5% steps.** Magnifies everything Ostraplan draws: toolbar, palette, inspector,
@@ -27,6 +41,9 @@ each release was verified against is recorded in
     from, and **Automatic** puts either back.
 
 ### Fixed
+- **A ship name typed in the export wizard sticks.** The wizard's **Ship name** box named that one export and
+  was then thrown away, because only the six identity fields flowed back onto the design. The next export
+  re-seeded the box from the design and the name you typed was gone. It now flows back like the rest.
 - **Saves kept outside the default location are found.** Ostranauts lets you move its save folder, and
   Ostraplan hard-coded the LocalLow path, so anyone who had moved theirs got "No save games found" from every
   import and write-back. It now follows the game's own `strSaveLocation` setting, and Settings takes an
