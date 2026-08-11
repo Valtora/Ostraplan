@@ -9,7 +9,7 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **1.0.0.7**).
 
-## [Unreleased]
+## [0.70.0] 2026-08-11, ship identity on save edits, Settings and UI scaling
 
 ### Added
 - **Your ship's name and identity are yours to change when you edit it in a save.** Editing your live ship let
