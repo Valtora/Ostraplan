@@ -30,18 +30,51 @@ public sealed class GameEnv
     public string CoreImagesDir => Path.Combine(StreamingAssetsDir, "images");
     public string LoadingOrderPath => Path.Combine(ModsDir, "loading_order.json");
 
-    /// <summary>The persistent Saves folder (LocalLow), or null if it doesn't exist. Read-only.</summary>
-    public string? SavesDir
+    /// <summary>An explicit Saves folder from Ostraplan's own settings, or null to resolve one. Wins over
+    /// everything else, because it is the only source the user set deliberately.</summary>
+    public string? SavesDirOverride { get; init; }
+
+    /// <summary>The Saves folder the game's own <c>settings.json</c> points at through <c>strSaveLocation</c>,
+    /// already resolved to a real directory, or null when the key is absent or names somewhere that isn't there.
+    /// This is what an install with saves outside LocalLow is actually using.</summary>
+    public string? GameSavesSetting { get; init; }
+
+    /// <summary>Where Ostranauts keeps saves out of the box:
+    /// <c>%USERPROFILE%\AppData\LocalLow\Blue Bottle Games\Ostranauts\Saves</c>. Shown in Settings as the
+    /// fallback, so a user can see what "automatic" resolved to.</summary>
+    public static string DefaultSavesDir => Path.Combine(
+        Environment.GetEnvironmentVariable("USERPROFILE") ?? "",
+        @"AppData\LocalLow\Blue Bottle Games\Ostranauts\Saves");
+
+    /// <summary>
+    /// The Saves folder to read, or null when none of the candidates exist. Read-only, always.
+    ///
+    /// <para>In order: the user's own override, then the game's <c>strSaveLocation</c>, then the LocalLow default.
+    /// The middle one matters because the game lets a player relocate its save folder, and until 0.69 Ostraplan
+    /// hard-coded LocalLow and simply reported "no save games found" for anyone who had.</para>
+    /// </summary>
+    public string? SavesDir => ResolveSaves(SavesDirOverride) ?? GameSavesSetting ?? ResolveSaves(DefaultSavesDir);
+
+    /// <summary>
+    /// Turn a candidate path into the real Saves folder, or null if it isn't one. Accepts <b>either</b> the Saves
+    /// folder itself or the folder holding it, since <c>strSaveLocation</c> names the parent
+    /// (<c>…\Blue Bottle Games\Ostranauts</c>) while a user picking a folder by hand will usually pick the
+    /// <c>Saves</c> folder they can see.
+    /// </summary>
+    public static string? ResolveSaves(string? path)
     {
-        get
+        if (string.IsNullOrWhiteSpace(path)) return null;
+        try
         {
-            var p = Path.Combine(Environment.GetEnvironmentVariable("USERPROFILE") ?? "",
-                @"AppData\LocalLow\Blue Bottle Games\Ostranauts\Saves");
-            return Directory.Exists(p) ? p : null;
+            var full = Path.GetFullPath(path.Replace('/', '\\'));
+            var nested = Path.Combine(full, "Saves");
+            if (Directory.Exists(nested)) return nested;
+            return Directory.Exists(full) ? full : null;
         }
+        catch { return null; }   // a malformed path is simply not a saves folder
     }
 
-    public static GameEnv Locate(string? gameRootOverride)
+    public static GameEnv Locate(string? gameRootOverride, string? savesDirOverride = null)
     {
         string root, via;
         if (gameRootOverride is not null)
@@ -71,7 +104,9 @@ public sealed class GameEnv
         var dataDir = Path.Combine(root, "Ostranauts_Data");
         var modsDir = Path.Combine(dataDir, "Mods");
 
-        // settings.json can relocate the Mods folder via strPathMods
+        // The game's own settings.json can relocate both folders Ostraplan reads: the Mods folder via
+        // strPathMods, and the save folder via strSaveLocation (which names the parent of Saves).
+        string? gameSaves = null;
         var settings = Path.Combine(
             Environment.GetEnvironmentVariable("USERPROFILE") ?? "",
             @"AppData\LocalLow\Blue Bottle Games\Ostranauts\settings.json");
@@ -79,9 +114,14 @@ public sealed class GameEnv
         {
             try
             {
-                var custom = JsonNode.Parse(File.ReadAllText(settings))?["strPathMods"]?.GetValue<string>();
+                var node = JsonNode.Parse(File.ReadAllText(settings));
+                // The file is an array of one settings object in every build seen so far, but read a bare object
+                // too rather than depending on the shape.
+                var user = node as JsonObject ?? (node as JsonArray)?.OfType<JsonObject>().FirstOrDefault();
+                var custom = user?["strPathMods"]?.GetValue<string>();
                 if (!string.IsNullOrWhiteSpace(custom) && Directory.Exists(custom))
                     modsDir = custom;
+                gameSaves = ResolveSaves(user?["strSaveLocation"]?.GetValue<string>());
             }
             catch { /* unreadable settings.json is not Ostraplan's problem */ }
         }
@@ -102,6 +142,8 @@ public sealed class GameEnv
             ModsDir = modsDir,
             WorkshopContentDir = workshop,
             InstalledVersion = ReadInstalledVersion(dataDir),
+            SavesDirOverride = savesDirOverride,
+            GameSavesSetting = gameSaves,
         };
     }
 

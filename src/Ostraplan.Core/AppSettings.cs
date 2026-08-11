@@ -70,7 +70,16 @@ public sealed class LastExport
 public sealed class AppSettings
 {
     [JsonPropertyName("gameRootOverride")] public string? GameRootOverride { get; set; }
+    /// <summary>An explicit Ostranauts Saves folder, for an install that keeps its saves somewhere other than
+    /// LocalLow (the game's own <c>strSaveLocation</c> setting). Null = resolve it automatically, which is what
+    /// nearly every install wants — see <see cref="GameEnv.SavesDir"/> for the order.</summary>
+    [JsonPropertyName("savesDirOverride")] public string? SavesDirOverride { get; set; }
     [JsonPropertyName("theme")] public string Theme { get; set; } = "system";   // "system" | "light" | "dark"
+    /// <summary>Ostraplan's own UI scale, 1.0 = 100%. Everything the app draws scales by this: chrome, dialogs,
+    /// reports and the canvas. For a high-DPI monitor run at a low Windows scaling factor, where the app's text
+    /// would otherwise be tiny. Clamped to <see cref="UiScaling.Min"/>..<see cref="UiScaling.Max"/> at use, so a
+    /// hand-edited settings file can't produce an unusable window.</summary>
+    [JsonPropertyName("uiScale")] public double UiScale { get; set; } = UiScaling.Default;
     [JsonPropertyName("recentFiles")] public List<string> RecentFiles { get; set; } = [];
     [JsonPropertyName("exportAuthor")] public string? ExportAuthor { get; set; }
     [JsonPropertyName("lastExportDir")] public string? LastExportDir { get; set; }

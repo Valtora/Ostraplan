@@ -11,7 +11,29 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **A Settings window, and UI scaling.** New **⚙ Settings** button on the toolbar (or **Ctrl+,**), holding
+  everything that is Ostraplan's own preference rather than part of a design.
+  - **UI scale, 100% to 200% in 5% steps.** Magnifies everything Ostraplan draws: toolbar, palette, inspector,
+    dialogs, reports and the canvas. It is for a high-resolution monitor run at 100% Windows scaling, where a
+    27" 4K panel renders the app's text about a third the physical size a 1080p one does. Thanks to Wekuz for
+    raising it. The scale is a layout transform rather than a magnifying glass, so the app lays itself out at
+    the larger size and text and vectors stay sharp. It applies as you drag the slider; dialogs and reports
+    resize with it (clamped to your screen and re-centred), while the main window keeps the size you gave it.
+  - **Theme moved here** from the toolbar combo, and **Mod overrides** from the View menu (it is a rule you
+    prefer, not a view you toggle).
+  - **The Ostranauts install and Saves folders are now yours to set.** The install folder could previously only
+    be picked when auto-detection had already failed. Both show what they resolved to and where that came
+    from, and **Automatic** puts either back.
+
 ### Fixed
+- **Saves kept outside the default location are found.** Ostranauts lets you move its save folder, and
+  Ostraplan hard-coded the LocalLow path, so anyone who had moved theirs got "No save games found" from every
+  import and write-back. It now follows the game's own `strSaveLocation` setting, and Settings takes an
+  explicit folder for a location neither of them knows about. Thanks to the Discord report that surfaced it.
+- **A relocated Mods folder is read again.** Ostraplan looked for the game's `strPathMods` setting at the root
+  of its `settings.json`, which is an array, so the lookup threw and was swallowed and the setting never
+  applied. It reads both shapes now.
 - **Restarting to update no longer throws away unsaved changes.** Every other way out of Ostraplan — closing
   the window, starting a new design, opening or importing another one — asks whether to save first. The
   update button did not: Velopack ends the process itself, so the window never got the close event that

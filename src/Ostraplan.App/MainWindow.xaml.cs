@@ -20,7 +20,7 @@ namespace Ostraplan.App;
 public partial class MainWindow : Window
 {
     private readonly AppSettings _settings = AppSettings.Load();
-    private bool _themeInit;   // suppress the theme combo's SelectionChanged during initial sync
+    private SettingsDialog? _settingsDialog;   // the open Settings window, so a folder change can refresh what it shows
     // Velopack self-update. Null for a copy the installer doesn't manage (dev / dotnet-run /
     // bare exe) — the update affordance simply never appears there. A downloaded, ready-to-apply
     // update is parked in _pendingUpdate until the user clicks Restart (see CheckForUpdateAsync).
@@ -71,12 +71,6 @@ public partial class MainWindow : Window
         InitializeComponent();
 
         AuditLog.Session(AppVersion);   // open a new section in the on-disk activity trail
-
-        // Reflect the saved theme in the picker (App.OnStartup already applied it). Guarded so the
-        // programmatic select doesn't re-apply/persist.
-        _themeInit = true;
-        CmbTheme.SelectedIndex = _settings.Theme switch { "light" => 1, "dark" => 2, _ => 0 };
-        _themeInit = false;
 
         Board.StrokeCommitted += OnStrokeCommitted;
         Board.MoveRequested += OnMoveRequested;
@@ -150,7 +144,7 @@ public partial class MainWindow : Window
         {
             try
             {
-                _env = GameEnv.Locate(_settings.GameRootOverride);
+                _env = GameEnv.Locate(_settings.GameRootOverride, _settings.SavesDirOverride);
             }
             catch (DirectoryNotFoundException ex)
             {
@@ -2347,6 +2341,10 @@ public partial class MainWindow : Window
                 OnMaterialsClick(this, e);
                 e.Handled = true;
                 break;
+            case Key.OemComma when ctrl && !e.IsRepeat:   // settings (the usual shortcut for it)
+                OnSettingsClick(this, e);
+                e.Handled = true;
+                break;
             case Key.OemPlus or Key.Add when !ctrl:   // keyboard zoom in (anchored at the view centre)
                 Board.ZoomStep(+1);
                 e.Handled = true;
@@ -2861,9 +2859,10 @@ public partial class MainWindow : Window
         OpenMenuUnder(m, BtnDesignMenu);
     }
 
-    /// <summary>The View ▾ dropdown: fit, symmetry, Light Viz dimming, and the mod-override toggle. The overlay
-    /// toggles (Zones / Rooms / Power / Light / Wire) now live on the toolbar as highlighted buttons, so they are no
-    /// longer duplicated here. State is read live when the menu opens (the active symmetry mode / the checkmark).</summary>
+    /// <summary>The View ▾ dropdown: fit, symmetry, and the Light Viz / Walk overlay options. The overlay toggles
+    /// (Zones / Rooms / Power / Light / Wire) live on the toolbar as highlighted buttons, and the mod-override rule
+    /// moved to Settings (it is a preference, not a view), so neither is duplicated here. State is read live when
+    /// the menu opens (the active symmetry mode / the checkmark).</summary>
     private void OnViewMenuClick(object sender, RoutedEventArgs e)
     {
         var m = new ContextMenu();
@@ -2882,7 +2881,6 @@ public partial class MainWindow : Window
         m.Items.Add(new Separator());
         m.Items.Add(LightDimmingItem());
         m.Items.Add(WalkOptionsItem());
-        m.Items.Add(MenuAction("Mod overrides", ToggleModOverrides, check: Board.AllowModdedOverrides));
         OpenMenuUnder(m, BtnViewMenu);
     }
 
@@ -3178,19 +3176,6 @@ public partial class MainWindow : Window
         if (_doc is not null) _stack.Redo(_doc);
     }
 
-    /// <summary>Toggle whether modded parts may be placed where the core-only placement law says they don't fit
-    /// (persisted). Core parts stay hard-blocked; overridden modded parts are placed and flagged as warnings.</summary>
-    private void ToggleModOverrides()
-    {
-        Board.AllowModdedOverrides = !Board.AllowModdedOverrides;
-        _settings.AllowModdedOverrides = Board.AllowModdedOverrides;
-        _settings.Save();
-        Board.InvalidateVisual();   // refresh the armed ghost (green/amber/red) under the new rule
-        AuditLog.Add(Board.AllowModdedOverrides
-            ? "Modded overrides enabled — modded parts may break the placement law (flagged)."
-            : "Modded overrides disabled — modded parts are enforced like core.");
-    }
-
     /// <summary>The Help ▾ dropdown: controls/keybinds, report a bug, and the on-disk activity log.</summary>
     private void OnHelpMenuClick(object sender, RoutedEventArgs e)
     {
@@ -3427,15 +3412,92 @@ public partial class MainWindow : Window
         Dlg.Info(this, "Activity log", "The activity log has been cleared.");
     }
 
-    /// <summary>Theme picker: apply and persist. DynamicResource + Fluent ThemeMode retint the chrome live.</summary>
-    private void OnThemeModeChanged(object sender, SelectionChangedEventArgs e)
+    // ---- settings ----
+
+    /// <summary>Open Settings (one at a time — a second click brings the open one forward). Modeless, because
+    /// UI scale is a thing you judge against the app behind it, not a value you commit blind.</summary>
+    private void OnSettingsClick(object sender, RoutedEventArgs e)
     {
-        if (_themeInit) return;
-        var mode = CmbTheme.SelectedIndex switch { 1 => "light", 2 => "dark", _ => "system" };
+        if (_settingsDialog is { } open) { open.Activate(); return; }
+
+        var dlg = new SettingsDialog(_settings, _env, new SettingsHooks(
+            SetTheme, SetUiScale, SetModOverrides, SetGameRoot, SetSavesDir))
+        {
+            Owner = this,
+        };
+        dlg.Closed += (_, _) => _settingsDialog = null;
+        _settingsDialog = dlg;
+        dlg.Show();
+    }
+
+    /// <summary>Theme: apply and persist. DynamicResource + Fluent ThemeMode retint the chrome live.</summary>
+    private void SetTheme(string mode)
+    {
         _settings.Theme = mode;
         AuditLog.Setting("Theme", mode);
         _settings.Save();
         ThemeManager.Apply(mode);
+    }
+
+    /// <summary>UI scale: apply to every open window and persist. See <see cref="UiScale"/>.</summary>
+    private void SetUiScale(double scale)
+    {
+        _settings.UiScale = UiScaling.Clamp(scale);
+        AuditLog.Setting("UI scale", UiScaling.Percent(_settings.UiScale));
+        _settings.Save();
+        UiScale.Apply(_settings.UiScale);
+    }
+
+    /// <summary>Whether modded parts may be placed where Ostraplan's core-game placement law says they don't fit
+    /// (persisted). Core parts stay hard-blocked; overridden modded parts are placed and flagged as warnings.</summary>
+    private void SetModOverrides(bool on)
+    {
+        Board.AllowModdedOverrides = on;
+        _settings.AllowModdedOverrides = on;
+        _settings.Save();
+        Board.InvalidateVisual();   // refresh the armed ghost (green/amber/red) under the new rule
+        AuditLog.Add(on
+            ? "Modded overrides enabled — modded parts may break the placement law (flagged)."
+            : "Modded overrides disabled — modded parts are enforced like core.");
+    }
+
+    /// <summary>The Ostranauts install folder (null = auto-detect). Persisted now, read at the next launch: the
+    /// data index, catalog and sprite cache are all built from it during startup.</summary>
+    private void SetGameRoot(string? path)
+    {
+        _settings.GameRootOverride = path;
+        AuditLog.Setting("Game folder", path ?? "automatic");
+        _settings.Save();
+        // Deliberately not applied to the running session: the catalog, sprite cache and mod load order in
+        // memory all came from the folder this session started on, and swapping the root out from under them
+        // would leave the app half on each. The dialog says it takes a restart.
+    }
+
+    /// <summary>The Saves folder (null = follow the game's own setting, then the default). Takes effect at once:
+    /// saves are listed on demand, so nothing loaded at startup depends on it.</summary>
+    private void SetSavesDir(string? path)
+    {
+        _settings.SavesDirOverride = path;
+        AuditLog.Setting("Saves folder", path ?? "automatic");
+        _settings.Save();
+        RelocateEnvironment();
+    }
+
+    /// <summary>Rebuild <see cref="_env"/> so a new Saves folder is live, <b>pinned to the install this session
+    /// already loaded</b> (see <see cref="SetGameRoot"/>), and tell an open Settings window what resolved. A
+    /// failure keeps the environment the app is already running on: the game data is loaded and usable, and
+    /// refusing to update a path is better than losing it.</summary>
+    private void RelocateEnvironment()
+    {
+        try
+        {
+            _env = GameEnv.Locate(_env?.GameRoot ?? _settings.GameRootOverride, _settings.SavesDirOverride);
+        }
+        catch (DirectoryNotFoundException ex)
+        {
+            AuditLog.Add($"Folder setting not applied to the running session: {ex.Message}");
+        }
+        _settingsDialog?.EnvironmentChanged(_env);
     }
 
     // ---- update check (Velopack) ----
@@ -3569,7 +3631,7 @@ public partial class MainWindow : Window
             ("Rotate part", "R / Shift+R", "CW / CCW — the armed part, a selected part in place, or a whole selection about its centre (walls & floors auto-tile rather than turn). The brush keeps its angle when you arm another part; the ghost draws a needle towards its leading edge and the status bar reads out the angle."),
             ("Flip selection", "H / Shift+H", "Mirror the selection about its centre — H horizontal (left↔right), Shift+H vertical (up↔down); each part reflects and snaps to a real rotation."),
             ("Symmetry", "M", "Cycle Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on. While on, it also drives editing: selecting a part grabs its mirror partner(s), and moving, rotating, or deleting the group keeps it symmetric (the far side tracks in the mirrored direction)."),
-            ("Mod overrides", "Toolbar toggle", "Let modded parts place where the core-game rules say they don't fit (ghost turns amber, flagged as a warning — verify in-game). Core parts stay enforced."),
+            ("Mod overrides", "Settings", "Let modded parts place where the core-game rules say they don't fit (ghost turns amber, flagged as a warning — verify in-game). Core parts stay enforced."),
             ("Power overlay", "P", "Show/hide PowerViz: lit conduit runs flow from a live generator/battery, orphaned runs are dim red, and a wired device with no feed gets an amber marker. A powered part also shows its connector badges (blue IN, green OUT) while armed or selected."),
             ("Rooms overlay", "C", "Show/hide RoomViz: every compartment the game would flood-fill, tinted in its own colour and labelled with what it certifies as, its size and its value. A room that certifies as nothing says why — what to add, and which item in it blocks the spec (a canister parked in a quarters, say). Unsealed compartments are red. The exterior isn't tinted, so a room open to space simply loses its tint."),
             ("Light overlay", "L", "Show/hide Light Viz: interior lighting simulated from every fixture and lit device. Each light floods its compartment (bounded by walls) in its own colour, so dark corners and colour clashes show at a glance. The View menu's Light Viz sliders set the light brightness and how far unlit areas darken (from a glow over the full-bright ship up to the in-game dark look)."),
@@ -3588,6 +3650,7 @@ public partial class MainWindow : Window
             ("New / open / save", "Ctrl+N / O / S", "New · open · save (Ctrl+Shift+S = Save As)."),
             ("Export", "Ctrl+E", "Export the design as a spawnable local data mod."),
             ("Ship Info / Materials", "Ctrl+I / Ctrl+B", "Edit the in-game identity · open the bill of materials."),
+            ("Settings", "Ctrl+,", "Theme, UI scale (magnify the whole app for a high-resolution monitor), mod overrides, and the Ostranauts install and Saves folders."),
             ("Diagnostics", "Toolbar", "The game's own ship checklist, from the nav console's Diagnostics module: transponder, antenna, nav station, reactor and its helium-3 and deuterium, RCS thrusters, distributor and reaction mass, backup power, and the four life-support rows — each green or red on the game's own thresholds, with what's missing spelled out under every red one. Backup power is measured at the console's power inputs and O2 stores at the pumps' gas inputs, exactly as the game measures them, so a battery your conduits never reach counts for nothing."),
             ("Help", "F1", "Open this window."),
         ];

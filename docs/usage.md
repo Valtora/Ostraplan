@@ -40,7 +40,23 @@ right, but treat a mismatch as "double-check in-game".
 | **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**, an **ITEMS** tab for loose floor cargo, a **SPECIAL** tab for the structure the game places but never lets you build, and a **FAV/REC** tab at the front for the parts you pinned and the ones you just placed. Search by friendly or internal name. Modded parts show a small origin badge. |
 | **Canvas** (centre) | The tile grid. Place, paint, select, pan and zoom here. |
 | **Inspector** (right) | The selected part's details, ship stats, the **Problems** list, and the **Law report**. |
-| **Toolbar** (top) | Grouped **File · Edit · Design · Analyse**, then the view overlay toggles **Zones · Rooms · Power · Light · Walk · Wire** (each highlights in the accent colour while active) and the **View ▾** menu (fit, symmetry, Light Viz daylight, walk-overlay switches, mod overrides), with the theme picker and the **Help ▾** menu on the right. When a newer release exists it is downloaded quietly in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
+| **Toolbar** (top) | Grouped **File · Edit · Design · Analyse**, then the view overlay toggles **Zones · Rooms · Power · Light · Walk · Wire** (each highlights in the accent colour while active) and the **View ▾** menu (fit, symmetry, Light Viz daylight, walk-overlay switches), with **⚙ Settings** and the **Help ▾** menu on the right. When a newer release exists it is downloaded in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
+
+### Settings
+
+**⚙ Settings** (or **Ctrl+,**) holds everything that is Ostraplan's own preference rather
+than part of a design. Changes apply as you make them.
+
+| Setting | What it does |
+|---|---|
+| **Theme** | Follow Windows, or force light or dark. Chrome only: the canvas stays dark, because the game's sprites are pixel art drawn for dark space. |
+| **UI scale** | 100% to 200%, magnifying everything Ostraplan draws. For a high-resolution monitor run at 100% Windows scaling, where the app's text would otherwise be tiny. It is a layout scale, not a magnifying glass, so text and vectors stay sharp. Dialogs and reports resize with it; the main window keeps the size you gave it. |
+| **Mod overrides** | Let a modded part be placed where the core-game rules say it doesn't fit (see [The Law](#the-law--live-validation)). |
+| **Ostranauts install** | Where the game's data and sprites are read from. Found through Steam automatically. Read once at launch, so a change takes effect next time you start Ostraplan. |
+| **Saves** | Where your save games are. Ostraplan follows the game's own save-location setting, so set this only if your saves are somewhere neither the game nor Ostraplan knows about. Applies immediately. |
+
+Both folders show what they resolved to and where that came from, and **Automatic** puts
+either back.
 
 ## Placing parts
 
@@ -109,7 +125,7 @@ logic, so they're exact for vanilla parts but only best-effort for modded ones (
 mod can add its own conditions or even code). So a modded part flagged illegal is a
 **yellow warning**, not a red error — "modded part may not fit; verify in-game." To
 place a modded part where the rules say it doesn't fit, turn on **Mod overrides**
-in the toolbar: the ghost turns **amber** (placing against the rules, flagged) and
+in **⚙ Settings**: the ghost turns **amber** (placing against the rules, flagged) and
 the part lands, flagged in Problems. **Core parts are always enforced** — the toggle
 only affects modded content.
 

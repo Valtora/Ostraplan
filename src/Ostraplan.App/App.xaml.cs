@@ -19,7 +19,11 @@ public partial class App : Application
 
         // Theme the chrome before the first window renders (Fluent ThemeMode + the app's own
         // brushes). Read the saved preference; the canvas stays dark regardless (ThemeManager).
-        ThemeManager.Apply(AppSettings.Load().Theme);
+        var settings = AppSettings.Load();
+        ThemeManager.Apply(settings.Theme);
+
+        // Hook the UI scale before any window exists, so the first one drawn is already scaled.
+        UiScale.Install(settings.UiScale);
 
         // publish self-test: create and show a native-backed window, then exit. This is
         // what catches single-file WPF native-library load failures (the reason

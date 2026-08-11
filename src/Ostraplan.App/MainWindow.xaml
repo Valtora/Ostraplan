@@ -128,19 +128,15 @@
                     <Border Style="{StaticResource ToolSep}"/>
 
                     <Button x:Name="BtnViewMenu" Content="View ▾" Padding="10,3" Margin="0,0,3,0" Click="OnViewMenuClick"
-                            ToolTip="Fit, symmetry, Light Viz dimming, and the mod-override toggle"/>
+                            ToolTip="Fit, symmetry, and the Light Viz / Walk overlay options"/>
                 </StackPanel>
 
                 <!-- Right side (added right-to-left) -->
                 <Button x:Name="BtnHelp" Content="Help ▾" DockPanel.Dock="Right" Padding="10,3" Margin="6,0,0,0"
                         Click="OnHelpMenuClick" ToolTip="Controls &amp; keybinds (F1), report a bug, and the activity log"/>
-                <ComboBox x:Name="CmbTheme" DockPanel.Dock="Right" Width="150" Margin="6,0,0,0"
-                          VerticalAlignment="Center" SelectionChanged="OnThemeModeChanged"
-                          ToolTip="App appearance: follow Windows, or force light/dark (the ship canvas stays dark either way)">
-                    <ComboBoxItem Content="Theme: System"/>
-                    <ComboBoxItem Content="Theme: Light"/>
-                    <ComboBoxItem Content="Theme: Dark"/>
-                </ComboBox>
+                <Button x:Name="BtnSettings" Content="⚙ Settings" DockPanel.Dock="Right" Padding="10,3" Margin="6,0,0,0"
+                        Click="OnSettingsClick"
+                        ToolTip="Theme, UI scale, mod overrides, and the game folders (Ctrl+,)"/>
                 <Button x:Name="BtnUpdate" DockPanel.Dock="Right" Padding="10,3" Margin="6,0,0,0"
                         Visibility="Collapsed" Click="OnUpdateClick"
                         Background="{DynamicResource AccentBg}" Foreground="{DynamicResource AccentText}"
