@@ -11,6 +11,8 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.73.0] 2026-08-12, Surfaces mode, ship transfer between saves
+
 ### Changed
 - **The save picker leads with the character, then where they are, then the save's own details.** The ship name led
   and the character trailed it in a dim subtitle, which reads badly for the commonest case there is: several saves
