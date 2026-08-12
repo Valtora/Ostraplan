@@ -21,7 +21,7 @@ public class ExportWizardTests
     private static WizardSession Session((GameEnv Env, DataIndex Index, Catalog Catalog) g,
         ExportDestination destination = ExportDestination.Mod, string shipName = "Test Ship",
         IReadOnlyList<SaveEntry>? saves = null, SaveSourceRef? sourceSave = null,
-        AppSettings? settings = null, bool ostrasortKnown = false)
+        AppSettings? settings = null, bool ostrasortKnown = false, SaveSourceRef? updateTarget = null)
     {
         var doc = new ShipDocument(g.Catalog) { SourceSave = sourceSave };
         new PlaceCommand(new Placement { DefName = "ItmWall1x1", X = 0, Y = 0 }).Do(doc);
@@ -35,6 +35,7 @@ public class ExportWizardTests
         return new WizardSession
         {
             SourceSave = sourceSave,
+            UpdateTarget = updateTarget,
             Plan = plan,
             Doc = doc,
             Catalog = g.Catalog,
@@ -634,6 +635,66 @@ public class ExportWizardTests
 
             Assert.Null(session.SourceSave);
             Assert.Null(new UpdateDriver().Unavailable(session));
+        });
+    }
+
+    /// <summary>
+    /// A target chosen before the wizard opened is used as-is. The picker has to run before the wizard exists —
+    /// cancelling it must abandon the action rather than open a window onto a step that only says why it cannot
+    /// continue — so the answer arrives on the session, and preparing must not ask again.
+    /// </summary>
+    [SkippableFact]
+    public void A_target_chosen_before_the_wizard_opened_is_used_without_asking_again()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            // The save named is not on disk, so preparing fails at the relocate. That failure IS the assertion:
+            // reaching it proves the driver took the pre-chosen target instead of trying to show a picker, which
+            // would block this test forever on a modal dialog.
+            var session = Session(g, ExportDestination.UpdateShipInSave, saves: [FakeSave("Elsewhere")],
+                updateTarget: new SaveSourceRef("Elsewhere", "H-ABC"));
+            var driver = new UpdateDriver();
+            session.Driver = driver;
+
+            var reason = driver.PrepareAsync(session).GetAwaiter().GetResult();
+
+            Assert.NotNull(reason);
+            Assert.Contains("Couldn't re-locate the ship in that save", reason);
+        });
+    }
+
+    /// <summary>
+    /// A context cached from an earlier rebind must not stand in for the ship the user just picked. Both live on
+    /// the session at once — the main window keeps the first context it sees for the rest of the run — so without
+    /// the identity check the design would be written over whichever ship was chosen first.
+    /// </summary>
+    [SkippableFact]
+    public void A_cached_context_for_another_ship_does_not_override_the_chosen_target()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var session = Session(g, ExportDestination.UpdateShipInSave, saves: [FakeSave("Elsewhere")],
+                updateTarget: new SaveSourceRef("Elsewhere", "H-ABC"));
+            session.SaveContext = new SaveShipContext
+            {
+                Source = new SaveSourceRef("An Earlier Save", "H-OLD"),
+                ZipPath = @"C:\nope\earlier\earlier.zip",
+                ShipRecord = new System.Text.Json.Nodes.JsonObject(),
+                Origins = new Dictionary<string, OriginPart>(),
+                ItemsById = new Dictionary<string, System.Text.Json.Nodes.JsonNode>(),
+                CosById = new Dictionary<string, System.Text.Json.Nodes.JsonNode>(),
+            };
+            var driver = new UpdateDriver();
+            session.Driver = driver;
+
+            var reason = driver.PrepareAsync(session).GetAwaiter().GetResult();
+
+            // it went to relocate the chosen ship rather than settling for the cached one
+            Assert.NotNull(reason);
+            Assert.Contains("Couldn't re-locate the ship in that save", reason);
+            Assert.Null(driver.Context);
         });
     }
 

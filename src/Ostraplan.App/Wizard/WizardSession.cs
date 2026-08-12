@@ -29,9 +29,19 @@ public sealed class WizardSession
     /// <summary>Every save game found, for the new-ship destination's picker. Empty disables that destination.</summary>
     public required IReadOnlyList<SaveEntry> Saves { get; init; }
 
-    /// <summary>The save this design was imported from, or null. Its absence is what disables the update
-    /// destination, and its presence is what makes a save picker unnecessary there.</summary>
+    /// <summary>The save this design was imported from, or null. Its presence is what makes a save picker
+    /// unnecessary on the update destination.</summary>
     public SaveSourceRef? SourceSave { get; init; }
+
+    /// <summary>
+    /// A ship the caller already chose for the update destination, for a design that carries no
+    /// <see cref="SourceSave"/> of its own.
+    ///
+    /// <para>The Update Ship in Save menu action asks <b>before</b> building the wizard, so that cancelling the
+    /// picker abandons the whole thing. Without this the wizard would already exist by the time the question was
+    /// asked, and a cancel would leave it open on a step whose only content is the reason it cannot continue.</para>
+    /// </summary>
+    public SaveSourceRef? UpdateTarget { get; init; }
 
     /// <summary>The already-located context for the source save, when the design was imported this session. Null
     /// for a reopened <c>.oplan</c>, which has to relocate it.</summary>

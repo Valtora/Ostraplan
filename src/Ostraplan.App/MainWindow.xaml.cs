@@ -2584,7 +2584,7 @@ public partial class MainWindow : Window
 
     /// <summary>Build the wizard's session from the live document and show it. <paramref name="preselect"/> picks a
     /// destination up front, which is what <c>Analyse ▸ Update Ship in Save…</c> does.</summary>
-    private void OpenExportWizard(ExportDestination? preselect)
+    private void OpenExportWizard(ExportDestination? preselect, SaveSourceRef? updateTarget = null)
     {
         if (_doc is null || _catalog is null || _index is null || _env is null) return;
         if (_doc.Placements.Count == 0)
@@ -2608,6 +2608,7 @@ public partial class MainWindow : Window
             Meta = _meta,
             Saves = SaveImport.ListSaves(_env),
             SourceSave = _doc.SourceSave,
+            UpdateTarget = updateTarget,
             SaveContext = _saveContext,
             Palette = _allParts,
             BuyEstimate = ShipValue.Estimate(_doc, _catalog, _roomSpecs).BuyEstimate,
@@ -3078,13 +3079,26 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnUpdateSaveClick(object sender, RoutedEventArgs e)
     {
-        if (_env is not null && SaveImport.ListSaves(_env).Count == 0)
+        if (_env is null) return;
+
+        var saves = SaveImport.ListSaves(_env);
+        if (saves.Count == 0)
         {
             Dlg.Show(this, "No save games found in your Ostranauts Saves folder.",
                 "Update ship in save", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        OpenExportWizard(ExportDestination.UpdateShipInSave);
+
+        // Ask which ship BEFORE the wizard exists, so backing out of the picker cancels the action outright.
+        // Asked from inside the wizard instead, a cancel could only block a step of a window already on screen.
+        SaveSourceRef? target = null;
+        if (_doc?.SourceSave is null)
+        {
+            if (UpdateDriver.PickTarget(this, saves) is not { } picked) return;
+            target = new SaveSourceRef(picked.Save.Name, picked.RegId);
+        }
+
+        OpenExportWizard(ExportDestination.UpdateShipInSave, target);
     }
 
     /// <summary>The stern gate before editing a ship the player doesn't own (a station or another vessel).</summary>

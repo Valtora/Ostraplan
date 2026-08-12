@@ -11,6 +11,16 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Fixed
+- **Cancelling the ship picker on "Update Ship in Save…" no longer opens the export wizard anyway.** Backing out of
+  the question left the wizard sitting there on a step whose only content was the reason it could not continue,
+  which reads as the cancel having been ignored. The picker now runs before the wizard is built, so a cancel
+  abandons the action outright. Asked from inside the wizard instead — by picking the destination once it is
+  already open — a cancel still just blocks Next, which is the right answer for a window already on screen.
+  - Along the way: a save context located earlier in the session could stand in for the ship you had just picked,
+    so a second write in one session could land on the first ship you chose rather than the one in front of you.
+    The cached context is now only reused when it is the ship being asked for.
+
 ### Added
 - **Any design can now replace a ship in a save, not only one that was imported from it.** The **Update a ship in
   a save** destination used to be greyed out unless the design came from **Import ▸ "Your ship, for editing"**, and

@@ -73,13 +73,22 @@ public sealed class UpdateDriver : ExportDriver
     /// </summary>
     public override async Task<string?> PrepareAsync(WizardSession session)
     {
-        if (_ctx is null && session.SaveContext is { } cached) _ctx = cached;
+        // The cached context is only reusable when it is the ship being asked for. A design rebound earlier in the
+        // session leaves a context behind for whatever it was bound to then, and reusing that would write the
+        // design over a ship the user did not pick this time.
+        if (_ctx is null && session.SaveContext is { } cached
+            && (session.UpdateTarget is not { } wanted || IsSameShip(cached, wanted)))
+            _ctx = cached;
+
         if (_ctx is null)
         {
             SaveEntry save;
             string regId;
 
-            if (session.SourceSave is { } src)
+            // The design's own source, then a target the caller already asked for (the Update Ship in Save menu
+            // action asks before the wizard exists, so cancelling there abandons the wizard rather than opening it
+            // onto a blocked step), and only then ask here.
+            if ((session.SourceSave ?? session.UpdateTarget) is { } src)
             {
                 var match = session.Saves.FirstOrDefault(s => string.Equals(s.Name, src.SaveName, StringComparison.Ordinal));
                 if (match is null)
@@ -91,7 +100,7 @@ public sealed class UpdateDriver : ExportDriver
             {
                 return "No save games found.";
             }
-            else if (PickTarget(session) is { } picked)
+            else if (PickTarget(PickerOwner(session), session.Saves) is { } picked)
             {
                 (save, regId) = picked;
             }
@@ -116,6 +125,10 @@ public sealed class UpdateDriver : ExportDriver
         return null;
     }
 
+    private static bool IsSameShip(SaveShipContext ctx, SaveSourceRef target) =>
+        string.Equals(ctx.Source.SaveName, target.SaveName, StringComparison.Ordinal)
+        && string.Equals(ctx.Source.RegId, target.RegId, StringComparison.Ordinal);
+
     // ---- picking a target for a design that carries no source ----
 
     /// <summary>
@@ -127,19 +140,17 @@ public sealed class UpdateDriver : ExportDriver
     /// wrong over a dialog waiting on the user. It is dropped for the duration and put back, rather than removed
     /// from the shell, because everything else the prepare does really is work.</para>
     /// </summary>
-    private static (SaveEntry Save, string RegId)? PickTarget(WizardSession session)
+    internal static (SaveEntry Save, string RegId)? PickTarget(Window? owner, IReadOnlyList<SaveEntry> saves)
     {
         var busy = Mouse.OverrideCursor;
         Mouse.OverrideCursor = null;
-        try { return Ask(session); }
+        try { return Ask(owner, saves); }
         finally { Mouse.OverrideCursor = busy; }
     }
 
-    private static (SaveEntry Save, string RegId)? Ask(WizardSession session)
+    private static (SaveEntry Save, string RegId)? Ask(Window? owner, IReadOnlyList<SaveEntry> saves)
     {
-        var owner = PickerOwner(session);
-
-        var picker = new SavePickerDialog(session.Saves) { Owner = owner };
+        var picker = new SavePickerDialog(saves) { Owner = owner };
         if (picker.ShowDialog() != true || picker.Selected is not { } save) return null;
 
         // the ship the player is standing on may be a station, so offer their owned ships first, as the import does
