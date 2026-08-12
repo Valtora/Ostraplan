@@ -11,21 +11,34 @@ namespace Ostraplan.App;
 /// marker and the expected rating grade. Exposes the chosen <see cref="WearOptions"/>. Damage is applied per part
 /// by the engine (<see cref="WearModel"/>) — the slider is the average, parts spread randomly around it, none
 /// below 10%.
+///
+/// <para>A design imported from a save can instead <see cref="KeepSourceCondition">keep the condition it really
+/// has</see>, which is what a transfer between saves wants: the ship as it is, not a re-rolled copy of it. That
+/// choice sits above the wear controls and greys them, because the two are alternatives rather than settings that
+/// combine.</para>
 /// </summary>
 public sealed class WearControl : StackPanel
 {
     private static Brush Ink => ThemeManager.Ink;
     private static Brush Dim => ThemeManager.Dim;
 
+    private readonly CheckBox? _keepSource;
+    private readonly TextBlock? _keepSourceNote;
     private readonly CheckBox _apply;
     private readonly Slider _condition;
     private readonly TextBlock _readout;
+    private readonly TextBlock _spread;
 
     /// <summary>The vanilla "Used" average condition as a whole-percent slider value (≈88).</summary>
     private static readonly double VanillaPercent = Math.Round(WearModel.VanillaUsedCondition * 100.0);
 
+    /// <summary>True when the user asked for each part's real condition to come across from the save the design was
+    /// imported from. Always false when the host didn't offer the choice, and the wear settings then stand alone.</summary>
+    public bool KeepSourceCondition => _keepSource?.IsChecked == true;
+
     /// <summary>The wear the user chose. <see cref="WearOptions.Enabled"/> is false when the checkbox is off
-    /// (a pristine ship) or the slider sits at 100%.</summary>
+    /// (a pristine ship) or the slider sits at 100%. Meaningless while <see cref="KeepSourceCondition"/> is set:
+    /// the engine is carrying real damage and rolls none.</summary>
     public WearOptions Wear
     {
         get
@@ -45,15 +58,45 @@ public sealed class WearControl : StackPanel
         Sync();
     }
 
+    /// <summary>Set the carry-the-real-condition choice. No-op when the host didn't offer it.</summary>
+    public void SetKeepSourceCondition(bool keep)
+    {
+        if (_keepSource is null) return;
+        _keepSource.IsChecked = keep;
+        Sync();
+    }
+
     /// <summary>Raised whenever the chosen wear changed, so a host can invalidate anything derived from it.</summary>
     public event Action? Changed;
 
     /// <param name="defaultOn">Whether wear starts armed (export: true; save-edit: caller's choice).</param>
     /// <param name="overrideNote">When set, an extra warning line — used by save-edit to flag that wear replaces
     /// each part's existing damage across the whole ship.</param>
-    public WearControl(bool defaultOn, string? overrideNote = null)
+    /// <param name="sourceConditionNote">When set, the panel offers "keep each part's condition from the source
+    /// save" above the wear controls, with this as its explanation. Only a destination that can actually honour it
+    /// (a grant of a design imported from a save) passes one.</param>
+    public WearControl(bool defaultOn, string? overrideNote = null, string? sourceConditionNote = null)
     {
         Header(this, "CONDITION / WEAR");
+
+        if (sourceConditionNote is { Length: > 0 })
+        {
+            _keepSource = new CheckBox
+            {
+                Content = "Keep each part's condition from the source save",
+                Foreground = Ink, Margin = new Thickness(0, 2, 0, 2),
+            };
+            _keepSource.Checked += (_, _) => Sync();
+            _keepSource.Unchecked += (_, _) => Sync();
+            Children.Add(_keepSource);
+
+            _keepSourceNote = new TextBlock
+            {
+                Text = sourceConditionNote,
+                Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(24, 2, 0, 6),
+            };
+            Children.Add(_keepSourceNote);
+        }
 
         _apply = new CheckBox
         {
@@ -76,12 +119,13 @@ public sealed class WearControl : StackPanel
         _readout = new TextBlock { Foreground = Ink, FontSize = 12, Margin = new Thickness(24, 4, 0, 0) };
         Children.Add(_readout);
 
-        Children.Add(new TextBlock
+        _spread = new TextBlock
         {
             Text = "Each installed part is damaged randomly around this average, so condition varies part to part " +
                    "(no part ever drops below 10%). 88% matches the game's own kiosk (\"Used\") ships.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(24, 4, 0, 0),
-        });
+        };
+        Children.Add(_spread);
         if (overrideNote is { Length: > 0 })
             Children.Add(new TextBlock
             {
@@ -94,7 +138,14 @@ public sealed class WearControl : StackPanel
 
     private void Sync()
     {
-        var on = _apply.IsChecked == true;
+        // Carrying the real condition and rolling a new one are alternatives, so arming the first stands the whole
+        // wear block down rather than leaving two live controls that disagree about what the ship's condition is.
+        var carrying = KeepSourceCondition;
+        _apply.IsEnabled = _condition.IsEnabled = !carrying;
+        if (_keepSourceNote is not null) _keepSourceNote.Opacity = carrying ? 1.0 : 0.7;
+
+        var on = _apply.IsChecked == true && !carrying;
+        _apply.Opacity = _spread.Opacity = carrying ? 0.4 : 1.0;
         _condition.Opacity = _readout.Opacity = on ? 1.0 : 0.4;
 
         var pct = (int)Math.Round(_condition.Value);

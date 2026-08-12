@@ -21,6 +21,7 @@ public sealed class ShipStep : WizardStep
 
     private WearControl _wear;
     private ExportDestination _builtFor = ExportDestination.Mod;
+    private bool _builtWithSourceCondition;
 
     public override string Title => "The ship";
 
@@ -44,7 +45,7 @@ public sealed class ShipStep : WizardStep
         _identityNote = Note(body, NoteFor(ExportDestination.Mod));
 
         _wearHost = Add(body, new Border { Margin = new Thickness(0, 4, 0, 0) });
-        _wear = NewWearControl(ExportDestination.Mod);
+        _wear = NewWearControl(ExportDestination.Mod, offerSourceCondition: false);
         _wearHost.Child = _wear;
 
         Content = body;
@@ -52,13 +53,22 @@ public sealed class ShipStep : WizardStep
 
     /// <summary>The wear panel's copy depends on the destination: an update re-rolls the condition of every
     /// installed part on the ship, replacing whatever damage it already had, which the other two cannot do because
-    /// they are writing a ship that does not exist yet.</summary>
-    private WearControl NewWearControl(ExportDestination destination)
+    /// they are writing a ship that does not exist yet.
+    ///
+    /// <para><paramref name="offerSourceCondition"/> adds the carry-the-real-condition choice. Only the grant
+    /// destination offers it, and only for a design that came from a save: an update keeps existing wear by
+    /// unticking, and a mod export has no save to read a condition out of.</para></summary>
+    private WearControl NewWearControl(ExportDestination destination, bool offerSourceCondition)
     {
         var control = new WearControl(defaultOn: true,
             overrideNote: destination == ExportDestination.UpdateShipInSave
                 ? "When armed, this replaces the current condition of every installed part on the ship, not just " +
                   "the ones you edited. Untick to keep each part's existing wear."
+                : null,
+            sourceConditionNote: offerSourceCondition
+                ? "The ship arrives in the state it is really in, part by part, rather than at a fresh average. " +
+                  "This is what you want when you are moving a ship between saves. Parts you added since importing " +
+                  "it were never on the original, so they arrive undamaged."
                 : null);
         control.Changed += () =>
         {
@@ -82,18 +92,30 @@ public sealed class ShipStep : WizardStep
         _designation.Text = plan.Identity.Designation;
         _description.Text = plan.Identity.Description;
 
-        if (_builtFor != plan.Destination)
+        var offerSource = OffersSourceCondition(session);
+        if (_builtFor != plan.Destination || _builtWithSourceCondition != offerSource)
         {
             var current = _wear.Wear;
-            _wear = NewWearControl(plan.Destination);
+            _wear = NewWearControl(plan.Destination, offerSource);
             _wearHost.Child = _wear;
             _wear.SetWear(current);
-            _builtFor = plan.Destination;
+            (_builtFor, _builtWithSourceCondition) = (plan.Destination, offerSource);
         }
         _wear.SetWear(plan.Wear);
+        _wear.SetKeepSourceCondition(offerSource && plan.NewShip.KeepSourceCondition);
 
         _identityNote.Text = NoteFor(plan.Destination);
     }
+
+    /// <summary>
+    /// Whether this run can carry each part's real condition across: a grant, of a design whose parts still name
+    /// the save items they came from, with that save located. All three are required — the condition is read off
+    /// the source ship's own condition owners, matched by <see cref="Placement.OriginStrID"/>.
+    /// </summary>
+    private static bool OffersSourceCondition(WizardSession session) =>
+        session.Plan.Destination == ExportDestination.NewShipInSave
+        && session.SaveContext is not null
+        && session.Doc.Placements.Any(p => p.OriginStrID is not null);
 
     /// <summary>The identity note. An update writes onto a ship that already has an identity, so a blank in-game
     /// name there keeps the one it has rather than falling back to the ship name (the game re-rolls a random name
@@ -117,6 +139,9 @@ public sealed class ShipStep : WizardStep
         var plan = session.Plan;
         plan.ShipName = _name.Text.Trim();
         plan.Wear = _wear.Wear;
+        // Only written when this run could actually offer it, so switching destination mid-run doesn't clear an
+        // answer the user gave on the grant path and would come back to.
+        if (_builtWithSourceCondition) plan.NewShip.KeepSourceCondition = _wear.KeepSourceCondition;
         if (_wearTouched) plan.WearChosen = true;
 
         plan.Identity = new ExportMetadata(

@@ -353,8 +353,16 @@ Everything below is under **File ▸ Import** / the **Export** button.
   those.
 
 Three destinations are offered. One that can't be used is shown **disabled with the
-reason on it** rather than hidden: **Into a save game** needs at least one save game,
-and **Update a ship in a save** needs a design that was imported from one.
+reason on it** rather than hidden; today that only happens when you have no save games
+at all, which stops both save destinations.
+
+**Choosing a save.** Every flow that asks for one shows the same list: the **character**
+first, then the ship or station they're on, then a quieter line with **when the save was
+written, how long it's been played, the game build, and the folder name**. The character
+leads because several saves of one character docked at one station is the normal case,
+and the metadata line is what actually tells those apart. A build shown as
+`0.15.1.15 → 1.0.0.9` means the save was made on the first and last written by the
+second, which is worth knowing about a save that won't open.
 
 The last two steps are the same everywhere:
 
@@ -471,14 +479,43 @@ What you get:
 Do this from the game's **Main Menu**, not while the save is loaded, or the game may
 overwrite the copy on its next autosave.
 
-**Moving a ship between saves.** Import your ship from save A (**File ▸ Import ▸ "Your
-ship, for editing"**), then add it to save B here. Layout, cargo, loose items, zones and
-device wiring all make the trip. **Per-part damage and crew do not** — the new ship
-arrives at whatever the wear slider says, uncrewed.
-
 A design that's linked to a save can still be added to one; the dialog reminds you that
 this creates a **separate new ship** rather than updating the one you imported. To change
 that ship, use **Analyse ▸ "Update Ship in Save…"** instead.
+
+## Transferring a ship between saves
+
+**File ▸ "Transfer Ship to Another Save…"** moves a ship from one playthrough into
+another in one action. It was always possible as two separate steps and almost nobody
+found it, which is the only reason this exists.
+
+1. Pick the **source** save and the ship in it. Ostraplan reads the ship in and puts it
+   on the canvas, so you can look at what you're about to copy before it goes anywhere.
+2. The export wizard opens on **Into a save game**, already selected. Pick the
+   **destination** save on the **Save & price** step (it names the save the ship came
+   out of, so a list of similar autosaves doesn't trip you up), then Review and write.
+
+What makes the trip: **layout, cargo, loose items, zones, device wiring, the ship's
+in-game identity, and each part's real condition**. The ship arrives worn exactly as it
+was, part by part, rather than at a fresh average.
+
+What does not:
+
+- **Crew.** They belong to the save they're in, not to the ship. In practice they're
+  usually not even aboard: crew are stored on whichever ship record they're physically
+  standing on, so while you're docked they're all in the station's record.
+- **The original.** This **copies** rather than moves. Both saves keep working, and
+  neither original is modified: the ship is written into a *copy* of the destination
+  save, and the source save is only read.
+
+Because it's a copy, granting a ship back into the save it came from is legal, and is
+how you clone a ship within one playthrough.
+
+**Re-rolling the condition instead.** The **Condition / Wear** panel on **The ship**
+step offers "Keep each part's condition from the source save", ticked by default for a
+transfer. Untick it to get the wear slider back and have the ship arrive at a chosen
+average instead. Parts you drew in after importing were never on the original, so they
+arrive undamaged either way.
 
 ## Editing your live in-game ship
 

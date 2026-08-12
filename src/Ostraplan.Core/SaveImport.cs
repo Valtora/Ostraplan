@@ -4,9 +4,23 @@ using System.Text.Json;
 
 namespace Ostraplan.Core;
 
-/// <summary>A save game on disk, for the picker: the save's folder name, the player's ship name
-/// and character (from <c>saveInfo.json</c>), when it was written, and the path to its data zip.</summary>
-public sealed record SaveEntry(string Name, string ShipName, string PlayerName, string When, string ZipPath);
+/// <summary>
+/// A save game on disk, for the picker: the save's folder name, the player's ship name and character (from
+/// <c>saveInfo.json</c>), when it was written, and the path to its data zip.
+///
+/// <para><see cref="PlayTimeSeconds"/> and <see cref="GameVersion"/> are what the game's own Load screen shows
+/// beside each save, and are what tell two saves of the same character at the same station apart. Every one of
+/// them defaults to nothing, since a save folder can be missing its <c>saveInfo.json</c> entirely and still hold a
+/// readable ship.</para>
+///
+/// <para><see cref="GameVersion"/> is the build the save was <b>created</b> on (<c>version</c>), which is the one
+/// the game's Load screen shows; <see cref="LastSavedVersion"/> is the build that last wrote it
+/// (<c>versionLastSave</c>). They differ on any save carried across a game update, and the pair is worth having:
+/// the first is what the player recognises the save by, the second describes what is actually on disk.</para>
+/// </summary>
+public sealed record SaveEntry(
+    string Name, string ShipName, string PlayerName, string When, string ZipPath,
+    double PlayTimeSeconds = 0, string GameVersion = "", string LastSavedVersion = "");
 
 /// <summary>A ship in a save the player might edit: its RegID, a friendly display name and subtitle, whether the
 /// player <see cref="Owned">owns</see> it (it's in the player CO's <c>aMyShips</c>), and whether it's the ship the
@@ -38,8 +52,9 @@ public static class SaveImport
         {
             var zip = DataZip(sub);
             if (zip is null) continue;
-            var (ship, player, when) = ReadSaveInfo(Path.Combine(sub, "saveInfo.json"));
-            list.Add(new SaveEntry(Path.GetFileName(sub), ship, player, when, zip));
+            var info = ReadSaveInfo(Path.Combine(sub, "saveInfo.json"));
+            list.Add(new SaveEntry(Path.GetFileName(sub), info.Ship, info.Player, info.When, zip,
+                info.PlayTime, info.Version, info.LastSaved));
         }
         return list.OrderByDescending(s => s.When, StringComparer.Ordinal).ToList();
     }
@@ -256,16 +271,23 @@ public static class SaveImport
         return root.ValueKind == JsonValueKind.Object ? root : null;
     }
 
-    private static (string Ship, string Player, string When) ReadSaveInfo(string path)
+    /// <summary>What a save's <c>saveInfo.json</c> tells the picker. Blank throughout when the file is missing or
+    /// unreadable — a save can still be imported from without it, so this never throws.
+    /// <para><c>playTimeElapsed</c> is <b>seconds</b>, verified against the game's own Load screen (a save reading
+    /// 16539.0 there displays "4h 35m 39s").</para></summary>
+    private static (string Ship, string Player, string When, double PlayTime, string Version, string LastSaved)
+        ReadSaveInfo(string path)
     {
-        if (!File.Exists(path)) return ("", "", "");
+        if (!File.Exists(path)) return ("", "", "", 0, "", "");
         try
         {
             using var doc = JsonDocument.Parse(File.ReadAllText(path));
             var el = Root(doc);
-            return (Json.Str(el, "shipName") ?? "", Json.Str(el, "playerName") ?? "", Json.Str(el, "realWorldTime") ?? "");
+            return (Json.Str(el, "shipName") ?? "", Json.Str(el, "playerName") ?? "",
+                Json.Str(el, "realWorldTime") ?? "", Json.Dbl(el, "playTimeElapsed"),
+                Json.Str(el, "version") ?? "", Json.Str(el, "versionLastSave") ?? "");
         }
-        catch { return ("", "", ""); }
+        catch { return ("", "", "", 0, "", ""); }
     }
 
     private static JsonElement Root(JsonDocument doc) =>

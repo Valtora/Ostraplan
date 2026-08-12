@@ -143,10 +143,17 @@ public static class ShipExport
     /// Pure and testable — no file I/O. <paramref name="warnings"/> collects anything the
     /// export dropped (currently: nothing — every placed part resolves — but reserved for
     /// unresolved defs so the caller can always surface a report).
+    ///
+    /// <para><paramref name="itemIdByPlacementId"/> is an optional collector, filled with
+    /// <see cref="Placement.Id"/> → the fresh item <c>strID</c> this export minted for it. Every item here is new,
+    /// so this is the only way back from a written item to the design part that produced it — which
+    /// <see cref="SaveGrant"/> needs to carry each part's real condition over from the save it came from.
+    /// Optional because no other caller has anything to say about where a part came from.</para>
     /// </summary>
     public static (ExportedShip Ship, ShipRating Rating, int RoomCount) Build(
         ShipDocument doc, Catalog catalog, IReadOnlyList<RoomSpecDef> specs, string shipName,
-        List<string>? warnings = null, ExportMetadata? meta = null, WearOptions? wear = null)
+        List<string>? warnings = null, ExportMetadata? meta = null, WearOptions? wear = null,
+        IDictionary<string, string>? itemIdByPlacementId = null)
     {
         var grid = ShipGrid.FromDocument(doc, catalog);
         var partition = RoomBuilder.Build(grid);
@@ -302,6 +309,10 @@ public static class ShipExport
         // Device signal connections (the Electrical GPM): bake each wired part's inputConnections/outputConnections
         // so the wiring spawns with the ship. Only resolved links (both endpoints present) reach here.
         WireDeviceLinks(doc, exportIdByPlacementId, itemByExportId);
+
+        if (itemIdByPlacementId is not null)
+            foreach (var (placementId, exportId) in exportIdByPlacementId)
+                itemIdByPlacementId[placementId] = exportId;
 
         // Fold the applied wear into the rating's Condition slot (the mean over installed parts), so the baked
         // aRating the broker/registry reads on a shallow load already shows the worn grade.

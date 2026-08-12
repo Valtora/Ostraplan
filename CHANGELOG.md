@@ -11,17 +11,42 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
-### Fixed
-- **Cancelling the ship picker on "Update Ship in Save…" no longer opens the export wizard anyway.** Backing out of
-  the question left the wizard sitting there on a step whose only content was the reason it could not continue,
-  which reads as the cancel having been ignored. The picker now runs before the wizard is built, so a cancel
-  abandons the action outright. Asked from inside the wizard instead — by picking the destination once it is
-  already open — a cancel still just blocks Next, which is the right answer for a window already on screen.
-  - Along the way: a save context located earlier in the session could stand in for the ship you had just picked,
-    so a second write in one session could land on the first ship you chose rather than the one in front of you.
-    The cached context is now only reused when it is the ship being asked for.
+### Changed
+- **The save picker leads with the character, then where they are, then the save's own details.** The ship name led
+  and the character trailed it in a dim subtitle, which reads badly for the commonest case there is: several saves
+  of one character docked at one station, where every row's leading line was identical and the only thing telling
+  them apart was a folder name at the end of the second line. Each row is now the character, the ship or station
+  they are on, and a metadata line carrying **when the save was written, how long it has been played, the game
+  build, and the folder name** — the same facts the game's own Load screen shows, in the same order.
+  - The build reads as bare version numbers, and as **`0.15.1.15 → 1.0.0.9`** for a save made on one build and last
+    written by another. That arrow is the only visible sign a save has been carried across a game update, which is
+    the first thing worth knowing about one that will not open.
+  - **The picker's title and description now belong to whatever asked for it.** One dialog serves four different
+    flows, and all four said "Import a ship from a save game" and "crew, cargo, wear and damage are discarded" —
+    true only of the first, and actively wrong in front of a write-back that preserves all of it.
 
 ### Added
+- **Transfer a ship from one save to another, in one action.** New **File ▸ "Transfer Ship to Another Save…"**.
+  Pick the source save and ship, and Ostraplan reads it in and takes you straight to the destination picker.
+  Much requested, and the awkward part was never the capability: this was already possible as Import ▸ "Your ship,
+  for editing" followed by an export into another save, and almost nobody found it. Both halves are unchanged;
+  this walks them.
+  - **Each part now arrives in the condition it is really in.** A grant used to synthesise every part fresh and
+    roll new wear over it, so a ship moved between saves turned up at whatever the wear slider said rather than
+    worn the way it actually was. The real per-part damage now comes across, matched part by part through the save
+    items the design was imported from. It is a new **"Keep each part's condition from the source save"** tick on
+    the **Condition / Wear** panel, on by default for a design that came from a save, and it stands the wear
+    slider down while it is on, since the two are alternatives rather than settings that combine. Parts drawn in
+    after the import were never on the original, so they arrive undamaged.
+  - Layout, cargo, loose items, zones, device wiring and the ship's in-game identity make the trip, as they did.
+  - **Crew do not, and this is now said out loud** rather than left to be discovered. They belong to the save they
+    are in rather than to the ship, and are stored on whichever ship record they are physically standing on, so
+    while you are docked they are all in the station's record and not aboard the ship at all.
+  - It **copies** rather than moves: the ship is written into a copy of the destination save, the source save is
+    only read, and both playthroughs keep working. Transferring a ship back into its own save is therefore legal,
+    and is how you clone one.
+  - The **Save & price** step names the save the ship came out of, because on a transfer "which save" is the whole
+    question the step is asking and a list of similar autosaves is easy to misread.
 - **Any design can now replace a ship in a save, not only one that was imported from it.** The **Update a ship in
   a save** destination used to be greyed out unless the design came from **Import ▸ "Your ship, for editing"**, and
   the `.oplan` recorded that provenance, so opening a ship's base layout, saving it, and reimporting produced a
@@ -40,6 +65,14 @@ each release was verified against is recorded in
     target a moment ago, a save name alone doesn't tell you which ship you picked inside it.
 
 ### Fixed
+- **Cancelling the ship picker on "Update Ship in Save…" no longer opens the export wizard anyway.** Backing out of
+  the question left the wizard sitting there on a step whose only content was the reason it could not continue,
+  which reads as the cancel having been ignored. The picker now runs before the wizard is built, so a cancel
+  abandons the action outright. Asked from inside the wizard instead — by picking the destination once it is
+  already open — a cancel still just blocks Next, which is the right answer for a window already on screen.
+  - Along the way: a save context located earlier in the session could stand in for the ship you had just picked,
+    so a second write in one session could land on the first ship you chose rather than the one in front of you.
+    The cached context is now only reused when it is the ship being asked for.
 - **An unreadable save now says what it choked on.** "The ship could not be parsed" was the whole of it: the JSON
   error behind it was caught and thrown away, leaving nobody — user or maintainer — able to tell a truncated record
   from a stray byte from a file that was never a ship. Reported on Discord by someone whose pre-1.0 save no version

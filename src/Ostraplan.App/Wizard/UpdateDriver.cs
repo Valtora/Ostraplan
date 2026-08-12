@@ -150,7 +150,9 @@ public sealed class UpdateDriver : ExportDriver
 
     private static (SaveEntry Save, string RegId)? Ask(Window? owner, IReadOnlyList<SaveEntry> saves)
     {
-        var picker = new SavePickerDialog(saves) { Owner = owner };
+        var picker = new SavePickerDialog(saves, "Which ship should this design replace?",
+            "The design is written over a ship in this save, keeping its crew, cargo, position and identity.",
+            "Choose save") { Owner = owner };
         if (picker.ShowDialog() != true || picker.Selected is not { } save) return null;
 
         // the ship the player is standing on may be a station, so offer their owned ships first, as the import does

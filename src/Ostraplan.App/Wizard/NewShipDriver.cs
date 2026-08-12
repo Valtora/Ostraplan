@@ -20,6 +20,19 @@ public sealed class NewShipDriver : ExportDriver
     private GrantReport? _report;
     private WearOptions _pinnedWear = WearOptions.Pristine;
     private string _outDir = "";
+    private IReadOnlyDictionary<string, JsonNode>? _sourceCos;
+
+    /// <summary>
+    /// The source ship's condition owners when this run is carrying its real condition across, or null when it is
+    /// rolling fresh wear. Requires the design to have come from a save (its parts name the items they were), and
+    /// that save to still be located.
+    /// </summary>
+    private static IReadOnlyDictionary<string, JsonNode>? SourceCos(WizardSession session) =>
+        session.Plan.NewShip.KeepSourceCondition
+        && session.SaveContext is { } src
+        && session.Doc.Placements.Any(p => p.OriginStrID is not null)
+            ? src.CosById
+            : null;
 
     public override ExportDestination Destination => ExportDestination.NewShipInSave;
     public override string Name => "Into a save game";
@@ -92,7 +105,8 @@ public sealed class NewShipDriver : ExportDriver
         _regId = SaveGrant.MintRegId(ctx.ExistingRegIds, ctx.PlayerShipRegId);
         _outDir = SaveGrant.SuggestCopyDir(ctx);
 
-        var opts = new GrantOptions(plan.ShipName, plan.Identity, _pinnedWear, PlacementSeed: Random.Shared.Next());
+        _sourceCos = SourceCos(session);
+        var opts = new GrantOptions(plan.ShipName, plan.Identity, _pinnedWear, Random.Shared.Next(), _sourceCos);
         (_ship, _report) = await BuildOffThread(
             session.Doc, session.Catalog, session.Specs, _regId, ctx.Anchor, opts, ctx.Epoch);
 
@@ -102,9 +116,7 @@ public sealed class NewShipDriver : ExportDriver
             new("Ship", $"{_report.PublicName}  ({_report.RegId})"),
             new("Size", $"{_report.ItemCount} parts, {_report.RoomCount} certified room(s)"),
             new("Rating", string.IsNullOrEmpty(_report.Rating.Display) ? "None" : _report.Rating.Display),
-            new("Condition", _pinnedWear.Enabled
-                ? $"worn to ~{_pinnedWear.TargetCondition * 100:0}% average (parts vary, none below 10%)"
-                : "pristine"),
+            new("Condition", ConditionSummary()),
             new("Parked", $"{_report.DistanceKm:0.0} km from your ship, undocked, within P.A.S.S. ferry range"),
             new("Cost", price > 0
                 ? $"{Money(price)}, leaving {Money(ctx.Balance - price)} of {Money(ctx.Balance)}"
@@ -143,7 +155,9 @@ public sealed class NewShipDriver : ExportDriver
             $"{report.ItemCount} parts, {report.RoomCount} certified room(s), rating " +
             $"{(string.IsNullOrEmpty(report.Rating.Display) ? "None" : report.Rating.Display)}.",
         };
-        if (_pinnedWear.Enabled)
+        if (_sourceCos is not null)
+            lines.Add("Each part kept the condition it had on the original ship.");
+        else if (_pinnedWear.Enabled)
             lines.Add($"Worn to ~{_pinnedWear.TargetCondition * 100:0}% average condition (parts vary, none below 10%).");
         if (report.Charged is { } charged)
             lines.Add($"Charged {Money(charged)}, leaving {Money(report.ResultingBalance ?? 0)}.");
@@ -155,6 +169,15 @@ public sealed class NewShipDriver : ExportDriver
 
         return new DoneReport($"\"{report.PublicName}\" ({report.RegId}) is in your save.", lines);
     }
+
+    /// <summary>How the ship's condition was decided, for the Review pane. Carrying the real condition is the one
+    /// worth naming explicitly: it is the difference between moving a ship and minting a fresh copy of it.</summary>
+    private string ConditionSummary() =>
+        _sourceCos is not null
+            ? "each part as it really is on the original ship"
+            : _pinnedWear.Enabled
+                ? $"worn to ~{_pinnedWear.TargetCondition * 100:0}% average (parts vary, none below 10%)"
+                : "pristine";
 
     private static Task<(string OutputDir, GrantReport Report)> WriteOffThread(
         GrantContext ctx, string regId, JsonObject ship, GrantReport report, double price, string outDir) =>

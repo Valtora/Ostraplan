@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -85,7 +86,14 @@ public sealed class TemplateBrowserDialog : Window
     private static DataTemplate RowTemplate() =>
         TwoLineRow(nameof(ShipFileEntry.Name), nameof(ShipFileEntry.Origin));
 
-    internal static DataTemplate TwoLineRow(string titleProp, string subProp)
+    internal static DataTemplate TwoLineRow(string titleProp, string subProp) =>
+        Row(titleProp, subProp, null);
+
+    /// <summary>A row with a third, quieter line for metadata that tells otherwise-identical entries apart.</summary>
+    internal static DataTemplate ThreeLineRow(string titleProp, string subProp, string metaProp) =>
+        Row(titleProp, subProp, metaProp);
+
+    private static DataTemplate Row(string titleProp, string subProp, string? metaProp)
     {
         var name = new FrameworkElementFactory(typeof(TextBlock));
         name.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(titleProp));
@@ -94,13 +102,24 @@ public sealed class TemplateBrowserDialog : Window
 
         var sub = new FrameworkElementFactory(typeof(TextBlock));
         sub.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(subProp));
-        sub.SetValue(TextBlock.ForegroundProperty, Dim);
-        sub.SetValue(TextBlock.FontSizeProperty, 11.0);
+        sub.SetValue(TextBlock.ForegroundProperty, metaProp is null ? Dim : Ink);
+        sub.SetValue(TextBlock.FontSizeProperty, metaProp is null ? 11.0 : 12.0);
 
         var panel = new FrameworkElementFactory(typeof(StackPanel));
         panel.SetValue(MarginProperty, new Thickness(2, 3, 2, 3));
         panel.AppendChild(name);
         panel.AppendChild(sub);
+
+        if (metaProp is not null)
+        {
+            var meta = new FrameworkElementFactory(typeof(TextBlock));
+            meta.SetBinding(TextBlock.TextProperty, new System.Windows.Data.Binding(metaProp));
+            meta.SetValue(TextBlock.ForegroundProperty, Dim);
+            meta.SetValue(TextBlock.FontSizeProperty, 11.0);
+            meta.SetValue(MarginProperty, new Thickness(0, 1, 0, 0));
+            panel.AppendChild(meta);
+        }
+
         return new DataTemplate { VisualTree = panel };
     }
 }
@@ -173,10 +192,18 @@ public sealed class ShipChoiceDialog : Window
     }
 }
 
-/// <summary>A save-game row for the picker: the player's ship name over "{player} · {save}".</summary>
-public sealed record SaveRow(string ShipDisplay, string Sub, SaveEntry Entry);
+/// <summary>
+/// A save-game row for the picker: the <b>character</b>, then where they are, then the metadata that tells two
+/// otherwise-identical saves apart.
+///
+/// <para>The ship used to lead and the character to trail it, which reads badly for the commonest case there is:
+/// several saves of one character docked at the same station, where the leading line was the same on every row and
+/// the thing distinguishing them was the folder name at the end of a dim subtitle.</para>
+/// </summary>
+public sealed record SaveRow(string Character, string Where, string Meta, SaveEntry Entry);
 
-/// <summary>Picks a save game to import the player's ship from. Shows each save's ship + character.</summary>
+/// <summary>Picks a save game. Used by every flow that needs one — importing a layout, importing for editing,
+/// transferring, choosing a ship to overwrite — so the title and the note above the list are the caller's.</summary>
 public sealed class SavePickerDialog : Window
 {
     private static Brush Ink => ThemeManager.Ink;
@@ -186,31 +213,35 @@ public sealed class SavePickerDialog : Window
 
     public SaveEntry? Selected { get; private set; }
 
-    public SavePickerDialog(IReadOnlyList<SaveEntry> saves)
+    public SavePickerDialog(IReadOnlyList<SaveEntry> saves, string? title = null, string? note = null,
+        string? acceptVerb = null)
     {
-        Title = "Import a ship from a save game";
-        Width = 460; Height = 560;
+        Title = title ?? "Choose a save game";
+        Width = 500; Height = 560;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = ThemeManager.WindowBg;
 
         var rows = saves.Select(s => new SaveRow(
+            s.PlayerName.Length > 0 ? s.PlayerName : "(unnamed character)",
             s.ShipName.Length > 0 ? s.ShipName : "(unnamed ship)",
-            string.Join("  ·  ", new[] { s.PlayerName, s.Name }.Where(x => x.Length > 0)),
-            s)).ToList();
+            Meta(s), s)).ToList();
 
         var root = new DockPanel { Margin = new Thickness(16) };
 
-        var note = new TextBlock
+        if (note is { Length: > 0 })
         {
-            Text = "Imports the player's ship as a pristine layout — crew, cargo, wear and damage are discarded.",
-            Foreground = ThemeManager.Dim, FontSize = 11,
-            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
-        };
-        DockPanel.SetDock(note, Dock.Top);
-        root.Children.Add(note);
+            var noteBlock = new TextBlock
+            {
+                Text = note,
+                Foreground = ThemeManager.Dim, FontSize = 11,
+                TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
+            };
+            DockPanel.SetDock(noteBlock, Dock.Top);
+            root.Children.Add(noteBlock);
+        }
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0) };
-        var ok = new Button { Content = "Import", Padding = new Thickness(18, 4, 18, 4), Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
+        var ok = new Button { Content = acceptVerb ?? "Choose", Padding = new Thickness(18, 4, 18, 4), Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
         var cancel = new Button { Content = "Cancel", Padding = new Thickness(16, 4, 16, 4), IsCancel = true };
         ok.Click += (_, _) => Accept();
         buttons.Children.Add(ok);
@@ -221,7 +252,9 @@ public sealed class SavePickerDialog : Window
         _list = new ListBox
         {
             Background = Brushes.Transparent, BorderThickness = new Thickness(0),
-            ItemsSource = rows, ItemTemplate = TemplateBrowserDialog.TwoLineRow(nameof(SaveRow.ShipDisplay), nameof(SaveRow.Sub)),
+            ItemsSource = rows,
+            ItemTemplate = TemplateBrowserDialog.ThreeLineRow(
+                nameof(SaveRow.Character), nameof(SaveRow.Where), nameof(SaveRow.Meta)),
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
         };
         if (rows.Count > 0) _list.SelectedIndex = 0;
@@ -230,6 +263,57 @@ public sealed class SavePickerDialog : Window
         root.Children.Add(_list);
 
         Content = root;
+    }
+
+    /// <summary>The metadata line: when the save was written, how long it has been played, the game build, and the
+    /// folder name. The same facts the game's own Load screen shows, in the same order, because that is what a
+    /// player is already matching a save against. The folder name goes last: it is the least readable of them and
+    /// the one only needed when the rest tie.</summary>
+    internal static string Meta(SaveEntry s) =>
+        string.Join("  ·  ", new[] { Written(s.When), PlayTime(s.PlayTimeSeconds), Build(s), s.Name }
+            .Where(x => x.Length > 0));
+
+    /// <summary>
+    /// The game build, as bare version numbers: <c>1.0.0.9</c>, or <c>0.15.1.15 → 1.0.0.9</c> for a save made on
+    /// one build and last written by another.
+    ///
+    /// <para>Both halves earn their place. The creating build is what the game's own Load screen shows and what a
+    /// player recognises the save by; the arrow is the only thing that says the file on disk has been through an
+    /// update, which is exactly the question asked of a save that will not open. The "Early Access Build:" /
+    /// "Release Build:" prefix is dropped — 0.x against 1.x already says it, in a quarter of the width.</para>
+    /// </summary>
+    private static string Build(SaveEntry s)
+    {
+        var made = Number(s.GameVersion);
+        var last = Number(s.LastSavedVersion);
+        if (made.Length == 0) return last;
+        return last.Length == 0 || last == made ? made : $"{made} → {last}";
+    }
+
+    /// <summary>The version number out of "Early Access Build: 0.15.1.15". Anything not in that shape is kept
+    /// whole rather than mangled.</summary>
+    private static string Number(string version) =>
+        version.LastIndexOf(": ", StringComparison.Ordinal) is var i && i >= 0
+            ? version[(i + 2)..].Trim()
+            : version.Trim();
+
+    /// <summary>The save's timestamp in the reader's own date format. The file records
+    /// <c>yyyy-MM-dd HH:mm:ss</c>; anything that doesn't parse is shown verbatim rather than dropped.</summary>
+    private static string Written(string when) =>
+        DateTime.TryParseExact(when, "yyyy-MM-dd HH:mm:ss", CultureInfo.InvariantCulture, DateTimeStyles.None,
+            out var dt)
+            ? dt.ToString("d MMM yyyy HH:mm", CultureInfo.CurrentCulture)
+            : when;
+
+    /// <summary>Elapsed play time the way the game writes it: <c>1d 10h 52m 14s</c>, with the empty leading units
+    /// dropped. <c>playTimeElapsed</c> is in seconds.</summary>
+    private static string PlayTime(double seconds)
+    {
+        if (seconds <= 0) return "";
+        var t = TimeSpan.FromSeconds(Math.Round(seconds));
+        return t.Days > 0 ? $"{t.Days}d {t.Hours}h {t.Minutes}m"
+            : t.Hours > 0 ? $"{t.Hours}h {t.Minutes}m"
+            : $"{t.Minutes}m {t.Seconds}s";
     }
 
     private void Accept()

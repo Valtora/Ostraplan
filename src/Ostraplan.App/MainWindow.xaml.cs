@@ -2844,6 +2844,9 @@ public partial class MainWindow : Window
         m.Items.Add(BuildImportSubmenu());
         m.Items.Add(MenuAction("Export…", () => OnExportClick(this, e), gesture: "Ctrl+E"));
         m.Items.Add(new Separator());
+        // A whole operation rather than a variant of import or export, and it chains both, so it sits beside them
+        // rather than inside either. Being findable is the entire point of it existing.
+        m.Items.Add(MenuAction("Transfer Ship to Another Save…", TransferShip, enabled: _env is not null));
         // A design imported from a save goes back to the ship it came from; any other design is asked which ship
         // in which save it should replace, so it needs only a save to exist.
         m.Items.Add(MenuAction("Update Ship in Save…", () => OnUpdateSaveClick(this, e),
@@ -2935,7 +2938,9 @@ public partial class MainWindow : Window
             return;
         }
 
-        var picker = new SavePickerDialog(saves) { Owner = this };
+        var picker = new SavePickerDialog(saves, "Import a ship from a save game",
+            "Imports the player's ship as a pristine layout — crew, cargo, wear and damage are discarded.",
+            "Import") { Owner = this };
         if (picker.ShowDialog() != true || picker.Selected is not { } save) return;
 
         var ship = save.ShipName.Length > 0 ? $"\"{save.ShipName}\"" : "the player's ship";
@@ -2972,18 +2977,76 @@ public partial class MainWindow : Window
     /// the edited layout can be written back into a copy of the save with crew and cargo preserved.</summary>
     private async void ImportSaveForEditing()
     {
-        if (_catalog is null || _env is null || !ConfirmDiscardChanges()) return;
+        var edit = await PickAndImportForEditing(
+            "Import your ship for editing",
+            "Imports your live ship with its identity, crew, cargo and wear intact, so the redesign can be written back into the save it came from.",
+            "Choose save",
+            (save, chosen) =>
+            Dlg.Confirm(this, DlgKind.Info, $"Import \"{chosen.Name}\" for editing?",
+                $"Ship {chosen.RegId} from save \"{save.Name}\".\n\n" +
+                "You'll redesign the ship's structure out of game.\n" +
+                "When you choose the Update Ship in Save action, Ostraplan writes the result back into the save, either as a new copy (the default) or the original in place, keeping crew, cargo, world position, and ship identity.\n\n" +
+                "The .oplan you save stays linked to this save.\n" +
+                "It references the ship's live state (crew, cargo, wear) rather than embedding it, so keep the save if you want to write back later.\n\n" +
+                "For a standalone, shareable ship instead, use Export, which makes a spawnable mod.",
+                "Import for editing"));
+        if (edit is null) return;
+
+        AuditLog.Add($"Imported ship {Describe(edit)} for editing.");
+    }
+
+    /// <summary>
+    /// Transfer a ship from one save into another: the first half of the trip in one action.
+    ///
+    /// <para>This was always possible and almost nobody found it, because it was two unrelated menu items in
+    /// sequence — import your ship for editing from save A, then export it into save B. Both halves are unchanged;
+    /// this only walks them, and lands the user in the wizard with the destination already chosen.</para>
+    ///
+    /// <para>The ship still arrives on the canvas as a design rather than moving behind the user's back. It is what
+    /// they are about to copy into another save, and it is the last chance to look at it.</para>
+    /// </summary>
+    private async void TransferShip()
+    {
+        var edit = await PickAndImportForEditing(
+            "Transfer a ship: which save is it in?",
+            "Step 1 of 2. Choose the save the ship is in now. You'll pick the save it goes to next.",
+            "Choose source",
+            (save, chosen) =>
+            Dlg.Confirm(this, DlgKind.Info, $"Transfer \"{chosen.Name}\" to another save?",
+                $"Ship {chosen.RegId} from save \"{save.Name}\".\n\n" +
+                "Ostraplan reads the ship in, then asks which save to add it to. It arrives there as a brand-new ship you own, parked a few kilometres out, in a copy of that save. Both saves keep working: this copies the ship rather than moving it, and neither original is modified.\n\n" +
+                "Layout, cargo, loose items, zones and device wiring all make the trip, and each part keeps the condition it really has.\n\n" +
+                "Crew do not come along. They belong to the save they are in, not to the ship.",
+                "Read the ship in"));
+        if (edit is null) return;
+
+        AuditLog.Add($"Read ship {Describe(edit)} in to transfer to another save.");
+
+        // Straight on to the second half, with the destination preselected: the save picker there is the one that
+        // asks where it goes, so the user never returns to a menu to finish what they started.
+        OpenExportWizard(ExportDestination.NewShipInSave);
+    }
+
+    /// <summary>
+    /// Pick a save and one of its ships, import it for editing, and install it as the current design. The shared
+    /// body of "Your ship, for editing" and of the transfer, which differ only in the confirmation that explains
+    /// what happens next. Null when the user backed out anywhere along it, or the import failed (already reported).
+    /// </summary>
+    private async Task<SaveEditImportResult?> PickAndImportForEditing(
+        string title, string pickerNote, string pickerVerb, Func<SaveEntry, SaveShipChoice, bool> confirm)
+    {
+        if (_catalog is null || _env is null || !ConfirmDiscardChanges()) return null;
 
         var saves = SaveImport.ListSaves(_env);
         if (saves.Count == 0)
         {
-            Dlg.Show(this, "No save games found in your Ostranauts Saves folder.", "Import",
+            Dlg.Show(this, "No save games found in your Ostranauts Saves folder.", title,
                 MessageBoxButton.OK, MessageBoxImage.Information);
-            return;
+            return null;
         }
 
-        var picker = new SavePickerDialog(saves) { Owner = this };
-        if (picker.ShowDialog() != true || picker.Selected is not { } save) return;
+        var picker = new SavePickerDialog(saves, title, pickerNote, pickerVerb) { Owner = this };
+        if (picker.ShowDialog() != true || picker.Selected is not { } save) return null;
 
         // choose WHICH ship: the game imports the ship you're standing on, which may be a station. List the
         // player's actually-owned ships (from aMyShips) instead, plus the current ship as an unsupported option.
@@ -2991,26 +3054,17 @@ public partial class MainWindow : Window
         if (ships.Count == 0)
         {
             Dlg.Show(this,
-                "Couldn't find a ship to edit in that save (no owned ships and no current ship on record).",
-                "Import", MessageBoxButton.OK, MessageBoxImage.Warning);
-            return;
+                "Couldn't find a ship in that save (no owned ships and no current ship on record).",
+                title, MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
         }
 
         var shipDlg = new ShipChoiceDialog(save.Name, ships) { Owner = this };
-        if (shipDlg.ShowDialog() != true || shipDlg.Selected is not { } chosen) return;
+        if (shipDlg.ShowDialog() != true || shipDlg.Selected is not { } chosen) return null;
 
         // editing a ship you don't own (a station, another vessel) is unsupported — gate it behind a stern warning
-        if (!chosen.Owned && !ConfirmUnsupportedShip(chosen)) return;
-
-        if (!Dlg.Confirm(this, DlgKind.Info, $"Import \"{chosen.Name}\" for editing?",
-                $"Ship {chosen.RegId} from save \"{save.Name}\".\n\n" +
-                "You'll redesign the ship's structure out of game.\n" +
-                "When you choose the Update Ship in Save action, Ostraplan writes the result back into the save, either as a new copy (the default) or the original in place, keeping crew, cargo, world position, and ship identity.\n\n" +
-                "The .oplan you save stays linked to this save.\n" +
-                "It references the ship's live state (crew, cargo, wear) rather than embedding it, so keep the save if you want to write back later.\n\n" +
-                "For a standalone, shareable ship instead, use Export, which makes a spawnable mod.",
-                "Import for editing"))
-            return;
+        if (!chosen.Owned && !ConfirmUnsupportedShip(chosen)) return null;
+        if (!confirm(save, chosen)) return null;
 
         var (catalog, entry, reg) = (_catalog, save, chosen.RegId);
         SaveEditImportResult edit;
@@ -3021,15 +3075,19 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
-            Dlg.Show(this, "Import failed:\n\n" + ex.Message, "Import", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
+            Dlg.Show(this, "Import failed:\n\n" + ex.Message, title, MessageBoxButton.OK, MessageBoxImage.Error);
+            return null;
         }
         finally { Mouse.OverrideCursor = null; }
 
-        if (!OfferStandIns(edit, chosen.Name)) return;   // cancelled at the missing-mods prompt
+        if (!OfferStandIns(edit, chosen.Name)) return null;   // cancelled at the missing-mods prompt
         InstallImportedDocument(edit.Import, edit.Context);
-        AuditLog.Add($"Imported ship \"{chosen.Name}\" ({chosen.RegId}) for editing from save \"{save.Name}\".");
+        return edit;
     }
+
+    /// <summary>An imported ship as an audit-log line names it: display name, registration and source save.</summary>
+    private static string Describe(SaveEditImportResult edit) =>
+        $"\"{edit.Import.ShipName}\" ({edit.Context.Source.RegId}) from save \"{edit.Context.Source.SaveName}\"";
 
     /// <summary>
     /// The missing-mod prompt: items whose def isn't in the loaded data are invisible to every engine here but

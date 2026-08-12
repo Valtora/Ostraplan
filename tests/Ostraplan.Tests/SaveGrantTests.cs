@@ -233,6 +233,118 @@ public class SaveGrantTests
         Assert.Equal("A", report.Rating.Condition);
     }
 
+    // ---- transferring a ship: the condition comes across rather than being re-rolled ----
+
+    /// <summary>A source condition owner carrying <paramref name="damage"/> accumulated <c>StatDamage</c>.</summary>
+    private static JsonNode SourceCo(string strID, double damage) => new JsonObject
+    {
+        ["strID"] = strID,
+        ["aConds"] = new JsonArray("IsInstalled=1.0x1", $"StatDamage=1.0x{damage}"),
+    };
+
+    /// <summary>A bench-and-floor design whose benches remember the save items they were imported from.</summary>
+    private static (Catalog Cat, ShipDocument Doc) WornPair()
+    {
+        var cat = new Fixtures()
+            .Floor()
+            .Part("Bench", tileConds: ["IsFixture", "IsObstruction"], startingConds: ["IsInstalled"],
+                condValues: new Dictionary<string, double> { ["StatDamageMax"] = 100 })
+            .Build();
+        var doc = Fixtures.Doc(cat,
+            new Placement { DefName = "Floor", X = 0, Y = 0 },
+            new Placement { DefName = "Bench", X = 1, Y = 0, OriginStrID = "src-a" },
+            new Placement { DefName = "Bench", X = 2, Y = 0, OriginStrID = "src-b" });
+        return (cat, doc);
+    }
+
+    /// <summary>Every <c>StatDamage</c> amount on the COs of a given def, so a test can assert on the numbers
+    /// rather than merely on damage being present.</summary>
+    private static List<double> Damages(JsonObject ship, string def) =>
+        [.. Cos(ship).Where(c => (string?)c["strCODef"] == def)
+            .Select(c => (c["aConds"] as JsonArray)!
+                .Select(v => (string?)v ?? "")
+                .FirstOrDefault(s => s.StartsWith("StatDamage=", StringComparison.Ordinal)))
+            .Select(s => s is null ? 0.0 : LootDef.CondAmount(s))];
+
+    [Fact]
+    public void A_transfer_carries_each_parts_real_damage_across()
+    {
+        var (cat, doc) = WornPair();
+        var sourceCos = new Dictionary<string, JsonNode>
+        {
+            ["src-a"] = SourceCo("src-a", 40),
+            ["src-b"] = SourceCo("src-b", 10),
+        };
+
+        var (ship, report) = SaveGrant.BuildShip(doc, cat, NoSpecs, "H-1234", Anchor(),
+            new GrantOptions("Test Design", null, WearOptions.Pristine, 1234, sourceCos), epoch: 0);
+
+        // the exact amounts, not merely "something is damaged": a transfer that re-rolled would still pass that
+        Assert.Equal([10.0, 40.0], Damages(ship, "Bench").Order());
+        // mean condition over installed parts is (0.60 + 0.90) / 2 = 0.75
+        Assert.Equal(Rating.ConditionGrade(0.75), report.Rating.Condition);
+    }
+
+    /// <summary>Source conditions win outright. Rolling wear on top would mean the ship arrived in a condition that
+    /// was neither the one it had nor the one the slider asked for.</summary>
+    [Fact]
+    public void A_transfer_ignores_the_wear_slider()
+    {
+        var (cat, doc) = WornPair();
+        var sourceCos = new Dictionary<string, JsonNode>
+        {
+            ["src-a"] = SourceCo("src-a", 40),
+            ["src-b"] = SourceCo("src-b", 10),
+        };
+
+        var (ship, _) = SaveGrant.BuildShip(doc, cat, NoSpecs, "H-1234", Anchor(),
+            new GrantOptions("Test Design", null, new WearOptions(true, 0.5, Seed: 7), 1234, sourceCos), epoch: 0);
+
+        Assert.Equal([10.0, 40.0], Damages(ship, "Bench").Order());
+    }
+
+    /// <summary>A part added after the import was never on the source ship, so it has nothing to inherit and
+    /// arrives undamaged rather than picking up a neighbour's wear.</summary>
+    [Fact]
+    public void A_part_added_since_the_import_transfers_undamaged()
+    {
+        var cat = new Fixtures()
+            .Floor()
+            .Part("Bench", tileConds: ["IsFixture", "IsObstruction"], startingConds: ["IsInstalled"],
+                condValues: new Dictionary<string, double> { ["StatDamageMax"] = 100 })
+            .Build();
+        var doc = Fixtures.Doc(cat,
+            new Placement { DefName = "Floor", X = 0, Y = 0 },
+            new Placement { DefName = "Bench", X = 1, Y = 0, OriginStrID = "src-a" },
+            new Placement { DefName = "Bench", X = 2, Y = 0 });   // drawn in after the import
+
+        var (ship, _) = SaveGrant.BuildShip(doc, cat, NoSpecs, "H-1234", Anchor(),
+            new GrantOptions("Test Design", null, WearOptions.Pristine, 1234,
+                new Dictionary<string, JsonNode> { ["src-a"] = SourceCo("src-a", 40) }), epoch: 0);
+
+        Assert.Equal([0.0, 40.0], Damages(ship, "Bench").Order());
+    }
+
+    /// <summary>An undamaged source part carries no <c>StatDamage</c> cond at all, and must arrive that way rather
+    /// than with a zero-damage cond (which would also strip its <c>IsPristine</c> resale flag).</summary>
+    [Fact]
+    public void An_undamaged_source_part_stays_pristine()
+    {
+        var (cat, doc) = WornPair();
+        var sourceCos = new Dictionary<string, JsonNode>
+        {
+            ["src-a"] = new JsonObject { ["strID"] = "src-a", ["aConds"] = new JsonArray("IsPristine=1.0x1") },
+            ["src-b"] = new JsonObject { ["strID"] = "src-b", ["aConds"] = new JsonArray("IsPristine=1.0x1") },
+        };
+
+        var (ship, report) = SaveGrant.BuildShip(doc, cat, NoSpecs, "H-1234", Anchor(),
+            new GrantOptions("Test Design", null, WearOptions.Pristine, 1234, sourceCos), epoch: 0);
+
+        Assert.DoesNotContain(Cos(ship), c => (c["aConds"] as JsonArray)!
+            .Any(v => ((string?)v)?.StartsWith("StatDamage=", StringComparison.Ordinal) == true));
+        Assert.Equal("A", report.Rating.Condition);
+    }
+
     // ---- placement ----
 
     [Theory]

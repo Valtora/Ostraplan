@@ -64,12 +64,19 @@ public sealed class ModPlan
     public bool RegisterWithOstrasort { get; set; }
 }
 
-/// <summary>The new-ship-in-a-save destination's settings: which save, and what to charge.</summary>
+/// <summary>The new-ship-in-a-save destination's settings: which save, what to charge, and whether the ship keeps
+/// the condition it really has.</summary>
 public sealed class NewShipPlan
 {
     public string? SaveName { get; set; }
     public bool Charge { get; set; }
     public double Price { get; set; }
+
+    /// <summary>Carry each part's real damage across from the save the design was imported from, instead of rolling
+    /// fresh wear. Defaults on: a design that came from a save is almost always being moved rather than minted, and
+    /// a transfer that quietly re-rolled the ship's condition would be wrong in a way nobody would think to check.
+    /// Ignored, and never written back, when the run has no source ship to read a condition from.</summary>
+    public bool KeepSourceCondition { get; set; } = true;
 }
 
 /// <summary>The update-a-ship destination's settings: where to write, and what the edit costs.</summary>

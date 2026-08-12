@@ -16,7 +16,7 @@ namespace Ostraplan.App.Wizard;
 public sealed class SavePriceStep : WizardStep
 {
     private readonly ComboBox _picker;
-    private readonly TextBlock _status, _balance, _problem;
+    private readonly TextBlock _intro, _status, _balance, _problem;
     private readonly CheckBox _charge;
     private readonly TextBox _price;
 
@@ -33,9 +33,7 @@ public sealed class SavePriceStep : WizardStep
     {
         var body = Body();
 
-        Note(body,
-            "Adds this design to a copy of the save as a new ship you own, parked a few kilometres away and " +
-            "reachable by P.A.S.S. ferry. The original save is never modified.");
+        _intro = Note(body, AddNote);
 
         Header(body, "SAVE GAME");
         _picker = Add(body, new ComboBox { DisplayMemberPath = nameof(SaveEntry.Name), MaxDropDownHeight = 240 });
@@ -73,10 +71,21 @@ public sealed class SavePriceStep : WizardStep
         Content = body;
     }
 
+    private const string AddNote =
+        "Adds this design to a copy of the save as a new ship you own, parked a few kilometres away and " +
+        "reachable by P.A.S.S. ferry. The original save is never modified.";
+
     public override void Enter(WizardSession session)
     {
         _session = session;
         var plan = session.Plan.NewShip;
+
+        // Name the save the design came from when there is one. On a transfer this is the whole question the step
+        // is asking — which save it goes to, as against the one it came out of — and the two are easy to confuse
+        // in a list of similarly-named autosaves.
+        _intro.Text = session.SourceSave is { } src
+            ? $"This ship was read out of \"{src.SaveName}\". Pick the save to add it to. {AddNote}"
+            : AddNote;
 
         _syncing = true;   // assigning SelectedItem raises SelectionChanged, which would re-read the save
         try

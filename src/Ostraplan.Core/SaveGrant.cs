@@ -39,9 +39,15 @@ public sealed record GrantAnchor(
 
 /// <summary>What the user chose for a grant. <see cref="DesignName"/> is only a fallback for the in-game display
 /// name; a granted ship's <c>strName</c> is its RegID, the way the game writes a save's own ships.
-/// <see cref="PlacementSeed"/> pins the spawn draw for a reproducible result (tests); null draws freely.</summary>
+/// <see cref="PlacementSeed"/> pins the spawn draw for a reproducible result (tests); null draws freely.
+///
+/// <para><see cref="SourceCos"/> turns the grant into a <b>transfer</b>: the condition owners of the ship this
+/// design was imported from, keyed by save item <c>strID</c>. Supplied, each part arrives with the damage it
+/// really had rather than a fresh roll, and <see cref="Wear"/> is not applied — a ship moved between saves should
+/// be the ship, not a re-rolled copy of it. Null for an ordinary grant of a design that came from nowhere.</para></summary>
 public sealed record GrantOptions(
-    string DesignName, ExportMetadata? Meta = null, WearOptions? Wear = null, int? PlacementSeed = null);
+    string DesignName, ExportMetadata? Meta = null, WearOptions? Wear = null, int? PlacementSeed = null,
+    IReadOnlyDictionary<string, JsonNode>? SourceCos = null);
 
 /// <summary>What a grant produced: the minted identity, the size of the ship, its baked rating, and how far off
 /// the anchor it landed (in km, which is the figure worth showing the user — it is the walk home).</summary>
@@ -242,8 +248,10 @@ public static class SaveGrant
         var publicName = ShipExport.ResolvePublicName(opts.Meta?.PublicName, opts.DesignName, isReplace: false);
         var meta = (opts.Meta ?? new ExportMetadata()) with { PublicName = publicName };
 
+        // Only a transfer needs the id map back; an ordinary grant has nothing to trace a part to.
+        var itemIdByPlacementId = opts.SourceCos is null ? null : new Dictionary<string, string>(StringComparer.Ordinal);
         var (exported, rating, roomCount) = ShipExport.Build(
-            doc, catalog, specs, regId, warnings, meta, wear: null);
+            doc, catalog, specs, regId, warnings, meta, wear: null, itemIdByPlacementId);
 
         var ship = ShipExport.ToJsonObject(exported);
 
@@ -285,7 +293,9 @@ public static class SaveGrant
             MergeGpm(obj, catalog, defName);
         }
 
-        var wornGrade = ApplyWear(opts.Wear, synthesized);
+        var wornGrade = opts.SourceCos is { } sourceCos
+            ? CarryCondition(doc, sourceCos, itemIdByPlacementId!, synthesized)
+            : ApplyWear(opts.Wear, synthesized);
         if (ship["aRating"] is JsonArray ratingArr && ratingArr.Count > 1)
         {
             if (wornGrade is not null) ratingArr[1] = wornGrade;
@@ -416,6 +426,57 @@ public static class SaveGrant
             rates.Add(dmg / damageMax);
         }
         return WearModel.GradeFor(rates);
+    }
+
+    /// <summary>
+    /// Carry each part's real <c>StatDamage</c> across from the ship this design was imported from, and return the
+    /// resulting Ship-Rating Condition grade — the transfer counterpart of <see cref="ApplyWear"/>.
+    ///
+    /// <para>Every item in a granted ship is minted fresh, so the route back to a source part is
+    /// design placement → its <see cref="Placement.OriginStrID"/>. A part the user added after the import has no
+    /// origin and stays pristine, which is right: it was never on the source ship to be worn.</para>
+    ///
+    /// <para>The denominator matches the game's (<c>Ship.CalculateRating</c> means over <b>every</b> installed
+    /// part), so an undamageable or system part still contributes a 0 rate rather than being left out and
+    /// flattering the grade.</para>
+    /// </summary>
+    private static string? CarryCondition(
+        ShipDocument doc, IReadOnlyDictionary<string, JsonNode> sourceCos,
+        IReadOnlyDictionary<string, string> itemIdByPlacementId,
+        IReadOnlyList<(JsonObject Co, PartDef Part)> parts)
+    {
+        // new item strID -> the save item it came from
+        var originByItemId = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var p in doc.Placements)
+            if (p.OriginStrID is { } origin && itemIdByPlacementId.TryGetValue(p.Id.ToString(), out var itemId))
+                originByItemId[itemId] = origin;
+
+        var rates = new List<double>();
+        foreach (var (co, part) in parts)
+        {
+            if (!part.StartingConds.Contains("IsInstalled")) continue;   // cargo and loose kit are not "the ship's condition"
+            var damageMax = part.StartingCondValues.GetValueOrDefault("StatDamageMax");
+            if (part.StartingConds.Contains("IsSystem") || damageMax <= 0) { rates.Add(0.0); continue; }
+
+            var damage = Str(co, "strID") is { } id && originByItemId.TryGetValue(id, out var origin)
+                         && sourceCos.TryGetValue(origin, out var src)
+                ? Math.Clamp(StatDamage(src), 0, damageMax)
+                : 0.0;   // added since the import, so it really is a new part
+            SaveEdit.SetStatDamage(co, damage);
+            rates.Add(damage / damageMax);
+        }
+        return WearModel.GradeFor(rates);
+    }
+
+    /// <summary>A condition owner's accumulated <c>StatDamage</c>, or 0 when it carries none (an undamaged part
+    /// has no such cond at all rather than one reading zero).</summary>
+    private static double StatDamage(JsonNode co)
+    {
+        foreach (var c in (co as JsonObject)?["aConds"] as JsonArray ?? [])
+            if (c is JsonValue v && v.TryGetValue<string>(out var s)
+                && s.StartsWith("StatDamage=", StringComparison.Ordinal))
+                return LootDef.CondAmount(s);
+        return 0.0;
     }
 
     /// <summary>The invariants a save load enforces, checked before anything reaches a file. Throws to abort the
