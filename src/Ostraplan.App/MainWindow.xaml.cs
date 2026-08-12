@@ -83,7 +83,7 @@ public partial class MainWindow : Window
         Board.Disarmed += ClearPaletteSelection;
         Board.ContextMenuRequested += OnContextMenuRequested;
         Board.BrushPicked += OnArmFromTile;   // Alt+LMB eyedropper
-        Board.ArmedChanged += UpdateBrushText;
+        Board.ArmedChanged += () => { UpdateBrushText(); UpdateSurfaceBar(); };   // slot A is whatever is in hand, however it got there
         Board.LooseContextMenuRequested += OnLooseContextMenuRequested;
         Board.BandFilterRequested += OnBandFilterRequested;
         Board.GhostReasonChanged += status => TxtGhost.Text =
@@ -93,6 +93,11 @@ public partial class MainWindow : Window
         Board.AirSelectionChanged += n => TxtGhost.Text = n > 0 ? AirHint(n) : "";
         // restore the "allow modded parts to break the law" toggle (default off)
         Board.AllowModdedOverrides = _settings.AllowModdedOverrides;
+        // Surfaces mode's persisted preferences. All three are visible in the Surfaces bar whenever the mode is on,
+        // so a remembered choice explains itself rather than turning up as a brush that mysteriously won't paint.
+        Board.SurfaceGhostOpacity = _settings.SurfaceGhostOpacity;
+        if (Enum.TryParse<SurfacePaintMode>(_settings.SurfacePaintMode, out var paintMode)) Board.SetPaintMode(paintMode);
+        if (Enum.TryParse<SurfaceFocus>(_settings.SurfaceFocus, out var focus)) Board.SetLayerFocus(focus);
         Board.ZoneStrokeCommitted += OnZoneStrokeCommitted;
         Board.ShowZonesChanged += OnShowZonesChanged;   // refresh the toolbar toggle highlight
         Board.ShowPowerChanged += OnShowPowerChanged;   // (re)compute the overlay off-thread when toggled on
@@ -100,6 +105,7 @@ public partial class MainWindow : Window
         Board.ShowLightChanged += OnShowLightChanged;   // same for the interior-lighting flood
         Board.ShowWalkChanged += OnShowWalkChanged;     // same for the crew-access analysis
         Board.WireModeChanged += OnWireModeChanged;     // swap the status hint for the wiring instructions
+        Board.SurfaceModeChanged += OnSurfaceModeChanged;   // show/hide the Surfaces bar and swap the status hint
         SyncViewToggles();                              // seed the toolbar highlights from the initial overlay state
         Board.LinkToggleRequested += OnLinkToggleRequested;   // connect/disconnect two devices via the command stack
         Board.ActiveZoneChanged += UpdateZones;   // reflect which zone (if any) is being painted
@@ -462,6 +468,23 @@ public partial class MainWindow : Window
     private void OnPaletteSelection(object sender, SelectionChangedEventArgs e)
     {
         if (_syncingPalette || sender is not ListBox { SelectedItem: PartVM vm } origin) return;
+
+        // Surfaces mode with slot B armed: this pick is the pattern's second brush, not a new brush in hand. It has
+        // to match what is already armed — same 1×1 wall/floor class — or there is no pattern to make of the pair,
+        // in which case the pick falls through and arms normally rather than being swallowed.
+        if (_slotBArmed && Board.SurfaceMode && _catalog is not null)
+        {
+            _slotBArmed = false;
+            if (SurfacePaint.IsSurfaceBrush(_catalog, vm.Part) && Board.ArmedPart is { } primary
+                && _catalog.RenderLayer(primary) == _catalog.RenderLayer(vm.Part))
+            {
+                Board.SetPatternB(vm.Part);
+                SyncPaletteHighlightToArmed();   // the highlight belongs to what is in hand, which hasn't changed
+                UpdateSurfaceBar();
+                Board.Focus();
+                return;
+            }
+        }
 
         _syncingPalette = true;
         foreach (var list in _paletteLists.Where(l => !ReferenceEquals(l, origin)))
@@ -1478,10 +1501,175 @@ public partial class MainWindow : Window
     private void OnWireModeChanged()
     {
         SyncViewToggles();
+        UpdateModeHint();
+    }
+
+    /// <summary>The status-bar hint belongs to whichever editing mode is on, so both modes route through here rather
+    /// than each writing the bar and the later toggle winning. Wire mode takes precedence: its clicks intercept
+    /// everything, Surfaces mode only changes what a click lands on.</summary>
+    private void UpdateModeHint()
+    {
         _defaultHint ??= TxtHint.Text;
-        TxtHint.Text = Board.WireMode
-            ? "WIRE MODE · click a device, then another to connect · click a connected one to disconnect · right-click/Esc to cancel"
+        TxtHint.Text =
+            Board.WireMode ? "WIRE MODE · click a device, then another to connect · click a connected one to disconnect · right-click/Esc to cancel"
+            : Board.SurfaceMode ? "SURFACES · drag to paint a wall/floor skin over the deck · Shift+drag boxes an area · Ctrl at release = outline only · double-click a tile to flood-select its run"
             : _defaultHint;
+    }
+
+    // ---- Surfaces mode (paint the deck) ----
+
+    /// <summary>True while the next palette pick fills the pattern's second brush instead of arming the main one.
+    /// Cleared by that pick, by clicking slot A, and by leaving the mode — it is a one-shot, so an accidental slot
+    /// click never leaves the palette quietly wired to the wrong place.</summary>
+    private bool _slotBArmed;
+
+    private void OnSurfaceModeChanged()
+    {
+        SyncViewToggles();
+        UpdateModeHint();
+        if (!Board.SurfaceMode) _slotBArmed = false;
+        UpdateSurfaceBar();
+    }
+
+    private void OnSurfaceToggleClick(object sender, RoutedEventArgs e) => Board.ToggleSurfaceMode();
+
+    /// <summary>Choose which brush slot the next palette pick fills. Slot A is the armed brush itself, so clicking
+    /// it just cancels a pending B pick.</summary>
+    private void OnSurfaceSlotClick(object sender, RoutedEventArgs e)
+    {
+        _slotBArmed = ReferenceEquals(sender, SlotB);
+        UpdateSurfaceBar();
+    }
+
+    private void OnClearSlotBClick(object sender, RoutedEventArgs e)
+    {
+        Board.SetPatternB(null);
+        Board.SetPattern(SurfacePattern.Solid);   // nothing left to alternate with
+        _slotBArmed = false;
+        UpdateSurfaceBar();
+    }
+
+    private void OnSurfacePatternClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is ToggleButton { Tag: string tag } && Enum.TryParse<SurfacePattern>(tag, out var pattern))
+            Board.SetPattern(pattern);
+        UpdateSurfaceBar();
+    }
+
+    private void OnSurfaceModeButtonClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is ToggleButton { Tag: string tag } && Enum.TryParse<SurfacePaintMode>(tag, out var mode))
+        {
+            Board.SetPaintMode(mode);
+            _settings.SurfacePaintMode = mode.ToString();
+            _settings.Save();
+        }
+        UpdateSurfaceBar();
+    }
+
+    private void OnSurfaceFocusClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is ToggleButton { Tag: string tag } && Enum.TryParse<SurfaceFocus>(tag, out var focus))
+        {
+            Board.SetLayerFocus(focus);
+            _settings.SurfaceFocus = focus.ToString();
+            _settings.Save();
+        }
+        UpdateSurfaceBar();
+    }
+
+    /// <summary>The palette thumbnail already built for a part, or null when it has no palette row.</summary>
+    private ImageSource? ThumbFor(PartDef? part) =>
+        part is null ? null : _allParts.FirstOrDefault(v => v.Part.DefName == part.DefName)?.Thumb;
+
+    /// <summary>
+    /// Redraw the Surfaces bar from the live state: the two brushes, which slot the next pick fills, the pattern,
+    /// and the one line of guidance for whatever is missing. The pattern buttons need a usable pair — two 1×1 skins
+    /// of the <b>same</b> layer — because a checkerboard of a wall and a floor is not a pattern, it is two different
+    /// edits (the canvas ignores a mismatched pair and paints plain, so this only has to explain it).
+    /// </summary>
+    private void UpdateSurfaceBar()
+    {
+        SurfaceBar.Visibility = Board.SurfaceMode ? Visibility.Visible : Visibility.Collapsed;
+        if (!Board.SurfaceMode || _catalog is null) return;
+
+        var a = SurfacePaint.IsSurfaceBrush(_catalog, Board.ArmedPart) ? Board.ArmedPart : null;
+        var b = Board.PatternB;
+        var pairOk = a is not null && b is not null && _catalog.RenderLayer(a) == _catalog.RenderLayer(b);
+
+        SlotA.IsChecked = !_slotBArmed;
+        SlotB.IsChecked = _slotBArmed;
+        TxtSlotA.Text = "A: " + (a?.Friendly ?? "none");
+        TxtSlotB.Text = "B: " + (b?.Friendly ?? "none");
+        ImgSlotA.Source = ThumbFor(a);
+        ImgSlotB.Source = ThumbFor(b);
+        BtnClearSlotB.IsEnabled = b is not null;
+
+        PatChecker.IsEnabled = PatRows.IsEnabled = PatCols.IsEnabled = pairOk;
+        PatSolid.IsChecked = Board.Pattern == SurfacePattern.Solid;
+        PatChecker.IsChecked = Board.Pattern == SurfacePattern.Checker;
+        PatRows.IsChecked = Board.Pattern == SurfacePattern.StripesH;
+        PatCols.IsChecked = Board.Pattern == SurfacePattern.StripesV;
+
+        FocusBoth.IsChecked = Board.LayerFocus == SurfaceFocus.Both;
+        FocusFloors.IsChecked = Board.LayerFocus == SurfaceFocus.Floors;
+        FocusWalls.IsChecked = Board.LayerFocus == SurfaceFocus.Walls;
+        ModeReplace.IsChecked = Board.PaintMode == SurfacePaintMode.Replace;
+        ModeBoth.IsChecked = Board.PaintMode == SurfacePaintMode.ReplaceAndFill;
+        ModeFill.IsChecked = Board.PaintMode == SurfacePaintMode.Fill;
+
+        // The line answers whatever is most in the way, in the order it would actually block you: no brush, then a
+        // half-set pattern, then the mode you are painting in (which is the one that explains a stroke doing
+        // nothing at all).
+        TxtSurfaceNote.Text =
+            a is null ? "Arm a wall or floor from the palette to paint with. Other parts still place as usual."
+            : _slotBArmed ? $"Now pick the second {LayerWord(a)} from the palette."
+            : !pairOk && b is not null ? "A and B are different layers — pick a matching pair to pattern with."
+            : Board.PaintMode == SurfacePaintMode.Replace
+                ? $"Re-skinning {LayerWord(a)}s only — bare tiles are left alone. Switch to Both or Fill to lay new ones."
+            : Board.PaintMode == SurfacePaintMode.Fill
+                ? $"Laying new {LayerWord(a)}s on bare tiles only — what is already there is left alone."
+            : $"Re-skinning {LayerWord(a)}s and laying new ones on bare tiles.";
+    }
+
+    /// <summary>"wall" or "floor", for the Surfaces bar's guidance line.</summary>
+    private string LayerWord(PartDef part) =>
+        _catalog is not null && _catalog.RenderLayer(part) == Catalog.LayerWall ? "wall" : "floor";
+
+    /// <summary>Put the palette highlight back on the armed brush without re-arming anything — used after a pick
+    /// that filled slot B, which must not disturb what is in hand.</summary>
+    private void SyncPaletteHighlightToArmed()
+    {
+        _syncingPalette = true;
+        var claimed = false;
+        foreach (var list in _paletteLists)
+        {
+            var match = claimed || Board.ArmedPart is not { } armed
+                ? null
+                : list.Items.OfType<PartVM>().FirstOrDefault(v => v.Part.DefName == armed.DefName);
+            list.SelectedItem = match;
+            claimed |= match is not null;
+        }
+        _syncingPalette = false;
+    }
+
+    /// <summary>Persist and apply how far Surfaces mode ghosts the non-deck layers (View ▸ Surfaces).</summary>
+    private void SetSurfaceGhostPercent(double percent)
+    {
+        var opacity = Math.Clamp(percent / 100.0, 0, 1);
+        Board.SurfaceGhostOpacity = opacity;
+        _settings.SurfaceGhostOpacity = opacity;
+        _settings.Save();
+    }
+
+    /// <summary>The Surfaces submenu: how visible the ghosted layers stay while painting the deck. Persisted, because
+    /// how much of the clutter you want as a landmark is a matter of taste and of what you are painting.</summary>
+    private MenuItem SurfaceOptionsItem()
+    {
+        var menu = new MenuItem { Header = "Surfaces" };
+        menu.Items.Add(MenuSliderRow("Other layers", 0, 100, _settings.SurfaceGhostOpacity * 100, "0",
+            SetSurfaceGhostPercent, suffix: "% visible"));
+        return menu;
     }
 
     /// <summary>Connect two devices, or disconnect them if the directed link already exists — one undo step. The
@@ -2377,6 +2565,10 @@ public partial class MainWindow : Window
                 Board.ToggleLight();
                 e.Handled = true;
                 break;
+            case Key.T when !ctrl && !e.IsRepeat:   // Surfaces mode: paint the deck (T for tiles)
+                Board.ToggleSurfaceMode();
+                e.Handled = true;
+                break;
             case Key.K when !ctrl && !e.IsRepeat:   // WalKViz crew access (W is the pan key)
                 Board.ToggleWalk();
                 e.Handled = true;
@@ -2899,6 +3091,7 @@ public partial class MainWindow : Window
         m.Items.Add(new Separator());
         m.Items.Add(LightDimmingItem());
         m.Items.Add(WalkOptionsItem());
+        m.Items.Add(SurfaceOptionsItem());
         OpenMenuUnder(m, BtnViewMenu);
     }
 
@@ -2923,6 +3116,7 @@ public partial class MainWindow : Window
         BtnLight.IsChecked = Board.ShowLight;
         BtnWalk.IsChecked = Board.ShowWalk;
         BtnWire.IsChecked = Board.WireMode;
+        BtnSurface.IsChecked = Board.SurfaceMode;
     }
 
     /// <summary>Pick a save and import the player's ship from it — layout only, behind an explicit confirmation.</summary>
@@ -3730,6 +3924,7 @@ public partial class MainWindow : Window
             ("Rooms overlay", "C", "Show/hide RoomViz: every compartment the game would flood-fill, tinted in its own colour and labelled with what it certifies as, its size and its value. A room that certifies as nothing says why — what to add, and which item in it blocks the spec (a canister parked in a quarters, say). Unsealed compartments are red. The exterior isn't tinted, so a room open to space simply loses its tint."),
             ("Light overlay", "L", "Show/hide Light Viz: interior lighting simulated from every fixture and lit device. Each light floods its compartment (bounded by walls) in its own colour, so dark corners and colour clashes show at a glance. The View menu's Light Viz sliders set the light brightness and how far unlit areas darken (from a glow over the full-bright ship up to the in-game dark look)."),
             ("Walk overlay", "K", "Show/hide WalkViz: every tile crew can stand on, tinted by which connected zone it belongs to — two tiles sharing a colour are reachable from each other on foot, two colours mean no route. Fittings nobody can operate are ringed in red at the spot they'd have to stand, and a doorway with vacuum on one side is dashed amber (crossable, but only in a suit). Note a closed door only seals if it is unpowered, locked or damaged; a powered one crew simply open. The View menu can count spacewalks and choose whether Forbid zones apply."),
+            ("Surfaces mode", "T", "Treat the deck as a canvas: everything outside the focused layer is ghosted and steps out of the way of clicks, so the floor under a bed is one click away, and a 1×1 wall/floor brush re-skins whatever is already on a tile instead of refusing to land on it. Paint, box-fill (Shift+drag), outline (Ctrl at release) and the compartment fill on a bare room all work as they always did — they just re-skin whatever they land on now. In the Surfaces bar: a second brush and a checkerboard or stripe pattern; SHOW picks the focused layer (Both / Floors / Walls — Floors ghosts the walls too, which is how you reach the floors under them); PAINT picks what a stroke may do (Replace only, the default, so a stroke never spills new deck past a room's edge; Both; or Fill only). View ▸ Surfaces sets how visible the ghosted layers stay. Light Viz switches off while it is on, because a lit composite has no layers left to ghost."),
             ("Wire mode", "Toolbar toggle", "Wire signalable devices: click a device to arm it as the signal source, then click another to connect (or a connected one to disconnect). Connectable devices ring violet, wires draw source→target. Esc / right-click cancels."),
             ("Delete", "Del", "Delete the selection."),
             ("Select all", "Ctrl+A", "Select every part in the design."),

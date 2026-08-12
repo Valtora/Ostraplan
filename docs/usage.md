@@ -150,6 +150,9 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
 - **Use as brush (eyedropper):** **Alt+click** a part to arm it, at its own rotation,
   and keep painting it. **Replace with…:** **Ctrl+R** swaps the selection for a
   compatible part.
+- **Paint over the deck:** **Surfaces** mode (**T**) lets a wall/floor brush re-skin the
+  tile it lands on rather than refusing it, and ghosts everything else out of the way.
+  See [Surfaces mode](#surfaces-mode--painting-the-deck).
 - **Move:** drag a selection. **Rotate a selection/group:** **R** / **Shift+R**.
 - **Flip a selection:** **H** mirrors it left↔right (horizontal), **Shift+H** up↔down
   (vertical), about the selection's centre. Each part reflects its position and snaps
@@ -278,7 +281,8 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
 - **Ship Re-skin…** (Design): swap every wall and/or floor to a different cooverlay
   skin, ship-wide, in one undo step. Sprites and names only — rooms, airtightness
   and rating are untouched. (Named "Re-skin" so it isn't confused with the app's
-  light/dark theme.)
+  light/dark theme.) To re-skin an *area* rather than the whole ship, see
+  [Surfaces mode](#surfaces-mode--painting-the-deck).
 
 ## Saving & sharing
 
@@ -691,6 +695,86 @@ container under the cursor if one accepts it. Right-click a placed loose item fo
 **Change Quantity** (stackable items, up to the item's stack limit) and **Delete**.
 Loose cargo carries no structure, so it takes no part in the Law; it just renders and
 travels with the ship through **Export** and save write-back.
+
+## Surfaces mode — painting the deck
+
+**Surfaces** (toolbar, or **T**) treats the walls and floors as a canvas you paint on,
+for the detail work a ship-wide re-skin can't express: checkerboard tiling in a
+bathroom, caution markings around a reactor or a door, an armoured run of wall along
+one flank. It changes two things while it is on, and nothing at all while it is off.
+
+- **Everything outside the focused layer is ghosted**, and steps out of the way of
+  clicks. The floor under a bed is one click away instead of a trip through the
+  right-click layer picker, and a box-select over the deck catches deck. Ghosted parts
+  are still *there* — they just stop being the subject. **SHOW** in the Surfaces bar
+  picks the focus (**Both**, **Floors**, **Walls**; see
+  [floors under walls](#floors-under-walls)), and **View ▸ Surfaces** sets how visible
+  the ghosted layers stay (15% by default; drop it to 0 to hide them outright).
+- **A 1×1 wall or floor brush re-skins what is already on the tile** instead of being
+  refused for landing on it.
+
+Every gesture you already know works, and now re-skins rather than refusing: **drag**
+to paint a run, **Shift+drag** to box an area, **Ctrl at release** for the outline
+only (which is how you get a border of caution floor around a compartment, or a line
+of armoured wall). **Alt+click** picks a skin off the ship to paint with, and
+**double-click** flood-selects a whole connected run of one skin if you would rather
+select it and use **Replace with…**.
+
+### What a stroke may do — Replace, Both, Fill
+
+**PAINT** in the Surfaces bar decides what a stroke does to each tile, and it is
+remembered between sessions.
+
+- **Replace** (the default) only re-skins what is already there. Bare tiles are left
+  bare, so a box or a checkerboard dragged across a room never spills new deck past
+  its irregular edges. This is the skinning tool.
+- **Both** re-skins where there is something and lays a new part where there isn't —
+  one brush for everything, spills included.
+- **Fill** only lays on bare tiles and never changes what is there.
+
+The armed ghost tells you which way a tile will go before you click: green where the
+stroke would land, red with the reason where the current mode declines it.
+
+### Floors under walls
+
+The game allows a floor and a wall on the same tile, in either build order, and the
+ships it ships do it almost everywhere (the core 02 hull floors 335 of its 410 wall
+tiles). Those floors matter even with the wall standing, because a floor's autotiling
+reads its neighbours: whether the floor continues under a wall changes how the visible
+floor beside it draws its edge. They also show during construction and wherever a wall
+is later lost.
+
+Ostraplan paints them like any other floor. On a wall tile with a floor beneath,
+**Replace** re-skins that floor and leaves the wall alone; on a wall tile with no floor,
+**Fill** or **Both** lays one under the wall. The one exception is flex flooring
+(cargo webbing and the like), whose own socket mask forbids walls — the ghost refuses
+it, because the game would.
+
+To *see* and click what you are doing there, set **SHOW** to **Floors**, which ghosts
+the wall layer along with everything else and puts the floor under the cursor within
+reach. **Walls** does the reverse for reading a wall run against a dimmed deck, and
+**Both** is the default.
+
+Only 1×1 wall and floor skins paint. A stroke therefore runs straight past anything of
+a different shape — a wide door keeps its own def while the wall either side of it
+changes — and the primary airlock is never touched. Re-skinning changes sprites and
+names only: rooms, airtightness, certification and the Ship Rating are unaffected,
+exactly as with the ship-wide re-skin.
+
+### Two-tone patterns
+
+The **Surfaces bar** (top-left of the canvas, while the mode is on) holds two brushes.
+**A** is whatever is armed from the palette. To set **B**, click the B slot and then
+pick a second skin of the same kind from the palette. With both set, choose
+**Checker**, **Rows** or **Columns** and every stroke alternates between them.
+
+The pattern is keyed to the ship's own tile grid rather than to where a stroke starts,
+so two passes over neighbouring tiles continue one checkerboard instead of each
+restarting it — and painting under active symmetry produces one continuous pattern
+rather than a seam down the axis.
+
+Light Viz switches off when Surfaces mode comes on: the lit view composites the whole
+ship into one image, so there are no layers left in it to ghost.
 
 ## Theming
 

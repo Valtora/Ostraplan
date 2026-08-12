@@ -124,6 +124,8 @@
                             ToolTip="Walk overlay (K): show which tiles crew can reach, and which fittings they can operate"/>
                     <ToggleButton x:Name="BtnWire" Content="Wire" Style="{StaticResource OverlayToggle}" Click="OnWireToggleClick"
                             ToolTip="Wire mode: show the signal wiring, and click a device then another to connect them"/>
+                    <ToggleButton x:Name="BtnSurface" Content="Surfaces" Style="{StaticResource OverlayToggle}" Click="OnSurfaceToggleClick"
+                            ToolTip="Surfaces mode (T): ghost everything but walls and floors, and paint skins straight onto the deck"/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 
@@ -234,6 +236,72 @@
 
         <Grid>
             <local:ShipCanvas x:Name="Board"/>
+
+            <!-- The Surfaces bar: the two brushes a pattern alternates between, and the pattern itself. Shown only
+                 while Surfaces mode is on (MainWindow.UpdateSurfaceBar drives every part of it). Slot A is the armed
+                 palette brush; slot B is picked by arming the slot, then clicking a palette part. -->
+            <Border x:Name="SurfaceBar" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Top"
+                    Margin="14,10,0,0" Padding="10,8" CornerRadius="6"
+                    Background="{DynamicResource PanelBg}" BorderBrush="{DynamicResource PanelBorder}" BorderThickness="1">
+                <StackPanel>
+                    <TextBlock Text="SURFACES" Foreground="{DynamicResource Dim}" FontSize="11" FontWeight="Bold"/>
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <ToggleButton x:Name="SlotA" Padding="6,3" Margin="0,0,4,0" Click="OnSurfaceSlotClick"
+                                      ToolTip="The main brush — arm it from the palette">
+                            <StackPanel Orientation="Horizontal">
+                                <Image x:Name="ImgSlotA" Width="22" Height="22" Stretch="Uniform" Margin="0,0,6,0"
+                                       RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                                <TextBlock x:Name="TxtSlotA" Text="A: none" VerticalAlignment="Center" MaxWidth="150"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </ToggleButton>
+                        <ToggleButton x:Name="SlotB" Padding="6,3" Margin="0,0,4,0" Click="OnSurfaceSlotClick"
+                                      ToolTip="The second brush of a pattern — click this, then pick a matching wall or floor from the palette">
+                            <StackPanel Orientation="Horizontal">
+                                <Image x:Name="ImgSlotB" Width="22" Height="22" Stretch="Uniform" Margin="0,0,6,0"
+                                       RenderOptions.BitmapScalingMode="NearestNeighbor"/>
+                                <TextBlock x:Name="TxtSlotB" Text="B: none" VerticalAlignment="Center" MaxWidth="150"
+                                           TextTrimming="CharacterEllipsis"/>
+                            </StackPanel>
+                        </ToggleButton>
+                        <Button x:Name="BtnClearSlotB" Content="✕" Padding="7,3" Click="OnClearSlotBClick"
+                                ToolTip="Clear the second brush"/>
+                    </StackPanel>
+                    <StackPanel x:Name="PatternRow" Orientation="Horizontal" Margin="0,6,0,0">
+                        <ToggleButton x:Name="PatSolid" Content="Solid" Tag="Solid" Padding="9,3" Margin="0,0,4,0"
+                                      Click="OnSurfacePatternClick" ToolTip="One brush on every tile"/>
+                        <ToggleButton x:Name="PatChecker" Content="Checker" Tag="Checker" Padding="9,3" Margin="0,0,4,0"
+                                      Click="OnSurfacePatternClick" ToolTip="Alternate the two brushes like a chequerboard"/>
+                        <ToggleButton x:Name="PatRows" Content="Rows" Tag="StripesH" Padding="9,3" Margin="0,0,4,0"
+                                      Click="OnSurfacePatternClick" ToolTip="Alternate the two brushes row by row"/>
+                        <ToggleButton x:Name="PatCols" Content="Columns" Tag="StripesV" Padding="9,3"
+                                      Click="OnSurfacePatternClick" ToolTip="Alternate the two brushes column by column"/>
+                    </StackPanel>
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <TextBlock Text="SHOW" Foreground="{DynamicResource Dim}" FontSize="10" FontWeight="Bold"
+                                   VerticalAlignment="Center" Margin="0,0,5,0"/>
+                        <ToggleButton x:Name="FocusBoth" Content="Both" Tag="Both" Padding="8,3" Margin="0,0,3,0"
+                                      Click="OnSurfaceFocusClick" ToolTip="Walls and floors both bright"/>
+                        <ToggleButton x:Name="FocusFloors" Content="Floors" Tag="Floors" Padding="8,3" Margin="0,0,3,0"
+                                      Click="OnSurfaceFocusClick"
+                                      ToolTip="Ghost the walls too, so the floors under them can be seen and clicked"/>
+                        <ToggleButton x:Name="FocusWalls" Content="Walls" Tag="Walls" Padding="8,3" Margin="0,0,12,0"
+                                      Click="OnSurfaceFocusClick" ToolTip="Ghost the floors, so a wall run reads on its own"/>
+                        <TextBlock Text="PAINT" Foreground="{DynamicResource Dim}" FontSize="10" FontWeight="Bold"
+                                   VerticalAlignment="Center" Margin="0,0,5,0"/>
+                        <ToggleButton x:Name="ModeReplace" Content="Replace" Tag="Replace" Padding="8,3" Margin="0,0,3,0"
+                                      Click="OnSurfaceModeButtonClick"
+                                      ToolTip="Only re-skin what is already there — a stroke past the edge of a room adds nothing"/>
+                        <ToggleButton x:Name="ModeBoth" Content="Both" Tag="ReplaceAndFill" Padding="8,3" Margin="0,0,3,0"
+                                      Click="OnSurfaceModeButtonClick" ToolTip="Re-skin what is there, and lay a new one on a bare tile"/>
+                        <ToggleButton x:Name="ModeFill" Content="Fill" Tag="Fill" Padding="8,3"
+                                      Click="OnSurfaceModeButtonClick" ToolTip="Only lay on bare tiles, never change what is there"/>
+                    </StackPanel>
+                    <TextBlock x:Name="TxtSurfaceNote" Foreground="{DynamicResource Dim}" FontSize="11" Margin="0,6,0,0"
+                               MaxWidth="420" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,10,14,0">
                 <Border x:Name="BadgeWarning" Background="#F0E0A34E" CornerRadius="14" Height="28" MinWidth="28"
                         Visibility="Collapsed" Margin="8,0,0,0">

@@ -26,6 +26,35 @@ each release was verified against is recorded in
     true only of the first, and actively wrong in front of a write-back that preserves all of it.
 
 ### Added
+- **Surfaces mode: paint skins straight onto the deck.** New toolbar toggle (**T**) for the detail work a ship-wide
+  re-skin cannot express — checkerboard tiling in a bathroom, caution markings around a reactor or a door, an
+  armoured run of wall down one flank. Replacing by *area* rather than by type was possible before only as
+  box-select, layer-filter, "Replace with…", and it fell apart the moment the box caught a door.
+  - **Everything that is not a wall or floor is ghosted and steps out of the way of clicks**, so the floor under a
+    bed is one click away instead of a trip through the right-click layer picker, and a box-select over the deck
+    catches deck. **View ▸ Surfaces** sets how visible the ghosted layers stay (15% by default, 0 hides them).
+  - **A 1×1 wall or floor brush re-skins whatever is on the tile** rather than being refused for landing on it.
+    Every gesture already in the editor inherits this: drag to paint a run, **Shift+drag** to box an area,
+    **Ctrl at release** for the outline only, **Alt+click** to pick a skin off the ship. Each stroke is one undo step.
+  - **Replace, Both or Fill**, per stroke. **Replace** is the default and only re-skins what is already there, so a
+    box or a checkerboard dragged over a room never spills new deck past its irregular edges — the failure mode of
+    a brush that does both. **Fill** is the old behaviour (bare tiles only), **Both** does both. The ghost says
+    which way the tile under the cursor will go before you click.
+  - **Reach the floors under the walls.** The game allows a floor and a wall on one tile in either build order, and
+    the shipped ships do it nearly everywhere (the core 02 hull floors 335 of its 410 wall tiles), but the wall
+    draws over the floor and wins every hit test. **SHOW ▸ Floors** ghosts the wall layer along with everything
+    else, so those floors can be seen, clicked and re-skinned; **Walls** does the reverse. It is not only a
+    construction-time concern: a floor's autotiling reads its neighbours, so whether the floor continues under a
+    wall changes how the visible floor beside it draws its edge. Flex flooring still refuses — its own socket mask
+    forbids walls, and the ghost says so.
+  - **A second brush and a pattern.** The Surfaces bar sets brush **B** alongside the armed brush, and **Checker**,
+    **Rows** or **Columns** alternate between them. The pattern is keyed to the ship's own tile grid rather than to
+    where a stroke starts, so separate passes continue one checkerboard instead of each restarting it, and painting
+    under symmetry produces no seam down the axis.
+  - Only 1×1 wall and floor skins paint, so a stroke runs past anything of a different shape (a wide door keeps its
+    def while the wall either side of it changes) and never touches the primary airlock. Like the ship-wide
+    re-skin, it changes sprites and names only: rooms, airtightness, certification and the Ship Rating are
+    unaffected. Light Viz switches off while the mode is on, because a lit composite has no layers left to ghost.
 - **Transfer a ship from one save to another, in one action.** New **File ▸ "Transfer Ship to Another Save…"**.
   Pick the source save and ship, and Ostraplan reads it in and takes you straight to the destination picker.
   Much requested, and the awkward part was never the capability: this was already possible as Import ▸ "Your ship,

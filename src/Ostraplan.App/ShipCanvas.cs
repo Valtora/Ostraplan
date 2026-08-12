@@ -216,6 +216,46 @@ public sealed class ShipCanvas : FrameworkElement
     public bool WireMode { get; private set; }
     private Placement? _wireSource;   // the armed signal source awaiting a target (wire mode)
 
+    /// <summary>
+    /// When true the canvas is in <b>Surfaces mode</b>: the deck is the subject. Everything that is not a wall or
+    /// floor draws at <see cref="SurfaceGhostOpacity"/> and steps out of the way of clicks, and a 1×1 wall/floor
+    /// brush re-skins the part already on a tile instead of being refused for landing on it (see
+    /// <see cref="SurfacePaint"/>). Off, nothing about painting or picking changes.
+    /// </summary>
+    public bool SurfaceMode { get; private set; }
+
+    /// <summary>How the pattern brushes alternate across a surface stroke (see <see cref="SurfacePattern"/>).
+    /// Ignored outside Surfaces mode and while <see cref="PatternB"/> is unset.</summary>
+    public SurfacePattern Pattern { get; private set; }
+
+    /// <summary>What a surface stroke may do to a tile: re-skin only (the default), re-skin and fill, or fill only.
+    /// See <see cref="SurfacePaintMode"/>.</summary>
+    public SurfacePaintMode PaintMode { get; private set; } = SurfacePaintMode.Replace;
+
+    /// <summary>Which layer Surfaces mode treats as the subject (see <see cref="SurfaceFocus"/>) — what stays
+    /// bright, and what a click lands on.</summary>
+    public SurfaceFocus LayerFocus { get; private set; }
+
+    /// <summary>The secondary surface brush — the other half of a checkerboard or stripe. Null for a plain
+    /// single-brush stroke. Only meaningful alongside a primary <see cref="ArmedPart"/> of the same class.</summary>
+    public PartDef? PatternB { get; private set; }
+
+    /// <summary>Opacity of the ghosted (non-surface) layers in Surfaces mode. A user preference: enough to keep
+    /// the reactor and the beds as landmarks while painting round them, without them reading as the subject.</summary>
+    public double SurfaceGhostOpacity
+    {
+        get => _surfaceGhostOpacity;
+        set
+        {
+            var next = Math.Clamp(value, 0.0, 1.0);
+            if (Math.Abs(_surfaceGhostOpacity - next) < 0.0001) return;
+            _surfaceGhostOpacity = next;
+            _staticShip = null;   // the opacity is baked into the cached drawing
+            InvalidateVisual();
+        }
+    }
+    private double _surfaceGhostOpacity = 0.15;
+
     /// <summary>When true, a MODDED part may be placed where the (core-only) placement law says it doesn't fit — it's
     /// placed and flagged as a warning rather than hard-blocked. Core parts are always enforced. Set from
     /// <see cref="AppSettings.AllowModdedOverrides"/>.</summary>
@@ -307,6 +347,7 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action? ShowLightChanged;              // the Light Viz overlay was toggled (update the menu check + trigger a scan)
     public event Action? ShowWalkChanged;               // the WalkViz overlay was toggled (update the toolbar caption + trigger a scan)
     public event Action? WireModeChanged;               // wire mode was toggled (update the hint / menu check)
+    public event Action? SurfaceModeChanged;            // Surfaces mode was toggled (update the toolbar highlight / hint / pattern bar)
     public event Action<Placement, Placement>? LinkToggleRequested;   // connect source→target, or disconnect if already linked
     public event Action? ActiveZoneChanged;             // the painted zone changed (sync the zones panel selection)
     /// <summary>A zone paint/erase/box/room-fill stroke finished: (zone id, tiles before, tiles after). The window
@@ -483,6 +524,92 @@ public sealed class ShipCanvas : FrameworkElement
         InvalidateVisual();
     }
 
+    // ---- Surfaces mode (paint the deck) ----
+
+    /// <summary>Toggle Surfaces mode (see <see cref="SurfaceMode"/>).</summary>
+    public void ToggleSurfaceMode() => SetSurfaceMode(!SurfaceMode);
+
+    public void SetSurfaceMode(bool on)
+    {
+        if (SurfaceMode == on) return;
+        SurfaceMode = on;
+        // Light Viz composites the whole ship into one bitmap, so there is no layer left to ghost — the two views
+        // can't both be right about what the canvas is showing. Surfaces wins while it is on, and the toolbar says
+        // so rather than leaving a lit button over an unlit ship.
+        if (on) SetShowLight(false);
+        _staticShip = null;   // the ghosting is baked into the cached drawing
+        SurfaceModeChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    /// <summary>Set the tiling pattern for surface strokes.</summary>
+    public void SetPattern(SurfacePattern pattern)
+    {
+        if (Pattern == pattern) return;
+        Pattern = pattern;
+        InvalidateVisual();   // the ghost previews the pattern-resolved tile
+    }
+
+    /// <summary>Set (or clear) the secondary pattern brush.</summary>
+    public void SetPatternB(PartDef? part)
+    {
+        if (ReferenceEquals(PatternB, part)) return;
+        PatternB = part;
+        InvalidateVisual();
+    }
+
+    /// <summary>Set what a surface stroke may do to a tile (re-skin, fill, or both).</summary>
+    public void SetPaintMode(SurfacePaintMode mode)
+    {
+        if (PaintMode == mode) return;
+        PaintMode = mode;
+        InvalidateVisual();   // the ghost says whether this tile would take the stroke
+    }
+
+    /// <summary>Set which layer is the subject: what stays bright, and what a click lands on. Named for the layer
+    /// rather than plain "focus", which on a <see cref="FrameworkElement"/> already means keyboard focus.</summary>
+    public void SetLayerFocus(SurfaceFocus focus)
+    {
+        if (LayerFocus == focus) return;
+        LayerFocus = focus;
+        _staticShip = null;   // the ghosting is baked into the cached drawing
+        InvalidateVisual();
+    }
+
+    /// <summary>The armed brush when it is painting surfaces — Surfaces mode, structural, and a 1×1 wall/floor
+    /// skin. Null whenever the stroke should behave exactly as it always has.</summary>
+    private PartDef? SurfaceBrush =>
+        SurfaceMode && !_armedLoose && Doc is not null && SurfacePaint.IsSurfaceBrush(Doc.Catalog, ArmedPart)
+            ? ArmedPart
+            : null;
+
+    /// <summary>The part a surface stroke lays on this tile: the pattern's choice between the armed brush and
+    /// <see cref="PatternB"/>. Falls back to the armed brush if the pattern names a def the catalog can't resolve.</summary>
+    private PartDef PatternPartAt(PartDef brush, int x, int y)
+    {
+        if (PatternB is not { } b || Pattern == SurfacePattern.Solid) return brush;
+        // A pattern needs a matching pair. Arming a wall while B is still a floor would otherwise alternate
+        // between the two layers, which is not a pattern but two different edits: paint plain until they match.
+        if (Doc!.Catalog.RenderLayer(b) != Doc.Catalog.RenderLayer(brush)) return brush;
+        var def = SurfacePaint.DefAt(Pattern, brush.DefName, b.DefName, x, y);
+        return def == brush.DefName ? brush : Doc!.Catalog.Lookup(def) ?? brush;
+    }
+
+    /// <summary>True while this part should be ghosted: Surfaces mode is on and the current focus isn't on it.</summary>
+    private bool IsGhosted(Placement p) =>
+        SurfaceMode && !SurfacePaint.IsFocusLayer(Doc!.Catalog, Doc.Part(p), LayerFocus);
+
+    /// <summary>
+    /// The part a click should land on. In Surfaces mode the ghosted layers are not just dim, they are out of the
+    /// way: the topmost part <b>in focus</b> under the cursor wins, so a floor buried under a bed (or, on the
+    /// Floors focus, under a wall) is one click away instead of a trip through the right-click layer picker.
+    /// Otherwise the ordinary topmost-part hit test.
+    /// </summary>
+    private Placement? SurfaceAwareHit(int x, int y) =>
+        SurfaceMode
+            ? Doc!.HitTestStack(x, y).FirstOrDefault(p => SurfacePaint.IsFocusLayer(Doc.Catalog, Doc.Part(p), LayerFocus))
+            : Doc!.HitTest(x, y);
+
     /// <summary>The freshly computed power network (document coords), pushed by the window after each scan.</summary>
     public void SetPowerOverlay(PowerOverlay overlay)
     {
@@ -543,6 +670,9 @@ public sealed class ShipCanvas : FrameworkElement
         if (ShowLight == on) return;
         ShowLight = on;
         if (!on) { _lightScene = LightScene.Empty; _lightImage = null; _lightJob++; }   // drop stale data (and orphan any in-flight composite) so it can't flash on re-enable
+        // The other half of the exclusion in SetSurfaceMode: a lit composite bakes the whole ship into one image,
+        // so Surfaces mode would keep its toolbar highlight while quietly ghosting nothing at all.
+        else SetSurfaceMode(false);
         ShowLightChanged?.Invoke();
         InvalidateVisual();
     }
@@ -1106,7 +1236,7 @@ public sealed class ShipCanvas : FrameworkElement
         // Alt+LMB is the eyedropper: pick the (topmost) part under the cursor as the brush, at its own rotation.
         // Works whether or not something is already armed, and takes priority over placing/selecting so an
         // Alt-click never edits.
-        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt) && Doc.HitTest(cell.X, cell.Y) is { } pick)
+        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt) && SurfaceAwareHit(cell.X, cell.Y) is { } pick)
         {
             BrushPicked?.Invoke(pick.DefName, pick.Rot);
             e.Handled = true;
@@ -1152,7 +1282,7 @@ public sealed class ShipCanvas : FrameworkElement
                 var sel = Doc.Placements.FirstOrDefault(p => SelectedIds.Contains(p.Id));
                 if (sel is not null && Doc.Covers(sel, cell.X, cell.Y)) seed = sel;
             }
-            seed ??= Doc.HitTest(cell.X, cell.Y);
+            seed ??= SurfaceAwareHit(cell.X, cell.Y);
             if (seed is not null)
             {
                 if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) SelectedIds.Clear();
@@ -1232,7 +1362,7 @@ public sealed class ShipCanvas : FrameworkElement
 
         // Unarmed left-click on a tile that holds a loose item selects it (it sits on top of the deck), so it can
         // be inspected and deleted. Ctrl-click falls through to the placement logic (reach the structure beneath).
-        if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && Doc.LooseAt(cell.X, cell.Y) is { } looseHit)
+        if (!SurfaceMode && !Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && Doc.LooseAt(cell.X, cell.Y) is { } looseHit)
         {
             SelectedIds.Clear();
             SelectionChanged?.Invoke();
@@ -1268,7 +1398,7 @@ public sealed class ShipCanvas : FrameworkElement
             }
         }
 
-        var hit = Doc.HitTest(cell.X, cell.Y);
+        var hit = SurfaceAwareHit(cell.X, cell.Y);
         if (hit is not null)
         {
             var additive = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
@@ -1412,6 +1542,7 @@ public sealed class ShipCanvas : FrameworkElement
             var (y0, y1) = (Math.Min(_dragStartCell.Y, end.Y), Math.Max(_dragStartCell.Y, end.Y));
             foreach (var p in Doc.Placements)
             {
+                if (IsGhosted(p)) continue;   // Surfaces mode: a box over the deck catches deck, not the clutter on it
                 var (bx, by, bw, bh) = Doc.BodyBounds(p);   // band-select on the above-floor body
                 if (bx <= x1 && bx + bw - 1 >= x0 && by <= y1 && by + bh - 1 >= y0)
                     SelectedIds.Add(p.Id);
@@ -1474,22 +1605,47 @@ public sealed class ShipCanvas : FrameworkElement
     {
         if (Doc is null || ArmedPart is null) return;
         var (w, h) = GridMath.Size(ArmedPart.Item.Width, ArmedPart.Item.Height, rot);
+        var surface = SurfaceBrush;
         var seen = new HashSet<(int, int, int)>();
         foreach (var pose in WithSymmetry(x, y, rot, w, h))
         {
             if (!seen.Add(pose)) continue;
-            if (SameDefAtPose(Doc.PlacementsAt(pose.X, pose.Y), pose.X, pose.Y, pose.Rot, ArmedPart.DefName)) continue;   // skip an exact duplicate (paint-stroke re-entry), not a legal overlap
+            // A surface stroke resolves its part per tile (the pattern) and re-skins what is already there rather
+            // than being refused for landing on it. Both brushes of a pattern are 1×1 wall/floor skins, so the
+            // footprint maths above still holds whichever one this tile takes.
+            var part = surface is null ? ArmedPart : PatternPartAt(surface, pose.X, pose.Y);
+            if (surface is not null)
+            {
+                if (SurfacePaint.SwapTargetAt(Doc, part, pose.X, pose.Y) is { } target)
+                {
+                    // The tile is spoken for by this class: re-skin it (unless this stroke only fills), and never
+                    // stack a second one on it either way. BuildSwap returns null when there is nothing to do
+                    // (already this skin, or the target is locked), which is also what absorbs a stroke re-entering
+                    // a tile it just painted.
+                    if (PaintMode != SurfacePaintMode.Fill
+                        && ReplaceOps.BuildSwap(Doc, [target], part.DefName) is { } swap)
+                    {
+                        swap.Cmd.Do(Doc);
+                        _stroke.Add(swap.Cmd);
+                    }
+                    continue;
+                }
+                // Nothing of this class here. Re-skinning is all this stroke does, so leave the tile bare — this is
+                // what stops a box or a checker drag spilling new deck past a room's irregular edges.
+                if (PaintMode == SurfacePaintMode.Replace) continue;
+            }
+            if (SameDefAtPose(Doc.PlacementsAt(pose.X, pose.Y), pose.X, pose.Y, pose.Rot, part.DefName)) continue;   // skip an exact duplicate (paint-stroke re-entry), not a legal overlap
             // the placement law: skip any pose the game's Item.CheckFit would refuse (each symmetry mirror judged
             // independently — legal ones land, illegal ones don't). EXCEPTION: a MODDED part may be placed against
             // the core-only law when the override toggle is on — it lands and is flagged as a warning (ProblemScan).
-            if (!CheckFit.Check(Doc, ArmedPart, pose.X, pose.Y, pose.Rot, includeEnvelope: true).Ok
-                && !(AllowModdedOverrides && ArmedPart.IsModded)) continue;
+            if (!CheckFit.Check(Doc, part, pose.X, pose.Y, pose.Rot, includeEnvelope: true).Ok
+                && !(AllowModdedOverrides && part.IsModded)) continue;
             var cmd = new PlaceCommand(new Placement
             {
-                DefName = ArmedPart.DefName,
+                DefName = part.DefName,
                 X = pose.X,
                 Y = pose.Y,
-                Rot = ArmedPart.Item.HasSpriteSheet ? 0 : pose.Rot,
+                Rot = part.Item.HasSpriteSheet ? 0 : pose.Rot,
             });
             cmd.Do(Doc);
             _stroke.Add(cmd);
@@ -2172,11 +2328,8 @@ public sealed class ShipCanvas : FrameworkElement
         {
             // No composite to lean on (Light Viz off, or not yet baked): a Move drags selected parts (offset per
             // frame) and a Paint adds parts live, so both draw straight through, bypassing the cached drawing.
-            foreach (var p in Doc.DrawOrder())
-            {
-                var offset = _drag == Drag.Move && SelectedIds.Contains(p.Id) && !Doc.IsLocked(p) ? MoveDeltaFor(p) : (0, 0);
-                DrawPlacement(dc, p, offset);
-            }
+            DrawPlacements(dc, [.. Doc.DrawOrder()],
+                p => _drag == Drag.Move && SelectedIds.Contains(p.Id) && !Doc.IsLocked(p) ? MoveDeltaFor(p) : (0, 0));
         }
         else
         {
@@ -2236,18 +2389,27 @@ public sealed class ShipCanvas : FrameworkElement
             // won't land is now visible BEFORE the click instead of being a silent no-op — the root of the
             // "symmetry only works most of the time" reports. Coincident poses (a part on an axis mirrors onto
             // itself) draw once, exactly as TryPlacePose dedups them. The status-bar reason is the cursor pose's.
+            var surface = SurfaceBrush;
             var seen = new HashSet<(int, int, int)>();
             FitResult? cursor = null;
+            var cursorPart = ArmedPart;
+            var cursorForced = false;   // the cursor pose was judged by the mode, not by the placement law
             foreach (var pose in WithSymmetry(gx, gy, ArmedRot, w, h))
             {
                 if (!seen.Add(pose)) continue;
-                var fit = DrawArmedGhost(dc, ArmedPart, pose.X, pose.Y, pose.Rot);
-                cursor ??= fit;   // WithSymmetry yields the cursor pose first
+                // Surfaces mode previews what the stroke would actually lay: the pattern's choice for this tile,
+                // and a green ghost wherever it re-skins rather than places (a same-class swap is always legal, so
+                // the placement law has no say and would otherwise paint the tile red for being occupied).
+                var part = surface is null ? ArmedPart : PatternPartAt(surface, pose.X, pose.Y);
+                var verdict = SurfaceVerdict(surface, part, pose.X, pose.Y);
+                var fit = DrawArmedGhost(dc, part, pose.X, pose.Y, pose.Rot, verdict);
+                // WithSymmetry yields the cursor pose first
+                if (cursor is null) { cursor = fit; cursorPart = part; cursorForced = verdict is not null; }
             }
             if (cursor is { Ok: false } bad)
             {
                 var why = bad.Reason ?? "doesn't fit here";
-                var modded = ArmedPart.IsModded;
+                var modded = cursorPart.IsModded && !cursorForced;   // a mode refusal is not the law, and no override lifts it
                 if (modded && AllowModdedOverrides) RaiseGhostReason(why, willPlace: true);
                 else if (modded) RaiseGhostReason(why + " — modded; turn on \"Mod overrides\" to place it anyway");
                 else RaiseGhostReason(why);
@@ -2799,16 +2961,39 @@ public sealed class ShipCanvas : FrameworkElement
     /// cursor pose's reason. Shared by the plain ghost and every symmetry mirror so a mirror previews identically
     /// to how it will place.
     /// </summary>
-    private FitResult DrawArmedGhost(DrawingContext dc, PartDef part, int gx, int gy, int rot)
+    /// <summary>
+    /// What a Surfaces stroke would really do to this tile, when that is not a question the placement law can
+    /// answer. Re-skinning the part already there is legal by construction (same layer, same footprint), yet
+    /// <see cref="CheckFit"/> would refuse it for the tile being occupied by the very part being replaced. The
+    /// other two are refusals the law knows nothing about: a tile the current <see cref="PaintMode"/> declines to
+    /// touch. Null hands the pose back to the law, which is every non-surface stroke.
+    /// </summary>
+    private FitResult? SurfaceVerdict(PartDef? surface, PartDef part, int x, int y)
+    {
+        if (surface is null) return null;
+        if (SurfacePaint.SwapTargetAt(Doc!, part, x, y) is not null)
+            return PaintMode == SurfacePaintMode.Fill
+                ? new FitResult(false, [], "this tile already has one — switch to Replace to change it")
+                : FitResult.Legal;
+        return PaintMode == SurfacePaintMode.Replace
+            ? new FitResult(false, [], "nothing to re-skin on this tile — switch to Fill to lay a new one")
+            : null;
+    }
+
+    /// <summary><paramref name="verdict"/> overrides the placement law for a pose the law cannot judge — see
+    /// <see cref="SurfaceVerdict"/>. Null (the default) asks <see cref="CheckFit"/>, as every other ghost does.</summary>
+    private FitResult DrawArmedGhost(DrawingContext dc, PartDef part, int gx, int gy, int rot, FitResult? verdict = null)
     {
         var (w, h) = GridMath.Size(part.Item.Width, part.Item.Height, rot);
-        var fit = CheckFit.Check(Doc!, part, gx, gy, rot, includeEnvelope: true);
+        var fit = verdict ?? CheckFit.Check(Doc!, part, gx, gy, rot, includeEnvelope: true);
 
         // a modded part that fails the core-only law but WILL place via the override draws amber ("flagged, not
         // blocked") rather than red — so the ghost distinguishes "can't" from "against the rules but allowed".
         // A legal-but-advisory pose (a soft req unmet, e.g. an overhead light with no adjacent conduit) draws the
         // same amber: it places, and the amber outline + tinted advisory cell say "noted" without saying "can't".
-        var overriding = !fit.Ok && AllowModdedOverrides && part.IsModded;
+        // A forced verdict is never an overridable law failure: the stroke will skip this tile whatever the
+        // mod-override toggle says, so it must not draw the amber "against the rules, but placing" ghost.
+        var overriding = verdict is null && !fit.Ok && AllowModdedOverrides && part.IsModded;
         var advisory = fit.Ok && fit.Advisory is not null;
         var outlinePen = fit.Ok ? (advisory ? GhostOverridePen : GhostOkPen) : overriding ? GhostOverridePen : GhostBadPen;
         var cellFill = overriding ? OverrideFill : HazardFill;
@@ -2992,8 +3177,7 @@ public sealed class ShipCanvas : FrameworkElement
         {
             var dg = new DrawingGroup();
             using (var ctx = dg.Open())
-                foreach (var p in Doc!.DrawOrder())
-                    DrawPlacement(ctx, p, (0, 0));
+                DrawPlacements(ctx, [.. Doc!.DrawOrder()], _ => (0, 0));
             dg.Freeze();
             return _staticShip = dg;
         }
@@ -3030,6 +3214,13 @@ public sealed class ShipCanvas : FrameworkElement
     /// chosen one. Drawn each frame over the cached ship, like the zone overlay, since these are few.</summary>
     private void DrawLooseObjects(DrawingContext dc)
     {
+        if (SurfaceMode) dc.PushOpacity(SurfaceGhostOpacity);   // loose clutter is not the deck: ghost it with the rest
+        DrawLooseObjectsCore(dc);
+        if (SurfaceMode) dc.Pop();
+    }
+
+    private void DrawLooseObjectsCore(DrawingContext dc)
+    {
         foreach (var lo in Doc!.LooseObjects)
         {
             if (Doc.Catalog.Lookup(lo.DefName) is not { } part) continue;
@@ -3060,6 +3251,27 @@ public sealed class ShipCanvas : FrameworkElement
         dc.DrawRectangle(null, pen, body);
         DrawFacingNeedle(dc, part, body, ArmedRot, pen);
         RaiseGhostReason(ok ? null : "Drop an item onto a floor tile or an open container");
+    }
+
+    /// <summary>
+    /// Draw a run of placements, ghosting the non-deck layers when Surfaces mode is on. Two passes rather than
+    /// one opacity push per part, so the ghosted layers share a single transparency group. Draw order is
+    /// layer-major (floors, then walls, then everything above), so surfaces are already its prefix and splitting
+    /// it in two changes nothing but the opacity.
+    /// </summary>
+    private void DrawPlacements(DrawingContext dc, IReadOnlyList<Placement> ordered, Func<Placement, (int X, int Y)> offsetOf)
+    {
+        if (!SurfaceMode)
+        {
+            foreach (var p in ordered) DrawPlacement(dc, p, offsetOf(p));
+            return;
+        }
+        foreach (var p in ordered)
+            if (!IsGhosted(p)) DrawPlacement(dc, p, offsetOf(p));
+        dc.PushOpacity(SurfaceGhostOpacity);
+        foreach (var p in ordered)
+            if (IsGhosted(p)) DrawPlacement(dc, p, offsetOf(p));
+        dc.Pop();
     }
 
     private void DrawPlacement(DrawingContext dc, Placement p, (int X, int Y) offset)
