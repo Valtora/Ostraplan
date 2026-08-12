@@ -273,7 +273,9 @@ public sealed class UpdateTargetStep : WizardStep
         var driver = session.Driver as UpdateDriver;
         var plan = session.Plan.Update;
 
-        _saveName.Text = driver?.Context is { } ctx ? $"“{ctx.Source.SaveName}”" : "";
+        // Name the ship, not just the save. When the design carries no source of its own the user picked this
+        // target a moment ago, and a save name alone would not tell them which ship they picked inside it.
+        _saveName.Text = driver?.Context is { } ctx ? $"{ShipLabel(ctx)} in “{ctx.Source.SaveName}”" : "";
         _counts.Text = driver?.Diff is { } diff
             ? string.Join(" · ", Segments(diff))
             : "";
@@ -292,6 +294,13 @@ public sealed class UpdateTargetStep : WizardStep
         SyncBackup();
         Recost();
     }
+
+    /// <summary>The ship being written to, as the user would recognise it: its in-game name where it has one,
+    /// always with the registration, since that is what identifies it in the save.</summary>
+    private static string ShipLabel(SaveShipContext ctx) =>
+        SaveEdit.ReadIdentity(ctx).PublicName is { Length: > 0 } name
+            ? $"“{name}” ({ctx.Source.RegId})"
+            : ctx.Source.RegId;
 
     /// <summary>The change counts for the header. Re-stated parts get their own segment, and only when there are
     /// any: on most edits nothing was uninstalled and the line reads exactly as it always did.</summary>

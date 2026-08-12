@@ -11,6 +11,24 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **Any design can now replace a ship in a save, not only one that was imported from it.** The **Update a ship in
+  a save** destination used to be greyed out unless the design came from **Import ▸ "Your ship, for editing"**, and
+  the `.oplan` recorded that provenance, so opening a ship's base layout, saving it, and reimporting produced a
+  design that could never be written back. There was no way to move your ship onto a different hull short of
+  redrawing the whole layout by hand. Reported on Discord.
+  - A design with no source save is now **asked which ship in which save to replace** — the same save and ship
+    pickers the import uses, with the same warning in front of a station or a vessel you don't own.
+  - The write is a **wholesale replacement of the layout**: nothing on the target ship is recognised as already
+    built, so it all comes out and the design goes up in its place. The ship stays the same ship — crew, cargo,
+    world position, registration and identity are kept — and cargo carries over wherever the container holding it
+    survives the swap. Cargo in a container the design doesn't have is destroyed, which **Review** itemises before
+    anything is written, as it always has.
+  - A confirmation says all of that **before** the wizard costs anything, rather than leaving the user to infer it
+    three steps later from an "N deleted, M added" line.
+  - The **Write target & cost** step now names the ship it is writing to, not just the save. When you picked the
+    target a moment ago, a save name alone doesn't tell you which ship you picked inside it.
+
 ### Fixed
 - **An unreadable save now says what it choked on.** "The ship could not be parsed" was the whole of it: the JSON
   error behind it was caught and thrown away, leaving nobody — user or maintainer — able to tell a truncated record

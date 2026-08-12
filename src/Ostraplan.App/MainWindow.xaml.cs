@@ -2843,8 +2843,10 @@ public partial class MainWindow : Window
         m.Items.Add(BuildImportSubmenu());
         m.Items.Add(MenuAction("Export…", () => OnExportClick(this, e), gesture: "Ctrl+E"));
         m.Items.Add(new Separator());
-        // write-back is only meaningful for a design imported from a save FOR EDITING
-        m.Items.Add(MenuAction("Update Ship in Save…", () => OnUpdateSaveClick(this, e), enabled: _doc?.SourceSave is not null));
+        // A design imported from a save goes back to the ship it came from; any other design is asked which ship
+        // in which save it should replace, so it needs only a save to exist.
+        m.Items.Add(MenuAction("Update Ship in Save…", () => OnUpdateSaveClick(this, e),
+            enabled: _doc is not null && _env is not null));
         OpenMenuUnder(m, BtnFileMenu);
     }
 
@@ -3070,12 +3072,15 @@ public partial class MainWindow : Window
     /// <summary>
     /// Open the export wizard with the update destination preselected. The menu item survives because people have
     /// muscle memory for it; it is now one of three ways into the same wizard rather than its own flow.
+    ///
+    /// <para>A design with no source save is not turned away here. The destination asks which ship to replace, which
+    /// is what lets a stock template or a design drawn from scratch be moved onto a live ship.</para>
     /// </summary>
     private void OnUpdateSaveClick(object sender, RoutedEventArgs e)
     {
-        if (_doc?.SourceSave is null)
+        if (_env is not null && SaveImport.ListSaves(_env).Count == 0)
         {
-            Dlg.Show(this, "This design wasn't imported from a save. Use Import > \"Your ship, for editing\" first.",
+            Dlg.Show(this, "No save games found in your Ostranauts Saves folder.",
                 "Update ship in save", MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }

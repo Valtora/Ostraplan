@@ -587,8 +587,12 @@ public class ExportWizardTests
 
     // ---- the update destination ----
 
+    /// <summary>A save entry that names nothing on disk — enough for the availability rules, which only count them.</summary>
+    private static SaveEntry FakeSave(string name = "Some Save") =>
+        new(name, "Kestrel", "A Pilot", "2026-01-01 00:00:00", $@"C:\nowhere\{name}.zip");
+
     [SkippableFact]
-    public void The_update_destination_needs_a_design_that_came_from_a_save()
+    public void The_update_destination_needs_a_save_to_write_into()
     {
         var g = TestData.RequireGame();
         RunSta(() =>
@@ -598,7 +602,7 @@ public class ExportWizardTests
             var reason = driver.Unavailable(Session(g));
 
             Assert.NotNull(reason);
-            Assert.Contains("imported from a save", reason);
+            Assert.Contains("No save games found", reason);
         });
     }
 
@@ -608,9 +612,27 @@ public class ExportWizardTests
         var g = TestData.RequireGame();
         RunSta(() =>
         {
-            var session = Session(g, ExportDestination.UpdateShipInSave,
+            var session = Session(g, ExportDestination.UpdateShipInSave, saves: [FakeSave()],
                 sourceSave: new SaveSourceRef("Some Save", "H-ABC"));
 
+            Assert.Null(new UpdateDriver().Unavailable(session));
+        });
+    }
+
+    /// <summary>
+    /// A design that never came from a save is no longer turned away: it is asked which ship to replace. That is
+    /// what lets a stock template be moved onto a live ship, which cannot otherwise be done without redrawing the
+    /// whole layout by hand.
+    /// </summary>
+    [SkippableFact]
+    public void The_update_destination_is_available_to_a_design_with_no_source_save()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var session = Session(g, ExportDestination.UpdateShipInSave, saves: [FakeSave()]);
+
+            Assert.Null(session.SourceSave);
             Assert.Null(new UpdateDriver().Unavailable(session));
         });
     }
@@ -621,7 +643,7 @@ public class ExportWizardTests
         var g = TestData.RequireGame();
         RunSta(() =>
         {
-            var session = Session(g, ExportDestination.UpdateShipInSave,
+            var session = Session(g, ExportDestination.UpdateShipInSave, saves: [FakeSave()],
                 sourceSave: new SaveSourceRef("A Save That Is Not There", "H-ABC"));
             var driver = new UpdateDriver();
             session.Driver = driver;
@@ -660,7 +682,7 @@ public class ExportWizardTests
         {
             // Analyse > Update Ship in Save... preselects rather than clicks, so nothing raises the tile's Checked
             // handler. Without the shell preparing on open, Next would advance with no located save context.
-            var session = Session(g, ExportDestination.UpdateShipInSave,
+            var session = Session(g, ExportDestination.UpdateShipInSave, saves: [FakeSave()],
                 sourceSave: new SaveSourceRef("A Save That Is Not There", "H-ABC"));
             var wizard = new ExportWizard(session, ExportDestination.UpdateShipInSave);
 

@@ -1,16 +1,25 @@
 using System.IO;
 using System.Text.Json.Nodes;
+using System.Windows;
+using System.Windows.Input;
 using Ostraplan.Core;
 
 namespace Ostraplan.App.Wizard;
 
 /// <summary>
-/// The update destination: the ship this design was imported from, rewritten in its own save with its crew, cargo
-/// and world position intact.
+/// The update destination: a ship in a save, rewritten to this design's layout with its crew, cargo and world
+/// position intact.
 ///
-/// <para>There is no save picker. <see cref="ShipDocument.SourceSave"/> already names the save and the ship, so
-/// selecting this destination re-locates that context instead of asking. A design reopened from a <c>.oplan</c>
-/// has to relocate it from disk, which is why that happens on selection rather than at the write.</para>
+/// <para>Usually that ship is the one the design came from. <see cref="ShipDocument.SourceSave"/> already names the
+/// save and the ship, so selecting this destination re-locates that context instead of asking, and a design
+/// reopened from a <c>.oplan</c> relocates it from disk, which is why that happens on selection rather than at the
+/// write.</para>
+///
+/// <para><b>A design with no source is asked where to go</b> rather than refused. The inject treats a placement with
+/// no <see cref="Placement.OriginStrID"/> as new construction, so a design that never came from that ship (a stock
+/// template, one drawn from scratch) writes as a wholesale replacement of its layout: everything on the ship is torn
+/// out and the design built in its place, with the crew, cargo, position and identity that make it that ship all
+/// preserved. That is the only way to move a live ship onto a different hull without redrawing it by hand.</para>
 ///
 /// <para>This is the one destination that overwrites something the user already has, so it is also the one that
 /// keeps a confirmation popup: the in-place write is irreversible and carries a check for a running game.</para>
@@ -30,14 +39,17 @@ public sealed class UpdateDriver : ExportDriver
     public override ExportDestination Destination => ExportDestination.UpdateShipInSave;
     public override string Name => "Update a ship in a save";
     public override string Blurb =>
-        "Rewrites the ship this design came from, in its own save, keeping its crew, cargo and world position. " +
-        "Writes a copy by default; can edit the original in place.";
+        "Rewrites a ship in a save to this design, keeping its crew, cargo, world position and identity. Uses the " +
+        "ship the design came from, or asks which one to replace. Writes a copy by default; can edit the original " +
+        "in place.";
     public override string CommitVerb => "Write";
 
     public override string? Unavailable(WizardSession session) =>
-        session.SourceSave is null
-            ? "This design wasn't imported from a save. Use Import ▸ \"Your ship, for editing\" to start one that was."
-            : null;
+        session.Saves.Count == 0 ? "No save games found." : null;
+
+    /// <summary>Shown when the user backs out of the target picker. Not an error, but Next stays blocked: there is
+    /// no ship to write to until they answer.</summary>
+    private const string NoTarget = "Pick the save and the ship this design should replace.";
 
     /// <summary>The located ship in its save, or null until this destination is selected.</summary>
     public SaveShipContext? Context => _ctx;
@@ -61,19 +73,36 @@ public sealed class UpdateDriver : ExportDriver
     /// </summary>
     public override async Task<string?> PrepareAsync(WizardSession session)
     {
-        if (session.SourceSave is not { } src) return "This design wasn't imported from a save.";
-
         if (_ctx is null && session.SaveContext is { } cached) _ctx = cached;
         if (_ctx is null)
         {
-            var match = session.Saves.FirstOrDefault(s => string.Equals(s.Name, src.SaveName, StringComparison.Ordinal));
-            if (match is null)
-                return $"The source save \"{src.SaveName}\" is no longer in your Saves folder, so this design can't " +
-                       "be written back. You can still export it as a mod.";
+            SaveEntry save;
+            string regId;
+
+            if (session.SourceSave is { } src)
+            {
+                var match = session.Saves.FirstOrDefault(s => string.Equals(s.Name, src.SaveName, StringComparison.Ordinal));
+                if (match is null)
+                    return $"The source save \"{src.SaveName}\" is no longer in your Saves folder, so this design can't " +
+                           "be written back. You can still export it as a mod.";
+                (save, regId) = (match, src.RegId);
+            }
+            else if (session.Saves.Count == 0)
+            {
+                return "No save games found.";
+            }
+            else if (PickTarget(session) is { } picked)
+            {
+                (save, regId) = picked;
+            }
+            else
+            {
+                return NoTarget;
+            }
 
             try
             {
-                _ctx = await RelocateOffThread(match.ZipPath, match.Name, src.RegId, session.Catalog);
+                _ctx = await RelocateOffThread(save.ZipPath, save.Name, regId, session.Catalog);
             }
             catch (Exception ex)
             {
@@ -86,6 +115,88 @@ public sealed class UpdateDriver : ExportDriver
         Recost(session);
         return null;
     }
+
+    // ---- picking a target for a design that carries no source ----
+
+    /// <summary>
+    /// Ask which ship in which save this design should replace: the same two pickers the save-edit import uses, so
+    /// the choice reads the same way in both places, followed by a warning that says what a wholesale replacement
+    /// actually does. Null when the user backs out of any of them.
+    ///
+    /// <para>The shell holds a wait cursor over the whole prepare, which is right while a save is being read and
+    /// wrong over a dialog waiting on the user. It is dropped for the duration and put back, rather than removed
+    /// from the shell, because everything else the prepare does really is work.</para>
+    /// </summary>
+    private static (SaveEntry Save, string RegId)? PickTarget(WizardSession session)
+    {
+        var busy = Mouse.OverrideCursor;
+        Mouse.OverrideCursor = null;
+        try { return Ask(session); }
+        finally { Mouse.OverrideCursor = busy; }
+    }
+
+    private static (SaveEntry Save, string RegId)? Ask(WizardSession session)
+    {
+        var owner = PickerOwner(session);
+
+        var picker = new SavePickerDialog(session.Saves) { Owner = owner };
+        if (picker.ShowDialog() != true || picker.Selected is not { } save) return null;
+
+        // the ship the player is standing on may be a station, so offer their owned ships first, as the import does
+        var ships = SaveImport.ListPlayerShips(save.ZipPath);
+        if (ships.Count == 0)
+        {
+            Dlg.Show(owner,
+                $"Couldn't find a ship to write to in \"{save.Name}\" (no owned ships and no current ship on record).",
+                "Update ship in save", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return null;
+        }
+
+        var shipDlg = new ShipChoiceDialog(save.Name, ships) { Owner = owner };
+        if (shipDlg.ShowDialog() != true || shipDlg.Selected is not { } chosen) return null;
+
+        if (!chosen.Owned && !ConfirmUnsupportedShip(owner, chosen)) return null;
+        return ConfirmReplacement(owner, save, chosen) ? (save, chosen.RegId) : null;
+    }
+
+    /// <summary>
+    /// The window to hang the pickers off.
+    ///
+    /// <para>Not simply <see cref="WizardSession.Owner"/>: the shell prepares its opening destination from the
+    /// wizard's own constructor, so when the update destination is preselected (Analyse ▸ Update Ship in Save…) the
+    /// wizard window exists but has not been shown, and WPF refuses to make an unshown window an owner. The main
+    /// window is the right parent at that moment anyway, since it is what the user is looking at. Null when neither
+    /// is on screen, which is every test: an unowned dialog is legal and simply centres itself.</para>
+    /// </summary>
+    private static Window? PickerOwner(WizardSession session) =>
+        session.Owner is { IsLoaded: true } wizard ? wizard
+        : Application.Current?.MainWindow is { IsLoaded: true } main ? main
+        : null;
+
+    /// <summary>The stern gate before writing to a ship the player doesn't own (a station, another vessel), matching
+    /// the one the save-edit import puts in front of the same choice.</summary>
+    private static bool ConfirmUnsupportedShip(Window? owner, SaveShipChoice c) =>
+        Dlg.Confirm(owner, DlgKind.Danger, "This isn't your ship",
+            $"{c.Name} ({c.RegId}) is a station or another vessel, not one of your ships.\n\n" +
+            "Writing to something you don't own is not supported, and it can corrupt or break your save.\n\n" +
+            "Only continue if you understand that and have a backup.",
+            "I understand, use it anyway");
+
+    /// <summary>
+    /// What a design with no shared history with the target actually does to it, said once before the wizard costs
+    /// anything. The Review step restates the counts and lists any cargo that would be destroyed, but by then the
+    /// user has walked three steps on the assumption that this was an edit rather than a replacement.
+    /// </summary>
+    private static bool ConfirmReplacement(Window? owner, SaveEntry save, SaveShipChoice ship) =>
+        Dlg.Confirm(owner, DlgKind.Warning, $"Replace {ship.Name}'s layout with this design?",
+            $"Ship {ship.RegId} in save \"{save.Name}\".\n\n" +
+            "This design didn't come from that ship, so nothing on it is recognised as already built: every part " +
+            "currently on the ship is torn out and this design is built in its place.\n\n" +
+            "The ship stays the same ship. Its crew, cargo, world position, registration and identity are kept, and " +
+            "cargo is carried over wherever the container it sits in survives the swap. Cargo in a container the " +
+            "design does not have is destroyed, and Review lists that before anything is written.\n\n" +
+            "The write goes to a copy of the save by default, leaving the original untouched.",
+            "Choose this ship");
 
     /// <summary>
     /// Fill a blank identity from the ship's own record. An import seeds this already, so this is for a design

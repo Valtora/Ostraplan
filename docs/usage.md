@@ -494,9 +494,18 @@ identity*, so you can redesign the structure out-of-game and write it back.
   you untick it. Do it from the game's **Main Menu**, not while the save is loaded, or
   the game will overwrite your edit on its next autosave. In the in-game Load menu,
   press **Refresh** to see the just-written copy.
-- There is **no save picker** on this destination: the design already names the save and
-  the ship it came from. Selecting it re-locates that ship, and if the save has moved or
-  been deleted it says so there rather than at the write.
+- A design imported from a save needs **no save picker**: it already names the save and
+  the ship it came from. Selecting the destination re-locates that ship, and if the save
+  has moved or been deleted it says so there rather than at the write.
+- **A design that never came from a save is asked which ship to replace.** Pick the save,
+  pick the ship, and the design is written onto it. Nothing on that ship is recognised as
+  already built, so every part currently on it is torn out and the design goes up in its
+  place, while the crew, cargo, world position, registration and identity that make it
+  *that ship* are all kept. Cargo carries over wherever the container holding it survives
+  the swap; cargo in a container your design doesn't have is destroyed, and **Review**
+  lists exactly what before anything is written. This is how you move a live ship onto a
+  different hull — take the Edelweiss template, or any design you've drawn, and put your
+  crew and cargo on it — without redrawing the layout by hand.
 - The ship's **identity is editable** here, and it is written onto the ship. The import
   seeds it from the ship's own record, so **Ship Info** and **The ship** open on what the
   ship really is (make, model, year, designation, description) rather than on blanks.
