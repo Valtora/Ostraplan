@@ -61,9 +61,9 @@ public static class TemplateImport
     /// <summary>Parse a ship file and import its ship (the largest, for multi-ship batch files).</summary>
     public static ImportResult LoadFile(string path, Catalog catalog)
     {
-        var ships = ShipTemplate.ParseFile(File.ReadAllText(path)).ToList();
+        var ships = ShipTemplate.ParseFileChecked(File.ReadAllText(path), out var failure);
         var tmpl = ships.OrderByDescending(s => s.Items.Count).FirstOrDefault()
-            ?? throw new InvalidDataException($"'{Path.GetFileName(path)}' contains no ship.");
+            ?? throw new InvalidDataException($"'{Path.GetFileName(path)}' contains no ship.\n\n{failure}");
         return FromTemplate(tmpl, catalog);
     }
 

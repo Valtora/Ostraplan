@@ -49,21 +49,80 @@ public sealed class ShipTemplate
     public bool HasBakedRating => Rating.Count >= 5 && Rating.Skip(1).Any(s => !string.IsNullOrEmpty(s));
 
     /// <summary>Every ship object in one ships/*.json file (array-wrapped; non-ship files yield nothing).</summary>
-    public static IEnumerable<ShipTemplate> ParseFile(string json)
+    public static IEnumerable<ShipTemplate> ParseFile(string json) => ParseFileChecked(json, out _);
+
+    /// <summary>
+    /// <see cref="ParseFile"/>, but saying <b>why</b> when it comes back empty: either the text isn't valid JSON
+    /// (with the parser's complaint, the position, and an excerpt — see <see cref="JsonDiagnostic"/>), or it parsed
+    /// and holds nothing ship-shaped.
+    ///
+    /// <para><paramref name="failure"/> is null on success. Callers that report a failed import use this rather than
+    /// <see cref="ParseFile"/>, because "the ship could not be parsed" with the reason discarded leaves a user with
+    /// a broken save and no way to find out what broke it.</para>
+    /// </summary>
+    public static IReadOnlyList<ShipTemplate> ParseFileChecked(string json, out string? failure)
     {
+        failure = null;
         JsonDocument doc;
         try { doc = JsonDocument.Parse(json, new JsonDocumentOptions { AllowTrailingCommas = true, CommentHandling = JsonCommentHandling.Skip }); }
-        catch (JsonException) { yield break; }
+        catch (JsonException ex)
+        {
+            failure = JsonDiagnostic.Describe(ex, json);
+            return [];
+        }
+
         using (doc)
         {
             var root = doc.RootElement;
+            var ships = new List<ShipTemplate>();
             if (root.ValueKind == JsonValueKind.Array)
             {
                 foreach (var el in root.EnumerateArray())
-                    if (Parse(el) is { } ship) yield return ship;
+                    if (Parse(el) is { } ship) ships.Add(ship);
             }
-            else if (Parse(root) is { } single) yield return single;
+            else if (Parse(root) is { } single) ships.Add(single);
+
+            if (ships.Count == 0) failure = NoShipHere(root);
+            return ships;
         }
+    }
+
+    /// <summary>Why a file that is valid JSON still yielded no ship — what was actually in it, so the user can tell
+    /// a wrong file from a damaged one.</summary>
+    private static string NoShipHere(JsonElement root)
+    {
+        const string what = "A ship is an object carrying nCols and an aItems array.";
+        return root.ValueKind switch
+        {
+            JsonValueKind.Array when root.GetArrayLength() == 0 =>
+                $"The text is valid JSON but holds an empty array. {what}",
+            JsonValueKind.Array =>
+                $"The text is valid JSON but none of its {root.GetArrayLength()} element(s) is a ship. {what} " +
+                $"The first element {Shape(root[0])}.",
+            JsonValueKind.Object =>
+                $"The text is valid JSON but the object in it is not a ship. {what} It {Shape(root)}.",
+            _ => $"The text is valid JSON but is a bare {root.ValueKind.ToString().ToLowerInvariant()}, not a ship. {what}",
+        };
+    }
+
+    /// <summary>A one-line description of an element that was expected to be a ship: which of the two required
+    /// fields it has, and what it does carry.</summary>
+    private static string Shape(JsonElement e)
+    {
+        if (e.ValueKind != JsonValueKind.Object) return $"is a {e.ValueKind.ToString().ToLowerInvariant()}, not an object";
+
+        var hasCols = e.TryGetProperty("nCols", out _);
+        var items = e.TryGetProperty("aItems", out var a) ? a.ValueKind : (JsonValueKind?)null;
+        var missing = !hasCols && items is null
+            ? "has neither nCols nor aItems"
+            : !hasCols ? "has no nCols"
+            : items is null ? "has no aItems"
+            : $"has an aItems that is a {items.Value.ToString().ToLowerInvariant()}, not an array";
+
+        var keys = e.EnumerateObject().Take(8).Select(p => p.Name).ToList();
+        return keys.Count == 0
+            ? $"{missing} (it has no fields at all)"
+            : $"{missing}; its fields start {string.Join(", ", keys)}";
     }
 
     /// <summary>Parse a single ship object, or null if it isn't ship-shaped.</summary>

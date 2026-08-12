@@ -9,6 +9,27 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **1.0.0.7**).
 
+## [Unreleased]
+
+### Fixed
+- **An unreadable save now says what it choked on.** "The ship could not be parsed" was the whole of it: the JSON
+  error behind it was caught and thrown away, leaving nobody — user or maintainer — able to tell a truncated record
+  from a stray byte from a file that was never a ship. Reported on Discord by someone whose pre-1.0 save no version
+  of Ostraplan would open. The import now reports the parser's own complaint, the line and position (1-based, as an
+  editor counts them), the JSON path, and an excerpt of the file with a caret under the offending character.
+  Control characters in the excerpt are escaped, since a raw NUL or newline inside a string is one of the things
+  that breaks a save and is invisible printed as-is. The position is resolved through UTF-8 byte counts rather than
+  character offsets, so a crew or ship name with a non-ASCII letter in it doesn't shift the caret off the fault.
+  - The same applies to **"Couldn't find the player's ship in this save"**, which a *damaged* character record
+    produced just as readily as a save that genuinely had none. Each record passed over is now named with the
+    reason it was passed over.
+  - **Import ▸ From ship template** reports the reason too, for a hand-edited or mod ship file that won't load.
+  - For the record, pre-1.0 saves are not the problem as a class: 0.15.1.6, 0.15.1.15 and 1.0.0.9 saves all import,
+    and nothing Ostraplan reads out of a ship record changed between them.
+- **A save folder holding more than one zip could be read from the wrong one.** Ostranauts writes exactly one, named
+  after the folder, but a backup or an extracted copy left beside it could be picked up instead — reporting a
+  perfectly good save as having no player ship. The zip named after the folder now wins, falling back to the largest.
+
 ## [0.70.0] 2026-08-11, ship identity on save edits, Settings and UI scaling
 
 ### Added

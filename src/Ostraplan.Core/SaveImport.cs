@@ -36,12 +36,24 @@ public static class SaveImport
 
         foreach (var sub in Directory.EnumerateDirectories(dir))
         {
-            var zip = Directory.EnumerateFiles(sub, "*.zip").FirstOrDefault();
+            var zip = DataZip(sub);
             if (zip is null) continue;
             var (ship, player, when) = ReadSaveInfo(Path.Combine(sub, "saveInfo.json"));
             list.Add(new SaveEntry(Path.GetFileName(sub), ship, player, when, zip));
         }
         return list.OrderByDescending(s => s.When, StringComparer.Ordinal).ToList();
+    }
+
+    /// <summary>The save folder's own data zip. Ostranauts writes exactly one, named after the folder, but a user
+    /// who has been poking at a save can leave a backup or an extracted copy beside it, and taking whichever the
+    /// filesystem lists first would then read the wrong archive and report the save as unreadable.</summary>
+    private static string? DataZip(string dir)
+    {
+        var zips = Directory.EnumerateFiles(dir, "*.zip").ToList();
+        if (zips.Count <= 1) return zips.FirstOrDefault();
+        var expected = Path.GetFileName(dir) + ".zip";
+        return zips.FirstOrDefault(z => string.Equals(Path.GetFileName(z), expected, StringComparison.OrdinalIgnoreCase))
+               ?? zips.OrderByDescending(z => new FileInfo(z).Length).First();
     }
 
     /// <summary>Import the player's ship from a save's data zip. Throws (for the caller to report) if it
@@ -50,19 +62,41 @@ public static class SaveImport
     {
         using var zip = ZipFile.OpenRead(zipPath);
 
-        var regId = PlayerShipRegId(zip)
-            ?? throw new InvalidDataException("Couldn't find the player's ship in this save (no character record naming a current ship).");
+        var regId = PlayerShipRegId(zip, out var why)
+            ?? throw new InvalidDataException(NoSessionMessage(why));
         var shipEntry = zip.GetEntry($"ships/{regId}.json")
             ?? throw new InvalidDataException($"The player's ship '{regId}' is not among this save's ships.");
 
-        var tmpl = ShipTemplate.ParseFile(ReadText(shipEntry)).OrderByDescending(s => s.Items.Count).FirstOrDefault()
-            ?? throw new InvalidDataException($"The player's ship '{regId}' could not be parsed.");
+        var tmpl = ParseShip(ReadText(shipEntry), shipEntry.FullName, regId)
+            .OrderByDescending(s => s.Items.Count).First();
         return TemplateImport.FromTemplate(tmpl, catalog);
+    }
+
+    /// <summary>Parse one <c>ships/*.json</c> record, throwing with the reason when nothing ship-shaped comes out.
+    /// Shared with <see cref="SaveEditImport"/> so both import paths report a bad record the same way. Takes the
+    /// already-read text, because the caller that needs it twice should not decompress it twice.</summary>
+    internal static IReadOnlyList<ShipTemplate> ParseShip(string text, string entryName, string regId)
+    {
+        var ships = ShipTemplate.ParseFileChecked(text, out var failure);
+        return ships.Count > 0
+            ? ships
+            : throw new InvalidDataException(
+                $"The ship '{regId}' could not be parsed.\n\n{entryName} in this save: {failure}");
     }
 
     /// <summary>The player character's current-ship RegID: the one zip-root record carrying <c>strShip</c>.
     /// Shared with <see cref="SaveEditImport"/>.</summary>
     internal static string? PlayerShipRegId(ZipArchive zip) => ReadSession(zip)?.ShipRegId;
+
+    /// <summary>As <see cref="PlayerShipRegId(ZipArchive)"/>, reporting what each candidate record was rejected
+    /// for when none of them named a ship.</summary>
+    internal static string? PlayerShipRegId(ZipArchive zip, out string? why) => ReadSession(zip, out why)?.ShipRegId;
+
+    /// <summary>The message for a save with no usable character record, with the per-record reasons appended when
+    /// there are any. Shared with <see cref="SaveEditImport"/>.</summary>
+    internal static string NoSessionMessage(string? why) =>
+        "Couldn't find the player's ship in this save (no character record naming a current ship)."
+        + (why is null ? "" : "\n\n" + why);
 
     /// <summary>The player character CO id (<c>strPlayerCO</c>) from the session record — the CO carrying the
     /// authoritative <c>StatUSD</c> money balance. Shared with <see cref="SaveEditImport"/>.</summary>
@@ -76,23 +110,63 @@ public static class SaveImport
     /// thing in a save (tens of MB on a mature one), so a caller needing more than one of these should take them
     /// from here rather than calling the single-value helpers in sequence. Null when no root record carries
     /// <c>strShip</c>.</summary>
-    internal static SessionRecord? ReadSession(ZipArchive zip)
+    internal static SessionRecord? ReadSession(ZipArchive zip) => ReadSession(zip, out _);
+
+    /// <summary>
+    /// As <see cref="ReadSession(ZipArchive)"/>, collecting why each candidate record was passed over.
+    ///
+    /// <para><paramref name="why"/> is null on success and on a save whose records simply are not the one being
+    /// looked for. It is filled when nothing matched, because "no character record naming a current ship" is
+    /// equally what a save with a <b>damaged</b> character record produces, and those two want opposite responses
+    /// from the user.</para>
+    /// </summary>
+    internal static SessionRecord? ReadSession(ZipArchive zip, out string? why)
     {
+        var rejected = new List<string>();
+        var candidates = 0;
+
         foreach (var e in zip.Entries)
         {
             if (e.FullName.Contains('/') || !e.FullName.EndsWith(".json", StringComparison.OrdinalIgnoreCase)) continue;
             if (e.Name.Equals("saveInfo.json", StringComparison.OrdinalIgnoreCase)) continue;
+            candidates++;
+
+            string text;
+            try { text = ReadText(e); }
+            catch (Exception ex)
+            {
+                rejected.Add($"{e.FullName}: couldn't be read from the zip ({ex.Message})");
+                continue;
+            }
+
             try
             {
-                using var doc = JsonDocument.Parse(ReadText(e));
+                using var doc = JsonDocument.Parse(text);
                 var el = Root(doc);
-                if (Json.Str(el, "strShip") is not { Length: > 0 } ship) continue;
+                if (Json.Str(el, "strShip") is not { Length: > 0 } ship)
+                {
+                    rejected.Add($"{e.FullName}: parsed, but carries no strShip naming a ship");
+                    continue;
+                }
                 var epoch = el.TryGetProperty("objSystem", out var sys)
                     && sys.TryGetProperty("dfEpoch", out var ep) && ep.TryGetDouble(out var v) ? v : 0;
+                why = null;
                 return new SessionRecord(ship, Json.Str(el, "strPlayerCO"), epoch, e.FullName);
             }
-            catch { /* not the player record — keep looking */ }
+            catch (JsonException ex)
+            {
+                rejected.Add($"{e.FullName}: {JsonDiagnostic.Describe(ex, text)}");
+            }
+            catch (Exception ex)
+            {
+                rejected.Add($"{e.FullName}: {ex.Message}");
+            }
         }
+
+        why = candidates == 0
+            ? "This save's zip holds no top-level record at all (no *.json beside the ships folder), so there is "
+              + "nothing to read the player's ship from. The save may be incomplete or truncated."
+            : string.Join("\n\n", rejected);
         return null;
     }
 

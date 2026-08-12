@@ -29,8 +29,8 @@ public static class SaveEditImport
     public static SaveEditImportResult ImportForEditing(SaveEntry save, Catalog catalog)
     {
         using var zip = ZipFile.OpenRead(save.ZipPath);
-        var regId = SaveImport.PlayerShipRegId(zip)
-            ?? throw new InvalidDataException("Couldn't find the player's ship in this save (no character record naming a current ship).");
+        var regId = SaveImport.PlayerShipRegId(zip, out var why)
+            ?? throw new InvalidDataException(SaveImport.NoSessionMessage(why));
         return ImportShip(save.ZipPath, save.Name, regId, catalog);
     }
 
@@ -60,8 +60,7 @@ public static class SaveEditImport
         // Parse the same text two ways: a ShipTemplate to drive the placement pipeline, and a mutable
         // JsonNode to retain the verbatim item/CO maps the inject needs. Both select the ship with the most
         // items, so their strIDs describe the same ship.
-        var tmpl = ShipTemplate.ParseFile(text).OrderByDescending(s => s.Items.Count).FirstOrDefault()
-            ?? throw new InvalidDataException($"The ship '{regId}' could not be parsed.");
+        var tmpl = SaveImport.ParseShip(text, shipEntry.FullName, regId).OrderByDescending(s => s.Items.Count).First();
         var shipNode = LargestShip(JsonNode.Parse(text))
             ?? throw new InvalidDataException($"The ship '{regId}' has no readable record.");
 
