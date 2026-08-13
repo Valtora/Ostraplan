@@ -351,10 +351,14 @@ public static class Propulsion
 
     // --- torch
 
+    /// <summary>The switched-off counts exist for the diagnosis alone: an off module does not fire (so it never
+    /// reaches the chain maths), but "installed and switched off" and "not there at all" are different problems
+    /// with different remedies, and the note must not claim a part is missing when it is sitting on the points.</summary>
     private readonly record struct TorchScan(
         bool HasReactor, string? CoreDef, double Ve, double PelletMax,
         int Lasers, int Capacitors, int Feeders, int Regulators, int ModulePoints,
-        double ReactantD2O, double ReactantHe3);
+        double ReactantD2O, double ReactantHe3,
+        int LasersOff, int FeedersOff, int RegulatorsOff);
 
     private static TorchScan MeasureTorch(ShipGrid grid, Catalog catalog)
     {
@@ -368,7 +372,7 @@ public static class Propulsion
 
         // Ship.Reactor is aCores[0]: the first installed fusion core, in placement order.
         var core = grid.Parts.FirstOrDefault(p => Fires(ReactorTrigger, p, catalog));
-        if (core is null) return new TorchScan(false, null, 0, 0, 0, 0, 0, 0, 0, d2o, he3);
+        if (core is null) return new TorchScan(false, null, 0, 0, 0, 0, 0, 0, 0, d2o, he3, 0, 0, 0);
 
         var byTile = FootprintIndex(grid);
         var modules = new List<PlacedPart>();
@@ -387,13 +391,15 @@ public static class Propulsion
 
         // FusionIC classifies each module by the first IsFusion* cond it carries, in this order, and skips a
         // module that is switched off — except capacitors, which it counts by list length whatever their state.
+        // The off ones are tallied separately for the diagnosis: they don't fire, but they are not missing.
         int lasers = 0, feeders = 0, regulators = 0, capacitors = 0;
+        int lasersOff = 0, feedersOff = 0, regulatorsOff = 0;
         foreach (var m in modules)
         {
-            if (m.Part.Has("IsFusionLaserArray")) { if (!m.Part.Has("IsOff")) lasers++; }
-            else if (m.Part.Has("IsFusionPelletFeeder")) { if (!m.Part.Has("IsOff")) feeders++; }
+            if (m.Part.Has("IsFusionLaserArray")) { if (!m.Part.Has("IsOff")) lasers++; else lasersOff++; }
+            else if (m.Part.Has("IsFusionPelletFeeder")) { if (!m.Part.Has("IsOff")) feeders++; else feedersOff++; }
             else if (m.Part.Has("IsFusionCapacitor")) capacitors++;
-            else if (m.Part.Has("IsFusionFuelRegulator")) { if (!m.Part.Has("IsOff")) regulators++; }
+            else if (m.Part.Has("IsFusionFuelRegulator")) { if (!m.Part.Has("IsOff")) regulators++; else regulatorsOff++; }
         }
 
         // StatICPellMax: each chain is clamped by its enabler (a laser needs a capacitor, a feeder needs a
@@ -403,7 +409,8 @@ public static class Propulsion
         var pelletMax = Math.Min(laserChain, feedChain) * 2.0;
 
         return new TorchScan(true, core.Part.DefName, IgnitedVe(core.Part, catalog), pelletMax,
-            lasers, capacitors, feeders, regulators, points, d2o, he3);
+            lasers, capacitors, feeders, regulators, points, d2o, he3,
+            lasersOff, feedersOff, regulatorsOff);
     }
 
     /// <summary>
@@ -457,14 +464,24 @@ public static class Propulsion
 
         if (t.PelletMax <= 0)
         {
+            // "installed and switched off" and "not there at all" are different problems: a part is only called
+            // missing when neither an on nor an off form of it sits on the points.
             var missing = new List<string>();
-            if (t.Lasers == 0) missing.Add("laser array");
+            if (t.Lasers == 0 && t.LasersOff == 0) missing.Add("laser array");
             if (t.Capacitors == 0) missing.Add("capacitor");
-            if (t.Feeders == 0) missing.Add("pellet feeder");
-            if (t.Regulators == 0) missing.Add("fuel regulator");
-            notes.Add(missing.Count > 0
-                ? $"Torch cannot fire: the reactor has no {string.Join(", no ", missing)} on its {t.ModulePoints} module points."
-                : "Torch cannot fire: the reactor's modules are all switched off.");
+            if (t.Feeders == 0 && t.FeedersOff == 0) missing.Add("pellet feeder");
+            if (t.Regulators == 0 && t.RegulatorsOff == 0) missing.Add("fuel regulator");
+
+            var off = new List<string>();
+            if (t.Lasers == 0 && t.LasersOff > 0) off.Add($"{t.LasersOff} laser array{S(t.LasersOff)}");
+            if (t.Feeders == 0 && t.FeedersOff > 0) off.Add($"{t.FeedersOff} pellet feeder{S(t.FeedersOff)}");
+            if (t.Regulators == 0 && t.RegulatorsOff > 0) off.Add($"{t.RegulatorsOff} fuel regulator{S(t.RegulatorsOff)}");
+
+            if (missing.Count > 0)
+                notes.Add($"Torch cannot fire: the reactor has no {string.Join(", no ", missing)} on its {t.ModulePoints} module points.");
+            if (off.Count > 0)
+                notes.Add($"Torch cannot fire: {string.Join(", ", off)} installed on the module points but switched "
+                          + "off. Right-click each and choose Switch on.");
         }
         else
         {
@@ -478,6 +495,9 @@ public static class Propulsion
                 notes.Add(laserChain < feedChain
                     ? $"Thrust is capped by the laser side ({laserChain} against {feedChain} on the feed side)."
                     : $"Thrust is capped by the feed side ({feedChain} against {laserChain} on the laser side).");
+            var offCount = t.LasersOff + t.FeedersOff + t.RegulatorsOff;
+            if (offCount > 0)
+                notes.Add($"{offCount} module{S(offCount)} on the points switched off and not counted.");
         }
 
         if (t.Ve <= 0)

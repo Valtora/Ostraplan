@@ -294,6 +294,44 @@ public class PropulsionTests(ITestOutputHelper output)
     }
 
     /// <summary>
+    /// A module installed in its off state does not fire (FusionIC skips it, and the port follows), but it is not
+    /// <b>missing</b>: the diagnosis must say switched off, or a ship whose modules were placed before the palette
+    /// could reach their on states reads as having no modules at all — the Dancing Jack case, where every module
+    /// sat on the points in its <c>…Off</c> def and the note claimed none existed.
+    /// </summary>
+    [SkippableFact]
+    public void Off_modules_read_as_switched_off_not_as_missing()
+    {
+        var g = TestData.RequireGame();
+        RequireDefs(g.Catalog, CoreOff, Capacitor);
+        Skip.IfNot(g.Catalog.Lookup(Laser + "Off") is not null && g.Catalog.Lookup(Feeder + "Off") is not null
+            && g.Catalog.Lookup(Regulator + "Off") is not null, "no off-state module defs in this install");
+
+        var doc = new ShipDocument(g.Catalog);
+        Place(doc, CoreOff, 10, 10);
+        Place(doc, Laser + "Off", 11, 8);
+        Place(doc, Feeder + "Off", 13, 8);
+        Place(doc, Capacitor, 14, 11);
+        Place(doc, Regulator + "Off", 10, 14);
+
+        var p = Measure(doc, g.Catalog);
+        Assert.Equal(0, p.PelletMax);   // off modules genuinely do not fire
+        Assert.Equal(0, p.Lasers);
+        var note = Assert.Single(p.TorchNotes, n => n.StartsWith("Torch cannot fire", StringComparison.Ordinal));
+        Assert.Contains("switched off", note);
+        Assert.DoesNotContain("has no", note);
+        Assert.Contains("1 laser array", note);
+
+        // with the capacitor gone, the missing and the switched-off stories are told separately, each truthfully
+        var noCap = new ShipDocument(g.Catalog);
+        Place(noCap, CoreOff, 10, 10);
+        Place(noCap, Laser + "Off", 11, 8);
+        var m = Measure(noCap, g.Catalog);
+        Assert.Contains(m.TorchNotes, n => n.Contains("no capacitor") && !n.Contains("laser"));
+        Assert.Contains(m.TorchNotes, n => n.Contains("laser array") && n.Contains("switched off"));
+    }
+
+    /// <summary>
     /// The installable core is the <c>…Off</c> form and only the ignited condowner carries <c>StatICVe</c>, so
     /// a literal read would report zero thrust for every design ever planned. The resolution through to
     /// <c>…Ignition</c> is what makes the torch figures mean anything.

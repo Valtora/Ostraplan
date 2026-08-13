@@ -12,6 +12,12 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Fixed
+- **The torch note no longer claims modules are missing when they are switched off.** A reactor whose laser
+  arrays, pellet feeders or fuel regulators sat on its module points in their off state read as "the reactor has
+  no laser array, no pellet feeder, no fuel regulator", which is exactly how a ship built before **Switch on**
+  existed looks: the palette used to place those modules off with no way back. Off modules still make no thrust
+  (the game's own rule), but the note now says they are installed and switched off, and points at the right-click
+  **Switch on** action that fixes it. A firing torch with some modules off mentions the uncounted ones too.
 - **Container contents no longer go missing depending on which import you used.** Importing a ship "for editing"
   kept every container's contents; importing the same ship layout-only, or importing a template, dropped them
   without offering a choice or saying which you were getting. That is what was being reported as cargo importing
