@@ -77,6 +77,7 @@ public sealed class OplanFile
                        {
                            Def = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot, Given = p.IsGiven, Origin = p.OriginStrID,
                            SwappedFrom = p.SwappedFromStrID, SwappedFromDef = p.SwappedFromDef,
+                           Name = p.CustomName,
                            // Persist a FULL snapshot of a container's contents once it has been edited, so authored
                            // cargo is authoritative on reopen rather than re-derived from the (possibly moved) save.
                            Cargo = doc.IsCargoEdited(p) && p.Cargo.Count > 0 ? p.Cargo.Select(ToOplanCargo).ToList() : null,
@@ -132,6 +133,7 @@ public sealed class OplanFile
             {
                 DefName = part.Def, X = part.X, Y = part.Y, Rot = GridMath.Norm(part.Rot), IsGiven = part.Given,
                 OriginStrID = part.Origin, SwappedFromStrID = part.SwappedFrom, SwappedFromDef = part.SwappedFromDef,
+                CustomName = Rename.OrNull(part.Name),   // verbatim: an imported name must survive a reopen unchanged
             };
             doc.Add(placement);
             byIndex[i] = placement;
@@ -280,6 +282,10 @@ public sealed class OplanPart
     /// before these existed simply has neither, and its re-stated parts price as new material as they used to.</summary>
     [JsonPropertyName("swappedFrom")] public string? SwappedFrom { get; set; }
     [JsonPropertyName("swappedFromDef")] public string? SwappedFromDef { get; set; }
+    /// <summary>A name the user gave this part (see <see cref="Placement.CustomName"/>). Null — and omitted — for a
+    /// part carrying its stock name. Additive at format v1: an older build ignores it and round-trips it through
+    /// <see cref="Extra"/>, so a renamed design opened in one loses nothing.</summary>
+    [JsonPropertyName("name")] public string? Name { get; set; }
     /// <summary>A full snapshot of this container's contents, present only when its cargo was edited in the
     /// inventory editor (see <see cref="ShipDocument.IsCargoEdited"/>). Null for un-edited parts, whose cargo is
     /// re-read from the linked save on open. See <see cref="OplanCargo"/>.</summary>

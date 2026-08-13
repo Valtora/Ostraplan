@@ -545,7 +545,9 @@ public sealed class InventoryWindow : Window
         }
         var grid = container.ContainerGrid ?? (6, 6);
         var dlg = new AddCargoDialog(_catalog, _sprites, container, offered,
-            def => CargoEdit.MaxAddable(_root!.Cargo, containerId, grid, def)) { Owner = this };
+            def => CargoEdit.MaxAddable(_root!.Cargo, containerId, grid, def),
+            // the crumb trail's tail is what the user is actually looking at, custom name and all
+            _path.Count > 0 ? _path[^1].Title : null) { Owner = this };
         if (dlg.ShowDialog() != true || dlg.Chosen is not { } pick) return;
 
         var updated = CargoEdit.Add(_root!.Cargo, containerId, grid, pick.Def, pick.Quantity);

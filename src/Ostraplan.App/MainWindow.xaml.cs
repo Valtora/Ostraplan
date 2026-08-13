@@ -1004,7 +1004,9 @@ public partial class MainWindow : Window
 
         try
         {
-            var result = TemplateImport.LoadFile(entry.Path, _catalog!);
+            // Structure only: the bill counts placed parts, so reading a hold full of cargo would be work for
+            // nothing on what is already the slowest half of picking a starting ship.
+            var result = TemplateImport.LoadFile(entry.Path, _catalog!, ImportOptions.LayoutOnly);
             return new RetrofitPick(result.ShipName, BillOfMaterials.ComputeAll(result.Doc));
         }
         catch (Exception ex)
@@ -1044,7 +1046,8 @@ public partial class MainWindow : Window
         var (catalog, zip, regId) = (_catalog!, save.ZipPath, chosen.RegId);
         try
         {
-            var result = await Ui.OffThread(() => SaveImport.ImportShipLayout(zip, regId, catalog));
+            var result = await Ui.OffThread(
+                () => SaveImport.ImportShipLayout(zip, regId, catalog, ImportOptions.LayoutOnly));
             return new RetrofitPick(chosen.Name, BillOfMaterials.ComputeAll(result.Doc));
         }
         catch (Exception ex)
@@ -2144,15 +2147,57 @@ public partial class MainWindow : Window
     /// <para>A state change, not an identity change, so it goes through <see cref="Placement.Restate"/>: on a save
     /// edit the door is one the player already owns, and shutting it must not be billed as a new door.</para>
     /// </summary>
-    private void ToggleDoors(IReadOnlyList<Placement> doors)
+    private void ToggleDoors(IReadOnlyList<Placement> doors) => RestateAll(doors, d => _catalog!.DoorToggle(d));
+
+    /// <summary>
+    /// Switch each device in the set between its off and on state, keeping tile, rotation and cargo. The game
+    /// installs powered fixtures Off and the palette builds the On form instead where it can name one, but a device
+    /// whose on-state is a colour variant (the Transponder) falls through and is placed Off with no way to switch it
+    /// on. This is that way, and it also covers turning something deliberately off.
+    ///
+    /// <para>Switching on always lands on the <b>nominal</b> state, never an alarm's alert colour (see
+    /// <see cref="Catalog.PowerToggle"/>). It matters to the analysis rather than being cosmetic: the Ship Rating
+    /// and the diagnostics both forbid <c>IsOff</c>, so a switched-off transponder really does read as a fault.</para>
+    /// </summary>
+    private void TogglePower(IReadOnlyList<Placement> devices) => RestateAll(devices, d => _catalog!.PowerToggle(d));
+
+    /// <summary>
+    /// Give a placed container or device a name of its own, the way the game's own rename box does — so a hold of
+    /// identical racks can read "spare tool storage" and "spare reactor parts" instead of five identical rows. The
+    /// name travels into the game on export and on a save write-back, and comes back on import (see
+    /// <see cref="Rename"/>).
+    /// </summary>
+    private void RenamePart(Placement p)
     {
-        if (_doc is null || _catalog is null || doors.Count == 0) return;
+        if (_doc is null || _catalog is null || _doc.IsLocked(p)) return;
+        var part = _doc.Part(p);
+        if (!Rename.CanRename(part)) return;
+
+        var dlg = new RenameDialog(part!.Friendly, p.CustomName) { Owner = this };
+        if (dlg.ShowDialog() != true || dlg.ChosenName == p.CustomName) return;
+
+        _stack.Push(_doc, new SetCustomNameCommand(p, p.CustomName, dlg.ChosenName));
+        Board.InvalidateVisual();
+        UpdateInspector();
+    }
+
+    /// <summary>
+    /// Re-state each part to the def <paramref name="peer"/> maps it to, at the same tile and rotation, as one undo
+    /// step; the swapped-in parts become the selection. Shared by the door and power toggles, which differ only in
+    /// the mapping.
+    ///
+    /// <para>A state change, not an identity change, so it goes through <see cref="Placement.Restate"/>: on a save
+    /// edit the part is one the player already owns, and switching it must not be billed as a new one.</para>
+    /// </summary>
+    private void RestateAll(IReadOnlyList<Placement> parts, Func<string, string?> peer)
+    {
+        if (_doc is null || _catalog is null || parts.Count == 0) return;
         var commands = new List<IDocCommand>();
         var newIds = new List<Guid>();
-        foreach (var p in doors)
+        foreach (var p in parts)
         {
-            if (_doc.IsLocked(p) || _catalog.DoorToggle(p.DefName) is not { } peer) continue;
-            var swapped = p.Restate(peer, p.Rot);
+            if (_doc.IsLocked(p) || peer(p.DefName) is not { } target) continue;
+            var swapped = p.Restate(target, p.Rot);
             commands.Add(new RemoveCommand([p]));
             commands.Add(new PlaceCommand(swapped));
             newIds.Add(swapped.Id);
@@ -2391,7 +2436,7 @@ public partial class MainWindow : Window
             {
                 var target = p;
                 var isSel = Board.SelectedIds.Count == 1 && Board.SelectedIds.Contains(p.Id);
-                var label = (isSel ? "●  " : "○  ") + (_doc.Part(p)?.Friendly ?? p.DefName)
+                var label = (isSel ? "●  " : "○  ") + Rename.Display(p, _doc.Part(p))
                             + (_doc.IsLocked(p) ? "   · fixed" : "");
                 menu.Items.Add(Item(label, "", (_, _) => Board.SelectOnly(target)));
             }
@@ -2401,7 +2446,7 @@ public partial class MainWindow : Window
             var only = stack[0];
             menu.Items.Add(new MenuItem
             {
-                Header = (_doc.Part(only)?.Friendly ?? only.DefName) + (_doc.IsLocked(only) ? "  · fixed to the ship" : ""),
+                Header = Rename.Display(only, _doc.Part(only)) + (_doc.IsLocked(only) ? "  · fixed to the ship" : ""),
                 IsEnabled = false,
                 FontWeight = FontWeights.SemiBold,
             });
@@ -2447,6 +2492,29 @@ public partial class MainWindow : Window
                 menu.Items.Add(Item("Close door" + (toClose.Count > 1 ? $" ({toClose.Count})" : ""), "", (_, _) => ToggleDoors(toClose)));
             if (toOpen.Count > 0)
                 menu.Items.Add(Item("Open door" + (toOpen.Count > 1 ? $" ({toOpen.Count})" : ""), "", (_, _) => ToggleDoors(toOpen)));
+        }
+
+        // power state — switch the selected devices on or off. Split by which way each one can go, so a mixed
+        // selection offers both and each entry does exactly what it says.
+        var switchable = unlocked.Where(p => _catalog!.PowerToggle(p.DefName) is not null).ToList();
+        var toSwitchOn = switchable.Where(p => _catalog!.Lookup(p.DefName)?.StartingConds.Contains("IsOff") == true).ToList();
+        var toSwitchOff = switchable.Except(toSwitchOn).ToList();
+        if (toSwitchOn.Count > 0 || toSwitchOff.Count > 0)
+        {
+            menu.Items.Add(new Separator());
+            if (toSwitchOn.Count > 0)
+                menu.Items.Add(Item("Switch on" + (toSwitchOn.Count > 1 ? $" ({toSwitchOn.Count})" : ""), "", (_, _) => TogglePower(toSwitchOn)));
+            if (toSwitchOff.Count > 0)
+                menu.Items.Add(Item("Switch off" + (toSwitchOff.Count > 1 ? $" ({toSwitchOff.Count})" : ""), "", (_, _) => TogglePower(toSwitchOff)));
+        }
+
+        // rename — a single container or device. One at a time by nature: a name is the thing that tells two
+        // otherwise-identical racks apart, so applying one to a multi-selection would defeat the point.
+        var renameTarget = multi ? null : (selected.Count == 1 ? selected[0] : stack[0]);
+        if (renameTarget is { } rt && !_doc.IsLocked(rt) && Rename.CanRename(_doc.Part(rt)))
+        {
+            menu.Items.Add(new Separator());
+            menu.Items.Add(Item(rt.CustomName is null ? "Rename…" : "Rename or clear…", "", (_, _) => RenamePart(rt)));
         }
 
         // installed ⇄ loose form: uninstall a placed fixture to its packaged (loose) form on the tile, or
@@ -2555,7 +2623,7 @@ public partial class MainWindow : Window
     private void OpenInventory(Placement p)
     {
         if (_doc is null || _catalog is null || _sprites is null) return;
-        var friendly = _doc.Part(p)?.Friendly ?? p.DefName;
+        var friendly = Rename.Display(p, _doc.Part(p));
         new InventoryWindow(_catalog, _sprites, p.DefName, friendly, p.Cargo, _doc, _stack, p) { Owner = this }.ShowDialog();
     }
 
@@ -2837,8 +2905,11 @@ public partial class MainWindow : Window
             : "";
         // a selected loose floor item shows its stacked count
         var looseNote = Board.ArmedPart is null && Board.SelectedLoose is { Quantity: > 1 } sl ? $"  · ×{sl.Quantity}" : "";
-        InsFriendly.Text = part.Friendly + lockedNote + looseNote;
-        InsInternal.Text = part.DefName;
+        // A named part leads with its own name; the stock one moves alongside so the row still says what the thing
+        // actually is. Only ever on a lone selected placement — an armed palette part has no name of its own.
+        var named = Board.ArmedPart is null && selected.Count == 1 ? selected[0].CustomName : null;
+        InsFriendly.Text = (named ?? part.Friendly) + lockedNote + looseNote;
+        InsInternal.Text = named is null ? part.DefName : $"{part.Friendly}  ·  {part.DefName}";
         if (part.Desc is { Length: > 0 } desc)
         {
             InsDesc.Text = desc;
@@ -3347,13 +3418,12 @@ public partial class MainWindow : Window
             "Import") { Owner = this };
         if (picker.ShowDialog() != true || picker.Selected is not { } save) return;
 
-        var ship = save.ShipName.Length > 0 ? $"\"{save.ShipName}\"" : "the player's ship";
+        var ship = save.ShipName.Length > 0 ? $"“{save.ShipName}”" : "the player's ship";
         var who = save.PlayerName.Length > 0 ? $"{save.PlayerName}'s " : "";
-        if (!Dlg.Confirm(this, DlgKind.Info, $"Import {ship} for planning?",
-                $"From {who}save \"{save.Name}\".\n\n" +
-                "Ostraplan imports the ship layout only.\n" +
-                "Crew, cargo, installed modules, wear, and damage are discarded, giving a pristine editable design.",
-                "Import layout"))
+        if (AskImportOptions($"Import {ship} for planning?",
+                $"From {who}save “{save.Name}”. The design arrives unlinked from that save: wear and damage are "
+                + "discarded and it cannot be written back, which is what \"your ship, for editing\" is for.")
+            is not { } options)
             return;
 
         var (catalog, zip) = (_catalog, save.ZipPath);
@@ -3361,7 +3431,7 @@ public partial class MainWindow : Window
         Mouse.OverrideCursor = Cursors.Wait;
         try
         {
-            result = await Ui.OffThread(() => SaveImport.ImportPlayerShip(zip, catalog));
+            result = await Ui.OffThread(() => SaveImport.ImportPlayerShip(zip, catalog, options));
         }
         catch (Exception ex)
         {
@@ -3373,7 +3443,7 @@ public partial class MainWindow : Window
             Mouse.OverrideCursor = null;
         }
 
-        InstallImportedDocument(result);
+        InstallImportedDocument(result, options: options);
         AuditLog.Add($"Imported ship from save \"{save.Name}\" (layout only).");
     }
 
@@ -3587,12 +3657,17 @@ public partial class MainWindow : Window
         var browser = new TemplateBrowserDialog(ships) { Owner = this };
         if (browser.ShowDialog() != true || browser.Selected is not { } entry) return;
 
+        if (AskImportOptions($"Import the ship template “{entry.Name}”?",
+                "A template is a stock or modded ship. It arrives as a pristine editable design with no in-game "
+                + "identity, wear or damage.") is not { } options)
+            return;
+
         var (catalog, path) = (_catalog, entry.Path);
         ImportResult result;
         Mouse.OverrideCursor = Cursors.Wait;
         try
         {
-            result = await Ui.OffThread(() => TemplateImport.LoadFile(path, catalog));
+            result = await Ui.OffThread(() => TemplateImport.LoadFile(path, catalog, options));
         }
         catch (Exception ex)
         {
@@ -3604,7 +3679,7 @@ public partial class MainWindow : Window
             Mouse.OverrideCursor = null;
         }
 
-        InstallImportedDocument(result);
+        InstallImportedDocument(result, options: options);
         AuditLog.Add($"Imported ship template \"{result.ShipName}\".");
     }
 
@@ -3614,7 +3689,7 @@ public partial class MainWindow : Window
     /// <para>A ship imported for editing brings its in-game identity with it, because that path can write the
     /// identity back: opening Ship Info on blanks would invite typing over an identity the ship already has,
     /// with no way to see what it was.</para></summary>
-    private void InstallImportedDocument(ImportResult result, SaveShipContext? context = null)
+    private void InstallImportedDocument(ImportResult result, SaveShipContext? context = null, ImportOptions? options = null)
     {
         CloseReports();
         if (_doc is not null) _doc.Changed -= OnDocChanged;
@@ -3632,20 +3707,68 @@ public partial class MainWindow : Window
         Board.FitContent();
         OnDocChanged();
         UpdateInspector();
-        ReportImport(result, keptContents: context is not null, skippedHandled: context is not null);
+        ReportImport(result, options, keptContents: context is not null, skippedHandled: context is not null);
     }
 
-    /// <summary>Tell the user about anything the import dropped (contained cargo, unresolved defs). Silent on a
-    /// clean import. <paramref name="keptContents"/> is true for a save import FOR EDITING, where contained cargo
-    /// is preserved as viewable container contents rather than discarded (a layout-only / template import drops it).</summary>
-    private void ReportImport(ImportResult result, bool keptContents, bool skippedHandled = false)
+    /// <summary>
+    /// Ask what to bring in besides the ship's structure, seeded from the remembered choice and saving it again.
+    /// Null when the user backed out. Not used by "your ship, for editing", which always brings everything
+    /// (see <see cref="ImportOptionsDialog"/>).
+    /// </summary>
+    private ImportOptions? AskImportOptions(string heading, string note)
     {
+        var initial = new ImportOptions(_settings.ImportContainerContents, _settings.ImportLooseItems);
+        var dlg = new ImportOptionsDialog(heading, note, initial) { Owner = this };
+        if (dlg.ShowDialog() != true) return null;
+
+        var chosen = dlg.Options;
+        _settings.ImportContainerContents = chosen.ContainerContents;
+        _settings.ImportLooseItems = chosen.LooseItems;
+        _settings.Save();
+        return chosen;
+    }
+
+    /// <summary>Tell the user what the import brought in and what it left behind. Silent on a clean import.
+    /// <paramref name="keptContents"/> is true for a save import FOR EDITING, where contents are always kept, stay
+    /// linked to the save rather than becoming the design's own, and nothing is ever lost — whatever isn't shown
+    /// (crew and what they carry) survives the write-back untouched, so that path never says "left behind".
+    /// <paramref name="options"/> is what the user chose at the dialog (null means everything), so the advice can
+    /// distinguish "turn the checkbox on" from "the checkbox was on and these still couldn't come".</summary>
+    private void ReportImport(ImportResult result, ImportOptions? options, bool keptContents, bool skippedHandled = false)
+    {
+        var opts = options ?? ImportOptions.Everything;
         var notes = new List<string>();
-        if (result.ContainedDropped > 0)
-            notes.Add(keptContents
-                ? $"{result.ContainedDropped} contained item(s) (cargo, tools, installed modules) were kept as container contents.\n" +
-                  "Right-click a container and choose \"View contents\" to see them. They aren't placed on the grid as buildable structure."
-                : $"{result.ContainedDropped} contained item(s) were dropped (cargo, tools, installed modules).\nOstraplan imports the layout only.");
+        if (result.ContainedKept > 0)
+            notes.Add($"{result.ContainedKept} contained item(s) came in as container contents.\n" +
+                      "Right-click a container and choose \"View contents\" to see them. They aren't placed on the "
+                      + "grid as buildable structure."
+                      + (keptContents ? "" : "\nThey belong to the design now, and travel with it through Export."));
+        if (keptContents)
+        {
+            if (result.ContainedDropped > 0)
+                notes.Add($"{result.ContainedDropped} item(s) aren't shown as cargo — most are carried by crew.\n" +
+                          "They stay in the save untouched, and \"Update Ship in Save\" preserves them.");
+        }
+        else
+        {
+            var fetchable = Math.Max(0, result.ContainedDropped - result.CrewDropped - result.DeckDropped);
+            if (fetchable > 0)
+                notes.Add($"{fetchable} contained item(s) were left behind (cargo, tools, installed modules).\n" +
+                          (opts.ContainerContents
+                              ? "Their containers couldn't be imported (see the missing parts below)."
+                              : "Turn on \"Container contents\" at import to bring them in."));
+            if (result.DeckDropped > 0)
+                notes.Add($"{result.DeckDropped} item(s) inside containers lying on the deck were left behind.\n" +
+                          "A deck container imports without its contents.");
+            if (result.CrewDropped > 0)
+                notes.Add($"{result.CrewDropped} item(s) carried by crew were left behind. Crew are never imported.");
+        }
+        if (result.LooseKept > 0)
+            notes.Add($"{result.LooseKept} item(s) lying on the deck came in as loose objects.\n" +
+                      "They render and travel with the ship, and take no part in the placement law.");
+        if (result.LooseDropped > 0)
+            notes.Add($"{result.LooseDropped} item(s) lying on the deck were left behind.\n" +
+                      "Turn on \"Items lying on the deck\" at import to bring them in.");
         if (result.SystemDropped > 0)
             notes.Add($"{result.SystemDropped} loot spawner and system object(s) were dropped.\nThey populate the ship at runtime, and aren't buildable structure.");
         // skippedHandled: the save-edit path already ran the missing-mods stand-in prompt, which says all of this

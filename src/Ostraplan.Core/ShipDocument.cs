@@ -69,12 +69,30 @@ public sealed class Placement
         var backHome = carriedId is not null && string.Equals(carriedDef, targetDef, StringComparison.Ordinal);
         return new Placement
         {
-            DefName = targetDef, X = X, Y = Y, Rot = rot, IsGiven = false, Cargo = Cargo,
+            // CustomName rides across: switching a device off, or uninstalling it, does not change what it is called.
+            DefName = targetDef, X = X, Y = Y, Rot = rot, IsGiven = false, Cargo = Cargo, CustomName = CustomName,
             OriginStrID = backHome ? carriedId : null,
             SwappedFromStrID = backHome ? null : carriedId,
             SwappedFromDef = backHome || carriedId is null ? null : carriedDef,
         };
     }
+
+    /// <summary>
+    /// A name the user gave this part, replacing its stock one everywhere the part is named. Null (and omitted
+    /// from the .oplan) when it carries the name its def came with.
+    ///
+    /// <para>This is the game's own rename, not a label Ostraplan invented: <c>CondOwner.Rename</c> stores it as a
+    /// GUI-prop-map panel called <c>Rename</c> with a single <c>strName</c> key, and the game re-applies it on load
+    /// through <c>CheckForRename</c> (from <c>Ship.CreatePart</c>, which <c>SpawnItems</c> spawns each item
+    /// through). Core ships already use it (the stock <i>Babak Refit</i> names an electrical box
+    /// "Pressurization SB"), which is why an import reads it as well as writing it.</para>
+    ///
+    /// <para>It rides through a move and through <see cref="Restate"/> (uninstall, install, switch on or off, a
+    /// re-skin), since none of those change what the thing is called — unlike <see cref="OriginStrID"/>, which a
+    /// non-returning Restate hands off to <see cref="SwappedFromStrID"/>. Duplicate and paste drop it along with
+    /// the rest of the part's identity.</para>
+    /// </summary>
+    public string? CustomName { get; set; }
 
     /// <summary>
     /// The contained sub-objects this part holds — loose cargo and slotted equipment, nested (see
@@ -479,6 +497,11 @@ public sealed class ShipDocument
 
     /// <summary>Set the stacked quantity of a loose item in place (keeps its identity for selection).</summary>
     internal void SetLooseQuantity(LooseObject o, int quantity) { o.Quantity = quantity; RaiseChanged(); }
+
+    /// <summary>Set or clear a part's own name (see <see cref="Placement.CustomName"/>). Stored verbatim with only
+    /// empty collapsing to null (<see cref="Rename.OrNull"/>): typed input is normalised at the rename dialog, and
+    /// normalising again here would corrupt an undo that restores a name imported exactly as the game stored it.</summary>
+    internal void SetCustomName(Placement p, string? name) { p.CustomName = Rename.OrNull(name); RaiseChanged(); }
 
     // ---- device-link mutations (command implementations only) ----
 

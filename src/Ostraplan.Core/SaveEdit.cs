@@ -306,6 +306,12 @@ public static class SaveEdit
                 fx = self is null ? 0 : Dbl(self, "fX");
                 fy = self is null ? 0 : Dbl(self, "fY");
             }
+            // The part's name, in whichever direction it changed. This runs for kept and moved parts too, because
+            // the save's own item carries whatever it was called in game and the user may have renamed it here, or
+            // cleared a name back to the stock one — both have to reach the item that is actually written.
+            if (outItemsById.GetValueOrDefault(containerId) is { } namedItem)
+                ApplyRename(namedItem, p.CustomName);
+
             structuralIds.Add(containerId);
             EmitCargo(p.Cargo, containerId, fx, fy);
         }
@@ -924,6 +930,43 @@ public static class SaveEdit
         foreach (var (instance, dict) in settings)
             arr.Add(new JsonObject { ["strName"] = instance, ["dictGUIPropMap"] = JsonNode.Parse(dict.GetRawText()) });
         return arr;
+    }
+
+    /// <summary>
+    /// Set or clear an item's <c>Rename</c> GPM panel to match the design (see <see cref="Rename"/>), leaving every
+    /// other panel on the item alone.
+    ///
+    /// <para>Rewriting rather than adding matters on the kept/moved path, where the item is the save's own: a part
+    /// the player named in game arrives carrying that panel, so renaming it here has to <b>replace</b> it and
+    /// clearing the name has to <b>remove</b> it. Appending would happen to work today — the game's load merges
+    /// duplicate panels per key with the last winning (<c>Ship.CreatePart</c>) — but it would grow a stale panel
+    /// per edit and leave the item a shape the game itself never writes, which every later reader (Ostraplan's own
+    /// import included) would have to know about.</para>
+    ///
+    /// <para>The name is written <b>verbatim</b> (<see cref="Rename.OrNull"/>): a name typed in Ostraplan was
+    /// already normalised at the dialog, and one read off the save must go back exactly as it came, or a no-op
+    /// write-back would rewrite the player's own data.</para>
+    /// </summary>
+    internal static void ApplyRename(JsonObject item, string? name)
+    {
+        var panels = item["aGPMSettings"] as JsonArray;
+        var value = Rename.OrNull(name);
+        if (panels is null && value is null) return;   // nothing there, nothing wanted
+
+        if (panels is not null)
+            for (var i = panels.Count - 1; i >= 0; i--)
+                if (panels[i] is JsonObject existing && Str(existing, "strName") == Rename.Panel)
+                    panels.RemoveAt(i);
+
+        if (value is null)
+        {
+            // an item whose only panel was the rename keeps no empty array behind
+            if (panels is { Count: 0 }) item.Remove("aGPMSettings");
+            return;
+        }
+
+        if (panels is null) item["aGPMSettings"] = panels = [];
+        panels.Add(Rename.PanelNode(value));
     }
 
     private static string SourceDir(SaveShipContext ctx) => Path.GetDirectoryName(ctx.ZipPath)!;

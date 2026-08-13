@@ -61,14 +61,27 @@ public static class SaveEditImport
         // JsonNode to retain the verbatim item/CO maps the inject needs. Both select the ship with the most
         // items, so their strIDs describe the same ship.
         var tmpl = SaveImport.ParseShip(text, shipEntry.FullName, regId).OrderByDescending(s => s.Items.Count).First();
-        var shipNode = LargestShip(JsonNode.Parse(text))
+        var shipNode = ShipJson.Largest(text)
             ?? throw new InvalidDataException($"The ship '{regId}' has no readable record.");
 
-        var import = TemplateImport.Build(tmpl, catalog, retainOrigin: true);
+        // Always everything. This design stays linked to the save and can be written back into it, and the
+        // write-back emits each container's contents from the imported tree — so importing a ship for editing with
+        // its cargo left out would delete that cargo from the save. Not a user choice.
+        var import = TemplateImport.Build(tmpl, catalog, retainOrigin: true, ImportOptions.Everything);
         var source = new SaveSourceRef(saveName, regId);
         import.Doc.SourceSave = source;
 
         var context = BuildContext(source, zipPath, shipNode, import.Doc, catalog, SaveImport.PlayerCoId(zip), SaveImport.SessionEpoch(zip));
+
+        // Build ran before BuildContext hung the cargo on the placements (this path attaches from the retained
+        // context, not from Build), so its tallies still call every contained item dropped. Settle them from what
+        // was actually attached, or the import report claims the ship's whole inventory was left behind.
+        var attached = import.Doc.Placements.Sum(p => p.Cargo.Sum(c => c.SubtreeCount));
+        import = import with
+        {
+            ContainedKept = attached,
+            ContainedDropped = Math.Max(0, import.ContainedDropped - attached),
+        };
         return new SaveEditImportResult(import, context);
     }
 
@@ -76,20 +89,7 @@ public static class SaveEditImport
     /// structural part's imported pose + contained-cargo subtree.</summary>
     private static SaveShipContext BuildContext(SaveSourceRef source, string zipPath, JsonNode shipNode, ShipDocument doc, Catalog catalog, string? playerCoId, double epoch)
     {
-        var items = ArrayOf(shipNode, "aItems").ToList();
-        var itemsById = ById(items);
-        var cosById = ById(ArrayOf(shipNode, "aCOs"));
-
-        // parent strID -> child strIDs, over every item declaring a container/slot parent
-        var children = new Dictionary<string, List<string>>(StringComparer.Ordinal);
-        foreach (var it in items)
-        {
-            if (Id(it) is not { } id) continue;
-            var parent = Str(it, "strParentID") ?? Str(it, "strSlotParentID");
-            if (string.IsNullOrEmpty(parent)) continue;
-            if (!children.TryGetValue(parent, out var kids)) children[parent] = kids = [];
-            kids.Add(id);
-        }
+        var (itemsById, cosById, children) = ShipJson.Index(shipNode);
 
         // one origin per structural (grid-placed) part, keyed by the strID the import tagged it with
         var origins = new Dictionary<string, OriginPart>(StringComparer.Ordinal);
@@ -135,32 +135,4 @@ public static class SaveEditImport
         return acc;
     }
 
-    /// <summary>The ship object with the most items — a file may be one object or an array of ships.</summary>
-    private static JsonNode? LargestShip(JsonNode? node) => node switch
-    {
-        JsonArray arr => arr.OfType<JsonObject>()
-            .Where(IsShip)
-            .OrderByDescending(o => (o["aItems"] as JsonArray)?.Count ?? 0)
-            .FirstOrDefault(),
-        JsonObject obj when IsShip(obj) => obj,
-        _ => null,
-    };
-
-    private static bool IsShip(JsonObject o) => o["nCols"] is not null && o["aItems"] is JsonArray;
-
-    private static IEnumerable<JsonNode> ArrayOf(JsonNode ship, string prop) =>
-        (ship as JsonObject)?[prop] is JsonArray a ? a.Where(n => n is not null).Select(n => n!) : [];
-
-    private static Dictionary<string, JsonNode> ById(IEnumerable<JsonNode> nodes)
-    {
-        var map = new Dictionary<string, JsonNode>(StringComparer.Ordinal);
-        foreach (var n in nodes)
-            if (Id(n) is { } id) map[id] = n;   // last wins on a duplicate id (should not happen in a real save)
-        return map;
-    }
-
-    private static string? Id(JsonNode? n) => Str(n, "strID");
-
-    private static string? Str(JsonNode? n, string prop) =>
-        (n as JsonObject)?[prop] is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;
 }

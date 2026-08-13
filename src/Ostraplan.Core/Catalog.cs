@@ -412,6 +412,93 @@ public sealed class Catalog
         return peer is not null && ByDefName.ContainsKey(peer) ? peer : null;
     }
 
+    private readonly ConcurrentDictionary<string, string?> _powerToggle = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The power-state counterpart of a placed def: a switched-off device's <b>nominal</b> switched-on form, or a
+    /// switched-on device's off form. Null when the part has no power state, or when its on-state is ambiguous.
+    ///
+    /// <para>The game installs powered fixtures in their <c>Off</c> state and
+    /// <see cref="PreferPoweredState"/> builds the On one instead, but only when it can name it: a device whose On
+    /// form is a colour variant (the Transponder's <c>…OnR</c>) falls through and is placed Off, with no way to
+    /// switch it on. This is that way.</para>
+    ///
+    /// <para><b>Nominal, never an alert state.</b> Six alarms carry several on-states because the colour <i>is</i>
+    /// the alarm level (CO2 has Green/Yellow/Red, the thermostat Blue/White/Red). Offering those as design choices
+    /// would let a ship be authored mid-alarm, so only the nominal one is reachable. It is identified from the data
+    /// rather than a colour list: the alert states qualify their friendly name ("O2 Pressure Alarm (Alert)") and the
+    /// nominal one does not, which picks <c>OnG</c> for all five gas alarms and <c>OnW</c> for the thermostat, and
+    /// keeps working for a modded alarm that invents its own colours.</para>
+    ///
+    /// <para>Setting a nominal alarm cannot lie to the player, because the game overrules it: the on-states carry a
+    /// <c>GasPressureSense</c> / <c>Sensor</c> update command and a sense ticker (the off state carries neither),
+    /// which read the real conditions at the sensor's map point every tick and queue the interaction that swaps the
+    /// state. An O2 alarm authored Green aboard a ship in vacuum is flipped to Red by its own sensor. See
+    /// GAME-INTERNALS §12.</para>
+    /// </summary>
+    public string? PowerToggle(string defName) => _powerToggle.GetOrAdd(defName, ComputePowerToggle);
+
+    private string? ComputePowerToggle(string defName)
+    {
+        // Lookup, not ByDefName: the palette holds the On form of anything PreferPoweredState could name, so the
+        // Off states this walks are mostly absent until something is placed. Lookup resolves any def on demand.
+        if (Lookup(defName) is not { } self || !self.StartingConds.Contains("IsInstalled")) return null;
+
+        // switched on -> off. The on form may be "…On", a colour variant ("…OnR"), or the bare stem, so try
+        // dropping an On suffix as well as simply appending Off.
+        if (!self.StartingConds.Contains("IsOff"))
+        {
+            var stem = OnStem(defName);
+            foreach (var candidate in stem is null ? [defName + "Off"] : new[] { stem + "Off", defName + "Off" })
+                if (Lookup(candidate) is { } off
+                    && off.StartingConds.Contains("IsOff") && SameFootprint(self, off))
+                    return candidate;
+            return null;
+        }
+
+        // switched off -> nominal on. The candidate names come from the condowner data rather than a hardcoded
+        // colour list, so a modded alarm that invents its own suffix is handled like any other.
+        if (!defName.EndsWith("Off", StringComparison.Ordinal) || Index is null) return null;
+        var offStem = defName[..^3];
+
+        var on = new List<PartDef>();
+        foreach (var name in Index.Type("condowners").Keys)
+        {
+            if (name == defName || !name.StartsWith(offStem, StringComparison.Ordinal)) continue;
+            if (!IsOnSuffix(name[offStem.Length..])) continue;
+            // a bare item with no condowner is never a real state (see PreferPoweredState)
+            if (Lookup(name) is not { } def || def.StartingConds.Length == 0) continue;
+            if (def.StartingConds.Contains("IsOff") || !SameFootprint(self, def)) continue;
+            on.Add(def);
+        }
+
+        if (on.Count == 1) return on[0].DefName;
+        // several states: only the unqualified (nominal) one is offered, and only when it is unambiguous.
+        var nominal = on.Where(d => !d.Friendly.Contains('(')).ToList();
+        return nominal.Count == 1 ? nominal[0].DefName : null;
+    }
+
+    /// <summary>The stem of a switched-on def name, dropping a trailing <c>On</c> or colour-suffixed <c>OnX</c>.
+    /// Null when the name carries no such suffix (a device whose on-state is the bare stem).</summary>
+    private static string? OnStem(string defName)
+    {
+        if (defName.EndsWith("On", StringComparison.Ordinal)) return defName[..^2];
+        return defName.Length > 3 && defName[^3] == 'O' && defName[^2] == 'n' && char.IsAsciiLetterUpper(defName[^1])
+            ? defName[..^3]
+            : null;
+    }
+
+    /// <summary>Is this the remainder of an on-state name after its off form's stem — empty, <c>On</c>, or a
+    /// single-letter colour variant like <c>OnG</c>?</summary>
+    private static bool IsOnSuffix(string rest) =>
+        rest.Length == 0
+        || (rest.Length == 2 && rest is "On")
+        || (rest.Length == 3 && rest[0] == 'O' && rest[1] == 'n' && char.IsAsciiLetterUpper(rest[2]));
+
+    /// <summary>Two states of one device occupy the same tiles; anything else is a different part.</summary>
+    private static bool SameFootprint(PartDef a, PartDef b) =>
+        a.Item.Width == b.Item.Width && a.Item.Height == b.Item.Height;
+
     /// <summary>Replace the last occurrence of <paramref name="find"/>, or null if absent.</summary>
     private static string? ReplaceLast(string s, string find, string repl)
     {

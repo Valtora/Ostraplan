@@ -9,7 +9,17 @@ namespace Ostraplan.Core;
 /// (<c>strParentID</c>) or slotted into it (<c>strSlotParentID</c>) — cargo, tools,
 /// installed modules. These are not laid on the grid (they carry no wall/floor conds);
 /// an import drops them (layout only).</para></summary>
-public sealed record TemplateItem(string DefName, double FX, double FY, double FRotation, string? StrID, bool Contained = false);
+public sealed record TemplateItem(string DefName, double FX, double FY, double FRotation, string? StrID, bool Contained = false)
+{
+    /// <summary>The name the item was given in game, from its <c>Rename</c> GPM panel (see <see cref="Rename"/>).
+    /// Null for the great majority of items, which carry their def's own name.</summary>
+    public string? CustomName { get; init; }
+
+    /// <summary>The <c>strID</c> of the item holding this one (<c>strParentID</c>, or <c>strSlotParentID</c> for
+    /// equipped gear) — null exactly when <see cref="Contained"/> is false. Lets an import walk a contained item to
+    /// its root holder, which is what tells crew-carried gear apart from a rack's contents.</summary>
+    public string? ParentId { get; init; }
+}
 
 /// <summary>A room as the game computed and baked it into the template: the tile
 /// indices it owns (row-major into nCols×nRows), its certified spec, and void flag.
@@ -141,9 +151,14 @@ public sealed class ShipTemplate
         {
             var def = Json.Str(it, "strName");
             if (string.IsNullOrEmpty(def)) continue;
-            var contained = Json.Str(it, "strParentID") is { Length: > 0 } || Json.Str(it, "strSlotParentID") is { Length: > 0 };
+            var parentId = Json.Str(it, "strParentID") is { Length: > 0 } pp ? pp
+                : Json.Str(it, "strSlotParentID") is { Length: > 0 } sp ? sp : null;
             items.Add(new TemplateItem(def!, Json.Dbl(it, "fX"), Json.Dbl(it, "fY"),
-                Json.Dbl(it, "fRotation"), Json.Str(it, "strID"), contained));
+                Json.Dbl(it, "fRotation"), Json.Str(it, "strID"), parentId is not null)
+            {
+                CustomName = Rename.FromItem(it),
+                ParentId = parentId,
+            });
         }
 
         var rooms = new List<StoredRoom>();

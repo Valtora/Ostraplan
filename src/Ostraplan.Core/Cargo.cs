@@ -142,6 +142,18 @@ public static class Cargo
     }
 
     /// <summary>
+    /// Mark a whole forest <see cref="CargoItem.Authored"/>, keeping every id. For an import with no save behind it
+    /// (a template, or a layout-only save import): the contents are real and must be written out on export, but
+    /// there is no save record to defer to, so they are the design's own from the moment they arrive. Unlike
+    /// <see cref="CloneForest"/> the ids are kept, since nothing is being duplicated.
+    /// </summary>
+    public static IReadOnlyList<CargoItem> AsAuthored(IReadOnlyList<CargoItem> forest) =>
+        forest.Select(Author).ToList();
+
+    private static CargoItem Author(CargoItem item) =>
+        item with { Authored = true, Children = AsAuthored(item.Children) };
+
+    /// <summary>
     /// Deep-clone a cargo forest, giving every node a fresh <see cref="CargoItem.StrID"/> and marking it
     /// <see cref="CargoItem.Authored"/> — for copy/paste and duplicate of a container, so the copy holds an
     /// independent set of contents (no shared item identity with the original) that the write-back and export

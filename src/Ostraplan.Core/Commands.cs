@@ -351,3 +351,15 @@ public sealed class SetLooseQuantityCommand(LooseObject obj, int before, int aft
     public string Describe(Func<string, string?> f) =>
         $"Set {AuditFmt.Name(f, obj.DefName)} quantity {before} → {after}";
 }
+
+/// <summary>Give a placed part a name of its own, or clear it back to the stock one (see
+/// <see cref="Rename"/>). Nothing about the part's geometry changes, so no re-analysis is implied.</summary>
+public sealed class SetCustomNameCommand(Placement placement, string? before, string? after) : IDocCommand, IAuditDescribable
+{
+    public void Do(ShipDocument doc) => doc.SetCustomName(placement, after);
+    public void Undo(ShipDocument doc) => doc.SetCustomName(placement, before);
+    public string Describe(Func<string, string?> f) =>
+        after is null
+            ? $"Cleared the name on {AuditFmt.Name(f, placement.DefName)}"
+            : $"Named {AuditFmt.Name(f, placement.DefName)} \"{after}\"";
+}

@@ -384,9 +384,32 @@ with **Q**/**E** the image matches; the room labels stay upright.
 Everything below is under **File ▸ Import** / the **Export** button.
 
 - **Import a template:** browse core and modded `data/ships` and start from an
-  existing hull (a Vagabond, say). Layout only — cargo and crew aren't read.
-- **Import your ship from a save:** pulls your player ship's layout out of a save
-  game. Layout only, behind a confirmation.
+  existing hull (a Vagabond, say). No in-game identity, wear or damage.
+- **Import your ship from a save:** pulls your player ship out of a save game,
+  unlinked from it (it can't be written back — that's what *for editing* is for).
+- **Import your ship, for editing:** the same ship with its identity intact, linked to
+  the save so **Update Ship in Save…** can write it back.
+
+**What comes in besides the structure.** The first two ask, and remember the answer:
+
+| | |
+|---|---|
+| **Container contents** | Everything inside lockers, racks and crates, as viewable and editable cargo. Right-click a container and choose **View contents**. |
+| **Items lying on the deck** | Tools, scrap and other loose objects on the floor. |
+
+Both default to **on**. Crew are never imported.
+
+- **"For editing" always brings both**, and doesn't ask. That design stays linked to its
+  save, and the write-back emits each container's contents from what was imported, so
+  importing without cargo would delete that cargo from the save.
+- **On the other two routes the contents become the design's own**, so they persist in
+  the `.oplan` and travel through **Export**.
+- **Deck items are cargo, not structure.** A tool or a piece of scrap lying on the floor
+  comes in as a loose object: it renders and travels with the ship but takes no part in
+  the placement law or the bill of materials. (Before, these imported as buildable parts,
+  so a shirt on the deck counted as ship structure.)
+- The import report says what came in **and** what was left behind, so a ship that
+  arrives without its cargo says so rather than leaving you to notice.
 - **Export** opens a **wizard**. Step one asks where the design should go, and the rail
   down the left then shows only that destination's steps, so you never scroll past
   settings that belong to a path you didn't choose. Every destination shares one **The
@@ -725,6 +748,43 @@ certifies its room, and an item that ships full — a gas canister comes charged
 with its gas — keeps that charge across the swap. Re-installing into a spot that
 no longer fits isn't blocked, just flagged in **Problems** (like a move into an
 illegal tile).
+
+## Switching devices on and off
+
+Right-click a placed device for **Switch on** or **Switch off**. The game installs
+powered fixtures in their *off* state and Ostraplan builds the *on* one wherever it can
+name it, but some devices have an on-state Ostraplan couldn't reach — the **Transponder**
+is the one people hit, because its on-state is a colour variant. Those were placed off with
+no way to switch them on. Now they can be switched either way, in one undo step, keeping
+tile, rotation and contents.
+
+This is not cosmetic. Both the **Ship Rating** and **Diagnostics** ignore anything switched
+off, so a transponder left off really does read as a fault, and switching your lift rotors
+on is what makes them count in **Flight Dynamics**.
+
+**Alarms only ever switch to their nominal state**, never to an alert one, so a design can't
+be authored mid-emergency. That is safe to bake in even if it looks wrong for the ship:
+every switched-on alarm carries the game's own sensor, which reads the real conditions each
+tick and trips the alarm itself. An O2 alarm set nominal aboard a ship in vacuum goes red on
+its own. (An alarm left *off* carries no sensor and stays off, which is what off means.)
+
+## Naming a container or a device
+
+Right-click a container or a device and choose **Rename…** to give it a name of its own, so
+a hold of identical racks reads "spare tool storage" and "spare reactor parts" instead of
+five identical rows. The name shows in the inspector, in the right-click menu and on the
+contents window, and it is the game's own rename rather than an Ostraplan label: it travels
+into the game through **Export** and **Update Ship in Save…**, and it comes back when you
+import.
+
+- **Import reads names too.** A ship you labelled in game keeps those labels, and so do
+  stock ships that ship with them (the **Babak Refit** carries 51, "Pressurization SB"
+  on an electrical box among them). These used to be dropped on the way in.
+- **Clearing the box restores the stock name.** There is no separate action.
+- Names are offered on **containers and devices** only. Names typed here are capped at
+  64 characters; a name read off an imported ship is kept exactly as the game stored it.
+- A name survives a move, an uninstall and a switch on or off, since none of those change
+  what the thing is called.
 
 Placing *arbitrary* loose inventory — tools, food, consumables — is the separate
 **ITEMS** palette tab: arm one and click to drop it onto a floor tile, or into a

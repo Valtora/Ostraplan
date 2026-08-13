@@ -41,14 +41,16 @@ public sealed class AddCargoDialog : Window
 
     /// <param name="capacityFor">How many of a given def still fit the target container (see
     /// <see cref="CargoEdit.MaxAddable"/>) — used to cap the quantity so the picker can't offer more than fits.</param>
+    /// <param name="containerName">What to call the target container in the title — its custom name when the user
+    /// gave it one, else its stock name (see <see cref="Rename"/>).</param>
     public AddCargoDialog(Catalog catalog, SpriteCache sprites, PartDef container, IReadOnlyList<PartDef> offered,
-        Func<PartDef, int> capacityFor)
+        Func<PartDef, int> capacityFor, string? containerName = null)
     {
         _sprites = sprites;
         _offered = offered.OrderBy(p => p.Friendly, StringComparer.OrdinalIgnoreCase).ToList();
         _capacityFor = capacityFor;
 
-        Title = "Add to " + container.Friendly;
+        Title = "Add to " + (containerName ?? container.Friendly);
         Width = 380;
         Height = 520;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;

@@ -251,6 +251,11 @@ public static class ShipExport
                 FRotation = GridMath.Norm(-part.Rot),
                 StrID = strID,
             };
+            // A name the user gave this part travels as the game's own Rename panel, which Ship.SpawnItems
+            // re-applies on load (see Rename). Set before wiring, which appends to whatever is already here.
+            if (part.StrID is { } namedId && byPlacementId.TryGetValue(namedId, out var namedPlacement)
+                && namedPlacement.CustomName is { } customName)
+                item.AGPMSettings = [RenameGpm(customName)];
             items.Add(item);
             if (part.StrID is { } placementId)
             {
@@ -710,8 +715,21 @@ public static class ShipExport
 
         foreach (var id in outputs.Keys.Union(inputs.Keys))
             if (itemByExportId.TryGetValue(id, out var item))
-                item.AGPMSettings = [ElectricalGpm(inputs.GetValueOrDefault(id) ?? [], outputs.GetValueOrDefault(id) ?? [])];
+                // Append rather than assign: an item can carry several panels, and a renamed device already has
+                // its Rename one (the stock Babak Refit carries exactly this pair). Assigning dropped the name.
+                item.AGPMSettings =
+                [
+                    .. item.AGPMSettings ?? [],
+                    ElectricalGpm(inputs.GetValueOrDefault(id) ?? [], outputs.GetValueOrDefault(id) ?? []),
+                ];
     }
+
+    /// <summary>The <c>Rename</c> GPM panel for a part the user named (see <see cref="Rename"/>).</summary>
+    private static ExportedGpmSetting RenameGpm(string name) => new()
+    {
+        StrName = Rename.Panel,
+        DictGUIPropMap = [Rename.NameKey, name],
+    };
 
     /// <summary>Build the <c>Electrical</c> GPM panel for a wired item: the game's flat, order-sensitive
     /// <c>dictGUIPropMap</c> with <c>inputConnections</c>/<c>outputConnections</c> as comma-joined

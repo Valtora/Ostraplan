@@ -116,6 +116,12 @@ public sealed class AppSettings
     /// <summary>WalkViz: treat painted Forbid zones as impassable. The game's test is per crew member (a zone
     /// matches a PersonSpec), so this is the "for a crew member the zone binds" reading. On by default.</summary>
     [JsonPropertyName("walkRespectForbidZones")] public bool WalkRespectForbidZones { get; set; } = true;
+    /// <summary>Import: bring each container's contents in as cargo. On by default — a ship's contents going
+    /// missing because of which menu item was used is what this setting exists to end. Ignored by "your ship, for
+    /// editing", which always keeps them (see <see cref="ImportOptions"/>).</summary>
+    [JsonPropertyName("importContainerContents")] public bool ImportContainerContents { get; set; } = true;
+    /// <summary>Import: bring items lying loose on the deck in as loose objects. On by default.</summary>
+    [JsonPropertyName("importLooseItems")] public bool ImportLooseItems { get; set; } = true;
     /// <summary>Flight Dynamics: the body last flown at, by <c>strName</c>. Null until the report is first used,
     /// and ignored if the body is no longer in the loaded data (a mod was removed).</summary>
     [JsonPropertyName("flightBody")] public string? FlightBody { get; set; }

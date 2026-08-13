@@ -681,7 +681,46 @@ vacuum-exposed, no floor), the core's centre requires the coils'
 `TILFusionFieldCoilsFixtureAdds`, and each component's attach cell requires the
 core's `TILFusionReactorCoreFixtureAdds`.
 
-> **Ported in Ostraplan:** `Catalog.PreferPoweredState`.
+### Switching a placed device, and why an alarm is different
+
+`PreferPoweredState` picks the build target and stops there, so a device whose on-state it
+cannot name is placed Off with no route back. Reaching **both** states needs the mapping in
+both directions, and the on-state naming is looser than that function assumes: the
+Transponder's is `ItmTransponder01OnR`, a colour variant.
+
+Of the 173 installable condowners carrying `IsOff` on a stock **1.0.0.9** install (damaged,
+closed and colour-custom states carry it too), 90 are named `…Off`. 76 of those map to
+exactly one reachable on-state, 8 map to none (the fusion reactor core and ICs,
+`ItmSwitch02Off`, `ItmVent02Off`, and three damaged EVA lockers — nothing a planner should
+switch), and **6 have several — every one an alarm**, because the colour *is* the alarm
+level:
+
+| Family | States |
+|---|---|
+| CO2 | `OnG` nominal, `OnY` "(Warning)", `OnR` "(Alert)" |
+| N2 / O2 / Smoke / Contaminants | `OnG` nominal, `OnR` "(Alert)" |
+| Temp | `OnW` nominal, `OnB` "(Too Cold)", `OnR` "(Too Warm)" |
+
+The nominal state is identifiable **from the data**, with no colour list: the alert states
+qualify their `strNameFriendly` in parentheses and the nominal one does not. That picks
+`OnG` for the five gas alarms and `OnW` for the thermostat.
+
+**Authoring a nominal alarm cannot lie**, because the game overrules it. Every on-state
+carries a sensing update command and a sense ticker that the off state does not
+(`GasPressureSense,AlarmPressureO2` + `PressureSenseO2`; the thermostat uses
+`Sensor,AlarmTemp`). `GasPressureSense.Run` / `Sensor.Run` read the real conditions at the
+sensor's map point each tick and queue the alarm or clear interaction, which is what swaps
+the CO's state. An O2 alarm authored Green aboard a ship in vacuum is flipped to Red by its
+own sensor. Note the corollary: an alarm left **Off** carries no sensor at all and never
+self-corrects, which is correct — it is off.
+
+> **Ported in Ostraplan:** `Catalog.PreferPoweredState` (the build target) and
+> `Catalog.PowerToggle` (both directions, nominal-only), behind the right-click **Switch
+> on** / **Switch off** actions. It is not cosmetic: the Ship Rating and the diagnostic
+> both forbid `IsOff`, so a switched-off transponder really does read as a fault.
+> **Re-verify per patch:** the alert-state naming convention, and whether any device grows
+> a second unqualified on-state (which would make it ambiguous and silently drop out of the
+> menu). `PowerStateTests` sweeps every condowner and pins the transponder and the alarms.
 
 ---
 
@@ -756,6 +795,37 @@ lights, …).
 > (validity), baked on export into each wired item's `Electrical` GPM
 > (`ShipExport.WireDeviceLinks`). Gate/threshold logic is out of scope — that is the
 > in-game signal box's job.
+
+### The `Rename` GPM — an object's own name
+
+An item's `aGPMSettings` is a **list** of panels, and `Electrical` is only one of them.
+A player renaming an object (`CondOwner.Rename`, forbidden on humans and robots) stores
+the result as a second panel:
+
+```json
+{ "strName" : "Rename", "dictGUIPropMap" : [ "strName", "Pressurization SB" ] }
+```
+
+`Rename` sets `strNameFriendly` and `strNameShort` on the CO, and clearing it removes the
+panel and restores the def's own names. `Ship.SpawnItems` spawns each item through
+`Ship.CreatePart`, which merges every panel from the item onto the CO — per key, a later
+duplicate overwriting an earlier one — and then calls `CondOwner.CheckForRename`, so the
+name is re-applied on load from a template **and** from a save. Core ships already carry
+it: the stock `Babak Refit` ships with 51 of them, `Pressurization SB` on an electrical box
+and `Bow DPP Port` on an air pump among them. The game caps neither the length nor the
+content of a name, and stores it verbatim.
+
+> **Ported in Ostraplan:** `Rename` (the panel shape, read and written) and
+> `Placement.CustomName`, read on import (`ShipTemplate` → `TemplateImport`), written on
+> export (`ShipExport`) and on save write-back (`SaveEdit.ApplyRename`). Two traps, both
+> now covered by tests: `dictGUIPropMap` is a **flat alternating** key/value array, not an
+> object; and a write must **replace** an existing `Rename` panel rather than append one —
+> the game's load merges duplicates with the **last** panel winning, so an append would
+> read correctly by accident while growing a stale panel per edit and leaving the item a
+> shape the game itself never writes. Names read off a ship are carried and written back
+> **verbatim** (`Rename.OrNull`); the 64-character cap applies only to names typed in
+> Ostraplan's own dialog. Ostraplan offers renaming on containers and devices only, which
+> is narrower than the game's "anything not a person".
 
 ---
 
@@ -1558,7 +1628,7 @@ per-body atmosphere tables in the game's own data.
 `data/star_systems/*.json` gives every body an `aAtmosphericValues` array
 (`JsonAtmosphere`): partial pressures in kPa per gas, a temperature in K, and
 `fMaxAltitude` — the band's top **measured from the body's centre**, so Venus's
-"48-52km" band has `fMaxAltitude` 6104 against a 6052 km radius. On stock **1.0.0.7**,
+"48-52km" band has `fMaxAltitude` 6104 against a 6052 km radius. On stock **1.0.0.9**,
 eight bodies have tables: Venus (10 bands, to 350 km), Earth, Mars, Titan, Jupiter,
 Saturn, Uranus, Neptune. Everything else is vacuum.
 
@@ -1781,6 +1851,8 @@ sets), giving a 220-ship rooms **and** certification gate. Only **Babak / Babak 
 | Interaction reach (`Interaction.Triggered` range + LOS) | ported | `WalkNetwork`, `LineOfSight` |
 | Crew pathing itself (costs, occupancy, doors opening over time) | excluded (a simulation, not a plan) | never ported |
 | Device signal connections (`Electrical` GPM) | ported | `DeviceLink` / `DeviceLinks`, `ShipExport.WireDeviceLinks` |
+| Object rename (`CondOwner.Rename` / `CheckForRename`, the `Rename` GPM) | ported (containers and devices only, §14) | `Rename`, `Placement.CustomName` |
+| Power-state switching (`PreferPoweredState` both ways; alarm sensing) | ported (nominal states only, §12) | `Catalog.PowerToggle` |
 | Deferred lighting (`Visibility` + `LoSPass`) | ported (preview only) | `LightNetwork`, `VisibilityMesh`, `LightComposite` |
 | `JsonShip` (de)serialization — export/template/save schema | ported | `ShipExport` (write), `ShipTemplate` (read) |
 | Coordinate/rotation mapping (centre ↔ top-left, CCW) | ported | `ShipGrid.TemplateTile` + `ShipExport` |

@@ -11,7 +11,53 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Fixed
+- **Container contents no longer go missing depending on which import you used.** Importing a ship "for editing"
+  kept every container's contents; importing the same ship layout-only, or importing a template, dropped them
+  without offering a choice or saying which you were getting. That is what was being reported as cargo importing
+  inconsistently. Both routes now ask, and the import report says what came in **as well as** what was left behind,
+  telling apart what a checkbox could have fetched from what none can: crew-carried gear (crew are never imported)
+  and the contents of a container lying on the deck. "For editing" reports what it kept and that the rest stays in
+  the save untouched, instead of pointing at a checkbox that path does not have.
+- **Items lying on the deck are no longer imported as ship structure.** A tool, a shirt or a piece of scrap on the
+  floor came in as a grid placement, which made it a buildable part: counted in the bill of materials and re-checked
+  against the placement law. They now come in as loose objects, which is what they are. The split is the game's own
+  (installed structure carries `IsInstalled`; a loose item does not), the same rule the ITEMS palette already used.
+  - **A stack on the deck keeps its count.** A pile of 20 scrap persists in the save as a head item plus 19 members,
+    and the members used to be reported as cargo left behind while the pile imported as a single piece. It now
+    imports as one loose object ×20, and exports back as the same stack.
+  - **Except on "your ship, for editing"**, which deliberately keeps them as placements. Only a placement carries a
+    save identity, so reclassifying there would leave the save's own item in place while writing a fresh copy beside
+    it, doubling every deck item on each round trip. Keeping that write-back lossless wins.
+
 ### Added
+- **Choose what an import brings in besides the structure.** **Container contents** and **items lying on the deck**
+  are now checkboxes on the import, both on by default and remembered between imports. On a template or a
+  layout-only save import the contents become the design's own, so they persist in the `.oplan` and travel through
+  Export; crew are never imported.
+  - **"Your ship, for editing" always brings everything and doesn't ask**, because its write-back emits cargo from
+    what was imported: leaving it out would delete that cargo from the save.
+- **Name a container or a device.** Right-click one and choose **Rename…**, so a hold of identical racks reads
+  "spare tool storage" and "spare reactor parts" instead of five identical rows. It is the game's own rename rather
+  than an Ostraplan label, so it travels into the game through Export and Update Ship in Save, and shows in the
+  inspector, the right-click menu and the contents window. Clearing the box restores the stock name.
+  - **Import now reads names that already exist**, which is what was actually asked for: a ship you labelled in
+    game keeps its labels, and so do stock ships that carry them (the **Babak Refit** ships with 51, "Pressurization
+    SB" on an electrical box among them). Every one of those was dropped on import before.
+  - A name survives a move, an uninstall and a switch on or off, none of which change what a thing is called.
+    Offered on containers and devices only. Names typed in Ostraplan are capped at 64 characters; a name read off
+    an imported ship is carried and written back exactly as the game stored it, however long.
+- **Switch a placed device on or off.** New right-click actions. The game installs powered fixtures off and
+  Ostraplan builds the on form wherever it can name one, but a device whose on-state is a colour variant fell
+  through and was placed off with no way back — the **Transponder** being the one people hit. It is not cosmetic:
+  the Ship Rating and Diagnostics both ignore anything switched off, so a transponder left off really does read as
+  a fault.
+  - **Alarms only ever switch to their nominal state**, never an alert one, so a design cannot be authored
+    mid-emergency. Safe to bake in even where it looks wrong for the ship: every switched-on alarm carries the
+    game's own sensor, which reads the real conditions each tick and trips the alarm itself, so one set nominal
+    aboard a ship in vacuum goes red on its own. The nominal state is read from the data rather than a colour list
+    (the alert states qualify their name in parentheses), which is why it picks Green for the gas alarms and White
+    for the thermostat, and keeps working for a modded alarm.
 - **Flight Dynamics: what a design does in air (#23).** New report under **Design ▸ Flight Dynamics**, porting the
   game's own atmospheric flight model. The game shows these figures only on a ship that is already flying, in the
   nav console's Flight Dynamics module, and only for wherever that ship happens to be. Here the place is an input.

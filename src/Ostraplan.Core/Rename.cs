@@ -1,0 +1,105 @@
+using System.Text.Json;
+using System.Text.Json.Nodes;
+
+namespace Ostraplan.Core;
+
+/// <summary>
+/// The game's own object rename, read and written.
+///
+/// <para>Ostranauts lets a player rename any non-human object (<c>CondOwner.Rename</c>), which is how a hold full
+/// of identical racks becomes "spare tool storage" and "spare reactor parts". It is stored as a <b>GUI-prop-map
+/// panel</b> called <c>Rename</c> carrying a single <c>strName</c> key, alongside whatever other panels the item
+/// has (<c>Electrical</c> on a wired device), and <c>Ship.SpawnItems</c> re-applies it on load through
+/// <c>CondOwner.CheckForRename</c>. So it travels in <c>aItems[].aGPMSettings</c> in both a ship template and a
+/// save, and needs no invention on Ostraplan's part.</para>
+///
+/// <para>Core ships already use it — the stock <i>Babak Refit</i> carries 51 of these names, "Pressurization SB"
+/// on an electrical box and "Bow DPP Port" on an air pump among them — which is why import reads it as well as
+/// export writing it. Before this, every such name was dropped on import.</para>
+/// </summary>
+public static class Rename
+{
+    /// <summary>The GPM panel the game keys a rename on (<c>CondOwner.Rename</c>).</summary>
+    public const string Panel = "Rename";
+
+    /// <summary>The single key inside that panel holding the chosen name.</summary>
+    public const string NameKey = "strName";
+
+    /// <summary>How long a name authored <b>in Ostraplan</b> may be. The game sets no limit; this one exists so a
+    /// pasted essay cannot make a tooltip unreadable or bloat every write of the design. It applies to the rename
+    /// box only — a longer name read off an imported ship is carried verbatim (see <see cref="OrNull"/>), or a
+    /// no-op save write-back would truncate a name the player gave in game.</summary>
+    public const int MaxLength = 64;
+
+    /// <summary>
+    /// Normalise a name the user typed: trimmed, collapsed to <see cref="MaxLength"/>, and <b>null when it is
+    /// empty</b>. Null is the only representation of "no custom name", so a blank box clears the rename rather
+    /// than writing an empty panel the game would have to interpret.
+    /// </summary>
+    public static string? Clean(string? name)
+    {
+        if (string.IsNullOrWhiteSpace(name)) return null;
+        var trimmed = name.Trim();
+        return trimmed.Length <= MaxLength ? trimmed : trimmed[..MaxLength].TrimEnd();
+    }
+
+    /// <summary>
+    /// A <b>stored</b> name as the game itself keeps it: null when null or empty, otherwise verbatim — no trim, no
+    /// cap. <c>CondOwner.Rename</c> treats null/"" as "clear the panel" and stores anything else untouched, so this
+    /// is the rule for names read off a ship or carried through the <c>.oplan</c>, where changing so much as a
+    /// space would make a no-op write-back rewrite the player's own data.
+    /// </summary>
+    public static string? OrNull(string? name) => string.IsNullOrEmpty(name) ? null : name;
+
+    /// <summary>
+    /// Can this part be renamed? The game allows it on anything that is not a person, but a name is only ever
+    /// useful on something you would go looking for, so Ostraplan offers it on <b>containers</b> (the case that was
+    /// asked for: racks, lockers, crates) and on <b>devices</b> — anything carrying a control panel, which is what
+    /// a GUI-prop-map declaration means. Walls, floors and raw structure are excluded.
+    /// </summary>
+    public static bool CanRename(PartDef? part) => part is not null && (part.IsContainer || part.Gpm.Count > 0);
+
+    /// <summary>The name to show for a placement: its custom name when it has one, else its def's own.</summary>
+    public static string Display(Placement placement, PartDef? part) =>
+        placement.CustomName ?? part?.Friendly ?? placement.DefName;
+
+    /// <summary>
+    /// The custom name baked into one <c>aItems</c> entry's <c>aGPMSettings</c>, or null when it carries none.
+    /// <paramref name="item"/> is the item object from a ship template or a save. The value comes back
+    /// <b>verbatim</b> (see <see cref="OrNull"/>): the game stores whatever the player typed, and normalising it
+    /// here would make a no-op write-back rewrite it.
+    /// </summary>
+    /// <remarks>
+    /// <c>dictGUIPropMap</c> is a <b>flat</b> array of alternating keys and values, which is how the game's
+    /// <c>DataHandler.ConvertStringArrayToDict</c> reads it — its pair loop drops a trailing unpaired key, so an
+    /// odd-length panel is read the same way here rather than off by one. When an item carries several
+    /// <c>Rename</c> panels, the game's load merges them per key with the <b>last</b> winning
+    /// (<c>Ship.CreatePart</c>), so the last panel's name is the one returned.
+    /// </remarks>
+    public static string? FromItem(JsonElement item)
+    {
+        if (!item.TryGetProperty("aGPMSettings", out var panels) || panels.ValueKind != JsonValueKind.Array)
+            return null;
+
+        string? found = null;
+        foreach (var panel in panels.EnumerateArray())
+        {
+            if (panel.ValueKind != JsonValueKind.Object || Json.Str(panel, "strName") != Panel) continue;
+            if (!panel.TryGetProperty("dictGUIPropMap", out var map) || map.ValueKind != JsonValueKind.Array) continue;
+
+            var flat = map.EnumerateArray().ToArray();
+            for (var i = 0; i + 1 < flat.Length; i += 2)
+                if (flat[i].ValueKind == JsonValueKind.String && flat[i].GetString() == NameKey)
+                    found = OrNull(flat[i + 1].ValueKind == JsonValueKind.String ? flat[i + 1].GetString() : null);
+        }
+        return found;
+    }
+
+    /// <summary>The <c>Rename</c> panel for a name, in the game's flat key/value shape, as a mutable JSON node for
+    /// the save-edit writer.</summary>
+    public static JsonObject PanelNode(string name) => new()
+    {
+        ["strName"] = Panel,
+        ["dictGUIPropMap"] = new JsonArray(NameKey, name),
+    };
+}

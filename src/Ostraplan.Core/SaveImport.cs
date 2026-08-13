@@ -73,7 +73,7 @@ public static class SaveImport
 
     /// <summary>Import the player's ship from a save's data zip. Throws (for the caller to report) if it
     /// can't find the player record or that ship.</summary>
-    public static ImportResult ImportPlayerShip(string zipPath, Catalog catalog)
+    public static ImportResult ImportPlayerShip(string zipPath, Catalog catalog, ImportOptions? options = null)
     {
         using var zip = ZipFile.OpenRead(zipPath);
 
@@ -82,26 +82,32 @@ public static class SaveImport
         var shipEntry = zip.GetEntry($"ships/{regId}.json")
             ?? throw new InvalidDataException($"The player's ship '{regId}' is not among this save's ships.");
 
-        var tmpl = ParseShip(ReadText(shipEntry), shipEntry.FullName, regId)
-            .OrderByDescending(s => s.Items.Count).First();
-        return TemplateImport.FromTemplate(tmpl, catalog);
+        var text = ReadText(shipEntry);
+        var tmpl = ParseShip(text, shipEntry.FullName, regId).OrderByDescending(s => s.Items.Count).First();
+        return TemplateImport.Build(tmpl, catalog, retainOrigin: false, options, ShipNode(text, options));
     }
 
     /// <summary>Import a <b>named</b> ship's layout from a save's data zip — the same pristine, layout-only read as
     /// <see cref="ImportPlayerShip"/>, for a caller that has already picked which ship it wants (see
     /// <see cref="ListPlayerShips"/>). No save identity is retained: for the write-back path that keeps it, see
     /// <see cref="SaveEditImport"/>. Throws (for the caller to report) if that ship is not in the save.</summary>
-    public static ImportResult ImportShipLayout(string zipPath, string regId, Catalog catalog)
+    public static ImportResult ImportShipLayout(
+        string zipPath, string regId, Catalog catalog, ImportOptions? options = null)
     {
         using var zip = ZipFile.OpenRead(zipPath);
 
         var shipEntry = zip.GetEntry($"ships/{regId}.json")
             ?? throw new InvalidDataException($"The ship '{regId}' is not among this save's ships.");
 
-        var tmpl = ParseShip(ReadText(shipEntry), shipEntry.FullName, regId)
-            .OrderByDescending(s => s.Items.Count).First();
-        return TemplateImport.FromTemplate(tmpl, catalog);
+        var text = ReadText(shipEntry);
+        var tmpl = ParseShip(text, shipEntry.FullName, regId).OrderByDescending(s => s.Items.Count).First();
+        return TemplateImport.Build(tmpl, catalog, retainOrigin: false, options, ShipNode(text, options));
     }
+
+    /// <summary>The raw ship JSON when container contents are wanted, else null — the parse only feeds the cargo
+    /// builder, and a real save ship is megabytes of JSON on what is also the retrofit picker's hot path.</summary>
+    private static System.Text.Json.Nodes.JsonNode? ShipNode(string text, ImportOptions? options) =>
+        (options ?? ImportOptions.Everything).ContainerContents ? ShipJson.Largest(text) : null;
 
     /// <summary>Parse one <c>ships/*.json</c> record, throwing with the reason when nothing ship-shaped comes out.
     /// Shared with <see cref="SaveEditImport"/> so both import paths report a bad record the same way. Takes the
