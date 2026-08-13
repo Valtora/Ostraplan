@@ -22,7 +22,8 @@ It is a sibling tool to [**Ostrasort**](https://github.com/Valtora/Ostrasort), t
 - **Build on the real grid.** Drag-and-drop with game-accurate autotiling, `R` to rotate, crisp pixel-art zoom and pan, and `Q`/`E` plan-view rotation that matches the in-game camera.
 - **A full editing suite.** Drag-paint, box and hollow fill, symmetry mirroring, flood-select, "Replace with…", ship-wide re-skin, group rotate and flip (`H` / `Shift+H`), copy/paste, and unbounded undo/redo.
 - **Surfaces mode** (`T`). Treat the deck as a canvas: everything but walls and floors is ghosted and out of the way, and a wall/floor brush re-skins the tile it lands on instead of refusing it. Paint, box and outline an area into a different skin, or set a second brush and lay a checkerboard or stripes. Sprites only, so rooms, airtightness and the rating never move.
-- **Bill of materials.** Install-kit counts for the whole ship or the current selection, ready to copy out.
+- **Bill of materials.** Install-kit counts for the whole ship or the current selection, ready to copy out. Point it
+  at a ship you already have and it costs the **retrofit** instead: kits to obtain, kits recovered.
 - **Zones.** Draw and manage the game's crew and trade zones (Haul, Barter, Forbid, and content-trigger zones) with the same tools as parts. They round-trip faithfully through export and save write-back.
 
 ### Validate

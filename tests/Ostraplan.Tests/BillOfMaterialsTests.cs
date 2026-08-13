@@ -87,4 +87,109 @@ public class BillOfMaterialsTests
         Assert.Equal(2, bom.BuildableCount);
         Assert.DoesNotContain(bom.Lines, l => l.DefName == Floor);
     }
+
+    // ---- retrofit ----
+
+    [SkippableFact]
+    public void Retrofit_nets_each_part_type_in_both_directions()
+    {
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall) || !g.Catalog.ByDefName.ContainsKey(Floor)) return;
+
+        var ship = new ShipDocument(g.Catalog);          // 3 walls, 1 floor
+        Place(ship, Wall, 0, 0);
+        Place(ship, Wall, 1, 0);
+        Place(ship, Wall, 2, 0);
+        Place(ship, Floor, 0, 1);
+
+        var design = new ShipDocument(g.Catalog);        // 1 wall, 3 floors
+        Place(design, Wall, 0, 0);
+        Place(design, Floor, 0, 1);
+        Place(design, Floor, 1, 1);
+        Place(design, Floor, 2, 1);
+
+        var r = BillOfMaterials.Retrofit(
+            BillOfMaterials.ComputeAll(ship), BillOfMaterials.ComputeAll(design), "Old Girl");
+
+        Assert.Equal("Old Girl", r.FromShip);
+        var walls = r.Lines.Single(l => l.DefName == Wall);
+        Assert.Equal(3, walls.From);
+        Assert.Equal(1, walls.To);
+        Assert.Equal(2, walls.Recovered);                // two walls come off
+        Assert.Equal(0, walls.Needed);
+
+        var floors = r.Lines.Single(l => l.DefName == Floor);
+        Assert.Equal(2, floors.Needed);                  // two floor kits to obtain
+        Assert.Equal(0, floors.Recovered);
+
+        Assert.Equal(2, r.NeededCount);
+        Assert.Equal(2, r.RecoveredCount);
+        Assert.Equal(1, r.AddedTypes);
+        Assert.Equal(1, r.RemovedTypes);
+        Assert.False(r.NoChange);
+    }
+
+    [SkippableFact]
+    public void Retrofit_lists_a_part_type_present_on_only_one_side()
+    {
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall) || !g.Catalog.ByDefName.ContainsKey(Floor)) return;
+
+        var ship = new ShipDocument(g.Catalog);
+        Place(ship, Wall, 0, 0);
+
+        var design = new ShipDocument(g.Catalog);
+        Place(design, Floor, 0, 0);
+
+        var r = BillOfMaterials.Retrofit(
+            BillOfMaterials.ComputeAll(ship), BillOfMaterials.ComputeAll(design), "Old Girl");
+
+        Assert.Equal(2, r.Lines.Count);
+        Assert.Equal(1, r.Lines.Single(l => l.DefName == Wall).Recovered);
+        Assert.Equal(1, r.Lines.Single(l => l.DefName == Floor).Needed);
+    }
+
+    [SkippableFact]
+    public void Retrofit_of_an_identical_layout_costs_nothing()
+    {
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall)) return;
+
+        var ship = new ShipDocument(g.Catalog);
+        Place(ship, Wall, 0, 0);
+        Place(ship, Wall, 1, 0);
+
+        // same parts, different places: a move is labour, not material, so the bill nets to zero
+        var design = new ShipDocument(g.Catalog);
+        Place(design, Wall, 4, 4);
+        Place(design, Wall, 5, 4);
+
+        var r = BillOfMaterials.Retrofit(
+            BillOfMaterials.ComputeAll(ship), BillOfMaterials.ComputeAll(design), "Old Girl");
+
+        Assert.True(r.NoChange);
+        Assert.Equal(1, r.UnchangedTypes);
+        Assert.True(r.Lines.Single().Unchanged);
+    }
+
+    [SkippableFact]
+    public void Retrofit_reports_non_buildable_structure_on_both_sides()
+    {
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall)) return;
+
+        var ship = new ShipDocument(g.Catalog);
+        Place(ship, Catalog.PrimaryDocksysDef, 0, 0);
+
+        var design = new ShipDocument(g.Catalog);
+        Place(design, Wall, 0, 0);
+
+        var r = BillOfMaterials.Retrofit(
+            BillOfMaterials.ComputeAll(ship), BillOfMaterials.ComputeAll(design), "Old Girl");
+
+        Assert.Equal(1, r.NonBuildableFrom);
+        Assert.Equal(0, r.NonBuildableTo);
+        Assert.Equal(1, r.NeededCount);        // the airlock never appears as a line — it has no kit
+        Assert.Equal(Wall, r.Lines.Single().DefName);
+    }
 }

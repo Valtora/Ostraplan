@@ -11,6 +11,21 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **The bill of materials can now cost a retrofit, not just a build (#24).** **Retrofit from…** in the Bill of
+  Materials nets the design's bill against a ship you already have, so the figures become what the *conversion*
+  costs rather than what the design costs. The starting ship can be another **design**, a **ship template**, or a
+  **ship in a save** — it is read and measured only, never imported, and the design on the canvas is untouched.
+  - The list becomes a diff: **`+N` kits to obtain**, **`−N` recovered**, and `=` for a part type that already
+    matches, each with its before → after counts. **Copy list** follows the mode and pastes the same signs.
+  - **Recovered material is real material.** Uninstalling a part yields its own uninstalled form, which is the same
+    kit the bill counts, so a part the design drops comes back rather than being spent.
+  - **It prices material, not labour.** A part that only moves nets to zero — no kit changes hands, but the
+    uninstall and re-install jobs are still yours. Non-buildable structure (raw hull, fixed systems, the primary
+    airlock) is reported as a count on each side rather than as lines, since it cannot be bought either way.
+  - Retrofit always compares the **whole** design, even with a selection active: netting a selection against a
+    whole ship would answer nothing.
+
 ## [0.73.0] 2026-08-12, Surfaces mode, ship transfer between saves
 
 ### Changed

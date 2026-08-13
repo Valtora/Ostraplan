@@ -843,7 +843,136 @@ public partial class MainWindow : Window
             : (_doc.Placements, "whole ship");
 
         var bom = BillOfMaterials.Compute(_doc, parts);
-        new MaterialsReportWindow(bom, scope) { Owner = this }.ShowDialog();
+        // The retrofit mode always nets the WHOLE design against the starting ship, so it gets its own bill even
+        // when the scoped one is a selection. Computing it up front costs a walk of the placements and keeps the
+        // report from needing the document at all.
+        var whole = selection.Count > 0 ? BillOfMaterials.ComputeAll(_doc) : bom;
+        new MaterialsReportWindow(bom, scope, whole, _catalog is null ? null : PickRetrofitSource) { Owner = this }
+            .ShowDialog();
+    }
+
+    /// <summary>
+    /// Read a ship in purely to measure it: a saved design, a ship template, or a ship in a save. Nothing is
+    /// imported — the document on the canvas is untouched and the ship read here is dropped as soon as its bill
+    /// is counted, which is why none of this goes through <see cref="ConfirmDiscardChanges"/>.
+    ///
+    /// <para>Null when the user backed out, or when the read failed and has already been reported.</para>
+    /// </summary>
+    private async Task<RetrofitPick?> PickRetrofitSource(Window owner)
+    {
+        if (_catalog is null) return null;
+
+        var kindDlg = new ShipSourceDialog("Retrofit from which ship?",
+            "The ship you'd be converting. Ostraplan reads its layout to count what it already carries; "
+            + "nothing is imported and your design is not touched.") { Owner = owner };
+        if (kindDlg.ShowDialog() != true || kindDlg.Selected is not { } kind) return null;
+
+        return kind switch
+        {
+            ShipSourceKind.Design => RetrofitFromDesign(owner),
+            ShipSourceKind.Template => RetrofitFromTemplate(owner),
+            ShipSourceKind.Save => await RetrofitFromSave(owner),
+            _ => null,
+        };
+    }
+
+    private RetrofitPick? RetrofitFromDesign(Window owner)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Title = "Choose the design to retrofit from",
+            Filter = "Ostraplan ship (*.oplan)|*.oplan|All files (*.*)|*.*",
+        };
+        if (dlg.ShowDialog(owner) != true) return null;
+
+        try
+        {
+            var file = OplanFile.Load(dlg.FileName);
+            var (doc, missing) = file.ToDocument(_catalog!);
+            // A starting ship missing parts would under-count what it carries, which reads as material you need to
+            // buy and already own. Say so rather than quietly producing a wrong bill.
+            if (missing.Count > 0)
+                Dlg.Warn(owner, "That design is missing mods",
+                    $"{missing.Count} part(s) in “{DesignName(file, dlg.FileName)}” aren't in your current game and "
+                    + "mods data, so they can't be counted.\n\n"
+                    + "The retrofit bill will over-state what you need to obtain by that much.");
+            return new RetrofitPick(DesignName(file, dlg.FileName), BillOfMaterials.ComputeAll(doc));
+        }
+        catch (Exception ex)
+        {
+            Dlg.Error(owner, "Retrofit", "Couldn't read that design.\n\n" + ex.Message);
+            return null;
+        }
+    }
+
+    /// <summary>The friendliest name for a design read in for comparison: the name it carries, else its filename.</summary>
+    private static string DesignName(OplanFile file, string path) =>
+        file.Meta.Name is { Length: > 0 } n ? n : Path.GetFileNameWithoutExtension(path);
+
+    private RetrofitPick? RetrofitFromTemplate(Window owner)
+    {
+        if (_index is null) return null;
+
+        var ships = TemplateImport.ListShipFiles(_index);
+        if (ships.Count == 0)
+        {
+            Dlg.Info(owner, "Retrofit", "No ship templates were found in your game data.");
+            return null;
+        }
+
+        var browser = new TemplateBrowserDialog(ships) { Title = "Retrofit from which template?", Owner = owner };
+        if (browser.ShowDialog() != true || browser.Selected is not { } entry) return null;
+
+        try
+        {
+            var result = TemplateImport.LoadFile(entry.Path, _catalog!);
+            return new RetrofitPick(result.ShipName, BillOfMaterials.ComputeAll(result.Doc));
+        }
+        catch (Exception ex)
+        {
+            Dlg.Error(owner, "Retrofit", "Couldn't read that ship template.\n\n" + ex.Message);
+            return null;
+        }
+    }
+
+    private async Task<RetrofitPick?> RetrofitFromSave(Window owner)
+    {
+        if (_env is null) return null;
+
+        var saves = SaveImport.ListSaves(_env);
+        if (saves.Count == 0)
+        {
+            Dlg.Info(owner, "Retrofit", "No save games found in your Ostranauts Saves folder.");
+            return null;
+        }
+
+        var picker = new SavePickerDialog(saves, "Retrofit from a ship in which save?",
+            "Reads the ship's layout to count what it carries. Nothing is written and nothing is imported.",
+            "Choose save") { Owner = owner };
+        if (picker.ShowDialog() != true || picker.Selected is not { } save) return null;
+
+        var ships = SaveImport.ListPlayerShips(save.ZipPath);
+        if (ships.Count == 0)
+        {
+            Dlg.Warn(owner, "Retrofit",
+                "Couldn't find a ship in that save (no owned ships and no current ship on record).");
+            return null;
+        }
+
+        var shipDlg = new ShipChoiceDialog(save.Name, ships) { Owner = owner };
+        if (shipDlg.ShowDialog() != true || shipDlg.Selected is not { } chosen) return null;
+
+        var (catalog, zip, regId) = (_catalog!, save.ZipPath, chosen.RegId);
+        try
+        {
+            var result = await Ui.OffThread(() => SaveImport.ImportShipLayout(zip, regId, catalog));
+            return new RetrofitPick(chosen.Name, BillOfMaterials.ComputeAll(result.Doc));
+        }
+        catch (Exception ex)
+        {
+            Dlg.Error(owner, "Retrofit", "Couldn't read that ship.\n\n" + ex.Message);
+            return null;
+        }
     }
 
     private void UpdateProblems(List<Problem> problems)

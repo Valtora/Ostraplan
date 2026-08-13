@@ -278,6 +278,20 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   zooms the canvas straight to the offending tiles so it's easy to find on a big ship.
 - **Materials…** (Analyse): the **bill of materials** — each part's install-kit
   count, for the whole ship or the current selection, with **Copy list**.
+  - **Retrofit from…** nets the bill against a ship you already have, so it reads as
+    what the *conversion* costs rather than what the design costs. The starting ship
+    can be another **design**, a **ship template**, or a **ship in a save**; it is only
+    read and measured, never imported, and your design is untouched. The list becomes a
+    diff: `+N` kits to obtain, `−N` recovered, `=` for a part type that already matches,
+    with each line's before → after counts beside it. Retrofit mode always compares the
+    **whole** design, even if a selection is active.
+  - **Recovered means recovered.** Uninstalling a part yields its own uninstalled form,
+    which is the same kit the bill counts, so a part the design drops is material back
+    rather than material spent.
+  - **It prices material, not labour.** A part that only moves nets to zero: no kit
+    changes hands, but you still pay the uninstall and re-install jobs. Non-buildable
+    structure (raw hull, fixed systems, the primary airlock) is reported as a count on
+    each side rather than as lines, since you cannot buy it either way.
 - **Ship Re-skin…** (Design): swap every wall and/or floor to a different cooverlay
   skin, ship-wide, in one undo step. Sprites and names only — rooms, airtightness
   and rating are untouched. (Named "Re-skin" so it isn't confused with the app's

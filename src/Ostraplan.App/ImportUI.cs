@@ -124,6 +124,85 @@ public sealed class TemplateBrowserDialog : Window
     }
 }
 
+/// <summary>Where a ship being read in for comparison comes from. Not an import: the ship is read, measured,
+/// and dropped, and the design on the canvas is never touched.</summary>
+public enum ShipSourceKind
+{
+    /// <summary>A saved .oplan design.</summary>
+    Design,
+    /// <summary>A ship template from the install or a loaded mod.</summary>
+    Template,
+    /// <summary>A ship in one of the player's save games.</summary>
+    Save,
+}
+
+/// <summary>A row in the source-kind picker.</summary>
+public sealed record SourceKindRow(string Title, string Sub, ShipSourceKind Kind);
+
+/// <summary>Asks which kind of ship to read in — a design, a ship template, or a ship in a save — before handing
+/// off to the picker for that kind. The three readers already exist; this only chooses between them.</summary>
+public sealed class ShipSourceDialog : Window
+{
+    private readonly ListBox _list;
+
+    public ShipSourceKind? Selected { get; private set; }
+
+    public ShipSourceDialog(string title, string note)
+    {
+        Title = title;
+        Width = 460; SizeToContent = SizeToContent.Height;
+        ResizeMode = ResizeMode.NoResize;
+        WindowStartupLocation = WindowStartupLocation.CenterOwner;
+        Background = ThemeManager.WindowBg;
+
+        var rows = new List<SourceKindRow>
+        {
+            new("A design", "One of your saved .oplan designs.", ShipSourceKind.Design),
+            new("A ship template", "A stock or modded ship from your Ostranauts install.", ShipSourceKind.Template),
+            new("A ship in a save", "A ship you own in one of your save games.", ShipSourceKind.Save),
+        };
+
+        var root = new DockPanel { Margin = new Thickness(16) };
+
+        var noteBlock = new TextBlock
+        {
+            Text = note, Foreground = ThemeManager.Dim, FontSize = 11,
+            TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
+        };
+        DockPanel.SetDock(noteBlock, Dock.Top);
+        root.Children.Add(noteBlock);
+
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0) };
+        var ok = new Button { Content = "Choose", Padding = new Thickness(18, 4, 18, 4), Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
+        var cancel = new Button { Content = "Cancel", Padding = new Thickness(16, 4, 16, 4), IsCancel = true };
+        ok.Click += (_, _) => Accept();
+        buttons.Children.Add(ok);
+        buttons.Children.Add(cancel);
+        DockPanel.SetDock(buttons, Dock.Bottom);
+        root.Children.Add(buttons);
+
+        _list = new ListBox
+        {
+            Background = Brushes.Transparent, BorderThickness = new Thickness(0),
+            ItemsSource = rows, SelectedIndex = 0,
+            ItemTemplate = TemplateBrowserDialog.TwoLineRow(nameof(SourceKindRow.Title), nameof(SourceKindRow.Sub)),
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+        };
+        _list.MouseDoubleClick += (_, _) => Accept();
+        _list.KeyDown += (_, e) => { if (e.Key == Key.Enter) Accept(); };
+        root.Children.Add(_list);
+
+        Content = root;
+    }
+
+    private void Accept()
+    {
+        if (_list.SelectedItem is not SourceKindRow row) return;
+        Selected = row.Kind;
+        DialogResult = true;
+    }
+}
+
 /// <summary>A row in the ship picker: the ship name (with a "you are here" tag) over its make/model/RegID
 /// subtitle (with a "NOT OWNED" tag for stations/other vessels).</summary>
 public sealed record ShipRow(string Title, string Sub, SaveShipChoice Choice);

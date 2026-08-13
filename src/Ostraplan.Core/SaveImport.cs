@@ -87,6 +87,22 @@ public static class SaveImport
         return TemplateImport.FromTemplate(tmpl, catalog);
     }
 
+    /// <summary>Import a <b>named</b> ship's layout from a save's data zip — the same pristine, layout-only read as
+    /// <see cref="ImportPlayerShip"/>, for a caller that has already picked which ship it wants (see
+    /// <see cref="ListPlayerShips"/>). No save identity is retained: for the write-back path that keeps it, see
+    /// <see cref="SaveEditImport"/>. Throws (for the caller to report) if that ship is not in the save.</summary>
+    public static ImportResult ImportShipLayout(string zipPath, string regId, Catalog catalog)
+    {
+        using var zip = ZipFile.OpenRead(zipPath);
+
+        var shipEntry = zip.GetEntry($"ships/{regId}.json")
+            ?? throw new InvalidDataException($"The ship '{regId}' is not among this save's ships.");
+
+        var tmpl = ParseShip(ReadText(shipEntry), shipEntry.FullName, regId)
+            .OrderByDescending(s => s.Items.Count).First();
+        return TemplateImport.FromTemplate(tmpl, catalog);
+    }
+
     /// <summary>Parse one <c>ships/*.json</c> record, throwing with the reason when nothing ship-shaped comes out.
     /// Shared with <see cref="SaveEditImport"/> so both import paths report a bad record the same way. Takes the
     /// already-read text, because the caller that needs it twice should not decompress it twice.</summary>

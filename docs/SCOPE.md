@@ -44,6 +44,8 @@ game patch, forever.
   out of a save.
 - **Answering questions the layout can answer**: rooms, rating, propulsion figures,
   bill of materials, power connectivity, crew reach.
+- **Costing the work**: what a design takes to build from scratch, and what it takes to
+  retrofit a ship you already have into it.
 - **Writing a design into the game**: as a spawnable local mod, as a new ship added
   to a copy of a save, or back over the ship in the save you imported it from.
 - **Carrying what belongs to the ship** through those writes: zones, container cargo,
