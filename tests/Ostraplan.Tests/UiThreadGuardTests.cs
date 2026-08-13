@@ -162,6 +162,67 @@ public class UiThreadGuardTests
         public Func<int> Work() => () => Children.Count;
     }
 
+    [Fact]
+    public void A_sibling_lambda_that_captures_this_taints_the_whole_method()
+    {
+        RunSta(() =>
+        {
+            // The shape every modeless report window lands in: the method hands its measurement to OffThread, and
+            // then wires `window.RerunRequested += () => Rerun()` — an instance call, so a second lambda in the
+            // SAME method captures `this`. The compiler files both in ONE closure, so the guard finds `<>4__this`
+            // on the object it is handed even though the work lambda names nothing UI-owned.
+            var ex = Assert.Throws<InvalidOperationException>(() => new Rerunner().MeasureBadly());
+            Assert.Contains("`this`", ex.Message);
+            Assert.Contains("static method", ex.Message);   // the only cure that works for this shape
+            Assert.Contains(nameof(Rerunner), ex.Message);
+        });
+    }
+
+    [Fact]
+    public void Moving_the_work_to_a_static_method_keeps_the_guard_on()
+    {
+        RunSta(() =>
+        {
+            // The cure, and why it beats allowUiCapture: a static method has no `this` in scope, so no sibling
+            // lambda can taint its closure, and the guard stays live for the work that actually goes off-thread.
+            Assert.Equal(42, new Rerunner().MeasureWell());
+        });
+    }
+
+    /// <summary>Stands in for a report window's host: a UI-owned object whose measurement method also wires up a
+    /// re-run callback over itself.</summary>
+    private sealed class Rerunner : StackPanel
+    {
+        private int Rerun() => 42;
+
+        /// <summary>Work lambda and `this`-capturing lambda in one method: they share a closure, so the guard
+        /// throws on the work lambda.</summary>
+        public int MeasureBadly()
+        {
+            var hoisted = 42;
+            Func<int> work = () => hoisted;
+            Func<int> rerun = () => Rerun();   // the taint: puts `<>4__this` on the shared closure
+            Ui.VerifyCaptures(work);
+            return rerun();
+        }
+
+        /// <summary>The same work, handed to a static helper, plus the same `this`-capturing lambda.</summary>
+        public int MeasureWell()
+        {
+            var hoisted = 42;
+            var result = Measure(hoisted);
+            Func<int> rerun = () => Rerun();
+            return result + rerun() - 42;
+        }
+
+        private static int Measure(int hoisted)
+        {
+            Func<int> work = () => hoisted;
+            Ui.VerifyCaptures(work);
+            return work();
+        }
+    }
+
 #if DEBUG
     [Fact]
     public void OffThread_applies_the_guard_in_debug_builds()

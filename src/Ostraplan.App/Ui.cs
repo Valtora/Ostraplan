@@ -86,10 +86,22 @@ public static class Ui
     private static bool IsClosure(Type t) =>
         t.IsDefined(typeof(CompilerGeneratedAttribute), inherit: false) && !t.IsValueType;
 
-    /// <summary>Recover the source name the compiler mangled into the closure field ("&lt;opts&gt;5__2" -> "opts").</summary>
+    /// <summary>
+    /// Recover the source name the compiler mangled into the closure field ("&lt;opts&gt;5__2" -> "opts").
+    ///
+    /// <para><c>&lt;&gt;4__this</c> gets said in words instead, because its raw name tells you nothing about what
+    /// to do. It also usually is not the lambda you are looking at: the compiler files every capture in a method
+    /// into <b>one</b> closure, so a <i>sibling</i> lambda calling an instance member (a <c>RerunRequested</c>
+    /// handler, say) puts <c>this</c> on the object the guard walks even when the work lambda names nothing
+    /// UI-owned. Hoisting a local cannot fix that; moving the off-thread call into a <b>static</b> method can,
+    /// since a static method has no <c>this</c> to capture.</para>
+    /// </summary>
     private static string Field(FieldInfo f)
     {
         var n = f.Name;
+        if (n == "<>4__this")
+            return "the enclosing instance (`this`) — possibly via another lambda in the same method, since they "
+                 + "share one closure; moving this call into a static method is the fix if the work itself is clean";
         var close = n.StartsWith('<') ? n.IndexOf('>') : -1;
         return close > 1 ? $"`{n[1..close]}`" : $"`{n}`";
     }
