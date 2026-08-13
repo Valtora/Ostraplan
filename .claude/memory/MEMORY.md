@@ -10,3 +10,4 @@
 - [Ostraplan commits straight to main](ostraplan-commits-straight-to-main.md) — no PR workflow; `--ff-only` merges; issue refs go in the subject as `(#N)`, not a `Refs:` footer
 - [Ostraplan is a planner, not a save editor](ostraplan-planner-not-save-editor.md) — a feature needs a *design* as its input; pure save-state features (apartments, verbatim ship copying) are declined with reasons
 - [Ostraplan button styling (Fluent ThemeMode)](ostraplan-button-styling-fluent.md) — custom Button/ToggleButton styles MUST be BasedOn the Fluent implicit style; use a ToggleButton's native checked state for active, never hard-set Background/Foreground (VSM washout)
+- [Re-verify only on major game versions](ostraplan-reverify-on-major-versions.md) — no per-patch decompile sweeps; move a "verified X" stamp only for a port actually re-read; full sweep only on major versions or on request

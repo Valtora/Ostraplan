@@ -11,6 +11,8 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.80.0] 2026-08-13, Flight Dynamics, retrofit costing, import choices and device switching
+
 ### Fixed
 - **The torch note no longer claims modules are missing when they are switched off.** A reactor whose laser
   arrays, pellet feeders or fuel regulators sat on its module points in their off state read as "the reactor has
