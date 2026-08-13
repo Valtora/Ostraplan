@@ -42,10 +42,12 @@ public sealed class Fixtures
         return this;
     }
 
-    /// <summary>Register a presence-only condtrigger: every req present, no forbid present.</summary>
-    public Fixtures Trig(string name, string[] reqs, string[]? forbids = null)
+    /// <summary>Register a presence-only condtrigger: every req present, no forbid present. Pass
+    /// <paramref name="bAnd"/> false for the game's OR form (any one req present is enough), which is what the
+    /// vessel and container filters use.</summary>
+    public Fixtures Trig(string name, string[] reqs, string[]? forbids = null, bool bAnd = true)
     {
-        _trigs[name] = new CondTriggerDef(name, reqs, forbids ?? [], false);
+        _trigs[name] = new CondTriggerDef(name, reqs, forbids ?? [], false) { BAnd = bAnd };
         return this;
     }
 

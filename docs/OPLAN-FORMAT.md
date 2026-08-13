@@ -169,6 +169,7 @@ The design itself, in draw order (array order is preserved). Each entry:
 | `origin` | string / absent | Save-edit only: the source save item's `strID`, used to write structural edits back to the right item. Absent otherwise. |
 | `swappedFrom` | string / absent | Save-edit only: the `strID` this part **used to be**, before an uninstall / install or door toggle re-stated it under another def. `origin` is necessarily absent when this is present (the item record can't be reused), but the part is still one the player owns, so the edit cost prices it as a move rather than as construction. |
 | `swappedFromDef` | string / absent | The def the part carried before that swap, so swapping back to it restores `origin` outright and the round trip is free. Always absent when `swappedFrom` is. |
+| `z` | int / absent | The manual draw-order bias a **Move Back / Move Forward** wrote onto this part. Absent for a part left in the automatic order, which is nearly all of them. Cosmetic: it moves the part inside its render layer and nothing else reads it. |
 | `cargo` | array / absent | A full snapshot of this container's contents, present **only** when its cargo was edited in the inventory editor. Un-edited containers omit it and re-read their contents from the linked save on open. |
 
 **Cargo snapshot node** (`cargo[]`, recursive via `children`):
@@ -216,6 +217,7 @@ One per tile — a later duplicate at the same tile overwrites.
 | `def` | string | The item's `strName`. |
 | `x`, `y`, `rot` | int | Tile pose in document coordinates. |
 | `qty` | int | Stacked count (≥ 1). Absent or `0` in an older file means a single item. |
+| `z` | int / absent | The manual draw-order bias, exactly as on a part: loose items share one render order with placed structure. Absent for the automatic order. |
 
 ### `links`
 

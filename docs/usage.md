@@ -163,6 +163,10 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   (**Ctrl+C**) / Paste (**Ctrl+V**), Rotate, Flip Horizontal / Vertical, Delete
   (**Del**), **Use as brush** (**Alt+click**, the eyedropper — arm the part you clicked, at its
   rotation, and keep drawing), and **Replace with…** (**Ctrl+R**).
+- **Reach what's underneath:** **`** steps the selection down the pile of things under
+  the cursor, wrapping at the bottom; the right-click menu lists the whole pile too.
+  **Move Back** / **Move Forward** (**Ctrl+[** / **Ctrl+]**) change which of them draws
+  on top. See [what draws on top of what](#what-draws-on-top-of-what).
 - **Undo / redo:** **Ctrl+Z** / **Ctrl+Y**, unbounded. Paint strokes and fills
   are single steps.
 
@@ -792,6 +796,32 @@ container under the cursor if one accepts it. Right-click a placed loose item fo
 **Change Quantity** (stackable items, up to the item's stack limit) and **Delete**.
 Loose cargo carries no structure, so it takes no part in the Law; it just renders and
 travels with the ship through **Export** and save write-back.
+
+### What draws on top of what
+
+Several things can share a tile — a deck plate, the fixture on it, a canister feeding
+that fixture, a jacket dropped on the floor — and the order they draw in is worked out
+for you:
+
+- **Layers first.** Deck plates draw under everything standing on them, walls and doors
+  next, then fixtures, then power conduits as thin runs on top. Nothing can be shuffled
+  out of its layer.
+- **Canisters draw under what they feed.** A gas canister installed on an RCS
+  regulator's input sits *on the regulator's own row*, so the game's own sprite sort
+  cannot separate them and it used to come down to which you placed second. Canisters
+  now go behind, which is how they read in game.
+- **A small part inside a bigger one draws under it**, and loose deck clutter draws over
+  installed parts, because that is what "lying on the floor" looks like.
+
+When you disagree, say so: **Move Back** and **Move Forward** (right-click, or
+**Ctrl+[** and **Ctrl+]**) step the selected part or loose item through the pile on its
+tile, and **Reset order** puts that pile back to automatic. The choice is saved with the
+design.
+
+Anything drawn underneath is still one keystroke away: press **`** with the cursor over
+a stacked tile to step the selection down the pile, wrapping at the bottom. The
+right-click menu lists the whole pile as well, loose items included, with ● marking what
+is selected.
 
 ## Surfaces mode — painting the deck
 

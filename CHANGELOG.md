@@ -11,6 +11,29 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Fixed
+- **A canister no longer draws over the machine it feeds.** An installed gas canister sits on its regulator's
+  gas-input point, which is *the regulator's own row*, so the game's sprite sort cannot tell the two apart and
+  Ostraplan fell through to the order they were placed in: drop the canister second and it covered the Hydra. It
+  now goes behind, as do canisters and fuel tanks generally, wherever they overlap what they are plugged into. A
+  canister is whatever the game's own vessel rule says is one, so a modded one behaves the same.
+- **Loose items no longer float on top of everything.** Anything dropped on the deck was drawn after the whole
+  ship regardless of what it was lying against, and there was no way to say otherwise. Deck clutter still draws
+  over installed parts, which is what lying on the floor looks like, but it is now part of the same order as
+  everything else: a dropped canister goes behind a fixture like an installed one, and any loose item can be
+  re-stacked by hand. It is also listed in the right-click stack picker, where before it was invisible.
+- **A part standing inside a bigger part's body draws under it**, rather than over it if it happened to be placed
+  later.
+
+### Added
+- **Move Back and Move Forward (`Ctrl+[` / `Ctrl+]`).** Right-click a part or a loose item and step it through the
+  pile of things sharing its tile when the automatic order is not what you want, with **Reset order** to hand that
+  pile back to it. The choice is saved with the design, and it stays inside the render layer, so nothing can be
+  pushed under a deck plate or over a conduit run.
+- **Press `` ` `` to step down the stack under the cursor.** Reaching a part drawn underneath meant a trip through
+  the right-click menu every time; now the selection walks down the pile a keystroke at a time and wraps at the
+  bottom. The menu still lists the whole pile for when you want to see it.
+
 ## [0.80.0] 2026-08-13, Flight Dynamics, retrofit costing, import choices and device switching
 
 ### Fixed

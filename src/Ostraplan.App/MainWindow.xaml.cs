@@ -2162,6 +2162,47 @@ public partial class MainWindow : Window
     private void TogglePower(IReadOnlyList<Placement> devices) => RestateAll(devices, d => _catalog!.PowerToggle(d));
 
     /// <summary>
+    /// Move the selected part or loose item one step down (or up) the pile of things sharing its tile — the manual
+    /// override over the automatic draw order (see <see cref="ZOrder"/>). No-op at the end of the pile, so holding
+    /// the shortcut down settles rather than cycling.
+    /// </summary>
+    private void Restack(bool forward, (int X, int Y)? cell = null)
+    {
+        if (_doc is null || Board.RestackTarget(cell) is not { } t) return;
+        var changes = ZOrder.Nudge(_doc, t.Item, t.X, t.Y, forward);
+        if (changes.Count == 0) return;
+        _stack.Push(_doc, new SetZOrderCommand(changes, forward ? "Move forward" : "Move back"));
+        Board.InvalidateVisual();
+    }
+
+    /// <summary>Put the whole pile on a tile back under the automatic draw order, clearing the biases a nudge
+    /// wrote across it (see <see cref="ZOrder.Reset"/>).</summary>
+    private void ResetStackOrder((int X, int Y) cell)
+    {
+        if (_doc is null || Board.RestackTarget(cell) is not { } t) return;
+        var changes = ZOrder.Reset(_doc, t.Item, t.X, t.Y);
+        if (changes.Count == 0) return;
+        _stack.Push(_doc, new SetZOrderCommand(changes, "Reset draw order"));
+        Board.InvalidateVisual();
+    }
+
+    /// <summary>The Move Back / Move Forward / Reset order entries for a tile, appended to whichever context menu
+    /// is open. Both menus offer them, because a canister and the regulator it leans on are one pile whether the
+    /// canister is installed or lying on the deck. Nothing is added when only one thing is drawn on the tile.</summary>
+    private void AddRestackItems(ContextMenu menu, (int X, int Y) cell, Func<string, string, RoutedEventHandler, bool, MenuItem> item)
+    {
+        if (_doc is null || Board.RestackTarget(cell) is not { } t) return;
+        var pile = ZOrder.StackAt(_doc, t.X, t.Y, t.Item);
+        if (pile.Count < 2) return;
+
+        var at = pile.ToList().FindIndex(i => i.Id == t.Item.Id);
+        menu.Items.Add(new Separator());
+        menu.Items.Add(item("Move Back", "Ctrl+[", (_, _) => Restack(false, cell), at > 0));
+        menu.Items.Add(item("Move Forward", "Ctrl+]", (_, _) => Restack(true, cell), at < pile.Count - 1));
+        menu.Items.Add(item("Reset order", "", (_, _) => ResetStackOrder(cell), pile.Any(i => i.ZBias != 0)));
+    }
+
+    /// <summary>
     /// Give a placed container or device a name of its own, the way the game's own rename box does — so a hold of
     /// identical racks can read "spare tool storage" and "spare reactor parts" instead of five identical rows. The
     /// name travels into the game on export and on a save write-back, and comes back on import (see
@@ -2378,7 +2419,8 @@ public partial class MainWindow : Window
     private void OnContextMenuRequested((int X, int Y) cell)
     {
         if (_doc is null) return;
-        var stack = _doc.HitTestStack(cell.X, cell.Y);   // topmost first
+        var stack = _doc.HitTestStack(cell.X, cell.Y);   // topmost first, placements only (what the actions act on)
+        var drawn = _doc.RenderStackAt(cell.X, cell.Y);  // the same pile as drawn, loose items included
         if (stack.Count == 0) return;
 
         static MenuItem Item(string header, string gesture, RoutedEventHandler onClick, bool enabled = true)
@@ -2422,23 +2464,28 @@ public partial class MainWindow : Window
                 menu.Items.Add(pick);
             }
         }
-        else if (stack.Count > 1)
+        else if (drawn.Count > 1)
         {
-            // one tile with parts stacked: floors sit under what's on them, so this is how
-            // you reach the part underneath. Click a row to select just it (● = current).
+            // one tile with things stacked: floors sit under what's on them, and a canister can sit under the
+            // regulator it feeds, so this is how you reach what is underneath. Click a row to select just it
+            // (● = current). Loose items are listed too — they share the one draw order, so a dropped item pushed
+            // under a fixture has to be reachable from the same place as everything else. ` steps down the list.
             menu.Items.Add(new MenuItem
             {
-                Header = $"{stack.Count} stacked here — click to select:",
+                Header = $"{drawn.Count} stacked here — click to select (`):",
                 IsEnabled = false,
                 FontWeight = FontWeights.SemiBold,
             });
-            foreach (var p in stack)
+            foreach (var d in drawn)
             {
-                var target = p;
-                var isSel = Board.SelectedIds.Count == 1 && Board.SelectedIds.Contains(p.Id);
-                var label = (isSel ? "●  " : "○  ") + Rename.Display(p, _doc.Part(p))
-                            + (_doc.IsLocked(p) ? "   · fixed" : "");
-                menu.Items.Add(Item(label, "", (_, _) => Board.SelectOnly(target)));
+                var target = d;
+                var isSel = d.IsLoose
+                    ? Board.SelectedLoose is { } sel && sel.Id == d.Id
+                    : Board.SelectedIds.Count == 1 && Board.SelectedIds.Contains(d.Id);
+                var name = d.Placement is { } dp
+                    ? Rename.Display(dp, _doc.Part(dp)) + (_doc.IsLocked(dp) ? "   · fixed" : "")
+                    : (_catalog!.Lookup(d.DefName)?.Friendly ?? d.DefName) + "   · loose";
+                menu.Items.Add(Item((isSel ? "●  " : "○  ") + name, "", (_, _) => Board.SelectItem(target)));
             }
         }
         else
@@ -2559,6 +2606,7 @@ public partial class MainWindow : Window
         menu.Items.Add(Item("Rotate CCW" + suffix, "Shift+R", (_, _) => RotateSelection(-90), canRotate));
         menu.Items.Add(Item("Flip Horizontal" + suffix, "H", (_, _) => FlipSelection(horizontal: true), canRotate));
         menu.Items.Add(Item("Flip Vertical" + suffix, "Shift+H", (_, _) => FlipSelection(horizontal: false), canRotate));
+        if (!multi) AddRestackItems(menu, cell, Item);
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("Delete" + suffix, "Del", (_, _) => DeleteSelection(), canAct));
         menu.IsOpen = true;
@@ -2593,6 +2641,7 @@ public partial class MainWindow : Window
         menu.Items.Add(new Separator());
         menu.Items.Add(Item(_settings.IsFavorite(lo.DefName, true) ? "Remove from Favorites" : "Add to Favorites",
             "", (_, _) => ToggleFavoriteByRef(lo.DefName, true)));
+        AddRestackItems(menu, cell, Item);
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("Delete", "Del", (_, _) => DeleteSelection()));
         menu.IsOpen = true;
@@ -2713,6 +2762,27 @@ public partial class MainWindow : Window
                 break;
             case Key.H when !ctrl && !e.IsRepeat:   // flip the selection: H = horizontal (left↔right), Shift+H = vertical
                 FlipSelection(horizontal: !shift);
+                e.Handled = true;
+                break;
+            // re-stack what shares a tile, the usual bracket shortcuts for it. Auto-repeat is allowed: holding one
+            // walks the selection down (or up) the pile a step at a time, which is what a nudge is for.
+            case Key.OemOpenBrackets when ctrl:
+                Restack(forward: false);
+                e.Handled = true;
+                break;
+            case Key.OemCloseBrackets when ctrl:
+                Restack(forward: true);
+                e.Handled = true;
+                break;
+            // step down the pile under the cursor. The list in the right-click menu is the exhaustive way through a
+            // stack; this is the fast one, and it is what keeps a part drawn underneath one click away.
+            //
+            // Both OEM keys, because the backtick is not on the same virtual key on every layout: VK_OEM_3 on a US
+            // keyboard, VK_OEM_8 on a UK one (where OEM_3 is the apostrophe). Taking both means the key marked `
+            // works either way, at the cost of the UK apostrophe key doing it too — and nothing on the canvas
+            // takes typed text, so there is nothing for that to collide with.
+            case Key.Oem3 or Key.Oem8 when !ctrl && !e.IsRepeat:
+                Board.CycleSelectionUnderCursor();
                 e.Handled = true;
                 break;
             case Key.Delete:
@@ -4248,7 +4318,9 @@ public partial class MainWindow : Window
             ("Use as brush", "Alt + click", "Eyedropper: arm the part under the cursor, at its own rotation, so you can keep painting it. Also on the right-click menu."),
             ("Replace with…", "Ctrl+R", "Swap the selection for a compatible part (same layer + footprint) via a picker. Also on the right-click menu."),
             ("Move", "Drag selection", "Move the selected parts."),
-            ("Context menu", "RMB", "Use as brush · Replace with… · Find and Replace All… · Make Loose Item / Install item · pick a buried layer on stacked tiles · Select only (after a box-select) · Close/Open door. Also cancels placement while armed."),
+            ("Step down a stack", "`", "Select the next thing down the pile under the cursor, wrapping at the bottom — the quick way to reach a part drawn underneath another without going through the right-click list. Loose items are in the pile too."),
+            ("Re-stack", "Ctrl+[ / Ctrl+]", "Move the selected part or loose item one step back / forward through the pile sharing its tile, when the automatic draw order isn't what you want. Reset order (right-click) hands that pile back to it. Both stay inside the render layer, so nothing lands under a deck plate or over a conduit run, and the choice is saved with the design."),
+            ("Context menu", "RMB", "Use as brush · Replace with… · Find and Replace All… · Make Loose Item / Install item · Move Back / Move Forward / Reset order · pick a buried layer on stacked tiles · Select only (after a box-select) · Close/Open door. Also cancels placement while armed."),
             ("Rotate part", "R / Shift+R", "CW / CCW — the armed part, a selected part in place, or a whole selection about its centre (walls & floors auto-tile rather than turn). The brush keeps its angle when you arm another part; the ghost draws a needle towards its leading edge and the status bar reads out the angle."),
             ("Flip selection", "H / Shift+H", "Mirror the selection about its centre — H horizontal (left↔right), Shift+H vertical (up↔down); each part reflects and snaps to a real rotation."),
             ("Symmetry", "M", "Cycle Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on. While on, it also drives editing: selecting a part grabs its mirror partner(s), and moving, rotating, or deleting the group keeps it symmetric (the far side tracks in the mirrored direction)."),

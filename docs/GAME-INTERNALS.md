@@ -840,8 +840,27 @@ content of a name, and stores it verbatim.
 - **Sprite draw.** Non-sheet sprites draw at `vScale` size centred on the footprint
   (§4). Sheet items draw per tile.
 
-> **Ported in Ostraplan:** `Catalog.RenderLayer` → `ShipDocument.DrawOrder`;
-> `HitTestStack` drives the right-click layer picker.
+> **Ported in Ostraplan:** `Catalog.RenderLayer` → `ShipDocument.RenderOrder`;
+> `RenderStackAt` drives the right-click layer picker and the `` ` `` cycle key.
+
+**Where the game stops answering.** Two items on the same row cannot be separated by a
+Y-sort, and `nLayer` is 0 on both, so the game itself does not define which draws first.
+This is not a corner case: a canister installed on an RCS regulator's `GasInput` point
+sits at pixel offset `(±16, 0)`, i.e. **exactly** the regulator's own row. Ostraplan
+therefore adds its own terms below the layer rank, and they are a **convention, not a
+port** — do not "fix" them towards a game behaviour that does not exist:
+
+| Term | Rule |
+|---|---|
+| Manual bias | `Placement.ZBias` / `LooseObject.ZBias`, the user's Move Back / Move Forward. Applied inside the render layer, so nothing can be pushed under a deck plate. |
+| Object rank | Canisters, then other placed parts, then loose deck clutter. |
+| Bottom edge | The body's last row (`BodyBounds`), so a small part standing within a larger one's body reads as sitting in it. |
+| Insertion | Last resort, so an unedited design draws the same way twice. |
+
+A canister is whatever satisfies the game's own **`TIsVessel`** trigger (an OR over
+`IsVessel01` / `IsVesselH2` / `IsVesselHe` / `IsVesselHe3` / `IsVesselCO2` / `IsVesselO2`
+/ `IsVesselN2`), read from the data rather than from a def-name list, so a modded
+canister ranks with the rest.
 
 ### Autotiling (`Item.SetSpriteSheetIndex`)
 
@@ -1730,7 +1749,9 @@ Note the rotor term is **not** divided by `fDeltaTime` while the RCS term is.
 
 ## Appendix A — Quick reference
 
-- **`nLayer` is always 0** — rank by contributed conditions (§15).
+- **`nLayer` is always 0** — rank by contributed conditions (§15). Within a layer the game
+  answers nothing (its Y-sort ties on a shared row), so those terms are Ostraplan's own
+  convention plus a manual override (§15).
 - **Footprint ≠ sprite** — socket grid vs `vScale`; the big tanks are 7×7 footprint / 3×3
   sprite (§4). Keep the footprint for the Law.
 - **CheckFit is presence-only** — count multiplicity / nested triggers / `bAND=false` are

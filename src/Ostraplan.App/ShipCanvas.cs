@@ -599,6 +599,11 @@ public sealed class ShipCanvas : FrameworkElement
     private bool IsGhosted(Placement p) =>
         SurfaceMode && !SurfacePaint.IsFocusLayer(Doc!.Catalog, Doc.Part(p), LayerFocus);
 
+    /// <summary>Surfaces mode ghosts everything that isn't the focused deck layer. Loose clutter is never the
+    /// deck, so it ghosts with the rest whatever the focus is.</summary>
+    private bool IsGhosted(RenderItem item) =>
+        item.Placement is { } p ? IsGhosted(p) : SurfaceMode;
+
     /// <summary>
     /// The part a click should land on. In Surfaces mode the ghosted layers are not just dim, they are out of the
     /// way: the topmost part <b>in focus</b> under the cursor wins, so a floor buried under a bed (or, on the
@@ -894,6 +899,75 @@ public sealed class ShipCanvas : FrameworkElement
         InvalidateVisual();
     }
 
+    /// <summary>Select a loose floor item alone, dropping any part selection — the loose half of
+    /// <see cref="SelectOnly"/>, so the stacked picker and the cycle key can land on either kind.</summary>
+    public void SelectOnlyLoose(LooseObject lo)
+    {
+        SelectedIds.Clear();
+        SelectionChanged?.Invoke();
+        SelectedLoose = lo;
+        LooseSelectionChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    /// <summary>Select whichever kind of drawable this is (see <see cref="RenderItem"/>).</summary>
+    public void SelectItem(RenderItem item)
+    {
+        if (item.Placement is { } p) { ClearLooseSelection(); SelectOnly(p); }
+        else if (item.Loose is { } lo) SelectOnlyLoose(lo);
+    }
+
+    /// <summary>
+    /// What a Move Back / Move Forward acts on: the one selected drawable, and the tile whose pile it moves
+    /// within. That tile is <paramref name="cell"/> when given (the right-clicked one), else the tile under the
+    /// cursor, else the drawable's own top-left body tile — a part spanning several tiles is stacked differently
+    /// against each of them, so the nudge has to know which one you meant. Null unless exactly one thing is
+    /// selected, since re-stacking a box selection has no single answer.
+    /// </summary>
+    public (RenderItem Item, int X, int Y)? RestackTarget((int X, int Y)? cell = null)
+    {
+        if (Doc is null) return null;
+        RenderItem item;
+        if (SelectedLoose is { } lo) item = new RenderItem(null, lo);
+        else if (SelectedIds.Count == 1 && Doc.Placements.FirstOrDefault(p => SelectedIds.Contains(p.Id)) is { } p)
+            item = new RenderItem(p, null);
+        else return null;
+
+        foreach (var c in new[] { cell, _hoverCell })
+            if (c is { } at && Doc.RenderStackAt(at.X, at.Y).Any(i => i.Id == item.Id)) return (item, at.X, at.Y);
+        if (item.Placement is { } sel)
+        {
+            var (bx, by, _, _) = Doc.BodyBounds(sel);
+            return (item, bx, by);
+        }
+        return (item, item.X, item.Y);
+    }
+
+    /// <summary>The loose item on a tile when it is the <b>topmost</b> thing drawn there, else null. A loose item
+    /// nudged under a fixture is no longer what a click on that tile lands on.</summary>
+    private LooseObject? TopLooseAt((int X, int Y) cell) =>
+        Doc?.RenderStackAt(cell.X, cell.Y).FirstOrDefault().Loose;
+
+    /// <summary>
+    /// Step the selection one drawable down the pile under the cursor, wrapping at the bottom — the fast way
+    /// through a stack that does not cost a trip to the right-click picker, and the reason a canister drawn under
+    /// its regulator is still one keystroke away. Restarts from the top whenever the selection is not in the pile
+    /// (a fresh tile), so it never depends on state that a mouse move could have invalidated.
+    /// </summary>
+    public void CycleSelectionUnderCursor()
+    {
+        if (Doc is null || _hoverCell is not { } cell) return;
+        var stack = Doc.RenderStackAt(cell.X, cell.Y);
+        if (stack.Count == 0) return;
+
+        var current = -1;
+        for (var i = 0; i < stack.Count && current < 0; i++)
+            if (stack[i].IsLoose ? SelectedLoose is { } sel && sel.Id == stack[i].Id
+                                 : SelectedIds.Count == 1 && SelectedIds.Contains(stack[i].Id))
+                current = i;
+        SelectItem(stack[current < 0 ? 0 : (current + 1) % stack.Count]);
+    }
+
     /// <summary>
     /// Off -> Vertical -> Horizontal -> Both -> Off. When switching on from Off,
     /// the axes centre on the tile under the cursor (origin if the mouse is
@@ -1186,10 +1260,11 @@ public sealed class ShipCanvas : FrameworkElement
 
         if (e.ChangedButton == MouseButton.Right)
         {
-            // A loose floor item under the cursor wins the right-click, even while a brush is armed: disarm, select
-            // it, and open its menu (Change Quantity / Delete) — otherwise a placed item is unreachable because the
-            // brush stays armed after dropping.
-            if (Doc is not null && Doc.LooseAt(CellAt(screen).X, CellAt(screen).Y) is { } looseRmb)
+            // A loose floor item the cursor is over wins the right-click when it is the TOPMOST thing there, even
+            // while a brush is armed: disarm, select it, and open its menu (Change Quantity / Delete) — otherwise a
+            // dropped item is unreachable because the brush stays armed after dropping. One that has been pushed
+            // under a fixture falls through to the placement menu, whose stacked picker lists it.
+            if (Doc is not null && TopLooseAt(CellAt(screen)) is { } looseRmb)
             {
                 if (ArmedPart is not null) { SetArmed(null); Disarmed?.Invoke(); }
                 SelectedIds.Clear();
@@ -1212,6 +1287,10 @@ public sealed class ShipCanvas : FrameworkElement
                 var stack = Doc.HitTestStack(rmbCell.X, rmbCell.Y);
                 if (stack.Count > 0)
                 {
+                    // this menu is about structure, so drop any loose item still selected from an earlier click —
+                    // the left-click path already keeps the two selections mutually exclusive, and the re-stack
+                    // actions read whichever one is live to decide what they move
+                    ClearLooseSelection();
                     // if nothing in this stack is already selected, grab the topmost so a
                     // plain right-click + Delete still acts on the visible part — but keep an
                     // existing box selection (>1) intact so its layer filter / group actions
@@ -1360,9 +1439,10 @@ public sealed class ShipCanvas : FrameworkElement
             return;
         }
 
-        // Unarmed left-click on a tile that holds a loose item selects it (it sits on top of the deck), so it can
-        // be inspected and deleted. Ctrl-click falls through to the placement logic (reach the structure beneath).
-        if (!SurfaceMode && !Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && Doc.LooseAt(cell.X, cell.Y) is { } looseHit)
+        // Unarmed left-click on a tile whose TOPMOST drawable is a loose item selects it, so it can be inspected
+        // and deleted. Ctrl-click falls through to the placement logic (reach the structure beneath), as does a
+        // loose item that has been pushed under a fixture — click order follows draw order.
+        if (!SurfaceMode && !Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && TopLooseAt(cell) is { } looseHit)
         {
             SelectedIds.Clear();
             SelectionChanged?.Invoke();
@@ -1717,10 +1797,7 @@ public sealed class ShipCanvas : FrameworkElement
             {
                 ctx.DrawRectangle(Background, null, new Rect(0, 0, outW, outH));
                 ctx.PushTransform(m);
-                foreach (var p in Doc.DrawOrder())
-                    DrawPlacement(ctx, p, (0, 0));
-                foreach (var lo in Doc.LooseObjects)
-                    if (Doc.Catalog.Lookup(lo.DefName) is { } part) DrawSprite(ctx, part, lo.X, lo.Y, lo.Rot, ghost: false);
+                foreach (var i in Doc.RenderOrder()) DrawItem(ctx, i, (0, 0));
                 ctx.Pop();
             }
             var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(outW, outH, 96, 96, PixelFormats.Pbgra32);
@@ -2044,10 +2121,7 @@ public sealed class ShipCanvas : FrameworkElement
         using (var ctx = dv.RenderOpen())
         {
             ctx.DrawRectangle(PreviewBg, null, new Rect(0, 0, PreviewW, PreviewH));
-            foreach (var p in Doc!.DrawOrder())
-                DrawPlacement(ctx, p, (0, 0));
-            foreach (var lo in Doc.LooseObjects)
-                if (Doc.Catalog.Lookup(lo.DefName) is { } part) DrawSprite(ctx, part, lo.X, lo.Y, lo.Rot, ghost: false);
+            foreach (var i in Doc!.RenderOrder()) DrawItem(ctx, i, (0, 0));
         }
         var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(PreviewW, PreviewH, 96, 96, PixelFormats.Pbgra32);
         rtb.Render(dv);
@@ -2328,8 +2402,9 @@ public sealed class ShipCanvas : FrameworkElement
         {
             // No composite to lean on (Light Viz off, or not yet baked): a Move drags selected parts (offset per
             // frame) and a Paint adds parts live, so both draw straight through, bypassing the cached drawing.
-            DrawPlacements(dc, [.. Doc.DrawOrder()],
-                p => _drag == Drag.Move && SelectedIds.Contains(p.Id) && !Doc.IsLocked(p) ? MoveDeltaFor(p) : (0, 0));
+            DrawItems(dc, [.. Doc.RenderOrder()],
+                i => _drag == Drag.Move && i.Placement is { } p && SelectedIds.Contains(p.Id) && !Doc.IsLocked(p)
+                     ? MoveDeltaFor(p) : (0, 0));
         }
         else
         {
@@ -2349,11 +2424,7 @@ public sealed class ShipCanvas : FrameworkElement
             if (_drag is Drag.Move or Drag.Paint) DrawInFluxParts(dc);   // the moving selection / live paint stroke, over the lit backdrop
         }
 
-        // loose floor items sit on top of the deck/fixtures they rest on; the lit composite already bakes them (any
-        // just-painted loose item is drawn by DrawInFluxParts, so only the unlit path draws the loose layer itself)
-        var litDrawn = lit;
-        if (!litDrawn) DrawLooseObjects(dc);
-
+        DrawLooseSelection(dc);   // the outline on the selected loose item; the item itself draws with the ship
         DrawIllegalCells(dc);
         DrawLeakCells(dc);
         DrawAirSelection(dc);
@@ -2739,10 +2810,7 @@ public sealed class ShipCanvas : FrameworkElement
             RenderOptions.SetBitmapScalingMode(dv, BitmapScalingMode.NearestNeighbor);
             using (var ctx = dv.RenderOpen())
             {
-                foreach (var p in Doc!.DrawOrder())
-                    DrawPlacement(ctx, p, (0, 0));
-                foreach (var lo in Doc.LooseObjects)
-                    if (Doc.Catalog.Lookup(lo.DefName) is { } part) DrawSprite(ctx, part, lo.X, lo.Y, lo.Rot, ghost: false);
+                foreach (var i in Doc!.RenderOrder()) DrawItem(ctx, i, (0, 0));
             }
             int w = tilesW * ppt, h = tilesH * ppt;
             var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
@@ -3177,7 +3245,7 @@ public sealed class ShipCanvas : FrameworkElement
         {
             var dg = new DrawingGroup();
             using (var ctx = dg.Open())
-                DrawPlacements(ctx, [.. Doc!.DrawOrder()], _ => (0, 0));
+                DrawItems(ctx, [.. Doc!.RenderOrder()], _ => (0, 0));
             dg.Freeze();
             return _staticShip = dg;
         }
@@ -3210,27 +3278,14 @@ public sealed class ShipCanvas : FrameworkElement
         }
     }
 
-    /// <summary>Draw every loose floor item at its tile (resolved to its sprite), plus a select outline on the
-    /// chosen one. Drawn each frame over the cached ship, like the zone overlay, since these are few.</summary>
-    private void DrawLooseObjects(DrawingContext dc)
+    /// <summary>Outline the selected loose item. The sprites themselves draw with the rest of the ship (loose
+    /// items share the one render order), so only the selection marker is left as an overlay — it must stay on
+    /// top, and it must survive the Light Viz path, where the item is baked into the composite.</summary>
+    private void DrawLooseSelection(DrawingContext dc)
     {
-        if (SurfaceMode) dc.PushOpacity(SurfaceGhostOpacity);   // loose clutter is not the deck: ghost it with the rest
-        DrawLooseObjectsCore(dc);
-        if (SurfaceMode) dc.Pop();
-    }
-
-    private void DrawLooseObjectsCore(DrawingContext dc)
-    {
-        foreach (var lo in Doc!.LooseObjects)
-        {
-            if (Doc.Catalog.Lookup(lo.DefName) is not { } part) continue;
-            DrawSprite(dc, part, lo.X, lo.Y, lo.Rot, ghost: false);
-            if (SelectedLoose is { } sel && sel.Id == lo.Id)
-            {
-                var (w, h) = GridMath.Size(part.Item.Width, part.Item.Height, lo.Rot);
-                dc.DrawRectangle(null, SelectPen, CellRect(lo.X, lo.Y, w, h));
-            }
-        }
+        if (SelectedLoose is not { } sel || Doc!.Catalog.Lookup(sel.DefName) is not { } part) return;
+        var (w, h) = GridMath.Size(part.Item.Width, part.Item.Height, sel.Rot);
+        dc.DrawRectangle(null, SelectPen, CellRect(sel.X, sel.Y, w, h));
     }
 
     /// <summary>Preview the armed loose item at the hover tile: the semi-transparent sprite plus a green/red
@@ -3254,24 +3309,32 @@ public sealed class ShipCanvas : FrameworkElement
     }
 
     /// <summary>
-    /// Draw a run of placements, ghosting the non-deck layers when Surfaces mode is on. Two passes rather than
-    /// one opacity push per part, so the ghosted layers share a single transparency group. Draw order is
-    /// layer-major (floors, then walls, then everything above), so surfaces are already its prefix and splitting
-    /// it in two changes nothing but the opacity.
+    /// Draw a run of drawables (placements and loose items alike, in one render order), ghosting the non-deck
+    /// layers when Surfaces mode is on. Two passes rather than one opacity push per part, so the ghosted layers
+    /// share a single transparency group. Draw order is layer-major (floors, then walls, then everything above),
+    /// so surfaces are already its prefix and splitting it in two changes nothing but the opacity.
     /// </summary>
-    private void DrawPlacements(DrawingContext dc, IReadOnlyList<Placement> ordered, Func<Placement, (int X, int Y)> offsetOf)
+    private void DrawItems(DrawingContext dc, IReadOnlyList<RenderItem> ordered, Func<RenderItem, (int X, int Y)> offsetOf)
     {
         if (!SurfaceMode)
         {
-            foreach (var p in ordered) DrawPlacement(dc, p, offsetOf(p));
+            foreach (var i in ordered) DrawItem(dc, i, offsetOf(i));
             return;
         }
-        foreach (var p in ordered)
-            if (!IsGhosted(p)) DrawPlacement(dc, p, offsetOf(p));
+        foreach (var i in ordered)
+            if (!IsGhosted(i)) DrawItem(dc, i, offsetOf(i));
         dc.PushOpacity(SurfaceGhostOpacity);
-        foreach (var p in ordered)
-            if (IsGhosted(p)) DrawPlacement(dc, p, offsetOf(p));
+        foreach (var i in ordered)
+            if (IsGhosted(i)) DrawItem(dc, i, offsetOf(i));
         dc.Pop();
+    }
+
+    /// <summary>Draw one drawable — a placement's sprite, or a loose floor item's.</summary>
+    private void DrawItem(DrawingContext dc, RenderItem item, (int X, int Y) offset)
+    {
+        if (item.Placement is { } p) { DrawPlacement(dc, p, offset); return; }
+        if (Doc!.Catalog.Lookup(item.DefName) is { } part)
+            DrawSprite(dc, part, item.X + offset.X, item.Y + offset.Y, item.Rot, ghost: false);
     }
 
     private void DrawPlacement(DrawingContext dc, Placement p, (int X, int Y) offset)

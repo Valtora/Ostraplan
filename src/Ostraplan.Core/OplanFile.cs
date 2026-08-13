@@ -77,14 +77,20 @@ public sealed class OplanFile
                        {
                            Def = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot, Given = p.IsGiven, Origin = p.OriginStrID,
                            SwappedFrom = p.SwappedFromStrID, SwappedFromDef = p.SwappedFromDef,
-                           Name = p.CustomName,
+                           Name = p.CustomName, Z = p.ZBias == 0 ? null : p.ZBias,
                            // Persist a FULL snapshot of a container's contents once it has been edited, so authored
                            // cargo is authoritative on reopen rather than re-derived from the (possibly moved) save.
                            Cargo = doc.IsCargoEdited(p) && p.Cargo.Count > 0 ? p.Cargo.Select(ToOplanCargo).ToList() : null,
                        })
                        .ToList(),
             Zones = doc.Zones.Select(ToOplanZone).ToList(),
-            LooseObjects = doc.LooseObjects.Select(lo => new OplanLoose { Def = lo.DefName, X = lo.X, Y = lo.Y, Rot = lo.Rot, Qty = lo.Quantity }).ToList(),
+            LooseObjects = doc.LooseObjects
+                              .Select(lo => new OplanLoose
+                              {
+                                  Def = lo.DefName, X = lo.X, Y = lo.Y, Rot = lo.Rot, Qty = lo.Quantity,
+                                  Z = lo.ZBias == 0 ? null : lo.ZBias,
+                              })
+                              .ToList(),
             ExtraMassKg = doc.ExtraMassKg > 0 ? doc.ExtraMassKg : null,
         };
         // Device links as (source, target) index pairs into the parts array (= doc.Placements order); only links
@@ -134,6 +140,7 @@ public sealed class OplanFile
                 DefName = part.Def, X = part.X, Y = part.Y, Rot = GridMath.Norm(part.Rot), IsGiven = part.Given,
                 OriginStrID = part.Origin, SwappedFromStrID = part.SwappedFrom, SwappedFromDef = part.SwappedFromDef,
                 CustomName = Rename.OrNull(part.Name),   // verbatim: an imported name must survive a reopen unchanged
+                ZBias = part.Z ?? 0,
             };
             doc.Add(placement);
             byIndex[i] = placement;
@@ -157,7 +164,11 @@ public sealed class OplanFile
         // per tile: a later duplicate at the same tile simply overwrites, matching the in-editor invariant.
         foreach (var lo in LooseObjects)
             if (lo.Def.Length > 0 && catalog.Lookup(lo.Def) is not null)
-                doc.AddLoose(new LooseObject { DefName = lo.Def, X = lo.X, Y = lo.Y, Rot = GridMath.Norm(lo.Rot), Quantity = lo.Qty < 1 ? 1 : lo.Qty });
+                doc.AddLoose(new LooseObject
+                {
+                    DefName = lo.Def, X = lo.X, Y = lo.Y, Rot = GridMath.Norm(lo.Rot),
+                    Quantity = lo.Qty < 1 ? 1 : lo.Qty, ZBias = lo.Z ?? 0,
+                });
         return (doc, missing);
     }
 
@@ -286,6 +297,11 @@ public sealed class OplanPart
     /// part carrying its stock name. Additive at format v1: an older build ignores it and round-trips it through
     /// <see cref="Extra"/>, so a renamed design opened in one loses nothing.</summary>
     [JsonPropertyName("name")] public string? Name { get; set; }
+    /// <summary>The manual draw-order bias a Move Back / Move Forward wrote onto this part (see
+    /// <see cref="Placement.ZBias"/>). Null — and omitted — for a part left in the automatic order, which is
+    /// almost all of them. Additive at format v1: an older build ignores it and round-trips it through
+    /// <see cref="Extra"/>, so a re-stacked design opened in one draws in the old order but loses nothing.</summary>
+    [JsonPropertyName("z")] public int? Z { get; set; }
     /// <summary>A full snapshot of this container's contents, present only when its cargo was edited in the
     /// inventory editor (see <see cref="ShipDocument.IsCargoEdited"/>). Null for un-edited parts, whose cargo is
     /// re-read from the linked save on open. See <see cref="OplanCargo"/>.</summary>
@@ -337,6 +353,8 @@ public sealed class OplanLoose
     [JsonPropertyName("y")] public int Y { get; set; }
     [JsonPropertyName("rot")] public int Rot { get; set; }
     [JsonPropertyName("qty")] public int Qty { get; set; } = 1;   // stacked count (>=1); absent/0 in an older file → single
+    /// <summary>The manual draw-order bias (see <see cref="OplanPart.Z"/>); null for the automatic order.</summary>
+    [JsonPropertyName("z")] public int? Z { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }
 

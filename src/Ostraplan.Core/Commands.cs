@@ -352,6 +352,32 @@ public sealed class SetLooseQuantityCommand(LooseObject obj, int before, int aft
         $"Set {AuditFmt.Name(f, obj.DefName)} quantity {before} → {after}";
 }
 
+/// <summary>
+/// Re-stack what shares a tile: the bias changes a Move Back / Move Forward / Reset order produced (see
+/// <see cref="ZOrder"/>), applied as one undo step because a nudge writes an explicit order across the whole pile,
+/// not just the part you nudged. Purely cosmetic — no geometry moves, so nothing is re-analysed.
+/// </summary>
+public sealed class SetZOrderCommand(IReadOnlyList<ZOrder.BiasChange> changes, string verb) : IDocCommand, IAuditDescribable
+{
+    public void Do(ShipDocument doc) => Apply(doc, redo: true);
+    public void Undo(ShipDocument doc) => Apply(doc, redo: false);
+
+    private void Apply(ShipDocument doc, bool redo)
+    {
+        using var _ = doc.SuspendChanged();   // one repaint for the pile, not one per member
+        foreach (var c in changes)
+        {
+            var bias = redo ? c.After : c.Before;
+            if (c.Item.Placement is { } p) doc.SetZBias(p, bias);
+            else if (c.Item.Loose is { } lo) doc.SetZBias(lo, bias);
+        }
+    }
+
+    public string Describe(Func<string, string?> f) =>
+        changes.Count == 0 ? verb
+        : $"{verb} {AuditFmt.Name(f, changes[0].Item.DefName)} {AuditFmt.At(changes[0].Item.X, changes[0].Item.Y)}";
+}
+
 /// <summary>Give a placed part a name of its own, or clear it back to the stock one (see
 /// <see cref="Rename"/>). Nothing about the part's geometry changes, so no re-analysis is implied.</summary>
 public sealed class SetCustomNameCommand(Placement placement, string? before, string? after) : IDocCommand, IAuditDescribable

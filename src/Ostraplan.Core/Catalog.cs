@@ -338,11 +338,45 @@ public sealed class Catalog
     // Render z-order (bottom -> top). The game leaves nLayer at 0 for every item and
     // Y-sorts sprites over a floor tile-layer; Ostraplan's own renderer instead ranks
     // each part by what it contributes to its tiles, so floors never occlude what sits
-    // on them. Ties within a layer keep the existing Y-then-insertion order.
+    // on them. Ties within a layer fall to <see cref="ShipDocument.RenderOrder"/>'s
+    // remaining terms (a manual bias, the object rank below, then bottom edge and
+    // insertion order).
     public const int LayerFloor = 0;      // IsFloor / IsFloorSealed / IsFloorFlex
     public const int LayerWall = 1;       // IsWall / IsPortal (doors carry both wall and floor conds — checked first)
     public const int LayerFixture = 2;    // beds, appliances, sensors, and everything unclassified
     public const int LayerConduit = 3;    // IsPowerConduit — thin power runs, drawn on top
+
+    // Automatic rank WITHIN the fixture layer, applied after any manual bias. Canisters slot into and against
+    // the machinery they feed (a gas canister on an RCS regulator's GasInput point shares its row, so a plain
+    // Y-sort can't separate them), so they draw under it; loose deck clutter draws over both, which is where a
+    // dropped item reads as lying on the floor rather than being part of the fixture.
+    public const int RankVessel = 0;      // gas / fuel canisters and RTAs (the game's own TIsVessel set)
+    public const int RankInstalled = 1;   // every other placed part
+    public const int RankLoose = 2;       // loose floor items (see LooseObject)
+
+    /// <summary>The game's own definition of a canister, <c>TIsVessel</c>: an OR over <c>IsVessel01</c> /
+    /// <c>IsVesselH2</c> / <c>IsVesselHe</c> / <c>IsVesselHe3</c> / <c>IsVesselCO2</c> / <c>IsVesselO2</c> /
+    /// <c>IsVesselN2</c>. Used only when the trigger itself is missing from the data (a synthetic catalog).</summary>
+    private static readonly HashSet<string> VesselConds = new(StringComparer.Ordinal)
+    {
+        "IsVessel01", "IsVesselH2", "IsVesselHe", "IsVesselHe3", "IsVesselCO2", "IsVesselO2", "IsVesselN2",
+    };
+
+    private readonly ConcurrentDictionary<string, bool> _isVessel = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// True when a part is a gas or fuel canister — evaluated through the game's <c>TIsVessel</c> trigger against
+    /// the part's starting conds, so a modded canister that declares a vessel cond is caught without naming it.
+    /// Drives <see cref="RankVessel"/>, which is why it reads the trigger rather than a def-name list.
+    /// </summary>
+    public bool IsVessel(PartDef? part)
+    {
+        if (part is null) return false;
+        return _isVessel.GetOrAdd(part.DefName, _ =>
+            Triggers.TryGetValue("TIsVessel", out var ct)
+                ? CondEval.Triggered(ct, part.StartingConds, this)
+                : part.StartingConds.Any(VesselConds.Contains));
+    }
 
     private static readonly HashSet<string> WallConds = new(StringComparer.Ordinal) { "IsWall", "IsPortal" };
     private static readonly HashSet<string> FloorConds = new(StringComparer.Ordinal) { "IsFloor", "IsFloorSealed", "IsFloorFlex" };

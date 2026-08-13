@@ -27,4 +27,10 @@ public sealed class LooseObject
     /// single. Mutable so "Change Quantity" can retune it in place (keeping the object's identity for selection);
     /// the caller clamps it to the item's <see cref="PartDef.StackLimit"/>.</summary>
     public int Quantity { get; set; } = 1;
+
+    /// <summary>A manual draw-order bias, exactly as <see cref="Placement.ZBias"/> — loose items share the one
+    /// render order with placed parts (see <see cref="ShipDocument.RenderOrder"/>), so a dropped canister can be
+    /// pushed behind the fixture it leans on. Mutable for the same reason <see cref="Quantity"/> is: the nudge
+    /// retunes it in place, keeping the object's identity for the selection pointing at it.</summary>
+    public int ZBias { get; set; }
 }

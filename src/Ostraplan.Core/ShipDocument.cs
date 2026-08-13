@@ -10,6 +10,17 @@ public sealed class Placement
     public int Rot { get; set; }
 
     /// <summary>
+    /// A manual draw-order bias, moving this part up (positive) or down (negative) the stack of things sharing
+    /// its tiles. 0 means "wherever the automatic order puts it", which is what almost every part carries; the
+    /// Move Back / Move Forward actions write explicit values over a tile's stack (see <see cref="ZOrder"/>).
+    /// It is applied <b>inside</b> the part's render layer (see <see cref="Catalog.RenderLayer"/>), so no bias can
+    /// push a fixture under a deck plate. Cosmetic: nothing about tile conditions, rooms, airtightness, the rating
+    /// or the export reads it. It rides through a move, a rotate and a <see cref="Restate"/> — none of those change
+    /// what the thing is sitting in — and is dropped by duplicate/paste along with the rest of the part's identity.
+    /// </summary>
+    public int ZBias { get; set; }
+
+    /// <summary>
     /// True for structure the user did not author — an imported ship's existing parts. The game applies its
     /// placement law (Item.CheckFit sockets, the airlock envelope) only to <b>new</b> construction and
     /// <b>never re-validates what's already there</b>; so given parts are exempt from the legality scan (a valid
@@ -69,8 +80,10 @@ public sealed class Placement
         var backHome = carriedId is not null && string.Equals(carriedDef, targetDef, StringComparison.Ordinal);
         return new Placement
         {
-            // CustomName rides across: switching a device off, or uninstalling it, does not change what it is called.
+            // CustomName rides across: switching a device off, or uninstalling it, does not change what it is
+            // called. ZBias does too: a canister pushed behind its regulator stays behind it once uninstalled.
             DefName = targetDef, X = X, Y = Y, Rot = rot, IsGiven = false, Cargo = Cargo, CustomName = CustomName,
+            ZBias = ZBias,
             OriginStrID = backHome ? carriedId : null,
             SwappedFromStrID = backHome ? null : carriedId,
             SwappedFromDef = backHome || carriedId is null ? null : carriedDef,
@@ -106,6 +119,23 @@ public sealed class Placement
 }
 
 /// <summary>
+/// One thing the design draws: a placed <see cref="Placement"/> or a <see cref="LooseObject"/> lying on a tile.
+/// Exactly one of the two is set. Placements and loose items share a single render order (see
+/// <see cref="ShipDocument.RenderOrder"/>) and a single click order (<see cref="ShipDocument.RenderStackAt"/>),
+/// so every drawing and picking site works in these rather than in two passes that could disagree.
+/// </summary>
+public readonly record struct RenderItem(Placement? Placement, LooseObject? Loose)
+{
+    public bool IsLoose => Loose is not null;
+    public Guid Id => Placement?.Id ?? Loose!.Id;
+    public string DefName => Placement?.DefName ?? Loose!.DefName;
+    public int X => Placement?.X ?? Loose!.X;
+    public int Y => Placement?.Y ?? Loose!.Y;
+    public int Rot => Placement?.Rot ?? Loose!.Rot;
+    public int ZBias => Placement?.ZBias ?? Loose!.ZBias;
+}
+
+/// <summary>
 /// The design being edited: an unbounded tile plane of placements plus the
 /// accumulated tile conditions. All mutation goes through the command stack.
 /// </summary>
@@ -113,7 +143,7 @@ public sealed class ShipDocument
 {
     private readonly List<Placement> _placements = [];
     private long _seq;
-    private readonly Dictionary<Guid, long> _order = [];   // insertion order for stable draw/hit priority
+    private readonly Dictionary<Guid, long> _order = [];   // insertion order for stable draw/hit priority (parts AND loose items)
     private readonly Dictionary<(int, int), List<Placement>> _byTile = [];   // spatial index: tile -> parts covering it
     private readonly HashSet<Guid> _cargoEdited = [];   // placements whose container contents were authored/removed
     private readonly List<ShipZone> _zones = [];   // painted crew/trade zones (overlays, not tile-grid parts)
@@ -322,17 +352,69 @@ public sealed class ShipDocument
     }
 
     /// <summary>
-    /// Order a set of placements bottom-to-top for painting/hit-testing: render layer (floor → wall
-    /// → fixture → conduit), then any explicit item nLayer, then top-left Y, then insertion order.
-    /// Floors sort under whatever is placed on them.
+    /// The sort key that puts one drawable under another, bottom-to-top. In order:
+    /// <list type="number">
+    /// <item><b>Render layer</b> (floor → wall → fixture → conduit, see <see cref="Catalog.RenderLayer"/>), so a
+    /// deck plate never occludes what stands on it and no other term can undo that.</item>
+    /// <item>The object's <b>manual bias</b> (<see cref="Placement.ZBias"/>), which is why a nudge beats every
+    /// automatic rule below it.</item>
+    /// <item>The <b>object rank</b>: canisters, then other placed parts, then loose deck clutter
+    /// (<see cref="Catalog.RankVessel"/>).</item>
+    /// <item>The body's <b>bottom edge</b>, so a small part standing within a larger one's body reads as sitting
+    /// in it. The game answers none of this — <c>nLayer</c> is 0 for every def and its Y-sort ties whenever two
+    /// items share a row, which is exactly the case here — so this is Ostraplan's convention, not a port.</item>
+    /// <item><b>Insertion order</b>, the last resort, so an unchanged design draws the same way twice.</item>
+    /// </list>
     /// </summary>
-    private IEnumerable<Placement> InDrawOrder(IEnumerable<Placement> parts) =>
-        parts.OrderBy(p => Catalog.RenderLayer(Part(p)))
-             .ThenBy(p => Part(p)?.Item.NLayer ?? 0)
-             .ThenBy(p => p.Y)
-             .ThenBy(p => _order.GetValueOrDefault(p.Id));
+    private (int Layer, int Bias, int NLayer, int Rank, int Bottom, long Seq) RenderKey(RenderItem item)
+    {
+        var part = Catalog.Lookup(item.DefName);
+        var rank = Catalog.IsVessel(part) ? Catalog.RankVessel
+                 : item.IsLoose ? Catalog.RankLoose
+                 : Catalog.RankInstalled;
+        // The def's own nLayer sits below the manual bias rather than above it: it is 0 for every def the game
+        // ships (§15), so a mod is the only thing that can set it, and a nudge that refused to move a part would
+        // be a no-op with nothing on screen to explain it.
+        return (Catalog.RenderLayer(part), item.ZBias, part?.Item.NLayer ?? 0, rank, BottomEdge(item),
+                _order.GetValueOrDefault(item.Id));
+    }
 
+    /// <summary>The row just past the bottom of a drawable's above-floor body — <see cref="BodyBounds"/> for a
+    /// placement (so the big tanks measure their visible 3×3 body, not the 7×7 under-floor ring) and the rotated
+    /// footprint for a loose item.</summary>
+    private int BottomEdge(RenderItem item)
+    {
+        if (item.Placement is { } p)
+        {
+            var (_, by, _, bh) = BodyBounds(p);
+            return by + bh;
+        }
+        var lo = item.Loose!;
+        var def = Catalog.Lookup(lo.DefName);
+        var (_, h) = def is null ? (1, 1) : GridMath.Size(def.Item.Width, def.Item.Height, lo.Rot);
+        return lo.Y + h;
+    }
+
+    /// <summary>Order a set of placements bottom-to-top for painting/hit-testing (see <see cref="RenderKey"/>).</summary>
+    private IEnumerable<Placement> InDrawOrder(IEnumerable<Placement> parts) =>
+        parts.Select(p => new RenderItem(p, null)).OrderBy(RenderKey, RenderKeyComparer).Select(i => i.Placement!);
+
+    private static readonly Comparer<(int Layer, int Bias, int NLayer, int Rank, int Bottom, long Seq)> RenderKeyComparer =
+        Comparer<(int, int, int, int, int, long)>.Default;
+
+    /// <summary>The placements alone, bottom-to-top. Prefer <see cref="RenderOrder"/> for anything that draws:
+    /// this omits the loose items, which share the same order.</summary>
     public IEnumerable<Placement> DrawOrder() => InDrawOrder(_placements);
+
+    /// <summary>
+    /// Everything the design draws — placements and loose floor items — in one order, bottom to top. The two used
+    /// to be separate passes, which pinned every loose item on top of every part regardless of what it was lying
+    /// against, and left the nudge with nothing to act on.
+    /// </summary>
+    public IEnumerable<RenderItem> RenderOrder() =>
+        _placements.Select(p => new RenderItem(p, null))
+                   .Concat(_looseByTile.Values.Select(lo => new RenderItem(null, lo)))
+                   .OrderBy(RenderKey, RenderKeyComparer);
 
     /// <summary>Every placement covering the tile (spatial-index lookup, unordered). Empty off the ship.</summary>
     public IReadOnlyList<Placement> PlacementsAt(int x, int y) =>
@@ -347,6 +429,18 @@ public sealed class ShipDocument
         var stack = InDrawOrder(PlacementsAt(x, y)).ToList();
         stack.Reverse();
         return stack;
+    }
+
+    /// <summary>
+    /// Everything drawn on the tile — placements and any loose item — topmost first. This is what a click and the
+    /// stacked picker walk, so what you reach matches what you see; <see cref="HitTestStack"/> stays the
+    /// placements-only view for callers that act on structure (containers, wiring, replace).
+    /// </summary>
+    public IReadOnlyList<RenderItem> RenderStackAt(int x, int y)
+    {
+        var items = PlacementsAt(x, y).Select(p => new RenderItem(p, null)).ToList();
+        if (LooseAt(x, y) is { } lo) items.Add(new RenderItem(null, lo));
+        return [.. items.OrderByDescending(RenderKey, RenderKeyComparer)];
     }
 
     public (int MinX, int MinY, int MaxX, int MaxY)? Bounds()
@@ -486,17 +580,29 @@ public sealed class ShipDocument
 
     /// <summary>Drop a loose item onto its tile. One per tile: an existing loose object there is replaced (the
     /// placement law forbids that, so in practice the tile is always empty first).</summary>
-    internal void AddLoose(LooseObject o) { _looseByTile[(o.X, o.Y)] = o; RaiseChanged(); }
+    internal void AddLoose(LooseObject o) { _looseByTile[(o.X, o.Y)] = o; _order[o.Id] = _seq++; RaiseChanged(); }
 
     /// <summary>Remove a loose item — only if it is still the one on its tile (guards a stale undo).</summary>
     internal void RemoveLoose(LooseObject o)
     {
         if (_looseByTile.TryGetValue((o.X, o.Y), out var cur) && ReferenceEquals(cur, o) && _looseByTile.Remove((o.X, o.Y)))
+        {
+            _order.Remove(o.Id);
             RaiseChanged();
+        }
     }
 
     /// <summary>Set the stacked quantity of a loose item in place (keeps its identity for selection).</summary>
     internal void SetLooseQuantity(LooseObject o, int quantity) { o.Quantity = quantity; RaiseChanged(); }
+
+    // ---- draw-order mutations (command implementations only) ----
+
+    /// <summary>Set a placed part's manual draw-order bias (see <see cref="Placement.ZBias"/>). Cosmetic: no
+    /// geometry moves, so no tile conditions or spatial index change, but the canvas must repaint.</summary>
+    internal void SetZBias(Placement p, int bias) { p.ZBias = bias; RaiseChanged(); }
+
+    /// <summary>Set a loose item's manual draw-order bias (see <see cref="LooseObject.ZBias"/>).</summary>
+    internal void SetZBias(LooseObject o, int bias) { o.ZBias = bias; RaiseChanged(); }
 
     /// <summary>Set or clear a part's own name (see <see cref="Placement.CustomName"/>). Stored verbatim with only
     /// empty collapsing to null (<see cref="Rename.OrNull"/>): typed input is normalised at the rename dialog, and
