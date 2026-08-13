@@ -33,6 +33,14 @@ each release was verified against is recorded in
 - **Press `` ` `` to step down the stack under the cursor.** Reaching a part drawn underneath meant a trip through
   the right-click menu every time; now the selection walks down the pile a keystroke at a time and wraps at the
   bottom. The menu still lists the whole pile for when you want to see it.
+- **Ostraplan says what an update brought.** An update applies on restart, so until now the app came back looking
+  identical and the only way to find out what had changed was to go and read the release on GitHub. The first
+  launch after updating shows that version's notes, covering **every release you crossed** if you had been away
+  for a few of them. **Help ▾ ▸ View Changelog** brings them back whenever you want, and **All releases on
+  GitHub** in that window opens the published release.
+  - The notes are read from the changelog **built into the copy you are running**, so they describe your build
+    rather than whatever GitHub currently calls latest, and they work offline and in the portable zip.
+  - A fresh install shows nothing: it has not updated from anything.
 
 ## [0.80.0] 2026-08-13, Flight Dynamics, retrofit costing, import choices and device switching
 

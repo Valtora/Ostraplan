@@ -148,6 +148,11 @@ public sealed class AppSettings
     [JsonPropertyName("favorites")] public List<PartRef> Favorites { get; set; } = [];
     /// <summary>The most-recently-placed parts, newest first, capped at <see cref="RecentCap"/> (the ★ tab's Recent group).</summary>
     [JsonPropertyName("recentParts")] public List<PartRef> RecentParts { get; set; } = [];
+    /// <summary>The app version that last ran. Compared against the running one to notice an update and show its
+    /// release notes once (see <see cref="ReleaseNotes"/>). Null on a fresh install and in a settings file written
+    /// before this existed, which both count as "nothing to compare against" — the version is recorded and no
+    /// notes are shown, so nobody is handed a wall of changelog for a version they never ran.</summary>
+    [JsonPropertyName("lastRunVersion")] public string? LastRunVersion { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 
     /// <summary>How many parts the Recent list keeps (the issue asked for "the last 5 or so").</summary>

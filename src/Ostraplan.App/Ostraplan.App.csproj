@@ -5,7 +5,7 @@
     <TargetFramework>net10.0-windows</TargetFramework>
     <AssemblyName>Ostraplan</AssemblyName>
     <RootNamespace>Ostraplan.App</RootNamespace>
-    <Version>0.81.0</Version>
+    <Version>0.82.0</Version>
     <UseWPF>true</UseWPF>
     <!-- Explicit entry point (Program.Main) so Velopack's install/update/uninstall hooks
          run before any WPF init. App.xaml is compiled as a Page (below) so the SDK does
@@ -36,6 +36,12 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="Ostraplan.Tests" />
+  </ItemGroup>
+
+  <!-- The changelog ships inside the build, so "what's new" after an update describes the copy that is
+       actually running and needs no network call (see ReleaseNotes / WhatsNewUI). -->
+  <ItemGroup>
+    <EmbeddedResource Include="..\..\CHANGELOG.md" LogicalName="Ostraplan.CHANGELOG.md" />
   </ItemGroup>
 
 </Project>

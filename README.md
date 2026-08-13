@@ -85,7 +85,7 @@ Download **`Ostraplan-win-Setup.exe`** from the [Releases](https://github.com/Va
 
 It isn't code-signed yet, so the first run may trip Windows SmartScreen ("Windows protected your PC") — click **More info ▸ Run anyway**. If you'd rather not trust the binary, build it yourself (below).
 
-**Updates are automatic.** When a new version is out, Ostraplan downloads it in the background on launch and shows a **Restart to update** button in the toolbar. The update applies only when you click it, so you never lose unsaved work. To check on demand, there is a *Check for updates* button in **Help ▾ ▸ Controls & keybinds**. Your settings and activity log live in `%APPDATA%\Ostraplan` and survive updates and uninstalls.
+**Updates are automatic.** When a new version is out, Ostraplan downloads it in the background on launch and shows a **Restart to update** button in the toolbar. The update applies only when you click it, so you never lose unsaved work. To check on demand, there is a *Check for updates* button in **Help ▾ ▸ Controls & keybinds**. The first launch after an update shows what it brought, and **Help ▾ ▸ View Changelog** brings those notes back any time. Your settings and activity log live in `%APPDATA%\Ostraplan` and survive updates and uninstalls.
 
 **Requirements:** Windows, and a **local Ostranauts install**. Ostraplan finds a Steam install automatically and reads its data and sprites at runtime; point it at the folder if yours is elsewhere. Without the game, Ostraplan has nothing to read and won't work. **No game assets are distributed with the tool.**
 

@@ -243,7 +243,41 @@ public partial class MainWindow : Window
         UpdateZoomText();
         LoadingOverlay.Visibility = Visibility.Collapsed;
 
+        ShowWhatsNewAfterUpdate();   // an update landed last restart: say what it brought, once
         _ = CheckForUpdateAsync();   // quiet check against the latest GitHub release
+    }
+
+    /// <summary>
+    /// The first run after an update, show that version's changelog entry. An update applies on restart, so this
+    /// is the only moment the app can say what it brought; before this it just came back looking identical.
+    ///
+    /// <para>The version that last ran is recorded either way — including when there are no notes to show — so a
+    /// build whose entry is still under <c>Unreleased</c> costs the next release its "what's new" rather than
+    /// showing it late. A fresh install has nothing to compare against and shows nothing (see
+    /// <see cref="ReleaseNotes.IsUpgrade"/>).</para>
+    /// </summary>
+    private void ShowWhatsNewAfterUpdate()
+    {
+        var from = _settings.LastRunVersion;
+        if (from != AppVersion)
+        {
+            _settings.LastRunVersion = AppVersion;
+            _settings.Save();
+        }
+        if (!ReleaseNotes.IsUpgrade(from, AppVersion)) return;
+
+        AuditLog.Add($"Updated to v{AppVersion} (from v{from}).");
+        // every version the update crossed, not just the newest: releases here batch several bumps, so a user who
+        // has been away a while is arriving at more than one
+        WhatsNewUI.Show(this, ReleaseNotes.Since(WhatsNewUI.Changelog(), from, AppVersion), updated: true, OpenUrl);
+    }
+
+    /// <summary>Help ▸ View Changelog: this build's own notes when the changelog has them, else straight to the
+    /// latest release on GitHub. Either way the release page is one click from here.</summary>
+    private void ViewChangelog()
+    {
+        if (WhatsNewUI.EntryFor(AppVersion) is { } entry) WhatsNewUI.Show(this, [entry], updated: false, OpenUrl);
+        else OpenUrl(WhatsNewUI.LatestReleaseUrl);
     }
 
     private void UpdateZoomText() =>
@@ -3878,6 +3912,7 @@ public partial class MainWindow : Window
             menu.Items.Add(item);
         }
         Add("Controls & keybinds (F1)", ShowHelp);
+        Add("View Changelog", ViewChangelog);
         menu.Items.Add(new Separator());
         Add("Report a Bug…", ReportBug);
         menu.Items.Add(new Separator());
@@ -4424,6 +4459,9 @@ public partial class MainWindow : Window
         var checkUpdates = new Button { Content = "Check for updates", Padding = new Thickness(12, 3, 12, 3) };
         checkUpdates.Click += (_, _) => _ = CheckForUpdateAsync(manual: true);
         about.Children.Add(checkUpdates);
+        var changelog = new Button { Content = "View Changelog", Padding = new Thickness(12, 3, 12, 3), Margin = new Thickness(8, 0, 0, 0) };
+        changelog.Click += (_, _) => ViewChangelog();
+        about.Children.Add(changelog);
         var reportBug = new Button { Content = "Report a bug", Padding = new Thickness(12, 3, 12, 3), Margin = new Thickness(8, 0, 0, 0) };
         reportBug.Click += (_, _) => ReportBug();
         about.Children.Add(reportBug);

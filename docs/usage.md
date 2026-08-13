@@ -24,8 +24,10 @@ Press **F1** in-app at any time for the full keybinding table.
    quietly in the background on launch and shows a **Restart to update to vX** button
    in the toolbar; it applies only when you click, so you never lose unsaved work.
    You can also check on demand from **Help ▾ ▸ Controls & keybinds** (the *Check for
-   updates* button). Your settings and activity log live in `%APPDATA%\Ostraplan` and
-   survive updates and uninstalls.
+   updates* button). The first launch after an update shows what it brought, covering
+   every release you crossed if you have been away a while; **Help ▾ ▸ View Changelog**
+   brings it back whenever you want it. Your settings and activity log live in
+   `%APPDATA%\Ostraplan` and survive updates and uninstalls.
 4. A new design opens with a single **Primary Airlock** at the origin. Every ship
    has exactly one; it's locked (you can't move or delete it), just like in-game.
 
@@ -912,8 +914,11 @@ drawn for dark space.
 ## Help & reporting a bug
 
 - **F1** — the full keybinding table.
-- **Help ▾** (top-right) — that reference, plus **Check for updates** (in the
-  Controls & keybinds window), **Report a Bug** and the **activity log**.
+- **Help ▾** (top-right) — that reference, plus **View Changelog**, **Check for updates**
+  (in the Controls & keybinds window), **Report a Bug** and the **activity log**.
+- **View Changelog** shows this version's release notes, read from the changelog built
+  into the copy you are running, so they describe your build rather than whatever is
+  newest. **All releases on GitHub** in that window opens the published release.
 - **Report a Bug** opens a pre-filled GitHub issue with diagnostics *and* writes a
   full diagnostics file (`%APPDATA%\Ostraplan\reports\Ostraplan-diagnostics-*.md`),
   revealing it in Explorer — **drag it into the issue to attach it.** The file holds
