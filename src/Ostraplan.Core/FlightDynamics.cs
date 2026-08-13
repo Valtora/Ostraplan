@@ -180,7 +180,7 @@ public sealed record FlightPoint(
 }
 
 /// <summary>
-/// Ports the game's atmospheric flight model (verified 1.0.0.7): the lift and drag the nav console's Flight
+/// Ports the game's atmospheric flight model (verified 1.0.0.9): the lift and drag the nav console's Flight
 /// Dynamics module shows, and the rotor thrust that <c>Ship.Maneuver</c> adds to RCS once a design is in air.
 /// Like <see cref="Propulsion"/>, none of it is surfaced anywhere but a running ship, so a planner has to
 /// recompute it.
@@ -312,8 +312,9 @@ public static class FlightDynamics
             if (!Propulsion.Fires(RotorOnTrigger, p, catalog)) continue;
             rotorsOn++;
             thrust += conds.GetValueOrDefault(RotorThrustCond) * RotorThrustScale;
-            thrustTurbo += conds.GetValueOrDefault(
-                conds.ContainsKey(RotorThrustTurboCond) ? RotorThrustTurboCond : RotorThrustCond) * RotorThrustScale;
+            // no fallback to the base stat: Rotor.ThrustStrength reads StatThrustStrengthTurbo outright when
+            // turbo is on, so a (modded) rotor that doesn't declare it genuinely gives nothing in turbo
+            thrustTurbo += conds.GetValueOrDefault(RotorThrustTurboCond) * RotorThrustScale;
         }
 
         return new FlightProfile(

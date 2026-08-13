@@ -113,7 +113,7 @@ public sealed record CelestialBody(
 /// atmospheric maths needs. Data only: nothing here knows about a ship.
 ///
 /// <para>Only bodies that actually declare an atmosphere are returned, since a body with no air answers no
-/// question a flight report could ask. On a stock 1.0.0.7 install that is Venus, Earth, Mars, Titan, Jupiter,
+/// question a flight report could ask. On a stock 1.0.0.9 install that is Venus, Earth, Mars, Titan, Jupiter,
 /// Saturn, Uranus and Neptune.</para>
 /// </summary>
 public static class Atmosphere

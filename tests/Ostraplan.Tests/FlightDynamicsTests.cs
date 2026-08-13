@@ -26,7 +26,7 @@ public class FlightDynamicsTests(ITestOutputHelper output)
         var g = TestData.RequireGame();
         var bodies = Atmosphere.LoadBodies(g.Index);
 
-        // stock 1.0.0.7: Venus, Earth, Mars, Titan and the four gas giants
+        // stock 1.0.0.9: Venus, Earth, Mars, Titan and the four gas giants
         Assert.Contains(bodies, b => b.Name == "Venus");
         Assert.Contains(bodies, b => b.Name == "Earth");
         Assert.Contains(bodies, b => b.Name == "Titan");
