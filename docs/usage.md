@@ -292,6 +292,29 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
     changes hands, but you still pay the uninstall and re-install jobs. Non-buildable
     structure (raw hull, fixed systems, the primary airlock) is reported as a count on
     each side rather than as lines, since you cannot buy it either way.
+- **Flight Dynamics…** (Design): what the design does **in air**. The game shows this
+  only on a flying ship, in the nav console's own Flight Dynamics module, and only for
+  wherever that ship happens to be. Here the place is an input.
+  - **Pick a body and an altitude.** Venus, Earth, Mars, Titan and the four gas giants
+    have authored atmospheres in the game's data; the report reads the local **gravity,
+    pressure, density and temperature** straight out of them. All three figures the maths
+    uses stay **editable**, so you can fly somewhere the game does not have.
+  - **Set how it is flying**: airspeed (measured against the air, which moves with the
+    body), angle of attack, and how far the nose sits off the horizontal. Lift dies at
+    90° on either.
+  - **Read**: lift, drag and rotor thrust in G, and whether the design **holds altitude**
+    (everything anti-gravity over local gravity, with thrust pointed up). Below it, the
+    rotor figures with and without turbo, the airspeed at which wings alone would carry
+    it, and a warning when the game's own caps (lift at ten local gravities, drag at
+    2000 m/s²) are what is limiting the answer.
+  - **Mass hurts twice.** The game divides lift by mass in the coefficient and again to
+    make an acceleration, so **doubling a design's mass quarters its lift**. That, not
+    wing area, is usually what decides whether something flies.
+  - **Aero hull** (`StatAeroLift`) is what makes lift at all, and it cuts **frontal**
+    drag only, past a threshold: the divisor is `max(1, aero / 100)`, so the first
+    hundred points buy nothing and broadside drag is never reduced.
+  - **Rotors need air.** A heavy lift rotor gives its rated thrust at 100 kPa, nothing in
+    vacuum, and half as much again in Venus's deep cloud layer.
 - **Ship Re-skin…** (Design): swap every wall and/or floor to a different cooverlay
   skin, ship-wide, in one undo step. Sprites and names only — rooms, airtightness
   and rating are untouched. (Named "Re-skin" so it isn't confused with the app's

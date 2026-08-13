@@ -116,6 +116,17 @@ public sealed class AppSettings
     /// <summary>WalkViz: treat painted Forbid zones as impassable. The game's test is per crew member (a zone
     /// matches a PersonSpec), so this is the "for a crew member the zone binds" reading. On by default.</summary>
     [JsonPropertyName("walkRespectForbidZones")] public bool WalkRespectForbidZones { get; set; } = true;
+    /// <summary>Flight Dynamics: the body last flown at, by <c>strName</c>. Null until the report is first used,
+    /// and ignored if the body is no longer in the loaded data (a mod was removed).</summary>
+    [JsonPropertyName("flightBody")] public string? FlightBody { get; set; }
+    /// <summary>Flight Dynamics: altitude above the surface, km. Clamped to the body's authored ceiling at use.</summary>
+    [JsonPropertyName("flightAltitudeKm")] public double FlightAltitudeKm { get; set; } = 50;
+    /// <summary>Flight Dynamics: airspeed relative to the air, m/s.</summary>
+    [JsonPropertyName("flightAirspeed")] public double FlightAirspeed { get; set; } = 100;
+    /// <summary>Flight Dynamics: angle of attack, degrees (0 nose-on, 90 broadside).</summary>
+    [JsonPropertyName("flightAoA")] public double FlightAngleOfAttack { get; set; }
+    /// <summary>Flight Dynamics: the ship's facing against the local horizontal, degrees.</summary>
+    [JsonPropertyName("flightAttitude")] public double FlightAttitude { get; set; }
     /// <summary>Take a rotating snapshot of the open design every <see cref="AutoSaveMinutes"/> minutes (see
     /// <see cref="AutoSaveStore"/>). Opt-in: off until the user turns it on, since it writes to disk on a timer.
     /// A snapshot never touches the user's own .oplan — Ctrl+S stays the only thing that writes it.</summary>

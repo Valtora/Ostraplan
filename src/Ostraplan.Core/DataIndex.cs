@@ -14,7 +14,7 @@ public sealed class DataIndex
 {
     // only the folders Ostraplan consumes today; extend as later phases need more
     private static readonly string[] WantedTypes =
-        ["items", "condowners", "installables", "cooverlays", "loot", "condtrigs", "rooms", "guipropmaps", "tickers", "slots", "powerinfos", "lights", "colors", "parallax", "interactions"];
+        ["items", "condowners", "installables", "cooverlays", "loot", "condtrigs", "rooms", "guipropmaps", "tickers", "slots", "powerinfos", "lights", "colors", "parallax", "interactions", "star_systems"];
 
     public required GameEnv Env { get; init; }
     public required IReadOnlyList<ModSource> Sources { get; init; }

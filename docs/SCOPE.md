@@ -43,7 +43,7 @@ game patch, forever.
 - **Reading a starting point in**: a core or modded ship template, or your own ship
   out of a save.
 - **Answering questions the layout can answer**: rooms, rating, propulsion figures,
-  bill of materials, power connectivity, crew reach.
+  atmospheric flight characteristics, bill of materials, power connectivity, crew reach.
 - **Costing the work**: what a design takes to build from scratch, and what it takes to
   retrofit a ship you already have into it.
 - **Writing a design into the game**: as a spawnable local mod, as a new ship added
@@ -58,10 +58,12 @@ Each of these is a deliberate no, not a backlog item.
 - **Save editing that has no design in it.** Apartments, crew, careers, character
   stats, station contents, money, missions. Ostraplan writes to a save only to
   deliver a ship it designed.
-- **Simulating the ship.** No power, gas, thermal, or crew behaviour simulation. The
-  game authors no per-device rates, so a budget would need a full network sim
-  and a dishonest one is worse than none. PowerViz and WalkViz answer *connectivity*
+- **Simulating the ship.** No power, gas, thermal, crew behaviour, or orbital
+  simulation. The game authors no per-device rates, so a budget would need a full network
+  sim and a dishonest one is worse than none. PowerViz and WalkViz answer *connectivity*
   and *reach* from the layout, which is static data, and neither runs a sim behind it.
+  Propulsion and Flight Dynamics evaluate the game's own expressions at a point you
+  choose — the same thing a peak-acceleration figure is — rather than flying anything.
 - **Modelling the economy** beyond the bill of materials and the prices the game
   itself publishes.
 - **More than one ship per document.** One design, one ship.

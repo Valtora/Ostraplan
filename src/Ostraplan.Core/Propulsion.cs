@@ -515,7 +515,10 @@ public static class Propulsion
         return byTile;
     }
 
-    private static bool Fires(string trigger, PlacedPart part, Catalog catalog) =>
+    /// <summary>Does a named condition trigger fire on this placed part? Falls back to a bare presence check when
+    /// the trigger itself isn't in the data. Shared with <see cref="FlightDynamics"/>, which counts rotors the
+    /// same way this counts thrusters.</summary>
+    internal static bool Fires(string trigger, PlacedPart part, Catalog catalog) =>
         catalog.Triggers.TryGetValue(trigger, out var ct)
             ? CondEval.Triggered(ct, part.Part.CondSet, catalog)
             : part.Part.Has(trigger);

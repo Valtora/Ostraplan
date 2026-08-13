@@ -39,6 +39,7 @@ flag exactly that: re-verify after every game update.
 - [20. Propulsion (RCS and the torch drive)](#20-propulsion-rcs-and-the-torch-drive)
 - [21. Crew walkability and interaction reach](#21-crew-walkability-and-interaction-reach)
 - [22. The ship diagnostic (`ShipStatus.PrintStatus`)](#22-the-ship-diagnostic-shipstatusprintstatus)
+- [23. Atmospheric flight (lift, drag and rotors)](#23-atmospheric-flight-lift-drag-and-rotors)
 - [Appendix A — Quick reference](#appendix-a--quick-reference)
 - [Appendix B — Ported / deferred / excluded](#appendix-b--ported--deferred--excluded)
 
@@ -1544,6 +1545,119 @@ Four rows ask about a *running* ship rather than a design, and are answered diff
 
 ---
 
+## 23. Atmospheric flight (lift, drag and rotors)
+
+The game has a real atmosphere and a real flight model, and both are almost entirely
+invisible. `NavModFlightDynamics` prints lift, drag, angle of attack, gravity and
+pressure on a flying ship, and nothing anywhere shows what a *design* would do. The
+whole model is driven by two numbers the ship accumulates as parts are installed, plus
+per-body atmosphere tables in the game's own data.
+
+### The atmosphere is data
+
+`data/star_systems/*.json` gives every body an `aAtmosphericValues` array
+(`JsonAtmosphere`): partial pressures in kPa per gas, a temperature in K, and
+`fMaxAltitude` — the band's top **measured from the body's centre**, so Venus's
+"48-52km" band has `fMaxAltitude` 6104 against a 6052 km radius. On stock **1.0.0.7**,
+eight bodies have tables: Venus (10 bands, to 350 km), Earth, Mars, Titan, Jupiter,
+Saturn, Uranus, Neptune. Everything else is vacuum.
+
+`BodyOrbit.GetAtmosphereAtDistance` picks the first band the point is under, then lerps
+**from that band towards the one above it**, across the span from the previous band's
+ceiling (or the body radius, for the lowest) to this band's own ceiling:
+
+```
+t     = InverseLerp(prevCeiling ?? radiusKM, band[i].fMaxAltitude, distanceKM)
+sample = Lerp(band[i], band[i+1] ?? Void, t)          // Void = all gases 0, 2.72548 K
+```
+
+So a band's authored figures are what you get at its **floor** and its neighbour's are
+what you get at its **ceiling**, and above the top band the game returns vacuum with no
+fade. Density is `GasContainer.GetGasDensity`: `Σ P·M/(R·T)` with `R = 0.008314` and the
+same molar-mass switch the ship's own gas containers use (§11).
+
+Gravity is `StarSystem.GetGravAccelScalar`: `fGravAccelConstant × fMassKG / r²` in AU/s².
+
+> **`fGravAccelConstant` is `2E-44f`, and that is subnormal as a float.** Representable
+> floats are spaced 1.4×10⁻⁴⁵ apart down there, so it stores **1.9618×10⁻⁴⁴** — about 2%
+> under its written value. Every gravity in the game is 2% light: Earth reads 9.66 m/s²,
+> Venus 8.43, Mars 3.66, Titan 1.34. A port that "tidied" this to a literal `2e-44` would
+> disagree with the game on every body.
+
+### Lift and drag
+
+`Ship.CalculateLiftDrag` assembles the coefficients and `ShipSitu.CalculateLiftDrag` does
+the work. With `size = (nCols + nRows) × 0.32 / 2` (metres) and `aero = fAeroCoefficient`:
+
+```
+dragScale  = Lerp(3f, 15f, (size - 3) / 50)
+areaSide   = size × dragScale
+areaFront  = areaSide / max(1, aero / 100)
+area(AoA)  = Lerp(areaFront, areaSide, sin(AoA))
+
+liftAccel  = |0.5 ρ v² × (aero / Mass) × cos(AoA) × cos(attitude)| / Mass   capped at 10 × g_local
+dragAccel  = clamp(0.5 ρ v² × area(AoA) / Mass, 0, 2000)                     m/s²
+```
+
+Three things are worth stating plainly:
+
+- **Mass divides the lift twice.** The coefficient the game forms is `aero / Mass`, and
+  the force it produces is divided by `Mass` again to make an acceleration. Doubling a
+  design's mass therefore **quarters** its lift. This is the single most important fact
+  for anyone designing around the model, and it is not a slip in the port.
+- **`v` is airspeed, not orbital speed.** It is measured against the body's own velocity
+  (`vVel - bO.vVel`), so a ship keeping station with the atmosphere makes no lift.
+- **Aero hull cuts frontal drag only.** The `max(1, aero / 100)` divisor means the first
+  hundred points of `StatAeroLift` buy nothing, and side-on drag is never reduced at all.
+
+`fAeroCoefficient` starts at **1** and `Ship.AddICO` adds each installed part's
+`StatAeroLift` — but only past the `IsShipSpecialItem` gate that guards the whole tail of
+that method. Aero hull carries 100 (1×1) or 200 (slant), so a winged ship runs into the
+thousands and a bare one sits at 1. `RemoveCO` subtracts it back.
+
+### Rotors
+
+```
+LiftRotorsThrustStrength = Σ Rotor.ThrustStrength(rotor)                  over aActiveHeavyLiftRotors
+Rotor.ThrustStrength     = (IsTurboOn ? StatThrustStrengthTurbo : StatThrustStrength) × 30
+CurrentRotorEfficiency   = clamp(voidRoom StatGasPressure / 100, 0, 1.5)
+rotorAccel               = strength × efficiency / 149597870 / mass       [AU/s²]
+```
+
+A rotor joins `aActiveHeavyLiftRotors` on `TIsHeavyLiftRotorNotOff` (`IsHeavyLiftRotor`,
+forbids `IsOff`). `ItmHeavyLiftRotor01On` declares `StatThrustStrength` 7.5 and
+`StatThrustStrengthTurbo` 15, so one rotor is **225 kN**, or 450 kN on turbo. The AU
+conversion works out to exactly kN → N, so the efficiency-scaled strength is the thrust
+in kilonewtons.
+
+The efficiency is read off the **Void room's** pressure, which `Room.SyncAtmoVoid` →
+`GasContainer.SyncAtmo` sets to the ambient atmosphere's partial pressures every update,
+so it is the ambient figure by a longer route. Rotors give nothing in vacuum and half as
+much again in Venus's deep cloud layer.
+
+`Ship.Maneuver` in `EngineMode.MIXED` adds rotor acceleration to RCS acceleration; `AUTO`
+picks MIXED whenever there is rotor thrust and any efficiency at all, and RCS otherwise.
+Note the rotor term is **not** divided by `fDeltaTime` while the RCS term is.
+
+> **Ported in Ostraplan:** `Atmosphere` (bodies, band interpolation, density, gravity —
+> reading `star_systems` through `DataIndex`, so a mod that adds a body or retunes Venus
+> is picked up like any other data) and `FlightDynamics` (`Measure` for the design's
+> profile, `FlightPoint` for one operating point), with the readout on **Design ▸ Flight
+> Dynamics**. Airspeed, angle of attack and attitude are flight state rather than design
+> facts, so they are user inputs; the environment defaults to the body's own figures and
+> stays editable.
+> **Two deliberate omissions**, both immaterial: the ship's own radius is added to its
+> distance from the body before the atmosphere is sampled (tens of metres against
+> kilometre-thick bands), and `BodyOrbit` converts km↔AU with 149597872 where the console's
+> acceleration path uses 149597870 (one part in 7.5×10⁷).
+> **Re-verify per patch:** `CalculateLiftDrag` on both `Ship` and `ShipSitu` (the
+> coefficients and both clamps), `Rotor.ThrustStrength`'s ×30, `CurrentRotorEfficiency`'s
+> /100 and 1.5 cap, and `fGravAccelConstant`. `FlightDynamicsTests` pins the subnormal
+> constant, the per-body gravities and the Venus cloud-layer figures, so drift surfaces
+> there.
+
+---
+
 ## Appendix A — Quick reference
 
 - **`nLayer` is always 0** — rank by contributed conditions (§15).
@@ -1658,6 +1772,9 @@ sets), giving a 220-ship rooms **and** certification gate. Only **Babak / Babak 
 | Ship Rating (`CalculateRating`) | ported | `Rating` |
 | Ship value (`GetShipValue` / `GetBasePrice`) | ported | `ShipValue`, `Catalog.GasPrices` |
 | Propulsion (`RCSAccelMax`, `DeltaVRemainingRCS`, `GetRCSRemain`/`Max`, `FusionIC` + `GetMaxTorchThrust`) | ported (map-point lookup approximates a raycast) | `Propulsion` |
+| Atmospheric flight (`Ship`/`ShipSitu.CalculateLiftDrag`, `Rotor.ThrustStrength`, `CurrentRotorEfficiency`) | ported (ship radius and one AU constant dropped, §23) | `FlightDynamics` |
+| Per-body atmospheres and gravity (`BodyOrbit.GetAtmosphereAtDistance`, `GetGravAccelScalar`, `GasContainer.GetGasDensity`) | ported | `Atmosphere` |
+| Orbits, orbital mechanics, station-keeping | excluded (a simulation, not a plan) | never ported |
 | Power connectivity (`GetPoweredTiles`, `Powered.PowerConnected`) | ported | `PowerNetwork` |
 | Ship diagnostic (`ShipStatus.PrintStatus` / `NavModDiagnostics`) | ported (4 rows diverge — a plan is not a running ship, §22) | `ShipDiagnostics` |
 | Crew walkability + JPS adjacency (`Tile.IsWalkable`, `JumpPointSearch`) | ported (fire and the EVA-gravity gate excluded; door pressure approximated by room Void) | `WalkNetwork` |

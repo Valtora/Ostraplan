@@ -12,6 +12,29 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Flight Dynamics: what a design does in air (#23).** New report under **Design ▸ Flight Dynamics**, porting the
+  game's own atmospheric flight model. The game shows these figures only on a ship that is already flying, in the
+  nav console's Flight Dynamics module, and only for wherever that ship happens to be. Here the place is an input.
+  - **Pick a body and an altitude** and the report reads the local **gravity, pressure, density, temperature and
+    composition** straight out of the game's own `data/star_systems` tables. Venus (ten authored bands, to 350 km),
+    Earth, Mars, Titan and the four gas giants all have them, and a mod that adds a body or retunes one is picked
+    up like any other data. All three figures the maths uses stay editable, so somewhere the game does not have is
+    one number away.
+  - **Set airspeed, angle of attack and how far the nose sits off the horizontal**, and read **lift, drag and rotor
+    thrust in G**, plus whether the design **holds altitude** against local gravity. Under that: rotor thrust with
+    and without turbo, the airspeed at which wings alone would carry it, and a warning when the game's own caps
+    (lift at ten local gravities, drag at 2000 m/s²) are what is limiting the answer. **Copy report** puts the lot
+    on the clipboard.
+  - **Mass hurts twice.** The game divides lift by mass in its coefficient and again to make an acceleration, so
+    doubling a design's mass quarters its lift. That, rather than wing area, is usually what decides whether
+    something flies, and the report says so.
+  - **Aero hull cuts frontal drag only, and only past a threshold** (`max(1, aero / 100)`), so the first hundred
+    points of `StatAeroLift` buy nothing and broadside drag is never reduced. **Rotors need air**: rated thrust at
+    100 kPa, nothing in vacuum, half as much again in Venus's deep cloud layer.
+  - Along the way: **every gravity in Ostranauts is about 2% light**, because the game's gravitational constant is
+    written `2E-44f` and a float that small is subnormal, so it actually stores 1.9618×10⁻⁴⁴. Earth reads
+    9.66 m/s², Venus 8.43. Ostraplan reproduces the game's figure rather than physics'. See
+    [GAME-INTERNALS §23](docs/GAME-INTERNALS.md).
 - **The bill of materials can now cost a retrofit, not just a build (#24).** **Retrofit from…** in the Bill of
   Materials nets the design's bill against a ship you already have, so the figures become what the *conversion*
   costs rather than what the design costs. The starting ship can be another **design**, a **ship template**, or a

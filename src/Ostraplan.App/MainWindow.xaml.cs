@@ -55,6 +55,7 @@ public partial class MainWindow : Window
     // most: a re-run refreshes the window that is up. See ShowRatingReport / ShowDiagnosticsReport.
     private RatingReportWindow? _ratingReport;
     private DiagnosticsWindow? _diagnosticsReport;
+    private FlightWindow? _flightReport;
     private FreezeGate _freeze = null!;               // raised while an off-thread read of the LIVE _doc is in flight — see FreezeDoc
     private (int X, int Y)? _hoverCell;               // last hovered tile — the paste anchor
     private List<(string Def, int X, int Y, int Rot, IReadOnlyList<CargoItem> Cargo)> _clip = [];   // copied selection, relative to its top-left (with container contents)
@@ -823,6 +824,84 @@ public partial class MainWindow : Window
             _diagnosticsReport.Activate();
         }
     }
+
+    // ---- Flight dynamics ----
+
+    private async void OnFlightClick(object sender, RoutedEventArgs e) => await ShowFlightReport();
+
+    /// <summary>
+    /// Measure the design's atmospheric flight profile and show it. Cheap next to the rating (one walk of the
+    /// placed parts plus the propulsion scan for the RCS figure), so it takes no progress dialog, but it still
+    /// goes off-thread and behind the document freeze like every other engine read.
+    /// </summary>
+    private async Task ShowFlightReport()
+    {
+        if (_analysing || _doc is null || _catalog is null || _index is null) return;
+        if (_doc.Placements.Count == 0)
+        {
+            Dlg.Show(this, "Place some parts before running the flight report.", "Flight Dynamics",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        _analysing = true;
+        // Every value the measurement needs, read HERE on the UI thread, then handed to a static helper. See
+        // MeasureFlight for why the Ui.OffThread call cannot live in this method.
+        var (doc, catalog, index, designName) = (_doc, _catalog, _index, _meta.Name);
+        FlightReport report;
+        Mouse.OverrideCursor = Cursors.Wait;
+        using (FreezeDoc())
+        {
+            try
+            {
+                report = await MeasureFlight(doc, catalog, index, designName);
+            }
+            finally
+            {
+                Mouse.OverrideCursor = null;
+                _analysing = false;
+            }
+        }
+
+        if (_flightReport is null)
+        {
+            var window = new FlightWindow(_settings) { Owner = this };
+            window.RerunRequested += async () => await ShowFlightReport();
+            window.Closed += (_, _) => _flightReport = null;
+            _flightReport = window;
+            window.SetReport(report);
+            window.Show();
+        }
+        else
+        {
+            _flightReport.SetReport(report);
+            _flightReport.Activate();
+        }
+    }
+
+    /// <summary>
+    /// The off-thread half of <see cref="ShowFlightReport"/>, deliberately <b>static</b> and in its own method.
+    ///
+    /// <para>The C# compiler puts every capture in one method-scope closure object, and
+    /// <see cref="Ui.VerifyCaptures"/> walks that object's fields rather than only the ones this lambda reads. So
+    /// a second lambda anywhere in the same method that captures <c>this</c> — and
+    /// <c>window.RerunRequested += async () =&gt; await ShowFlightReport()</c> does exactly that — puts
+    /// <c>&lt;&gt;4__this</c> on the shared closure and the guard rejects a lambda that touches nothing UI-owned.
+    /// A static method has no <c>this</c> to capture, so the guard stays on rather than being opted out of.</para>
+    /// </summary>
+    private static Task<FlightReport> MeasureFlight(
+        ShipDocument doc, Catalog catalog, DataIndex index, string designName) =>
+        Ui.OffThread(() =>
+        {
+            var grid = ShipGrid.FromDocument(doc, catalog);
+            // The RCS figure comes from the propulsion port rather than being re-derived: the game's mixed engine
+            // mode fires RCS alongside the rotors, so the flight report needs the same number the Ship Rating shows.
+            return new FlightReport(
+                FlightDynamics.Measure(doc, grid, catalog),
+                Atmosphere.LoadBodies(index),
+                Propulsion.Estimate(doc, grid, catalog).RcsThrustNewtons,
+                designName);
+        });
 
     // ---- Bill of materials ----
 
@@ -3186,7 +3265,8 @@ public partial class MainWindow : Window
         return import;
     }
 
-    /// <summary>The Design ▾ dropdown: ship identity, wall/floor re-skin, snapshot, and the bill of materials.</summary>
+    /// <summary>The Design ▾ dropdown: ship identity, wall/floor re-skin, snapshot, the bill of materials, and the
+    /// atmospheric flight report.</summary>
     private void OnDesignMenuClick(object sender, RoutedEventArgs e)
     {
         var m = new ContextMenu();
@@ -3195,6 +3275,7 @@ public partial class MainWindow : Window
         m.Items.Add(new Separator());
         m.Items.Add(MenuAction("Snapshot…", () => OnSnapshotClick(this, e)));
         m.Items.Add(MenuAction("Bill of Materials…", () => OnMaterialsClick(this, e), gesture: "Ctrl+B"));
+        m.Items.Add(MenuAction("Flight Dynamics…", () => OnFlightClick(this, e)));
         OpenMenuUnder(m, BtnDesignMenu);
     }
 
