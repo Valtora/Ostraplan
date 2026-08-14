@@ -83,6 +83,10 @@ public sealed class OplanFile
                            Cargo = doc.IsCargoEdited(p) && p.Cargo.Count > 0 ? p.Cargo.Select(ToOplanCargo).ToList() : null,
                            NavLayout = p.NavLayout is { Count: > 0 } nav
                                ? new Dictionary<string, string>(nav, StringComparer.Ordinal) : null,
+                           // An emptied tank is an EMPTY map, not a null one, so the two must stay distinct here:
+                           // null means "the def's own amounts", {} means "this container holds nothing".
+                           Fill = p.Fill is { } fill
+                               ? new Dictionary<string, double>(fill, StringComparer.Ordinal) : null,
                        })
                        .ToList(),
             Zones = doc.Zones.Select(ToOplanZone).ToList(),
@@ -145,6 +149,8 @@ public sealed class OplanFile
                 ZBias = part.Z ?? 0,
                 NavLayout = part.NavLayout is { Count: > 0 } nav
                     ? new Dictionary<string, string>(nav, StringComparer.Ordinal) : null,
+                Fill = part.Fill is { } fill
+                    ? new Dictionary<string, double>(fill, StringComparer.Ordinal) : null,
             };
             doc.Add(placement);
             byIndex[i] = placement;
@@ -316,6 +322,12 @@ public sealed class OplanPart
     /// computed rather than stored. Additive at format v1, like the rest: an older build ignores it and
     /// round-trips it through <see cref="Extra"/>.</summary>
     [JsonPropertyName("navLayout")] public Dictionary<string, string>? NavLayout { get; set; }
+    /// <summary>How much of what this container holds, when the user set it (see <see cref="Placement.Fill"/>):
+    /// payload condition → amount. Null — and omitted — for every part left at the fill its def ships with, which
+    /// is nearly all of them. An <b>empty object</b> is meaningful and different: it is a container deliberately
+    /// emptied. Additive at format v1, like the rest: an older build ignores it and round-trips it through
+    /// <see cref="Extra"/>, so a design opened in one is priced and flown on stock fills but loses nothing.</summary>
+    [JsonPropertyName("fill")] public Dictionary<string, double>? Fill { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }
 

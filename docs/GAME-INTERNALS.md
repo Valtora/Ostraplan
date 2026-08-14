@@ -40,6 +40,7 @@ flag exactly that: re-verify after every game update.
 - [21. Crew walkability and interaction reach](#21-crew-walkability-and-interaction-reach)
 - [22. The ship diagnostic (`ShipStatus.PrintStatus`)](#22-the-ship-diagnostic-shipstatusprintstatus)
 - [23. Atmospheric flight (lift, drag and rotors)](#23-atmospheric-flight-lift-drag-and-rotors)
+- [24. What a canister holds (`GasContainer`)](#24-what-a-canister-holds-gascontainer)
 - [Appendix A — Quick reference](#appendix-a--quick-reference)
 - [Appendix B — Ported / deferred / excluded](#appendix-b--ported--deferred--excluded)
 
@@ -70,6 +71,8 @@ updates. The members that matter most:
 | `Visibility.cs` | `LateUpdate` (the light shadow-mesh geometry) |
 | `ShipStatus.cs` | `PrintStatus` (the nav console's ship diagnostic), `GetO2UnderPump` |
 | `Powered.cs` | `UsePower` / `QueryPower` (what "connected power" totals at a device) |
+| `GasContainer.cs` | `Run` (pressure/partial pressures/mass), `Init`, `AddGasMols`, `GetGasMass`, `CheckPressureDifference` (the burst check), `GetTotalGasValue` |
+| `JsonItem.cs` | `ApplyOverrideCondsToCO` (how `aCondOverrides` reaches a spawned condowner) |
 
 **Re-verification checklist after a game patch:**
 1. Re-decompile; diff `CheckFit`, `SetData`, `RotateCW`, `CalculateRating`
@@ -1870,6 +1873,107 @@ Note the rotor term is **not** divided by `fDeltaTime` while the RCS term is.
 
 ---
 
+## 24. What a canister holds (`GasContainer`)
+
+Every airtight vessel — a canister, an RTA, a fuel tank, a drink flask, and a room's own
+`Compartment` — is a `GasContainer`. It stores **one condition per gas species**,
+`StatGasMol<gas>`, and derives everything else from the sum. `GasContainer.Run`:
+
+```
+StatGasPressure  = Σ mols · R · StatGasTemp / StatVolume        R = 0.008314000442624092
+StatGasPp<gas>   = mols_gas / mols_total · StatGasPressure
+fGasMass         = Σ mols_gas · GetGasMass(gas)                 hardcoded kg/mol switch
+```
+
+**Capacity is molar and shared, not volumetric per species.** Rearranged, a container is
+full at
+
+```
+maxMols = StatGasPressureMax × StatVolume / (R × StatGasTemp)
+```
+
+and every species draws on that one budget. Which gases the moles are made of changes the
+mass, the value and the reaction mass, never the capacity. The core data confirms it to the
+mole: `ItmRTAO2` is 0.787 m³ at 41,400 kPa and 293 K, which computes 13,375.11 mol against a
+declared `StatGasMolO2` of **13,373**; `ItmCanisterO2Small` computes 25.47 against a declared
+**25.47**. So the game's own idea of "full" *is* the pressure rating, and every ordinary
+canister (`ItmCanister01`, `ItmRTAO2` / `N2` / `CO2`) is the same 0.787 m³ / 41,400 kPa shell
+— which is why an N2 can and an O2 can are interchangeable in practice.
+
+Temperature is in the divisor, so the cryogenic tanks are a different animal:
+`ItmCanisterLH02` at 4 K holds 607,409 mol in 40.4 m³ at only 500 kPa.
+
+### The pressure rating is a burst threshold
+
+`CheckPressureDifference` runs once a second per container against the room it sits in.
+When `|P_container − P_room|` exceeds `StatGasPressureMax + 150` kPa the container takes
+`Random(0, diff/threshold)` damage, and when its health runs out it fires
+`AModeCanisterShrapnel` rays into the compartment. A container whose `StatGasPressureMax` is
+0 is skipped entirely, which is why the damaged canister shells drop the stat.
+
+### Eleven species in code, eight that actually work
+
+`FluidStrings.moleculeNames` is `CH4, CO2, H2, H2O, H2SO4, He2, N2, NH3, O2, CO, Smoke`, and
+`GetGasMass` knows all eleven. But core data declares a `StatGasMol*` / `StatGasPp*`
+condition for only **eight** of them — H2, H2O and He2 have none. An undeclared condition
+cannot be stored on anything: `CondOwner.AddCondAmount` returns the moment
+`DataHandler.GetCond` comes back null, and `GasContainer.AddGasMols` checks the same thing
+before it will move any. So those three are inert, with no error anywhere.
+
+The reverse also bites: `Run` resolves a species' partial-pressure condition by
+`FluidStrings.mol.IndexOf(cond)` and indexes `FluidStrings.pps` with the result, so a
+*modded* species outside the eleven throws inside the game's own update loop. The set that
+genuinely works is therefore the **intersection**: the eleven the code knows, and whatever
+the loaded data declares.
+
+### Liquids and solids are not gas
+
+`StatLiqD2O` (44,722.8 kg on `ItmCanisterLH02`), `StatSolidHe3` (5,216 on
+`ItmCanisterLHe02`), `StatLiqHe` (1,304 on the cryo feed `ItmCanisterLHe01`) and a mod's own
+bulk conditions are kilogram payloads with no pressure relationship at all — those tanks'
+gas side is a token 0.0001 mol of N2. The game publishes no maximum for them; the def's own
+load is the only capacity figure there is. `StatSolidTemp` shares the prefix and is a
+temperature, not cargo.
+
+The two torch reactants are matched by **exact condowner name** (§20), so only
+`ItmCanisterLH02` and `ItmCanisterLHe02` feed the drive however much any other tank declares.
+
+**Nothing carries both.** Across core data and the Ostranauts mods, every def that declares a
+bulk payload carries at most a 0.0001 mol token of N2 on its gas side — enough for
+`GasContainer.Init` to have something to iterate, not storage. A tank is therefore either a
+gas container or a fuel tank, never both, which is why Ostraplan offers a fuel tank only its
+own reactant: a deuterium tank full of oxygen is weight the drive cannot use.
+
+### Setting a container's contents from data
+
+`JsonItem.aCondOverrides` is the mechanism, and it **sets** rather than adds:
+`ApplyOverrideCondsToCO` feeds each entry to `CondOwner.SetCondAmount`. `Ship.SpawnItems`
+applies it after the condowner is fully built, on both branches (top-level and contained)
+and for a template spawn and a save load alike. Because every canister carries
+`IsGasMolChanged`, `Init`/`Run` then recompute the pressure and all the partial pressures
+from the amounts, so only the amounts need writing.
+
+> **A condowner's own `aConds` is the wrong place for this on a *new* part.** A synthesized
+> CO is written `aConds = ["DEFAULT"]`, and `CondOwner`'s init strips that marker and
+> **appends** the def's starting conds to the end of the list, zeroing each condition before
+> adding it. An explicit `StatGasMolO2` written there is therefore overwritten by the def's
+> own 13,373 mol every time. `StatDamage` escapes this only because no def declares it.
+
+> **Ported in Ostraplan:** `ContainerFill` (the capacity model, the shared budget, mass and
+> value), `PayloadSpec`/`PayloadLine` (what a given def can hold — a def declaring any bulk
+> payload is treated as a fuel tank and offered **no** gas), `Placement.Fill` (the per-part
+> amounts), laid over a part's conditions once in `ShipGrid.FromDocumentFramed` so
+> value, RCS reaction mass, the torch reactant clock and the rating all follow. Written out
+> as `aCondOverrides` by both `ShipExport` and `SaveEdit`, and read back off a save's
+> condowners by `SaveEditImport`. Core `data/ships` templates only ever override
+> `StatDamage`, so template import has nothing to read and does not try.
+> **Re-verify on a major game version:** `FluidStrings.moleculeNames`, `GetGasMass`'s switch,
+> the `R`/`StatGasTemp` capacity formula, the `+150` kPa burst margin, and whether the data
+> has started declaring H2 / H2O / He2. `ContainerFillTests` pins the capacity against the
+> real defs and asserts those three are still undeclared, so drift surfaces there.
+
+---
+
 ## Appendix A — Quick reference
 
 - **`nLayer` is always 0** — rank by contributed conditions (§15). Within a layer the game
@@ -1907,6 +2011,14 @@ Note the rotor term is **not** divided by `fDeltaTime` while the RCS term is.
 - **The standing-tile band rounds UP** (`Mathf.CeilToInt`), and rejecting `IsFixture` is a
   preference, not a rule: when nothing clean is in range the game paths to the target tile
   itself and stands on the fixture (§21).
+- **A canister's capacity is molar and shared** — `StatGasPressureMax × StatVolume / (R ×
+  StatGasTemp)` moles across *all* species at once, not a slice of volume each. The pressure
+  rating is a real burst threshold, and the game's own "full" sits exactly on it (§24).
+- **Three of the eleven gases cannot be stored** — H2, H2O and He2 are in the code's list but
+  core data declares no condition for them, so nothing can hold any (§24).
+- **`aCondOverrides` SETS a condition, and a new part's `aConds` cannot** — a synthesized
+  `["DEFAULT"]` condowner appends the def's own conds afterwards and overwrites anything
+  written there (§24).
 - **Room certification tests CondOwner conds, not tile conds** (§9).
 - **A room-less anchor falls back to the `"use"` point** — wall-embedded parts join the
   room their use point reaches; the air pump's use point is its own wall tile, so it joins
@@ -2005,6 +2117,7 @@ sets), giving a 220-ship rooms **and** certification gate. Only **Babak / Babak 
 | Save write-back (frame rebuild, room-CO drop, dimensions) | ported | `SaveEdit`, `SaveEditImport` |
 | Ship zones (`aZones`) as authored data | modelled (preserve/draw/edit, not validated) | `ShipZone` / `ZoneGeometry` |
 | Wear/damage (`BreakIn` / `DamageAllCOs`) | ported (optional) | `WearModel` |
+| Container contents (`GasContainer` capacity, pressure, mass and value; `aCondOverrides`) | ported (the static model; no gas *flow* between containers, §24) | `ContainerFill`, `Placement.Fill` |
 | Nav console loadout (`SysLootSpawner` + `ItmNavStationMods*`, §17) | modelled (the stock `Pod` set + course plot + flight dynamics, baked as literal items; the spawner is not reproduced) | `NavConsole` |
 | Nav console screen layout (`GUIOrbitDraw.LoadModules`, `EditMenu.DoesModFit`, `SaveModules`, §17) | ported (rects, bounds, overlap, tray; no rect is invented or resized) | `NavConsole.Arrange` / `ConfigEntries` |
 | Obtainability (brokers, chargen) | ported | `KioskExport`, `StartingShipExport` |

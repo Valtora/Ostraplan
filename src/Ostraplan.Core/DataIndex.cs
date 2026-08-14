@@ -12,9 +12,13 @@ namespace Ostraplan.Core;
 /// </summary>
 public sealed class DataIndex
 {
-    // only the folders Ostraplan consumes today; extend as later phases need more
+    // only the folders Ostraplan consumes today; extend as later phases need more.
+    // "conditions" is here for one question: which gas species the loaded data actually declares a
+    // StatGasMol* condition for (see ContainerFill.Species). A cond the data does not declare cannot be
+    // stored in a container at all - CondOwner.AddCondAmount returns early on it - so the list has to come
+    // from the data rather than a constant, or a mod that adds a gas would be invisible.
     private static readonly string[] WantedTypes =
-        ["items", "condowners", "installables", "cooverlays", "loot", "condtrigs", "rooms", "guipropmaps", "tickers", "slots", "powerinfos", "lights", "colors", "parallax", "interactions", "star_systems"];
+        ["items", "condowners", "installables", "cooverlays", "loot", "condtrigs", "rooms", "guipropmaps", "tickers", "slots", "powerinfos", "lights", "colors", "parallax", "interactions", "star_systems", "conditions"];
 
     public required GameEnv Env { get; init; }
     public required IReadOnlyList<ModSource> Sources { get; init; }

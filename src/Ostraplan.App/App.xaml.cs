@@ -87,6 +87,7 @@ public partial class App : Application
                 [("Save", MessageDialog.Choice.Primary), ("Don't save", MessageDialog.Choice.Secondary), ("Cancel", MessageDialog.Choice.Cancel)],
                 "dlg-info-dark.png");
 
+            RenderFill(dir);
             Shutdown(0);
             return;
         }
@@ -308,5 +309,48 @@ public partial class App : Application
         LegacyInstall.Cleanup();
 
         new MainWindow().Show();
+    }
+
+    /// <summary>
+    /// Preview render of the fill editor, light and dark, on a synthetic canister and a synthetic torch tank —
+    /// so the shared-budget gauge and the two sections can be eyeballed without a game install or a ship to open.
+    /// Part of <c>--dlgsmoke</c>; like the rest of that flag it asserts nothing.
+    /// </summary>
+    private static void RenderFill(string dir)
+    {
+        var canister = new PayloadSpec(0.787, 41400, 293,
+        [
+            new PayloadLine("StatGasMolO2", "Oxygen Gas", 13373, 13375, IsGas: true),
+            new PayloadLine("StatGasMolN2", "Nitrogen Gas", 0, 13375, IsGas: true),
+            new PayloadLine("StatGasMolCO2", "Carbon Dioxide Gas", 0, 13375, IsGas: true),
+        ]);
+        // a fuel tank: its own reactant and nothing else — no gas section at all (ContainerFill.Describe)
+        var torch = new PayloadSpec(40.4, 500, 4,
+        [
+            new PayloadLine("StatLiqD2O", "Deuterium (Liquid)", 44722.8, 44722.8, IsGas: false),
+        ]);
+        var bare = new Catalog { Parts = [], ByDefName = new Dictionary<string, PartDef>(), Loots = new Dictionary<string, LootDef>(), Triggers = new Dictionary<string, CondTriggerDef>(), Warnings = [] };
+
+        foreach (var (mode, spec, name, file) in new[]
+                 {
+                     ("dark", canister, "Oxygen Tank (RTA)", "fill-canister-dark.png"),
+                     ("light", canister, "Oxygen Tank (RTA)", "fill-canister-light.png"),
+                     ("dark", torch, "Deuterium Tank", "fill-torch-dark.png"),
+                 })
+        {
+            ThemeManager.Apply(mode);
+            var dlg = new FillDialog(name, spec, null, bare);
+            var root = (FrameworkElement)dlg.Content;
+            root.Width = 560;
+            root.Measure(new Size(560, double.PositiveInfinity));
+            root.Arrange(new Rect(0, 0, 560, root.DesiredSize.Height));
+            root.UpdateLayout();
+            var bmp = new RenderTargetBitmap(560, (int)Math.Ceiling(root.DesiredSize.Height), 96, 96, PixelFormats.Pbgra32);
+            bmp.Render(root);
+            var enc = new PngBitmapEncoder();
+            enc.Frames.Add(BitmapFrame.Create(bmp));
+            using var fs = File.Create(Path.Combine(dir, file));
+            enc.Save(fs);
+        }
     }
 }

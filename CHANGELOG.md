@@ -11,6 +11,31 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **You can say how full a canister or tank is.** Right-click any canister, RTA or fuel tank and choose **Fill…**
+  for a slider per gas, plus a section for the bulk fuels. It feeds straight into what the ship is worth, how much
+  reaction mass the RCS has, and how long a torch drive can burn, so a ship that flies on paper flies on the same
+  numbers in game. The fill is saved with the design, undone with `Ctrl+Z`, and written into the ship on export
+  and on a save write-back.
+  - **The gases share one budget, because that is how the game works.** A container's pressure is the total of
+    everything in it at once, so oxygen and nitrogen compete for the same room rather than each getting a share
+    of the volume. Every slider's own maximum is "all that is left, plus what this one already holds", so pulling
+    one back frees the others up. The gauge shows the total against the container's pressure rating and cannot be
+    pushed past it: a canister over its rating takes damage every second in game and eventually bursts into
+    shrapnel, and the game's own "full" sits exactly on the rating.
+  - **Any ordinary canister will take any gas.** An N2 can and an O2 can are the same shell rated to the same
+    pressure, and the label is only what it shipped with, so you can fill an RTA with whatever the ship needs.
+    Eight gases are offered — the eight the game can actually store. Water vapour, hydrogen and helium look
+    available in the game's code but have no condition behind them and cannot be held by anything.
+  - **Fuel tanks are kept as fuel tanks.** A deuterium, helium-3, cryogenic helium or water tank is offered only
+    the payload it is built around and no gas at all, because the reactor matches its tanks by name and anything
+    else in one is weight the drive cannot use. Their payload has no pressure and no shared budget, so it is
+    simply capped at what a full tank carries.
+- **Importing a ship out of a save reads what its tanks are actually holding.** Every figure Ostraplan quotes came
+  from the part's specification, so a ship with three empty oxygen cans was valued, rated and flown as though they
+  were full — on a stock O2 RTA that is about $5,600 of oxygen counted on a $410 shell, three times over. A
+  half-empty ship now prices and flies as a half-empty ship.
+
 ### Fixed
 - **"Replace with…" and "Find and Replace All…" no longer hide the parts a big canister obviously matches.** A swap
   is offered between parts of the same size, and size was being read off the item's raw socket grid rather than the

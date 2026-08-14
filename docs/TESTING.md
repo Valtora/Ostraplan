@@ -86,6 +86,7 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 | Nav console loadout + screen arrangement | `NavConsoleTests` | `NavConsoleTests` (the stock rects), `ShipImportTests` |
 | `.oplan` round-trip | `EngineTests` | `SaveEditTests` |
 | Cargo edit / inventory grid | `CargoEditTests`, `InventoryGridTests`, `CargoTests` | `ContainerModelTests` |
+| Canister/tank fill (capacity, shared budget, write-out) | `ContainerFillTests` | `ContainerFillTests` (the capacity against real defs, and which gases the data declares) |
 | Data parsers (`Defs`, `CondAmount`) | `DefsParsingTests`, `CondAmountTests` | — |
 | Activity log / path scrubbing | `AuditLogTests` | — |
 | Import (template / save) | `TemplateLoaderTests`* | `ShipImportTests`, `ShipSaveImportTests` |

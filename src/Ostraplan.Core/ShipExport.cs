@@ -263,6 +263,13 @@ public static class ShipExport
                 itemByExportId[strID] = item;
             }
 
+            var placement = part.StrID is { } pid ? byPlacementId.GetValueOrDefault(pid) : null;
+
+            // Per-instance condition overrides. Two things write here — wear and an authored container fill —
+            // so they accumulate into one list and are assigned once at the end. Assigning the array directly
+            // would let whichever ran second erase the other's work.
+            List<ExportedCondOverride>? overrides = null;
+
             // Wear: damage installed parts (the set the rating's Condition slot averages over). A part with a
             // StatDamageMax health pool and no IsSystem flag takes uniform(0, ceiling)·M damage; system/undamageable
             // installed parts count as pristine in the grade but are left untouched, exactly like the game.
@@ -273,7 +280,7 @@ public static class ShipExport
                 {
                     var dmg = WearModel.DamageAmount(wearRng, wearCeiling, damageMax);
                     if (dmg > 0)
-                        item.ACondOverrides = [new ExportedCondOverride { CondName = "StatDamage", Chance = 1.0, Amount = dmg }];
+                        (overrides ??= []).Add(new ExportedCondOverride { CondName = "StatDamage", Chance = 1.0, Amount = dmg });
                     wearRates!.Add(dmg / damageMax);
                 }
                 else
@@ -282,10 +289,25 @@ public static class ShipExport
                 }
             }
 
+            // An authored fill: one override per payload line, set absolutely. JsonItem.ApplyOverrideCondsToCO
+            // calls CondOwner.SetCondAmount, so an override REPLACES the def's own amount rather than adding to
+            // it, which is what a fill needs — and it means an emptied line has to be written as an explicit 0
+            // or the def's 13,373 mol of O2 would survive being emptied. The game derives StatGasPressure and
+            // every StatGasPp* from these on load (the canisters all carry IsGasMolChanged), so only the amounts
+            // are written here.
+            if (placement?.Fill is { } fill && ContainerFill.Describe(catalog.Lookup(part.Part.DefName), catalog) is { } spec)
+                foreach (var line in spec.Lines)
+                {
+                    var amount = fill.GetValueOrDefault(line.Cond);
+                    if (Math.Abs(amount - line.Stock) <= ContainerFill.Epsilon) continue;   // already what the def gives
+                    (overrides ??= []).Add(new ExportedCondOverride { CondName = line.Cond, Chance = 1.0, Amount = amount });
+                }
+
+            if (overrides is { Count: > 0 }) item.ACondOverrides = [.. overrides];
+
             if (IsDocksysPart(part.Part, catalog))
                 docksysPorts.Add((strID, part.Part.Has("IsTypeB"), part.Part.DefName == Catalog.PrimaryDocksysDef, part.AnchorIndex));
 
-            var placement = part.StrID is { } pid ? byPlacementId.GetValueOrDefault(pid) : null;
             if (placement is { Cargo.Count: > 0 })
             {
                 EmitCargo(placement.Cargo, strID, fx, fy);   // the design's contents (original + authored), pristine

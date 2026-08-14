@@ -68,6 +68,9 @@ A complete file, with every section populated:
       "cargo": [
         { "def": "ItmFoodRation", "strId": "…", "authored": true, "x": 0, "y": 0, "rot": 0, "stack": 4, "isStack": true }
       ]
+    },
+    { "def": "ItmRTAO2", "x": 8, "y": 2, "rot": 0, "given": false,
+      "fill": { "StatGasMolO2": 6000, "StatGasMolN2": 2500 }
     }
   ],
   "zones": [
@@ -96,7 +99,9 @@ A complete file, with every section populated:
   empty **array** is written (`"zones": []`, `"links": []`, …). So a minimal
   from-scratch design still carries empty `mods` / `zones` / `looseObjects` /
   `links` / `dismissedAlerts` arrays, and omits `source` (null), `extraMassKg` (zero),
-  and any per-part `origin` / `swappedFrom` / `swappedFromDef` / `cargo` that is null.
+  and any per-part `origin` / `swappedFrom` / `swappedFromDef` / `cargo` / `fill` that is
+  null. Note that `fill` is the one field where an **empty** value is meaningful — an
+  emptied tank writes `"fill": {}`, which is not the same as omitting it.
 - Property order follows the field order below (`formatVersion`, `viewRot`, `game`,
   `mods`, `meta`, `source`, `parts`, `zones`, `looseObjects`, `links`,
   `dismissedAlerts`, `extraMassKg`, `autoSaveOf`).
@@ -171,6 +176,7 @@ The design itself, in draw order (array order is preserved). Each entry:
 | `swappedFromDef` | string / absent | The def the part carried before that swap, so swapping back to it restores `origin` outright and the round trip is free. Always absent when `swappedFrom` is. |
 | `z` | int / absent | The manual draw-order bias a **Move Back / Move Forward** wrote onto this part. Absent for a part left in the automatic order, which is nearly all of them. Cosmetic: it moves the part inside its render layer and nothing else reads it. |
 | `cargo` | array / absent | A full snapshot of this container's contents, present **only** when its cargo was edited in the inventory editor. Un-edited containers omit it and re-read their contents from the linked save on open. |
+| `fill` | object / absent | How much of what this canister or tank holds: payload condition (`StatGasMolO2`, `StatLiqD2O`, …) → amount. Absent for a part left at the amounts its def ships with, which is nearly all of them. An **empty object is not the same as absent**: it is a container deliberately emptied, and absent means "whatever the def carries". Amounts are moles for a gas and kilograms for a liquid or solid. |
 
 **Cargo snapshot node** (`cargo[]`, recursive via `children`):
 
@@ -259,11 +265,16 @@ disturbing anything else:
   on reopen; and
 - a per-part **`origin`** (the source item's `strID`) on every imported part.
 
-The live per-item state (crew, cargo, wear, power/gas, ship name, world position) is
-**not** embedded — it is re-read from the referenced save on reopen. So a save-edit
-`.oplan` is faithful *as a layout* on its own, and reconstructs the live ship for
-write-back only while its save is present. To keep a standalone, shareable ship with
-no save dependency, **export** the design instead.
+The live per-item state (crew, cargo, wear, ship name, world position) is **not**
+embedded — it is re-read from the referenced save on reopen. So a save-edit `.oplan` is
+faithful *as a layout* on its own, and reconstructs the live ship for write-back only while
+its save is present. To keep a standalone, shareable ship with no save dependency,
+**export** the design instead.
+
+The one exception is a container's **`fill`**, which the import reads out of the save and
+records on the part. It has to be embedded rather than re-read: every analysis takes a
+part's figures from its def, so without it a half-empty tank would be valued, rated and
+flown as a full one.
 
 ---
 

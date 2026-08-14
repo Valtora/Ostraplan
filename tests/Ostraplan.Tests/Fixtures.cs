@@ -175,6 +175,28 @@ public sealed class Fixtures
         Part(name, tileConds: ["IsFixture", "IsObstruction", "IsContainer"], startingConds: ["IsContainer"],
             container: (gridW, gridH), containerCT: filterCt, category: "FURN");
 
+    /// <summary>
+    /// A gas canister: a sealed vessel with a volume, a temperature and a pressure rating, holding
+    /// <paramref name="mols"/> of one gas. Defaults are the game's own ordinary canister shell (0.787 m³ at
+    /// 41,400 kPa and 293 K, which is 13,375 mol of capacity). Add bulk payloads with
+    /// <paramref name="bulk"/> — <c>StatLiqD2O</c> and friends, in kilograms.
+    /// </summary>
+    public Fixtures Tank(string name, string gas = "O2", double mols = 0,
+        double volume = 0.787, double pressureMax = 41400, double temp = 293,
+        IReadOnlyDictionary<string, double>? bulk = null, double basePrice = 410)
+    {
+        var values = new Dictionary<string, double>
+        {
+            ["StatVolume"] = volume,
+            ["StatGasPressureMax"] = pressureMax,
+            ["StatGasTemp"] = temp,
+        };
+        if (mols > 0) values["StatGasMol" + gas] = mols;
+        foreach (var (cond, amount) in bulk ?? new Dictionary<string, double>()) values[cond] = amount;
+        return Part(name, tileConds: ["IsFixture", "IsObstruction"], category: "HVAC", basePrice: basePrice,
+            startingConds: ["IsAirtight", "IsInstalled", "IsVessel" + gas, "IsGasMolChanged"], condValues: values);
+    }
+
     /// <summary>Register a parallax location (data/parallax) with the given sun-light names, for Light Viz's
     /// exterior daylight.</summary>
     public Fixtures Parallax(string name, params string[] sunLights)

@@ -2614,14 +2614,26 @@ public partial class MainWindow : Window
         // "View contents…": a single container/console/crate — shown even when empty (so an imported empty
         // container isn't "locked"). Not shown for a multi-selection — uses the lone selected part, else topmost.
         var cargoTarget = multi ? null : (selected.Count == 1 ? selected[0] : stack[0]);
+        var contentsShown = false;
         if (cargoTarget is { } ct && CanViewContents(ct))
         {
             var n = ct.Cargo.Count;
             menu.Items.Add(new Separator());
+            contentsShown = true;
             menu.Items.Add(Item("View contents" + (n > 0 ? $" ({n})" : "") + "…", "", (_, _) => OpenInventory(ct)));
             // a nav console's screens are its modules, and where each one sits is the console's own arrangement
             if (NavConsole.IsConsole(_doc?.Part(ct)))
                 menu.Items.Add(Item("Arrange screen…", "", (_, _) => OpenNavArrange(ct)));
+        }
+
+        // "Fill…": how much gas or fuel a canister or tank holds. A different question from "View contents" —
+        // that is a container's inventory of items, this is the payload the part itself carries — but they sit
+        // together because both are "what is inside this thing".
+        var fillTarget = multi ? null : (selected.Count == 1 ? selected[0] : stack[0]);
+        if (fillTarget is { } ft && ContainerFill.Describe(_doc?.Part(ft), _catalog!) is not null)
+        {
+            if (!contentsShown) menu.Items.Add(new Separator());
+            menu.Items.Add(Item(ft.Fill is null ? "Fill…" : "Fill (changed)…", "", (_, _) => OpenFill(ft)));
         }
 
         menu.Items.Add(new Separator());
@@ -2726,6 +2738,31 @@ public partial class MainWindow : Window
             return;
         }
         new NavArrangeWindow(_catalog, _doc, _stack, p, Rename.Display(p, _doc.Part(p))) { Owner = this }.ShowDialog();
+    }
+
+    /// <summary>Set how much gas or fuel a canister or tank holds. The result goes through the undo stack like any
+    /// other edit, and changes the ship's value, its reaction mass and (on a torch tank) its burn time, so the
+    /// rating report is refreshed with it.</summary>
+    private void OpenFill(Placement p)
+    {
+        if (_doc is null || _catalog is null) return;
+        if (ContainerFill.Describe(_doc.Part(p), _catalog) is not { } spec) return;
+
+        var dlg = new FillDialog(Rename.Display(p, _doc.Part(p)), spec, p.Fill, _catalog) { Owner = this };
+        if (dlg.ShowDialog() != true || SameFill(p.Fill, dlg.Fill)) return;
+
+        _stack.Push(_doc, new SetFillCommand(p, p.Fill, dlg.Fill));
+        UpdateInspector();
+    }
+
+    /// <summary>True when two fills say the same thing, so closing the dialog on an unchanged tank pushes nothing
+    /// onto the undo stack. Null (stock) and a map that happens to hold the stock amounts are already collapsed to
+    /// null by the dialog, so a plain key/value comparison is enough here.</summary>
+    private static bool SameFill(IReadOnlyDictionary<string, double>? a, IReadOnlyDictionary<string, double>? b)
+    {
+        if (a is null || b is null) return a is null && b is null;
+        return a.Count == b.Count
+               && a.All(kv => b.TryGetValue(kv.Key, out var v) && Math.Abs(v - kv.Value) <= ContainerFill.Epsilon);
     }
 
     /// <summary>
@@ -3049,7 +3086,9 @@ public partial class MainWindow : Window
         else PriceBlock.Visibility = Visibility.Collapsed;
         InsOrigin.Text = part.Origin;
         InsInputs.Text = part.Inputs.Length == 0 ? "none" : string.Join("\n", part.Inputs);
-        PopulateStats(part);
+        // A tank's contents belong to the placed part, not the def, so only a lone selected placement has any
+        // (an armed palette part is a def and holds whatever the def holds).
+        PopulateStats(part, Board.ArmedPart is null && selected.Count == 1 ? selected[0] : null);
     }
 
     /// <summary>The curated key figures the inspector surfaces (in this order, only when present) — the raw game
@@ -3076,7 +3115,7 @@ public partial class MainWindow : Window
     /// <c>Stat*</c> cond verbatim), and the "Conditions (flags)" list (every non-<c>Stat</c> starting cond) for the
     /// selected part — the true, raw figures the game keeps hidden. All three read <see cref="PartDef"/> data
     /// already in memory (the same source as Base Value), so this adds no data loading.</summary>
-    private void PopulateStats(PartDef part)
+    private void PopulateStats(PartDef part, Placement? placed)
     {
         var vals = part.StartingCondValues;
 
@@ -3084,6 +3123,24 @@ public partial class MainWindow : Window
         foreach (var (key, label, unit) in KeyStats)
             if (vals.TryGetValue(key, out var v))
                 StatsList.Children.Add(StatRow(label, FormatStat(v) + (unit.Length > 0 ? " " + unit : ""), raw: false));
+
+        // What this particular tank holds, when it is not simply what the def ships with. Shown against the
+        // curated figures rather than in the raw list, which is deliberately the def's own data verbatim.
+        if (_catalog is { } cat && ContainerFill.Describe(part, cat) is { } spec)
+        {
+            var fill = placed?.Fill ?? spec.Stock;
+            foreach (var line in spec.Lines)
+            {
+                var amount = fill.GetValueOrDefault(line.Cond);
+                if (amount <= 0) continue;
+                StatsList.Children.Add(StatRow(line.Label,
+                    FormatStat(amount) + (line.IsGas ? " mol" : " kg"), raw: false));
+            }
+            if (spec.HasGas)
+                StatsList.Children.Add(StatRow("Pressure",
+                    FormatStat(spec.PressureFor(ContainerFill.TotalMols(fill))) + " kPa", raw: false));
+        }
+
         StatsBlock.Visibility = StatsList.Children.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
 
         RawList.Children.Clear();

@@ -170,6 +170,37 @@ public sealed class Catalog
         return prices;
     }
 
+    private IReadOnlySet<string>? _declaredConds;
+
+    /// <summary>
+    /// Every condition name <c>data/conditions</c> declares. A condition the data does not declare cannot be
+    /// put on anything: <c>CondOwner.AddCondAmount</c> gives up the moment <c>DataHandler.GetCond</c> returns
+    /// null, with no error anywhere. That is what decides which gas species a container may actually be filled
+    /// with (see <see cref="ContainerFill.Offerable"/>).
+    /// <para>Empty in a synthetic catalog (no <see cref="Index"/>), which callers read as "unverifiable"
+    /// rather than as "nothing is declared".</para>
+    /// </summary>
+    public IReadOnlySet<string> DeclaredConds =>
+        _declaredConds ??= Index is { } idx
+            ? new HashSet<string>(idx.Type("conditions").Keys, StringComparer.Ordinal)
+            : new HashSet<string>(StringComparer.Ordinal);
+
+    private IReadOnlyDictionary<string, string>? _condFriendly;
+
+    /// <summary>A condition's own <c>strNameFriendly</c> ("Oxygen Gas", "Deuterium (Liquid)"), or null when the
+    /// data gives it none. Lets the fill editor label its lines from the game's own words rather than a table
+    /// Ostraplan would have to keep in step.</summary>
+    public string? CondFriendly(string cond)
+    {
+        _condFriendly ??= Index is { } idx
+            ? idx.Type("conditions")
+                 .Select(kv => (kv.Key, Friendly: Json.Str(kv.Value.El, "strNameFriendly")))
+                 .Where(x => !string.IsNullOrWhiteSpace(x.Friendly))
+                 .ToDictionary(x => x.Key, x => x.Friendly!, StringComparer.Ordinal)
+            : new Dictionary<string, string>(StringComparer.Ordinal);
+        return _condFriendly.GetValueOrDefault(cond);
+    }
+
     /// <summary>GUI-prop-map templates by name (from <c>data/guipropmaps</c>) — the <c>dictGUIPropMap</c> array
     /// each named map (e.g. "Electrical", "AirPump") expands to. Used to bake a new device's <c>aGPMSettings</c>
     /// so it wires up on load. Empty in synthetic test catalogs.</summary>

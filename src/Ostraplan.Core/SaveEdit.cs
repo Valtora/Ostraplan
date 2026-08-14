@@ -317,6 +317,17 @@ public static class SaveEdit
             if (outItemsById.GetValueOrDefault(containerId) is { } namedItem)
                 ApplyRename(namedItem, p.CustomName);
 
+            // An authored fill, for a new tank and a kept one alike. It rides on the ITEM's aCondOverrides rather
+            // than the CO's aConds, which is not the arrangement StatDamage uses and is deliberate: a new part's
+            // CO is written aConds=["DEFAULT"], and CondOwner's init strips that marker and APPENDS the def's own
+            // starting conds to the end of the list, zeroing each cond first — so an explicit StatGasMolO2 written
+            // there would be overwritten by the def's 13,373 mol every time. An override is applied after the CO
+            // is fully built (Ship.SpawnItems → JsonItem.ApplyOverrideCondsToCO → CondOwner.SetCondAmount), so it
+            // lands on top of both the def's amount and a kept CO's saved one. StatDamage does not hit this
+            // because no def declares StatDamage to overwrite it with.
+            if (p.Fill is { } fill && outItemsById.GetValueOrDefault(containerId) is { } filledItem)
+                SetFillOverrides(filledItem, fill, catalog.Lookup(p.DefName), catalog);
+
             // A nav console's screen arrangement: where each module it holds sits, so the console reads the way the
             // design intends instead of however the game walks the container (see NavConsole.Arrange). On a KEPT
             // console only the keys the save leaves empty are filled — a player who arranged their own console in
@@ -872,6 +883,52 @@ public static class SaveEdit
                 conds.RemoveAt(i);
         if (amount > 0)
             conds.Add($"StatDamage=1.0x{amount.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture)}");
+    }
+
+    /// <summary>
+    /// Write a container's authored fill onto its <b>item</b> as per-instance condition overrides, merging with
+    /// whatever overrides the save already put there (a part's own wear, typically) rather than replacing them.
+    /// One entry per payload line that differs from what the def ships with, including an explicit <c>0</c> for an
+    /// emptied line — without that the def's own 13,373 mol of O2 would survive being emptied.
+    ///
+    /// <para><c>JsonItem.ApplyOverrideCondsToCO</c> feeds each entry to <c>CondOwner.SetCondAmount</c>, so an
+    /// override <b>sets</b> the amount rather than adding to it, and runs after the condowner is fully built.
+    /// The game recomputes <c>StatGasPressure</c> and every <c>StatGasPp*</c> from these amounts on load (every
+    /// canister carries <c>IsGasMolChanged</c>), so only the amounts are written.</para>
+    ///
+    /// <para>No-op when the part holds nothing editable.</para>
+    /// </summary>
+    internal static void SetFillOverrides(
+        JsonObject item, IReadOnlyDictionary<string, double> fill, PartDef? def, Catalog catalog)
+    {
+        if (ContainerFill.Describe(def, catalog) is not { } spec) return;
+
+        var wanted = new List<(string Cond, double Amount)>();
+        foreach (var line in spec.Lines)
+        {
+            var amount = fill.GetValueOrDefault(line.Cond);
+            if (Math.Abs(amount - line.Stock) > ContainerFill.Epsilon) wanted.Add((line.Cond, amount));
+        }
+
+        if (item["aCondOverrides"] is not JsonArray overrides)
+        {
+            if (wanted.Count == 0) return;   // nothing to say and nothing already said
+            item["aCondOverrides"] = overrides = new JsonArray();
+        }
+        // drop our own previous say on these conds, keeping anything else the save wrote (wear, the cargo marker)
+        var ours = new HashSet<string>(spec.Lines.Select(l => l.Cond), StringComparer.Ordinal);
+        for (var i = overrides.Count - 1; i >= 0; i--)
+            if (overrides[i] is JsonObject o && Str(o, "CondName") is { } name && ours.Contains(name))
+                overrides.RemoveAt(i);
+
+        foreach (var (cond, amount) in wanted)
+            overrides.Add(new JsonObject
+            {
+                ["CondName"] = cond,
+                ["Chance"] = 1.0,
+                ["Amount"] = amount,
+                ["NegativeValue"] = false,
+            });
     }
 
     /// <summary>

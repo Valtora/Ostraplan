@@ -722,6 +722,42 @@ carries no arrangement of its own, so it follows the stock layout. On a ship you
 back into a save, arranging a console overwrites whatever arrangement it had in game — that
 being the point — while a console you leave alone keeps the layout you built at it.
 
+## Filling canisters and tanks
+
+Right-click a canister, an RTA or a fuel tank and choose **Fill…** to set how much of what
+it carries. It changes what the ship is worth, how much reaction mass it has for the RCS,
+and how long a torch drive can burn, so a design that flies on paper flies on the same
+numbers in game.
+
+The important thing to know is that **the gases share one budget**. That is how the game
+works: a container's pressure is the total moles of everything in it at once, so oxygen and
+nitrogen compete for the same space rather than each getting a share of the volume. Each
+slider's own maximum is therefore "everything left, plus what this one already holds" —
+drag one to the far right and the tank is full of that gas, pull it back and the others can
+take the room. The gauge across the top shows the total against the container's pressure
+rating, and the total can never be pushed past it. That is not a safety rail Ostraplan
+invented: a canister over its rating takes damage every second in game and eventually bursts
+into shrapnel, and the game's own "full" sits exactly on the rating.
+
+Any of the ordinary canisters will hold any gas — an N2 can and an O2 can are the same
+0.787 m³ shell rated to the same pressure, and the label is just what it shipped with. So
+you can fill an RTA with whatever the ship actually needs. Eight gases are on offer: oxygen,
+nitrogen, carbon dioxide, methane, carbon monoxide, ammonia, sulfuric acid and smoke. Water
+vapour, hydrogen and helium are not, because the game has no condition for them and cannot
+store them however much its code looks like it could.
+
+**Fuel tanks are different, and are kept that way.** A deuterium, helium-3, cryogenic helium
+or water tank is built around the one thing it carries, and the reactor matches its tanks by
+name, so those tanks are offered **only their own payload** and no gas at all. Filling one
+with oxygen would be weight the drive cannot use. Their payload has no pressure and no
+shared budget, so it is simply capped at what a full tank carries.
+
+**Empty** drains everything, **Reset to stock** puts the container back to what its def
+ships with, and a container at stock carries nothing in the design at all. The fill is saved
+with the `.oplan`, undone with `Ctrl+Z`, and written into the ship on export or a save
+write-back. Importing a ship out of a save reads the real contents of every tank on it, so a
+half-empty ship is priced and flown as a half-empty ship.
+
 ## Power
 
 Two aids for wiring a ship's electrics, both driven by the game's own power model.

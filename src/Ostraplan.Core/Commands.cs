@@ -174,6 +174,23 @@ public sealed class SetNavLayoutCommand(
               $"({after.Count(e => e.Value.Length > 0)} of {after.Count} module(s) on screen)";
 }
 
+/// <summary>
+/// Swap a container's fill — the fill dialog's result. Like <see cref="SetCargoCommand"/> the caller hands in
+/// both maps, so Do/Undo are a plain assignment; null means "back to the amounts the def ships with".
+/// </summary>
+public sealed class SetFillCommand(
+    Placement placement, IReadOnlyDictionary<string, double>? before, IReadOnlyDictionary<string, double>? after)
+    : IDocCommand, IAuditDescribable
+{
+    public void Do(ShipDocument doc) => doc.SetFill(placement, after);
+    public void Undo(ShipDocument doc) => doc.SetFill(placement, before);
+    public string Describe(Func<string, string?> f) =>
+        after is null
+            ? $"Reset the contents of {AuditFmt.Name(f, placement.DefName)} to stock"
+            : $"Fill {AuditFmt.Name(f, placement.DefName)} " +
+              $"({ContainerFill.TotalMols(after):#,##0.##} mol of gas)";
+}
+
 public sealed class RemoveCommand(IReadOnlyList<Placement> placements) : IDocCommand, IAuditDescribable
 {
     public void Do(ShipDocument doc)

@@ -111,6 +111,7 @@ public static class SaveEditImport
                 var forest = Cargo.BuildForest(id, children, itemsById, cosById, catalog);
                 cargoByOrigin[id] = forest;
                 p.Cargo = forest;   // attach the container's contents tree to the imported placement
+                p.Fill = ReadFill(id, itemsById, cosById, catalog, doc.Part(p));
             }
 
         return new SaveShipContext
@@ -126,6 +127,43 @@ public static class SaveEditImport
             CargoByOrigin = cargoByOrigin,
         };
     }
+
+    /// <summary>
+    /// What a container in the save is actually holding, as an authored <see cref="Placement.Fill"/> — or null
+    /// when it holds nothing editable, or is sitting at exactly the amounts its def ships with (nothing worth
+    /// recording, and a design that says nothing about a tank is easier to read).
+    ///
+    /// <para>Without this a half-empty imported tank would be valued, rated and flown as a full one: every
+    /// analysis reads a part's conditions from its <b>def</b>, and only a fill can say otherwise. The amounts are
+    /// read the way the game reads them on load — the condowner's own <c>aConds</c> first, then the item's
+    /// <c>aCondOverrides</c> on top, since <c>ApplyOverrideCondsToCO</c> runs after the condowner is built.</para>
+    /// </summary>
+    private static IReadOnlyDictionary<string, double>? ReadFill(
+        string id, IReadOnlyDictionary<string, JsonNode> itemsById, IReadOnlyDictionary<string, JsonNode> cosById,
+        Catalog catalog, PartDef? def)
+    {
+        if (ContainerFill.Describe(def, catalog) is not { } spec) return null;
+
+        var values = new Dictionary<string, double>(StringComparer.Ordinal);
+        if (cosById.GetValueOrDefault(id) is JsonObject co && co["aConds"] is JsonArray conds)
+            foreach (var (name, amount) in CondOwnerDef.ParseCondValues(StrValues(conds)))
+                values[name] = amount;
+
+        if (itemsById.GetValueOrDefault(id) is JsonObject item && item["aCondOverrides"] is JsonArray overrides)
+            foreach (var node in overrides)
+                if (node is JsonObject o && o["CondName"]?.GetValue<string>() is { } cond)
+                {
+                    var amount = o["Amount"] is JsonValue a && a.TryGetValue<double>(out var d) ? d : 0;
+                    values[cond] = o["NegativeValue"]?.GetValue<bool>() == true ? -amount : amount;
+                }
+
+        var fill = spec.Lines.ToDictionary(l => l.Cond, l => values.GetValueOrDefault(l.Cond), StringComparer.Ordinal);
+        return ContainerFill.IsStock(fill, spec) ? null : ContainerFill.Clamp(fill, spec);
+    }
+
+    /// <summary>The string entries of a JSON array, skipping anything else.</summary>
+    private static string[] StrValues(JsonArray arr) =>
+        [.. arr.OfType<JsonValue>().Select(v => v.TryGetValue<string>(out var s) ? s : null).OfType<string>()];
 
     /// <summary>Depth-first descendant strIDs of a root (excluding the root itself), cycle-guarded.</summary>
     private static IReadOnlyList<string> Descendants(string root, Dictionary<string, List<string>> children)

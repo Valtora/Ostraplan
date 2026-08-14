@@ -162,8 +162,15 @@ public sealed class ShipGrid
             var ar = gy + h / 2;
             var anchorIndex = ac >= 0 && ac < nCols && ar >= 0 && ar < nRows ? ac + ar * nCols : -1;
 
+            // An authored fill is laid over the def's own starting values here and nowhere else, so every
+            // analysis downstream (value, RCS reaction mass, the torch reactant clock, the rating) sees the
+            // contents the design actually carries without any of them knowing a fill exists.
+            var condValues = p.Fill is null
+                ? part.StartingCondValues
+                : ContainerFill.Overlay(part.StartingCondValues, p.Fill, ContainerFill.Describe(part, catalog));
+
             var resolved = new ResolvedPart(part.DefName, part.Friendly, part.Item,
-                part.StartingConds, part.StartingCondValues, part.MapPoints);
+                part.StartingConds, condValues, part.MapPoints);
             parts.Add(new PlacedPart(resolved, p.Id.ToString(), 0, 0, p.Rot, gx, gy, anchorIndex));
         }
 

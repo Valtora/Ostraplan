@@ -82,8 +82,10 @@ public sealed class Placement
         {
             // CustomName rides across: switching a device off, or uninstalling it, does not change what it is
             // called. ZBias does too: a canister pushed behind its regulator stays behind it once uninstalled.
+            // So does Fill: uninstalling a tank does not empty it, and the loose form is the same shell with the
+            // same volume and rating. A line the target def does not have is dropped where the fill is applied.
             DefName = targetDef, X = X, Y = Y, Rot = rot, IsGiven = false, Cargo = Cargo, CustomName = CustomName,
-            ZBias = ZBias, NavLayout = NavLayout,
+            ZBias = ZBias, NavLayout = NavLayout, Fill = Fill,
             OriginStrID = backHome ? carriedId : null,
             SwappedFromStrID = backHome ? null : carriedId,
             SwappedFromDef = backHome || carriedId is null ? null : carriedDef,
@@ -128,6 +130,22 @@ public sealed class Placement
     /// after the arrangement was made still lands somewhere sensible rather than vanishing.</para>
     /// </summary>
     public IReadOnlyDictionary<string, string>? NavLayout { get; set; }
+
+    /// <summary>
+    /// How much of what this container holds, when the user has said: payload condition
+    /// (<c>StatGasMolO2</c>, <c>StatLiqD2O</c>, …) → amount. Null on every other part, and on a canister left
+    /// at the fill its def ships with, so a design only carries the ones actually changed.
+    ///
+    /// <para>An <b>absent line is empty</b>, not "stock": the map is the whole truth about this container's
+    /// contents once it exists, which is what lets a tank be emptied at all (see
+    /// <see cref="ContainerFill.Overlay"/>). Everything downstream — value, RCS reaction mass, the torch
+    /// reactant clock, the rating — reads it through <see cref="ShipGrid.FromDocumentFramed"/>, which lays it
+    /// over the def's own starting conditions once so no analysis has to know it exists.</para>
+    ///
+    /// <para>It rides through a move and through <see cref="Restate"/>, since neither empties a tank, and is
+    /// dropped by duplicate / paste along with the rest of the part's identity.</para>
+    /// </summary>
+    public IReadOnlyDictionary<string, double>? Fill { get; set; }
 }
 
 /// <summary>
@@ -555,6 +573,16 @@ public sealed class ShipDocument
     internal void SetNavLayout(Placement p, IReadOnlyDictionary<string, string>? layout)
     {
         p.NavLayout = layout;
+        RaiseChanged();
+    }
+
+    /// <summary>Replace a container's authored fill (see <see cref="Placement.Fill"/>); null returns it to the
+    /// amounts its def ships with. Contents live inside the part, so no spatial index or tile condition moves —
+    /// but this DOES raise <see cref="Changed"/>, because value, reaction mass and the torch reactant figures all
+    /// read the fill through the analysis grid and have to be recomputed.</summary>
+    internal void SetFill(Placement p, IReadOnlyDictionary<string, double>? fill)
+    {
+        p.Fill = fill;
         RaiseChanged();
     }
 
