@@ -396,6 +396,58 @@ public sealed class Catalog
         });
     }
 
+    private readonly ConcurrentDictionary<(string Def, int Rot), (int X, int Y, int W, int H)> _bodyBox = new();
+
+    /// <summary>
+    /// The part's ABOVE-FLOOR body within its own footprint at <paramref name="rot"/>: the bounding rect of every
+    /// cell that is not under-floor-only reservation (<see cref="IsUnderFloorLoot"/>), as an offset from the
+    /// footprint's top-left plus its size. Ordinary parts have no such ring, so this is <c>(0, 0, W, H)</c> — the
+    /// whole footprint. The big cryogenic canisters do: a 3×3 body sitting at <c>(2, 2)</c> inside a 7×7 socket
+    /// grid whose outer two rings only reserve sub-floor. Sprite-sheet parts (walls/floors, which auto-tile
+    /// rather than rotate) are read unrotated, matching how they are placed.
+    /// <para>This is what the user actually sees and grabs — selection, hit-testing and the outline all work off
+    /// it (<see cref="ShipDocument.BodyBounds"/>) — so it is also what decides swap compatibility
+    /// (<see cref="SwapClass"/>). The placement law is unaffected: <see cref="CheckFit"/> keeps reading the full
+    /// socket grid.</para>
+    /// </summary>
+    public (int X, int Y, int W, int H) BodyBox(PartDef? part, int rot = 0)
+    {
+        if (part is null) return (0, 0, 1, 1);
+        var effRot = part.Item.HasSpriteSheet ? 0 : GridMath.Norm(rot);
+        return _bodyBox.GetOrAdd((part.DefName, effRot), _ =>
+        {
+            var (w, h) = GridMath.Size(part.Item.Width, part.Item.Height, effRot);
+            var (rw, rh, adds) = GridMath.Rotate(part.Item.SocketAdds, part.Item.Width, part.Item.Height, effRot);
+            if (adds.Length != rw * rh) return (0, 0, w, h);
+
+            int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+            for (var r = 0; r < rh; r++)
+                for (var c = 0; c < rw; c++)
+                    if (!IsUnderFloorLoot(adds[r * rw + c]))
+                    {
+                        minX = Math.Min(minX, c); minY = Math.Min(minY, r);
+                        maxX = Math.Max(maxX, c); maxY = Math.Max(maxY, r);
+                    }
+            // an all-under-floor part has no body to speak of: treat the whole footprint as one
+            return maxX < minX ? (0, 0, w, h) : (minX, minY, maxX - minX + 1, maxY - minY + 1);
+        });
+    }
+
+    /// <summary>
+    /// The swap class a part belongs to: its render layer plus the size of its above-floor <see cref="BodyBox"/>.
+    /// Two parts of one class occupy the same visible tiles, so one can stand in for the other — what
+    /// <see cref="ReplaceOps"/>, <see cref="ThemeOps"/> and <see cref="SurfacePaint"/> all key on.
+    /// <para>Keyed on the <b>body</b> rather than the raw socket grid because that is the object the user sees:
+    /// a Liq. He Canister is a 3×3 machine with a two-tile sub-floor apron, and classing it 7×7 left it swappable
+    /// only with the two other canisters that share the apron, while the visibly identical 3×3 tanks and reactors
+    /// were unreachable.</para>
+    /// </summary>
+    public (int Layer, int W, int H) SwapClass(PartDef part)
+    {
+        var body = BodyBox(part);
+        return (RenderLayer(part), body.W, body.H);
+    }
+
     private readonly ConcurrentDictionary<string, IReadOnlyList<PartLight>> _lights = new(StringComparer.Ordinal);
 
     /// <summary>

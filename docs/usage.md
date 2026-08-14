@@ -151,7 +151,9 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   opens to vacuum can't be selected, so a fill never leaks out.
 - **Use as brush (eyedropper):** **Alt+click** a part to arm it, at its own rotation,
   and keep painting it. **Replace with…:** **Ctrl+R** swaps the selection for a
-  compatible part.
+  compatible part — one on the same layer and the same size on the deck, so a floor
+  swaps for a floor and a 3×3 machine for a 3×3 machine. **Find and Replace All…**
+  (right-click menu) does the same to every copy of that part in the ship at once.
 - **Paint over the deck:** **Surfaces** mode (**T**) lets a wall/floor brush re-skin the
   tile it lands on rather than refusing it, and ghosts everything else out of the way.
   See [Surfaces mode](#surfaces-mode--painting-the-deck).

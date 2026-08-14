@@ -274,8 +274,18 @@ would allow placement in a gap the game refuses — a false positive.
 A cell is **under-floor** when its adds mark `IsSubTile` **without**
 `IsObstruction`.
 
+The socket grid minus that under-floor reservation is the part's **body**
+(`Catalog.BodyBox`): 3×3 at offset (2, 2) for those canisters, the whole footprint
+for everything without an apron. The body is the object as a user meets it, so it
+is what Ostraplan hit-tests, outlines and band-selects, and what decides which
+parts can stand in for each other (`Catalog.SwapClass`, used by `ReplaceOps`,
+`ThemeOps` and `SurfacePaint`). Classing swaps on the raw socket grid instead left
+a canister swappable only with the two other canisters that share its apron, while
+the 3×3 machines it visibly matches were unreachable. The placement law is a
+separate question and still reads the full socket grid.
+
 > **Ported in Ostraplan:** `Defs.ItemDef` (footprint), `SpriteCache.SpriteTiles`
-> (sprite), `Catalog.IsUnderFloorLoot`.
+> (sprite), `Catalog.IsUnderFloorLoot`, `Catalog.BodyBox` / `Catalog.SwapClass`.
 
 ---
 

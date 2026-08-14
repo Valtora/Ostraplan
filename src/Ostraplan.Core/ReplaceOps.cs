@@ -2,9 +2,12 @@ namespace Ostraplan.Core;
 
 /// <summary>
 /// "Replace with…" and "Find and Replace All…": swap a set of parts for a compatible buildable part,
-/// keeping each part's tile and rotation. Compatible = the <b>same render layer AND the same base
-/// footprint</b> (item W×H) — so a floor swaps for any other floor, a wall for any wall, but a floor can't
-/// become a canister (Floor vs Fixture) nor a 1×1 wall a 5×1 door (footprint differs). Find and Replace
+/// keeping each part's tile and rotation. Compatible = the <b>same render layer AND the same body
+/// size</b> (<see cref="Catalog.SwapClass"/>) — so a floor swaps for any other floor, a wall for any wall, but a
+/// floor can't become a canister (Floor vs Fixture) nor a 1×1 wall a 5×1 door (body differs). The body is the
+/// part as drawn and grabbed, not its raw socket grid: a Liq. He Canister is a 3×3 machine under a two-tile
+/// sub-floor apron, so it swaps with the 3×3 tanks and reactors it visibly matches, and the swap keeps the
+/// <b>body</b> where it was rather than the socket grid's corner. Find and Replace
 /// layers a stricter source check on top (<see cref="SoleDef"/>): the selection must be one exact part
 /// (the "block"), and <see cref="FindAll"/> then locates every other copy of it in the ship so all of them
 /// swap together, instead of only the ones currently selected.
@@ -20,9 +23,9 @@ namespace Ostraplan.Core;
 /// </summary>
 public static class ReplaceOps
 {
-    /// <summary>The (layer, w, h) class shared by every part in the set, or null if they don't share one, the set
-    /// is empty, or <b>any part is a container</b> — containers aren't re-skinnable (their inventory grid and cargo
-    /// don't carry across a def-change; changing a container is a manual delete + place).</summary>
+    /// <summary>The <see cref="Catalog.SwapClass"/> shared by every part in the set, or null if they don't share
+    /// one, the set is empty, or <b>any part is a container</b> — containers aren't re-skinnable (their inventory
+    /// grid and cargo don't carry across a def-change; changing a container is a manual delete + place).</summary>
     public static (int Layer, int W, int H)? CommonClass(ShipDocument doc, IReadOnlyList<Placement> parts)
     {
         (int, int, int)? cls = null;
@@ -30,39 +33,50 @@ public static class ReplaceOps
         {
             var part = doc.Part(p);
             if (part is null || part.IsContainer) return null;
-            var key = (doc.Catalog.RenderLayer(part), part.Item.Width, part.Item.Height);
+            var key = doc.Catalog.SwapClass(part);
             if (cls is null) cls = key;
             else if (cls.Value != key) return null;
         }
         return cls;
     }
 
-    /// <summary>Buildable palette parts compatible with a class: same render layer and base footprint, and
+    /// <summary>Buildable palette parts compatible with a class: same render layer and body size, and
     /// <b>never a container</b> (you can't re-skin something into a container either — that would create an empty
     /// inventory grid out of thin air).</summary>
     public static IReadOnlyList<PartDef> CompatibleTargets(Catalog catalog, (int Layer, int W, int H) cls) =>
-        catalog.Parts
-            .Where(p => !p.IsContainer && catalog.RenderLayer(p) == cls.Layer && p.Item.Width == cls.W && p.Item.Height == cls.H)
-            .ToList();
+        catalog.Parts.Where(p => !p.IsContainer && catalog.SwapClass(p) == cls).ToList();
 
     /// <summary>
     /// Swap each (unlocked) selected part to <paramref name="newDef"/> at the same tile/rotation, as one
     /// undo step. Sheet targets (walls/floors) normalise to rot 0 (they auto-tile). Returns the command
     /// and the created placements to re-select, or null if nothing changes.
+    /// <para>"The same tile" means the same <b>body</b> tile (<see cref="Catalog.BodyBox"/>), not the same socket
+    /// grid corner: swapping a 3×3 tank for a canister whose 3×3 body sits at (2, 2) inside a 7×7 grid shifts the
+    /// placement two tiles up and left, so the machine lands where the old one stood instead of jumping. The
+    /// wider apron may then want floor the ship doesn't have, which the problem scan flags rather than blocks,
+    /// exactly as it does for a move or a rotation into a spot that no longer fits.</para>
     /// </summary>
     public static (CompositeCommand Cmd, List<Placement> New)? BuildSwap(ShipDocument doc, IReadOnlyList<Placement> parts, string newDef)
     {
-        var sheet = doc.Catalog.Lookup(newDef)?.Item.HasSpriteSheet == true;
+        var target = doc.Catalog.Lookup(newDef);
+        var sheet = target?.Item.HasSpriteSheet == true;
         var cmds = new List<IDocCommand>();
         var created = new List<Placement>();
         foreach (var p in parts)
         {
             if (doc.IsLocked(p) || p.DefName == newDef) continue;
+            var rot = sheet ? 0 : p.Rot;
+            var from = doc.Catalog.BodyBox(doc.Part(p), p.Rot);
+            var to = doc.Catalog.BodyBox(target, rot);
             // Carry any cargo onto the replacement — a defensive safety net. The UI won't re-skin a container
             // (CommonClass/CompatibleTargets exclude them), so p.Cargo is empty here for walls/floors/fixtures and
             // this is a no-op; but should a def-change ever carry cargo, the inject re-parents it instead of
             // silently dropping it.
-            var repl = new Placement { DefName = newDef, X = p.X, Y = p.Y, Rot = sheet ? 0 : p.Rot, IsGiven = p.IsGiven, Cargo = p.Cargo };
+            var repl = new Placement
+            {
+                DefName = newDef, X = p.X + from.X - to.X, Y = p.Y + from.Y - to.Y,
+                Rot = rot, IsGiven = p.IsGiven, Cargo = p.Cargo,
+            };
             cmds.Add(new RemoveCommand([p]));
             cmds.Add(new PlaceCommand(repl));
             created.Add(repl);
@@ -71,7 +85,7 @@ public static class ReplaceOps
     }
 
     /// <summary>The single def shared by every part in the set (a literal "same block" check, stricter than
-    /// <see cref="CommonClass"/>'s same-layer-and-footprint), or null if the set is empty or the parts differ.
+    /// <see cref="CommonClass"/>'s same-layer-and-body), or null if the set is empty or the parts differ.
     /// This is the "select a block" side of Find and Replace: it identifies exactly which part to search the
     /// ship for.</summary>
     public static string? SoleDef(IReadOnlyList<Placement> parts) =>

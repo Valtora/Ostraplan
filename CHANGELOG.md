@@ -12,6 +12,17 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Fixed
+- **"Replace with…" and "Find and Replace All…" no longer hide the parts a big canister obviously matches.** A swap
+  is offered between parts of the same size, and size was being read off the item's raw socket grid rather than the
+  machine you can see. The three large cryogenic canisters (Cryo Reservoir, D2O Canister, Liq. He Canister) are a
+  3x3 machine sitting inside a 7x7 grid, because they reserve two rings of sub-floor around themselves that nothing
+  stands on, so they were classed 7x7 and could only ever be swapped for each other. Ostraplan already knew the
+  difference — you select, outline and click them as the 3x3 they are — and the swap now uses that same body. So a
+  canister offers the twelve 3x3 fixtures it shares the deck with (the water tanks, the MHD generator, the radar,
+  the stabilizer and the rest) instead of two, and those parts offer the canisters back. The swap also lands the new
+  part where the old one stood rather than at the corner of its socket grid, so a tank becoming a canister does not
+  jump two tiles. If the wider sub-floor apron then wants deck the ship has not got, the problem scan flags it, the
+  same as a move into a spot that no longer fits.
 - **An imported ship's nav console no longer exports with no screens at all.** A console is only a frame: every
   screen on it is a separate module held inside, and Ostraplan fits a set to a console that has none. It decided
   "has none" by asking whether the console was empty, and a console is never empty — it carries a data chip in

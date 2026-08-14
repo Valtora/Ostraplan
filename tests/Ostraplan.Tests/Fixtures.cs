@@ -80,6 +80,10 @@ public sealed class Fixtures
     /// <paramref name="reqs"/>/<paramref name="forbids"/> are the socket ring the placement law tests
     /// (3×3 flattened for a 1×1). CO-level metadata (container grid, stack limit, base price, map points) via
     /// the optional args.
+    /// <para><paramref name="apron"/> wraps the <c>w×h</c> body in that many rings of under-floor-only
+    /// reservation (IsSubTile, no solid body), exactly as the big cryogenic canisters do: the item's socket grid
+    /// grows to <c>(w+2a)×(h+2a)</c> while the body it draws and can be swapped for stays <c>w×h</c>. See
+    /// <see cref="Catalog.BodyBox"/>.</para>
     /// </summary>
     public Fixtures Part(string name, int w = 1, int h = 1, string[]? tileConds = null,
         string[]? reqs = null, string[]? forbids = null, string category = "MISC",
@@ -89,18 +93,32 @@ public sealed class Fixtures
         IReadOnlyDictionary<string, double>? condValues = null,
         IReadOnlyList<(double X, double Y)>? powerInputs = null, (double X, double Y)? powerOutput = null,
         string[]? lights = null, ShadowBox[]? shadowBoxes = null, bool lightWall = false,
-        string[]? interactions = null, IReadOnlyList<(string Instance, string Template)>? gpm = null)
+        string[]? interactions = null, IReadOnlyList<(string Instance, string Template)>? gpm = null,
+        int apron = 0)
     {
-        string[] adds;
+        var body = "Blank";
         if (tileConds is { Length: > 0 })
         {
-            var lootName = name + "Adds";
-            _loots[lootName] = new LootDef(lootName, tileConds, []);
-            adds = [.. Enumerable.Repeat(lootName, w * h)];
+            body = name + "Adds";
+            _loots[body] = new LootDef(body, tileConds, []);
         }
-        else adds = [.. Enumerable.Repeat("Blank", w * h)];
 
-        var item = new ItemDef(name, name + ".png", sheet, null, 0, w, adds, reqs ?? [], forbids ?? [])
+        string[] adds;
+        var (iw, ih) = (w + 2 * apron, h + 2 * apron);
+        if (apron > 0)
+        {
+            const string underFloor = "SubfloorAdds";
+            _loots[underFloor] = new LootDef(underFloor, ["IsSubTile"], []);
+            adds = new string[iw * ih];
+            for (var r = 0; r < ih; r++)
+                for (var c = 0; c < iw; c++)
+                    adds[r * iw + c] = r >= apron && r < apron + h && c >= apron && c < apron + w
+                        ? body
+                        : underFloor;
+        }
+        else adds = [.. Enumerable.Repeat(body, w * h)];
+
+        var item = new ItemDef(name, name + ".png", sheet, null, 0, iw, adds, reqs ?? [], forbids ?? [])
         {
             Lights = lights ?? [],
             ShadowBoxes = shadowBoxes ?? [],
@@ -147,8 +165,10 @@ public sealed class Fixtures
     /// <summary>A thin power conduit (IsPowerConduit) — the top render layer.</summary>
     public Fixtures Conduit(string name = "Conduit") => Part(name, tileConds: ["IsPowerConduit"], category: "POWR");
 
-    /// <summary>A generic solid fixture (IsFixture + IsObstruction).</summary>
-    public Fixtures Fixture(string name, int w = 1, int h = 1) => Part(name, w, h, tileConds: ["IsFixture", "IsObstruction"], category: "FURN");
+    /// <summary>A generic solid fixture (IsFixture + IsObstruction), optionally ringed by <paramref name="apron"/>
+    /// tiles of under-floor-only reservation like the big canisters.</summary>
+    public Fixtures Fixture(string name, int w = 1, int h = 1, int apron = 0) =>
+        Part(name, w, h, tileConds: ["IsFixture", "IsObstruction"], category: "FURN", apron: apron);
 
     /// <summary>A container fixture with an inventory grid of the given size and an optional accept-filter trigger.</summary>
     public Fixtures Container(string name, int gridW = 4, int gridH = 4, string? filterCt = null) =>

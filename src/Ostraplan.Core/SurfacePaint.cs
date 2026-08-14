@@ -103,7 +103,7 @@ public static class SurfacePaint
 
     /// <summary>
     /// True for a part that can be used as a surface brush: a 1×1 wall or floor skin. The 1×1 bound is what
-    /// keeps a stroke honest — a swap is only legal between parts of the same (layer, footprint) class
+    /// keeps a stroke honest — a swap is only legal between parts of the same <see cref="Catalog.SwapClass"/>
     /// (<see cref="ReplaceOps"/>), and every wall/floor cooverlay the game ships comes in that one footprint.
     /// Containers are excluded here for the same reason they are in <see cref="ReplaceOps.CommonClass"/>:
     /// an inventory grid does not survive a def-change.
@@ -113,7 +113,7 @@ public static class SurfacePaint
 
     /// <summary>
     /// The placed part a surface stroke would re-skin on this tile: the one sharing <paramref name="brush"/>'s
-    /// (render layer, footprint) class. Null when the tile is bare of that class, which is the caller's cue to
+    /// <see cref="Catalog.SwapClass"/>. Null when the tile is bare of that class, which is the caller's cue to
     /// place normally instead.
     ///
     /// <para>A locked part (the primary airlock) is returned like any other. It must be: the caller has to know
@@ -122,12 +122,12 @@ public static class SurfacePaint
     /// </summary>
     public static Placement? SwapTargetAt(ShipDocument doc, PartDef brush, int x, int y)
     {
-        var cls = (doc.Catalog.RenderLayer(brush), brush.Item.Width, brush.Item.Height);
+        var cls = doc.Catalog.SwapClass(brush);
         foreach (var p in doc.PlacementsAt(x, y))
         {
             var part = doc.Part(p);
             if (part is null || part.IsContainer) continue;
-            if ((doc.Catalog.RenderLayer(part), part.Item.Width, part.Item.Height) == cls) return p;
+            if (doc.Catalog.SwapClass(part) == cls) return p;
         }
         return null;
     }

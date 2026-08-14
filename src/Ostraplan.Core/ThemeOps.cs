@@ -5,29 +5,29 @@ namespace Ostraplan.Core;
 /// undo step. A "skin" is just a buildable wall/floor variant (the game's ~25 wall and ~110 floor
 /// cooverlays each carry an install job, so they are ordinary palette parts over the same base
 /// geometry as the plain wall/floor). Re-skinning is therefore a ship-wide <see cref="ReplaceOps"/>
-/// swap: every placed part sharing a chosen skin's (render layer, footprint) class becomes that skin.
+/// swap: every placed part sharing a chosen skin's <see cref="Catalog.SwapClass"/> becomes that skin.
 /// It changes only sprites and names — a wall skin keeps IsWall, a floor skin keeps IsFloorSealed —
 /// so rooms, airtightness, certification and rating are untouched (like <see cref="ReplaceOps"/>,
 /// the swapped-in parts are re-checked by the problem scan but never blocked).
 /// </summary>
 public static class ThemeOps
 {
-    /// <summary>The (render layer, W, H) class of a placement, or null if its def can't be resolved.</summary>
+    /// <summary>The <see cref="Catalog.SwapClass"/> of a placement, or null if its def can't be resolved.</summary>
     private static (int Layer, int W, int H)? ClassOf(ShipDocument doc, Placement p)
     {
         var part = doc.Part(p);
-        return part is null ? null : (doc.Catalog.RenderLayer(part), part.Item.Width, part.Item.Height);
+        return part is null ? null : doc.Catalog.SwapClass(part);
     }
 
     /// <summary>
-    /// Every unlocked placed part sharing <paramref name="skinDef"/>'s (layer, footprint) class — the
-    /// parts a ship-wide re-skin to that def would swap. Empty if the def can't be resolved.
+    /// Every unlocked placed part sharing <paramref name="skinDef"/>'s swap class — the parts a ship-wide
+    /// re-skin to that def would swap. Empty if the def can't be resolved.
     /// </summary>
     public static IReadOnlyList<Placement> SameClassPlacements(ShipDocument doc, string skinDef)
     {
         var skin = doc.Catalog.Lookup(skinDef);
         if (skin is null) return [];
-        var cls = (doc.Catalog.RenderLayer(skin), skin.Item.Width, skin.Item.Height);
+        var cls = doc.Catalog.SwapClass(skin);
         return doc.Placements.Where(p => !doc.IsLocked(p) && ClassOf(doc, p) == cls).ToList();
     }
 

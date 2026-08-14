@@ -323,37 +323,18 @@ public sealed class ShipDocument
     /// that is what Ostraplan hit-tests, selects and outlines. Ordinary parts have no under-floor
     /// ring, so this equals the whole footprint. The placement law is unaffected — it keeps using the
     /// full socket grid (<see cref="CheckFit"/> reads the item's sockets directly).
+    /// <para>The shape itself is <see cref="Catalog.BodyBox"/>, shared with the swap classing in
+    /// <see cref="Catalog.SwapClass"/> so what a part looks like and what it can be replaced by agree.</para>
     /// </summary>
     public (int X, int Y, int W, int H) BodyBounds(Placement p)
     {
-        var (w, h) = FootprintOf(p);
-        var under = UnderFloorCells(p);
-        if (under.Count == 0) return (p.X, p.Y, w, h);
-
-        int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
-        for (var r = 0; r < h; r++)
-            for (var c = 0; c < w; c++)
-                if (!under.Contains((p.X + c, p.Y + r)))
-                {
-                    minX = Math.Min(minX, p.X + c); minY = Math.Min(minY, p.Y + r);
-                    maxX = Math.Max(maxX, p.X + c); maxY = Math.Max(maxY, p.Y + r);
-                }
-        return maxX < minX ? (p.X, p.Y, w, h) : (minX, minY, maxX - minX + 1, maxY - minY + 1);
-    }
-
-    /// <summary>World tiles a part reserves as under-floor storage (IsSubTile, no solid body) at its pose.</summary>
-    private HashSet<(int, int)> UnderFloorCells(Placement p)
-    {
-        var cells = new HashSet<(int, int)>();
-        if (Part(p) is not { } part) return cells;
-        var effRot = part.Item.HasSpriteSheet ? 0 : GridMath.Norm(p.Rot);
-        var (rw, rh, adds) = GridMath.Rotate(part.Item.SocketAdds, part.Item.Width, part.Item.Height, effRot);
-        if (adds.Length != rw * rh) return cells;
-        for (var r = 0; r < rh; r++)
-            for (var c = 0; c < rw; c++)
-                if (Catalog.IsUnderFloorLoot(adds[r * rw + c]))
-                    cells.Add((p.X + c, p.Y + r));
-        return cells;
+        if (Part(p) is not { } part)
+        {
+            var (w, h) = FootprintOf(p);
+            return (p.X, p.Y, w, h);
+        }
+        var body = Catalog.BodyBox(part, p.Rot);
+        return (p.X + body.X, p.Y + body.Y, body.W, body.H);
     }
 
     /// <summary>True if the tile falls inside the part's above-floor body (see <see cref="BodyBounds"/>).</summary>

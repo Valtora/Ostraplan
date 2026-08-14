@@ -9,7 +9,7 @@ namespace Ostraplan.App;
 
 /// <summary>
 /// Picks a compatible replacement for the current selection — the "Replace with…" action.
-/// Shows only parts of the same render layer and footprint (already filtered by the caller),
+/// Shows only parts of the same render layer and body size (already filtered by the caller),
 /// each with its palette thumbnail. Double-click or Replace applies the swap.
 /// </summary>
 public sealed class ReplacePickerDialog : Window
@@ -24,7 +24,7 @@ public sealed class ReplacePickerDialog : Window
     public PartDef? Selected { get; private set; }
 
     /// <summary><paramref name="noteText"/> overrides the default explanation — the missing-mod stand-in picker
-    /// (<see cref="MissingPartsDialog"/>) offers the whole palette rather than same-layer/footprint swaps, so the
+    /// (<see cref="MissingPartsDialog"/>) offers the whole palette rather than same-class swaps, so the
     /// default note would be wrong there.</summary>
     public ReplacePickerDialog(IReadOnlyList<PartVM> compatible, string what, string? title = null, string? noteText = null)
     {
@@ -40,7 +40,7 @@ public sealed class ReplacePickerDialog : Window
         var note = new TextBlock
         {
             Text = noteText
-                   ?? $"Swap {what} for another part of the same kind — same layer and footprint. Position and rotation are kept.",
+                   ?? $"Swap {what} for another part of the same kind — same layer, same size on the deck. Position and rotation are kept.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
         };
         DockPanel.SetDock(note, Dock.Top);

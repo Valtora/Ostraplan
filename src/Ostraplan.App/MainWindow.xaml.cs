@@ -2302,8 +2302,8 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Replace the (unlocked) selection with a compatible buildable part — same render layer and
-    /// footprint — chosen from a picker, keeping each part's tile and rotation. One undo step; the
+    /// Replace the (unlocked) selection with a compatible buildable part — same render layer and body
+    /// size — chosen from a picker, keeping each part's tile and rotation. One undo step; the
     /// swapped-in parts become the selection. Illegal results aren't blocked, just flagged by the
     /// live problem scan, consistent with moves/rotations into illegal spots.
     /// </summary>
@@ -2385,8 +2385,7 @@ public partial class MainWindow : Window
         (int Count, string? Current) State((int Layer, int W, int H) cls)
         {
             var placed = _doc.Placements
-                .Where(p => !_doc.IsLocked(p) && _doc.Part(p) is { } part
-                            && (_catalog.RenderLayer(part), part.Item.Width, part.Item.Height) == cls)
+                .Where(p => !_doc.IsLocked(p) && _doc.Part(p) is { } part && _catalog.SwapClass(part) == cls)
                 .ToList();
             var defs = placed.Select(p => p.DefName).Distinct(StringComparer.Ordinal).ToList();
             return (placed.Count, defs.Count == 1 ? defs[0] : null);
@@ -2546,8 +2545,8 @@ public partial class MainWindow : Window
         var brushDef = _allParts.Any(v => v.Part.DefName == brushPart.DefName) ? brushPart.DefName : null;
         var brushRot = brushPart.Rot;
 
-        // "Replace with…": enabled when the whole (unlocked) selection shares one render layer +
-        // footprint and at least one buildable part of that same kind exists to swap in.
+        // "Replace with…": enabled when the whole (unlocked) selection shares one swap class (render
+        // layer + body size) and at least one buildable part of that same kind exists to swap in.
         var canReplace = unlocked.Count > 0
             && ReplaceOps.CommonClass(_doc, unlocked) is { } rcls
             && ReplaceOps.CompatibleTargets(_catalog!, rcls).Count > 0;
