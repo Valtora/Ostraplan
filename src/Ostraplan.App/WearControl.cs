@@ -6,106 +6,120 @@ using Ostraplan.Core;
 namespace Ostraplan.App;
 
 /// <summary>
-/// The shared "Condition / Wear" panel used by the export and update-save dialogs. A checkbox arms wear and a
-/// slider picks the target <b>average</b> part condition (10%–100%); the readout shows the value, the vanilla
-/// marker and the expected rating grade. Exposes the chosen <see cref="WearOptions"/>. Damage is applied per part
-/// by the engine (<see cref="WearModel"/>) — the slider is the average, parts spread randomly around it, none
-/// below 10%.
+/// The shared "Condition / Wear" panel used by the export and update-save dialogs: what condition the ship should
+/// be in when it lands in the game. The three answers are mutually exclusive, so they are three radio buttons
+/// rather than a stack of checkboxes that can disagree with each other.
 ///
-/// <para>A design imported from a save can instead <see cref="KeepSourceCondition">keep the condition it really
-/// has</see>, which is what a transfer between saves wants: the ship as it is, not a re-rolled copy of it. That
-/// choice sits above the wear controls and greys them, because the two are alternatives rather than settings that
-/// combine.</para>
+/// <list type="bullet">
+/// <item><b>Keep</b> the condition it already has. Offered only where there IS one to keep — updating a ship in a
+/// save (its own parts' wear) or granting a design that was imported from one (the source ship's, matched part by
+/// part). Maps to <see cref="WearOptions.Pristine"/>, i.e. an unarmed pass, which is what leaves existing damage
+/// alone; <see cref="KeepSourceCondition"/> additionally reports it to the grant path.</item>
+/// <item><b>Full condition</b> — every installed part at 100%. On an update this is "Repair All" and actively
+/// clears each part's <c>StatDamage</c> (<see cref="WearOptions.Repaired"/>); on a ship being minted fresh it is
+/// simply a pristine build, and the same options produce it.</item>
+/// <item><b>Worn</b> at a chosen target <b>average</b> condition (10%–100%), the game's own kiosk wear generalised.
+/// Damage is applied per part by the engine (<see cref="WearModel"/>) — the slider is the average, parts spread
+/// randomly around it, none below 10%.</item>
+/// </list>
+///
+/// <para>The design half of "repair" is elsewhere and always available: a part that is broken <i>as a def</i> (a
+/// damaged wall, a wrecked alarm) is fixed in the editor by <see cref="Ostraplan.Core.Repair"/>, because that is a
+/// change to the layout rather than to a save's condition owners.</para>
 /// </summary>
 public sealed class WearControl : StackPanel
 {
     private static Brush Ink => ThemeManager.Ink;
     private static Brush Dim => ThemeManager.Dim;
 
-    private readonly CheckBox? _keepSource;
-    private readonly TextBlock? _keepSourceNote;
-    private readonly CheckBox _apply;
+    private readonly RadioButton? _keep;
+    private readonly RadioButton _full;
+    private readonly RadioButton _worn;
     private readonly Slider _condition;
     private readonly TextBlock _readout;
     private readonly TextBlock _spread;
+    private readonly bool _keepIsSourceCondition;
 
     /// <summary>The vanilla "Used" average condition as a whole-percent slider value (≈88).</summary>
     private static readonly double VanillaPercent = Math.Round(WearModel.VanillaUsedCondition * 100.0);
 
     /// <summary>True when the user asked for each part's real condition to come across from the save the design was
-    /// imported from. Always false when the host didn't offer the choice, and the wear settings then stand alone.</summary>
-    public bool KeepSourceCondition => _keepSource?.IsChecked == true;
+    /// imported from. Only ever true on the grant path, which is the only one that can honour it; an update keeps
+    /// its own ship's wear through <see cref="Wear"/> being unarmed, and needs no separate flag.</summary>
+    public bool KeepSourceCondition => _keepIsSourceCondition && _keep?.IsChecked == true;
 
-    /// <summary>The wear the user chose. <see cref="WearOptions.Enabled"/> is false when the checkbox is off
-    /// (a pristine ship) or the slider sits at 100%. Meaningless while <see cref="KeepSourceCondition"/> is set:
-    /// the engine is carrying real damage and rolls none.</summary>
-    public WearOptions Wear
-    {
-        get
-        {
-            var target = _condition.Value / 100.0;
-            var enabled = _apply.IsChecked == true && target < 0.9999;
-            return new WearOptions(enabled, target);
-        }
-    }
+    /// <summary>The condition the user chose, in the engine's terms: unarmed to keep what is there, armed at 100%
+    /// to repair everything, armed at the slider to wear it.</summary>
+    public WearOptions Wear =>
+        _worn.IsChecked == true ? new WearOptions(true, _condition.Value / 100.0)
+        : _full.IsChecked == true ? WearOptions.Repaired
+        : WearOptions.Pristine;
 
-    /// <summary>Restore a previously chosen wear (the export wizard remembers it between runs). The seed is not
-    /// restored: it is pinned per build, not per setting.</summary>
+    /// <summary>Restore a previously chosen condition (the export wizard remembers it between runs). The seed is
+    /// not restored: it is pinned per build, not per setting. An unarmed pass selects "keep" where that is offered
+    /// and full condition where it is not, since a ship with no existing condition to keep is minted undamaged
+    /// either way.</summary>
     public void SetWear(WearOptions wear)
     {
-        _apply.IsChecked = wear.Enabled;
-        _condition.Value = Math.Clamp(Math.Round(wear.TargetCondition * 100.0), _condition.Minimum, _condition.Maximum);
+        if (wear.Enabled && !wear.IsRepair)
+        {
+            _condition.Value = Math.Clamp(Math.Round(wear.TargetCondition * 100.0), _condition.Minimum, _condition.Maximum);
+            _worn.IsChecked = true;
+        }
+        else if (wear.IsRepair || _keep is null) _full.IsChecked = true;
+        else _keep.IsChecked = true;
         Sync();
     }
 
-    /// <summary>Set the carry-the-real-condition choice. No-op when the host didn't offer it.</summary>
+    /// <summary>Set the carry-the-real-condition choice. No-op unless this panel's keep option actually <i>means</i>
+    /// that — an update's keep option means "leave the ship's own wear alone" and is restored by
+    /// <see cref="SetWear"/> along with everything else, so clearing it from here would silently move the user's
+    /// answer off it.</summary>
     public void SetKeepSourceCondition(bool keep)
     {
-        if (_keepSource is null) return;
-        _keepSource.IsChecked = keep;
+        if (!_keepIsSourceCondition || _keep is null) return;
+        if (keep) _keep.IsChecked = true;
+        else if (_keep.IsChecked == true) _full.IsChecked = true;
         Sync();
     }
 
-    /// <summary>Raised whenever the chosen wear changed, so a host can invalidate anything derived from it.</summary>
+    /// <summary>Raised whenever the chosen condition changed, so a host can invalidate anything derived from it.</summary>
     public event Action? Changed;
 
-    /// <param name="defaultOn">Whether wear starts armed (export: true; save-edit: caller's choice).</param>
-    /// <param name="overrideNote">When set, an extra warning line — used by save-edit to flag that wear replaces
-    /// each part's existing damage across the whole ship.</param>
-    /// <param name="sourceConditionNote">When set, the panel offers "keep each part's condition from the source
-    /// save" above the wear controls, with this as its explanation. Only a destination that can actually honour it
-    /// (a grant of a design imported from a save) passes one.</param>
-    public WearControl(bool defaultOn, string? overrideNote = null, string? sourceConditionNote = null)
+    /// <param name="keepLabel">The "keep the condition it already has" option's label, or null to leave it out —
+    /// which is right wherever there is no existing condition to keep (a mod export, a grant of a design that came
+    /// from nowhere).</param>
+    /// <param name="keepNote">The explanation under <paramref name="keepLabel"/>.</param>
+    /// <param name="keepIsSourceCondition">True when "keep" means the SOURCE save's per-part condition (the grant
+    /// path), which the host has to be told about separately; false when it means "leave the ship's own wear alone",
+    /// which the engine reads straight off <see cref="Wear"/>.</param>
+    /// <param name="fullLabel">The full-condition option's label. An update repairs an existing ship, so it says so;
+    /// everywhere else the ship is simply built undamaged.</param>
+    /// <param name="fullNote">The explanation under <paramref name="fullLabel"/>.</param>
+    public WearControl(
+        string? keepLabel = null, string? keepNote = null, bool keepIsSourceCondition = false,
+        string fullLabel = "Pristine — every installed part at 100% condition", string? fullNote = null)
     {
+        _keepIsSourceCondition = keepIsSourceCondition;
+        // Radio groups are matched by name across the whole visual tree, so a per-instance name is what stops two
+        // panels (the wizard rebuilds this control when the destination changes) sharing one selection.
+        var group = "wear" + Guid.NewGuid().ToString("N");
+
         Header(this, "CONDITION / WEAR");
 
-        if (sourceConditionNote is { Length: > 0 })
+        if (keepLabel is { Length: > 0 })
         {
-            _keepSource = new CheckBox
-            {
-                Content = "Keep each part's condition from the source save",
-                Foreground = Ink, Margin = new Thickness(0, 2, 0, 2),
-            };
-            _keepSource.Checked += (_, _) => Sync();
-            _keepSource.Unchecked += (_, _) => Sync();
-            Children.Add(_keepSource);
-
-            _keepSourceNote = new TextBlock
-            {
-                Text = sourceConditionNote,
-                Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(24, 2, 0, 6),
-            };
-            Children.Add(_keepSourceNote);
+            _keep = Choice(group, keepLabel);
+            Children.Add(_keep);
+            if (keepNote is { Length: > 0 }) Children.Add(Note(keepNote));
         }
 
-        _apply = new CheckBox
-        {
-            Content = "Apply wear (spawn the ship worn, like a used kiosk ship)",
-            Foreground = Ink, IsChecked = defaultOn, Margin = new Thickness(0, 2, 0, 2),
-        };
-        _apply.Checked += (_, _) => Sync();
-        _apply.Unchecked += (_, _) => Sync();
-        Children.Add(_apply);
+        _full = Choice(group, fullLabel);
+        Children.Add(_full);
+        if (fullNote is { Length: > 0 }) Children.Add(Note(fullNote));
+
+        _worn = Choice(group, "Worn (spawn the ship used, like a broker kiosk ship)");
+        Children.Add(_worn);
 
         _condition = new Slider
         {
@@ -126,27 +140,35 @@ public sealed class WearControl : StackPanel
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(24, 4, 0, 0),
         };
         Children.Add(_spread);
-        if (overrideNote is { Length: > 0 })
-            Children.Add(new TextBlock
-            {
-                Text = overrideNote,
-                Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(24, 4, 0, 0),
-            });
 
+        _worn.IsChecked = true;
         Sync();
     }
 
+    private RadioButton Choice(string group, string label)
+    {
+        var radio = new RadioButton
+        {
+            Content = label, GroupName = group, Foreground = Ink,
+            Margin = new Thickness(0, 4, 0, 2),
+        };
+        radio.Checked += (_, _) => Sync();
+        return radio;
+    }
+
+    private static TextBlock Note(string text) => new()
+    {
+        Text = text,
+        Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(24, 2, 0, 4),
+    };
+
     private void Sync()
     {
-        // Carrying the real condition and rolling a new one are alternatives, so arming the first stands the whole
-        // wear block down rather than leaving two live controls that disagree about what the ship's condition is.
-        var carrying = KeepSourceCondition;
-        _apply.IsEnabled = _condition.IsEnabled = !carrying;
-        if (_keepSourceNote is not null) _keepSourceNote.Opacity = carrying ? 1.0 : 0.7;
-
-        var on = _apply.IsChecked == true && !carrying;
-        _apply.Opacity = _spread.Opacity = carrying ? 0.4 : 1.0;
-        _condition.Opacity = _readout.Opacity = on ? 1.0 : 0.4;
+        // The slider belongs to the "worn" answer alone, so it greys with it rather than sitting live under a
+        // choice that ignores it.
+        var worn = _worn.IsChecked == true;
+        _condition.IsEnabled = worn;
+        _condition.Opacity = _readout.Opacity = _spread.Opacity = worn ? 1.0 : 0.4;
 
         var pct = (int)Math.Round(_condition.Value);
         var grade = Rating.ConditionGrade(_condition.Value / 100.0);

@@ -7,11 +7,28 @@ namespace Ostraplan.Core;
 /// (the pre-0.31 behaviour).</summary>
 public sealed record WearOptions(bool Enabled, double TargetCondition, int? Seed = null)
 {
-    /// <summary>Wear disabled — a pristine ship (grade A), the pre-0.31 export/inject default.</summary>
+    /// <summary>Wear disabled — a pristine ship (grade A), the pre-0.31 export/inject default.
+    /// <para>On an <b>update</b> of a ship that already exists this means "leave every part's existing damage
+    /// alone", which is not the same as a full-condition ship: see <see cref="Repaired"/>.</para></summary>
     public static WearOptions Pristine { get; } = new(false, 1.0);
 
     /// <summary>The game's own kiosk ("Used") wear: average part condition ≈ 87.6%.</summary>
     public static WearOptions Vanilla { get; } = new(true, WearModel.VanillaUsedCondition);
+
+    /// <summary>"Repair All": an <b>armed</b> pass at a full-condition target, which clears every installed part's
+    /// accumulated <c>StatDamage</c> rather than rolling a new one. Distinct from <see cref="Pristine"/> — arming
+    /// the pass is what makes the difference on an update, where an unarmed pass leaves the ship's existing damage
+    /// exactly as it found it. On a ship being minted fresh (a mod export, a grant) the two produce the same
+    /// undamaged ship, so callers need not pick between them by destination.</summary>
+    public static WearOptions Repaired { get; } = new(true, 1.0);
+
+    /// <summary>True when this pass repairs instead of wearing: armed, at a target no roll could damage.
+    /// <para>Falls out of the arithmetic rather than being a fourth field, and deliberately so — the whole model is
+    /// carried by two values that already round-trip through settings and the wizard, and a target of 1.0 gives
+    /// <see cref="WearModel.CeilingFor"/> of 0, i.e. every part at full condition. Naming it is what lets the wear
+    /// passes clear damage <i>unconditionally</i> instead of relying on a zero roll, which would leave a system or
+    /// undamageable part's existing damage behind (those branches skip the write).</para></summary>
+    public bool IsRepair => Enabled && TargetCondition >= 1.0 - WearModel.RepairEpsilon;
 }
 
 /// <summary>
@@ -55,6 +72,11 @@ public static class WearModel
 
     /// <summary>The largest damage rate a part may take (so condition stays ≥ <see cref="MinCondition"/>).</summary>
     public const double MaxDamageRate = 1.0 - MinCondition;
+
+    /// <summary>How close to 1.0 a target has to be to count as a repair rather than a wear pass (see
+    /// <see cref="WearOptions.IsRepair"/>). The UI works in whole percent, so this only has to absorb the
+    /// round-trip through a double.</summary>
+    public const double RepairEpsilon = 1e-6;
 
     /// <summary>The average part condition the game's own kiosk ("Used") wear produces: <c>1 − 0.2475/2 ≈
     /// 0.876</c>. The Vanilla preset targets this.</summary>

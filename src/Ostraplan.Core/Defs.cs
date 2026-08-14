@@ -426,6 +426,13 @@ public sealed record InstallableDef(
     /// fallback (see <see cref="Catalog"/>). Empty when the job names none.</summary>
     public string LootOut { get; init; } = "";
 
+    /// <summary>The stat this job fills as work goes in (<c>strProgressStat</c>). This is what tells the game's two
+    /// kinds of <c>repair</c> job apart, since <see cref="JobType"/> is <c>"repair"</c> for both:
+    /// <c>StatRepairProgress</c> rebuilds a broken part into a working one (a def swap — see
+    /// <see cref="Catalog.RepairForms"/>), while <c>StatDamage</c> merely grinds off accumulated wear and yields the
+    /// same def back. Empty when the job names none.</summary>
+    public string ProgressStat { get; init; } = "";
+
     public static InstallableDef Parse(JsonElement e) => new(
         Json.Str(e, "strName") ?? "",
         Json.Str(e, "strBuildType") ?? "",
@@ -438,6 +445,7 @@ public sealed record InstallableDef(
         ActionCO = Json.Str(e, "strActionCO") ?? "",
         LootCOs = Json.StrArray(e, "aLootCOs"),
         LootOut = Json.Str(e, "strLootOut") ?? "",
+        ProgressStat = Json.Str(e, "strProgressStat") ?? "",
     };
 }
 

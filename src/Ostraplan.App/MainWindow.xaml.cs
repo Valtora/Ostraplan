@@ -2286,10 +2286,11 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Swap each part between its installed and loose form — "Make Loose Item" (uninstall a fixture to its packaged
-    /// form on the tile) or "Install item" (the reverse) — as one undo step, keeping tile/rotation and carrying any
-    /// cargo; the swapped-in parts become the selection. An installed form that no longer fits isn't blocked, just
-    /// flagged by the live problem scan, consistent with moves and replaces landing in an illegal spot.
+    /// Swap each part for the def it maps to, as one undo step, keeping tile/rotation and carrying any cargo; the
+    /// swapped-in parts become the selection. Shared by every mapping that changes a part's <b>state</b> rather than
+    /// its identity: "Make Loose Item" / "Install item" (<see cref="FormSwap"/>) and "Repair" /
+    /// "Repair All" (<see cref="Repair"/>). A result that no longer fits isn't blocked, just flagged by the live
+    /// problem scan, consistent with moves and replaces landing in an illegal spot.
     /// </summary>
     private void SwapForms(IReadOnlyList<(Placement Part, string Target)> swaps)
     {
@@ -2299,6 +2300,39 @@ public partial class MainWindow : Window
         foreach (var p in swap.New) Board.SelectedIds.Add(p.Id);
         Board.InvalidateVisual();
         UpdateInspector();
+    }
+
+    /// <summary>
+    /// "Repair All": swap every broken part on the ship for the working part the game's own repair job yields
+    /// (see <see cref="Repair"/>), as one undo step. It rewrites the whole design rather than a selection, so it
+    /// says what it is about to do and how much of it first — and, when nothing is broken, explains where the
+    /// <i>other</i> kind of damage lives, since "everything is at 100%" is exactly what someone reaching for this
+    /// is after.
+    /// </summary>
+    private void RepairAll()
+    {
+        if (_doc is null) return;
+        var broken = Repair.RepairableAll(_doc);
+        if (broken.Count == 0)
+        {
+            Dlg.Info(this, "Repair All",
+                "Nothing on this ship is broken — every part is already its working form.\n\n" +
+                "Wear that a part has accumulated is not part of the design. It lives in the save, and is cleared " +
+                "by choosing \"Repair everything\" when you write the design back with File ▸ Update Ship in Save.");
+            return;
+        }
+
+        var n = broken.Count;
+        var distinct = broken.Select(b => b.Part.DefName).Distinct(StringComparer.Ordinal).Count();
+        if (!Dlg.Confirm(this, DlgKind.Info, "Repair All",
+                $"Repair {n} broken part{(n == 1 ? "" : "s")} ({distinct} kind{(distinct == 1 ? "" : "s")}) into " +
+                "their working forms, the way the game's own repair jobs do.\n\n" +
+                "Repaired devices come back switched on. This is one undo step, and it does not touch wear a part " +
+                "has accumulated — that is the condition choice on the way into a save.",
+                $"Repair {n}"))
+            return;
+
+        SwapForms(broken);
     }
 
     /// <summary>
@@ -2609,6 +2643,16 @@ public partial class MainWindow : Window
                 menu.Items.Add(Item("Make Loose Item" + (toLoosen.Count > 1 ? $" ({toLoosen.Count})" : ""), "", (_, _) => SwapForms(toLoosen)));
             if (toInstall.Count > 0)
                 menu.Items.Add(Item("Install item" + (toInstall.Count > 1 ? $" ({toInstall.Count})" : ""), "", (_, _) => SwapForms(toInstall)));
+        }
+
+        // repair — a part that is broken as a def (a damaged wall, a wrecked alarm) swapped for its working form.
+        // Only ever offered when the selection actually contains one, so an intact ship never shows it; the
+        // whole-ship version is Design ▸ Repair All.
+        var toRepair = Repair.Repairable(_doc, unlocked);
+        if (toRepair.Count > 0)
+        {
+            menu.Items.Add(new Separator());
+            menu.Items.Add(Item("Repair" + (toRepair.Count > 1 ? $" ({toRepair.Count})" : ""), "", (_, _) => SwapForms(toRepair)));
         }
 
         // "View contents…": a single container/console/crate — shown even when empty (so an imported empty
@@ -3522,6 +3566,10 @@ public partial class MainWindow : Window
         var m = new ContextMenu();
         m.Items.Add(MenuAction("Ship Info…", () => OnShipInfoClick(this, e), gesture: "Ctrl+I"));
         m.Items.Add(MenuAction("Ship Re-skin…", () => OnThemeClick(this, e)));
+        // Whole-ship like the re-skin above it, and reached the same way. The count can't be shown in the header:
+        // the menu is built before the document is walked, and walking every part to label a menu item would run on
+        // every menu open. RepairAll reports it in the confirmation instead.
+        m.Items.Add(MenuAction("Repair All…", RepairAll, enabled: _doc is not null));
         m.Items.Add(new Separator());
         m.Items.Add(MenuAction("Snapshot…", () => OnSnapshotClick(this, e)));
         m.Items.Add(MenuAction("Bill of Materials…", () => OnMaterialsClick(this, e), gesture: "Ctrl+B"));
@@ -4441,7 +4489,7 @@ public partial class MainWindow : Window
             ("Move", "Drag selection", "Move the selected parts."),
             ("Step down a stack", "`", "Select the next thing down the pile under the cursor, wrapping at the bottom — the quick way to reach a part drawn underneath another without going through the right-click list. Loose items are in the pile too."),
             ("Re-stack", "Ctrl+[ / Ctrl+]", "Move the selected part or loose item one step back / forward through the pile sharing its tile, when the automatic draw order isn't what you want. Reset order (right-click) hands that pile back to it. Both stay inside the render layer, so nothing lands under a deck plate or over a conduit run, and the choice is saved with the design."),
-            ("Context menu", "RMB", "Use as brush · Replace with… · Find and Replace All… · Make Loose Item / Install item · Move Back / Move Forward / Reset order · pick a buried layer on stacked tiles · Select only (after a box-select) · Close/Open door. Also cancels placement while armed."),
+            ("Context menu", "RMB", "Use as brush · Replace with… · Find and Replace All… · Make Loose Item / Install item · Repair · Move Back / Move Forward / Reset order · pick a buried layer on stacked tiles · Select only (after a box-select) · Close/Open door. Also cancels placement while armed."),
             ("Rotate part", "R / Shift+R", "CW / CCW — the armed part, a selected part in place, or a whole selection about its centre (walls & floors auto-tile rather than turn). The brush keeps its angle when you arm another part; the ghost draws a needle towards its leading edge and the status bar reads out the angle."),
             ("Flip selection", "H / Shift+H", "Mirror the selection about its centre — H horizontal (left↔right), Shift+H vertical (up↔down); each part reflects and snaps to a real rotation."),
             ("Symmetry", "M", "Cycle Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on. While on, it also drives editing: selecting a part grabs its mirror partner(s), and moving, rotating, or deleting the group keeps it symmetric (the far side tracks in the mirrored direction)."),

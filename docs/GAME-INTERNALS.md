@@ -764,6 +764,55 @@ self-corrects, which is correct — it is off.
 > a second unqualified on-state (which would make it ambiguous and silently drop out of the
 > menu). `PowerStateTests` sweeps every condowner and pins the transponder and the alarms.
 
+### Damage is two different things, and so is "repair"
+
+A part is damaged in Ostranauts in one of two entirely separate ways, stored in different
+places, fixed by different jobs.
+
+1. **Accumulated wear.** A condowner carries `StatDamage ∈ [0, StatDamageMax]` in its
+   `aConds`. This is per-instance save state; the Ship Rating's Condition slot is the mean
+   of `clamp01(1 − StatDamage/StatDamageMax)` over installed parts (§10). No def declares
+   `StatDamage`, so it exists only on a save's COs and has no representation in a design.
+2. **A broken def.** `ItmWall1x1Dmg`, `ItmWall1x1Patch`, `ItmAlarmSmokeDmg` are separate
+   condowners carrying `IsDamaged` / `IsPatched`. This is a fact about *what is on the
+   tile* — different sprite, different conditions, different value — and it therefore
+   belongs to the layout, not to an instance.
+
+`data/installables` files a job for each, and **both declare `strJobType: "repair"`**:
+
+| File | Entries (1.0.0.9) | `strProgressStat` | `strInteractionTemplate` | Loot |
+|---|---|---|---|---|
+| `installables_undamage.json` | 505 | `StatDamage` | `ACTUndamage*` | the **same** def back |
+| `installables_repair.json` | 267 | `StatRepairProgress` (252) | `ACTRepair*` | the **working** def |
+
+> **The job type cannot be the discriminator.** 12 of the undamage jobs have a loot that
+> *does* differ from their action CO — `ItmDoor01ClosedOnLocked → ItmDoor01Closed`,
+> `ItmDockSys02Open → ItmDockSys02Closed` — because grinding the wear off a door also
+> normalises its lock and power state. Reading those as broken→working mappings would make
+> a bulk repair silently unlock every locked door and shut every powered one. Keying on
+> `strProgressStat` separates them exactly, and drops the 15 dev-only
+> `reset`/`StatDebugProgress` entries (`Crate01Reset`, `StationNavDebug`) with them.
+
+Two further properties of the repair map, both verified on stock 1.0.0.9:
+
+- **A themed part's damaged state is not a cooverlay of its own.** `ItmWallAERO01`'s
+  `mapModeSwitches` carries all four base states at once — `[ItmWall1x1, ItmWallAERO01,
+  ItmWall1x1Patch, ItmWallAERO01Patch, ItmWall1x1Dmg, ItmWallAERO01Dmg, ItmWall1x1Loose,
+  ItmWallAERO01Loose]` — so a damaged skin only ever appears as the *right-hand* side of a
+  pair. The mapping is recovered by repairing the left side through the base map and
+  re-skinning the result forward through the same overlay. All **1,794** cooverlay damaged
+  states resolve this way; none needs a cross-overlay hop.
+- **A repair job returns the Off state** (`ItmAlarmSmokeDmg → ItmAlarmSmokeOff`), which the
+  rating never counts — the same trap `PreferPoweredState` exists for above.
+
+> **Ported in Ostraplan:** `Catalog.RepairForms` (broken → working, `PreferPoweredState`
+> applied) behind **Design ▸ Repair All…** and the right-click **Repair**, and
+> `WearOptions.Repaired` for the wear half, which clears `StatDamage` on every structural CO
+> of a save write-back. The two are deliberately separate features because they are
+> separate data. **Re-verify on a major game version:** the `strProgressStat` values, and
+> whether any new cooverlay needs the cross-overlay hop. `RepairTests` pins the door/dock
+> trap and the themed-wall mapping.
+
 ---
 
 ## 13. The power network
@@ -2117,6 +2166,7 @@ sets), giving a 220-ship rooms **and** certification gate. Only **Babak / Babak 
 | Save write-back (frame rebuild, room-CO drop, dimensions) | ported | `SaveEdit`, `SaveEditImport` |
 | Ship zones (`aZones`) as authored data | modelled (preserve/draw/edit, not validated) | `ShipZone` / `ZoneGeometry` |
 | Wear/damage (`BreakIn` / `DamageAllCOs`) | ported (optional) | `WearModel` |
+| Repair (`installables` repair jobs, §12) | ported (broken def → working def; the undamage jobs are the `WearOptions.Repaired` half) | `Catalog.RepairForms`, `Repair` |
 | Container contents (`GasContainer` capacity, pressure, mass and value; `aCondOverrides`) | ported (the static model; no gas *flow* between containers, §24) | `ContainerFill`, `Placement.Fill` |
 | Nav console loadout (`SysLootSpawner` + `ItmNavStationMods*`, §17) | modelled (the stock `Pod` set + course plot + flight dynamics, baked as literal items; the spawner is not reproduced) | `NavConsole` |
 | Nav console screen layout (`GUIOrbitDraw.LoadModules`, `EditMenu.DoesModFit`, `SaveModules`, §17) | ported (rects, bounds, overlap, tray; no rect is invented or resized) | `NavConsole.Arrange` / `ConfigEntries` |

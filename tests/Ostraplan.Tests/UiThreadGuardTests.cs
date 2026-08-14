@@ -27,7 +27,7 @@ public class UiThreadGuardTests
     {
         RunSta(() =>
         {
-            var wear = new WearControl(defaultOn: true);
+            var wear = new WearControl();
 
             // exactly the v0.43.1 shape: the property read happens on the pool thread
             var ex = Assert.ThrowsAsync<InvalidOperationException>(() => Task.Run(() => wear.Wear)).Result;
@@ -41,7 +41,7 @@ public class UiThreadGuardTests
     {
         RunSta(() =>
         {
-            var wear = new WearControl(defaultOn: true);
+            var wear = new WearControl();
             var hoisted = wear.Wear;   // read on the UI thread, as the fix does
 
             var echoed = Task.Run(() => hoisted).Result;   // a plain struct crosses freely
@@ -58,7 +58,7 @@ public class UiThreadGuardTests
     {
         RunSta(() =>
         {
-            var opts = new WearControl(defaultOn: true);
+            var opts = new WearControl();
 
             var ex = Assert.Throws<InvalidOperationException>(() => Ui.VerifyCaptures(() => opts.Wear));
 
@@ -72,7 +72,7 @@ public class UiThreadGuardTests
     {
         RunSta(() =>
         {
-            var hoisted = new WearControl(defaultOn: true).Wear;
+            var hoisted = new WearControl().Wear;
             Ui.VerifyCaptures(() => hoisted);   // must not throw: this is the shape we want people to write
         });
     }
@@ -229,7 +229,7 @@ public class UiThreadGuardTests
     {
         RunSta(() =>
         {
-            var opts = new WearControl(defaultOn: true);
+            var opts = new WearControl();
             // the guard runs before Task.Run, so this throws synchronously — never returns a faulted task
             Assert.Throws<InvalidOperationException>(() => { _ = Ui.OffThread(() => opts.Wear); });
         });

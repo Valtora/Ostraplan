@@ -51,24 +51,36 @@ public sealed class ShipStep : WizardStep
         Content = body;
     }
 
-    /// <summary>The wear panel's copy depends on the destination: an update re-rolls the condition of every
-    /// installed part on the ship, replacing whatever damage it already had, which the other two cannot do because
-    /// they are writing a ship that does not exist yet.
+    /// <summary>The condition panel's copy depends on the destination, because only an update is writing onto a ship
+    /// that already has a condition. There, keeping it and repairing it are both real answers, and both act on every
+    /// installed part rather than only the ones that were edited. The other two destinations are minting a ship, so
+    /// full condition is simply a pristine build and there is nothing to keep.
     ///
-    /// <para><paramref name="offerSourceCondition"/> adds the carry-the-real-condition choice. Only the grant
-    /// destination offers it, and only for a design that came from a save: an update keeps existing wear by
-    /// unticking, and a mod export has no save to read a condition out of.</para></summary>
+    /// <para><paramref name="offerSourceCondition"/> turns the keep option into the carry-the-real-condition choice.
+    /// Only the grant destination offers that, and only for a design that came from a save: a mod export has no save
+    /// to read a condition out of.</para></summary>
     private WearControl NewWearControl(ExportDestination destination, bool offerSourceCondition)
     {
-        var control = new WearControl(defaultOn: true,
-            overrideNote: destination == ExportDestination.UpdateShipInSave
-                ? "When armed, this replaces the current condition of every installed part on the ship, not just " +
-                  "the ones you edited. Untick to keep each part's existing wear."
+        var update = destination == ExportDestination.UpdateShipInSave;
+        var control = new WearControl(
+            keepLabel: offerSourceCondition ? "Keep each part's condition from the source save"
+                : update ? "Keep each part's existing condition"
                 : null,
-            sourceConditionNote: offerSourceCondition
+            keepNote: offerSourceCondition
                 ? "The ship arrives in the state it is really in, part by part, rather than at a fresh average. " +
                   "This is what you want when you are moving a ship between saves. Parts you added since importing " +
                   "it were never on the original, so they arrive undamaged."
+                : update
+                    ? "The ship keeps the wear it has now. Parts you added arrive undamaged, as newly built parts do."
+                    : null,
+            keepIsSourceCondition: offerSourceCondition,
+            fullLabel: update
+                ? "Repair everything — every installed part back to 100% condition"
+                : "Pristine — every installed part at 100% condition",
+            fullNote: update
+                ? "Clears the damage every installed part on the ship has accumulated, not just the parts you " +
+                  "edited. Parts that are broken as a part in their own right (a damaged wall, a wrecked alarm) are " +
+                  "repaired in the editor instead, with Design ▸ Repair All."
                 : null);
         control.Changed += () =>
         {

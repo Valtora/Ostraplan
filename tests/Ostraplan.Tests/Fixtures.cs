@@ -19,6 +19,7 @@ public sealed class Fixtures
     private readonly Dictionary<string, CondTriggerDef> _trigs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _looseForms = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _installedForms = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _repairForms = new(StringComparer.Ordinal);
     private readonly Dictionary<string, LightDef> _lightDefs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ColorDef> _colorTable = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ParallaxDef> _parallaxDefs = new(StringComparer.Ordinal);
@@ -214,6 +215,15 @@ public sealed class Fixtures
         return this;
     }
 
+    /// <summary>Record a broken → working pair (as the game's repair jobs would), so <see cref="Repair"/> can map
+    /// between them. One-way, like the game: nothing offers to break a part again. Both defs should already be
+    /// registered as parts.</summary>
+    public Fixtures RepairPair(string broken, string working)
+    {
+        _repairForms[broken] = working;
+        return this;
+    }
+
     /// <summary>The part registered under <paramref name="name"/>.</summary>
     public PartDef Get(string name) => _byName[name];
 
@@ -226,6 +236,7 @@ public sealed class Fixtures
         Triggers = _trigs,
         LooseForms = _looseForms,
         InstalledForms = _installedForms,
+        RepairForms = _repairForms,
         LightDefs = _lightDefs,
         ColorTable = _colorTable,
         ParallaxDefs = _parallaxDefs,

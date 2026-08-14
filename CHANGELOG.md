@@ -12,6 +12,21 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Repair All.** A ship you imported out of a save arrives with everything that has happened to it, and there was
+  no way to undo any of it. There are two kinds of damage in Ostranauts and Ostraplan now clears both.
+  - **Parts that are broken as parts** — a damaged wall, a patched hull plate, a wrecked alarm — are their own
+    thing in the game's data, and they travel with the design. **Design ▸ Repair All…** swaps every one of them for
+    the working part the game's own repair job yields: same tile, same rotation, same name, same contents, one
+    undo step. It says how many it found before it touches anything. To fix a section rather than the ship,
+    right-click a selection and choose **Repair**. A themed wall is repaired into the same theme rather than
+    reverting to a generic one, and repaired devices come back switched on, the way a part you build does.
+  - **Wear a part has accumulated** is not part of the design at all: it lives in the save, against each part's
+    own health pool. Writing a design back over a ship now offers **"Repair everything"** in the condition panel,
+    which clears it across the whole ship and brings the Condition rating back to A.
+  - **The condition panel is now one choice instead of two checkboxes.** Keep the condition the ship already has,
+    repair it to 100%, or wear it to a target average. Those were always mutually exclusive, and expressing them
+    as a tickbox and a slider left "unticked at 100%" meaning two different things depending on where the ship was
+    going. Nothing about the wear model changed.
 - **You can say how full a canister or tank is.** Right-click any canister, RTA or fuel tank and choose **Fill…**
   for a slider per gas, plus a section for the bulk fuels. It feeds straight into what the ship is worth, how much
   reaction mass the RCS has, and how long a torch drive can burn, so a ship that flies on paper flies on the same

@@ -293,6 +293,11 @@ public sealed class Catalog
     private static readonly HashSet<string> StateOnlyConds =
         new(StringComparer.Ordinal) { "IsDamaged", "IsPatched", "IsOff", "IsLocked" };
 
+    /// <summary><c>strProgressStat</c> of the repair jobs that rebuild a broken def into a working one, as opposed
+    /// to the undamage jobs that file under the same <c>strJobType</c> and only grind off wear. See
+    /// <see cref="RepairForms"/>.</summary>
+    private const string RepairProgressStat = "StatRepairProgress";
+
     /// <summary>Installed def → its loose/packaged form, from the game's own <c>uninstall</c> jobs (the job's
     /// <c>strActionCO</c> → <c>aLootCOs</c>, or <c>strLootOut</c>, or — when both name only a runtime marker with
     /// no condowner, as the Nav Station and Transponder families do — the inverse of the matching <c>install</c>
@@ -314,6 +319,31 @@ public sealed class Catalog
     /// <summary>The installed counterpart of a loose part's def (its install job's <c>strStartInstall</c>), or null
     /// if it has none.</summary>
     public string? InstalledForm(string defName) => InstalledForms.GetValueOrDefault(defName);
+
+    /// <summary>
+    /// Broken def → the working def repairing it yields, from the game's own <b>repair</b> jobs (the job's
+    /// <c>strActionCO</c> → <c>aLootCOs</c>, or <c>strLootOut</c>). This is what "Repair" swaps to.
+    ///
+    /// <para>The game files two different jobs under <c>strJobType: "repair"</c> and only one of them belongs here.
+    /// An <i>undamage</i> job (<c>strProgressStat: StatDamage</c>, 503 of them on stock 1.0.0.9) grinds accumulated
+    /// wear off a part and hands the <b>same def</b> back — that is <c>StatDamage</c>, which lives on a save's
+    /// condition owners and not in a design at all (see <see cref="WearOptions"/>). A <i>repair</i> job
+    /// (<c>strProgressStat: StatRepairProgress</c>, 252 of them) rebuilds a part that is broken <b>as a def</b> — a
+    /// damaged wall, a wrecked alarm — into its working counterpart, which is a real change of what is on the tile.
+    /// Keying on the progress stat rather than the job type is what keeps the twelve undamage jobs whose loot does
+    /// differ (<c>ItmDoor01ClosedOnLocked</c> → <c>ItmDoor01Closed</c>) from turning a repair into a silent unlock,
+    /// and drops the 15 dev-only <c>reset</c>/<c>StatDebugProgress</c> entries with it.</para>
+    ///
+    /// <para>Targets run through <see cref="PreferPoweredState"/> like an install's do: the game's repair jobs hand
+    /// back the <c>…Off</c> state (<c>ItmAlarmSmokeDmg</c> → <c>ItmAlarmSmokeOff</c>), which the ship rating never
+    /// counts, and a design whose repaired devices are all switched off is not what "repair" means to anyone. Only
+    /// entries whose target resolves to real geometry are kept. Empty in synthetic test catalogs.</para>
+    /// </summary>
+    public IReadOnlyDictionary<string, string> RepairForms { get; init; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>The working counterpart of a broken part's def (its repair job's loot), or null if it has none —
+    /// which is the normal answer for a part that is not broken in the first place.</summary>
+    public string? RepairForm(string defName) => RepairForms.GetValueOrDefault(defName);
 
     /// <summary>The ticker templates a freshly-installed instance of <paramref name="part"/> would carry: each of
     /// the def's declared <c>aTickers</c> names resolved to its template. Empty for a non-device part, or when a
@@ -697,6 +727,7 @@ public sealed class Catalog
         // whose target resolves to real geometry, so a swap can't land on an unrenderable def.
         var looseForms = new Dictionary<string, string>(StringComparer.Ordinal);
         var installedForms = new Dictionary<string, string>(StringComparer.Ordinal);
+        var repairForms = new Dictionary<string, string>(StringComparer.Ordinal);
         var uninstallable = new HashSet<string>(StringComparer.Ordinal);   // installed defs the game offers an uninstall job for
         bool Resolvable(string n) => ResolveDef(index, n, "—", "core", [], []) is not null;
         string? FirstResolvable(IEnumerable<string> names) => names.FirstOrDefault(s => !string.IsNullOrEmpty(s) && Resolvable(s));
@@ -713,6 +744,13 @@ public sealed class Catalog
             }
             else if (job.JobType == "install" && !string.IsNullOrEmpty(job.StartInstall) && Resolvable(job.StartInstall))
                 installedForms[job.ActionCO] = PreferPoweredState(index, job.StartInstall);   // re-install RCS ON too
+            // The broken → working swap. Same loot shapes as an uninstall (aLootCOs, or strLootOut for the Nav
+            // Station family), and gated on the progress stat rather than the job type — see RepairForms. Powered
+            // state is preferred at the END of the build, once the skins below have been mapped in base-state terms.
+            else if (job.ProgressStat == RepairProgressStat
+                     && FirstResolvable(job.LootCOs.Append(job.LootOut)) is { } repaired
+                     && repaired != job.ActionCO)
+                repairForms[job.ActionCO] = repaired;
         }
 
         // The Nav Station and Transponder families point their uninstall's strLootOut at a runtime-only
@@ -742,6 +780,33 @@ public sealed class Catalog
             var skinLoose = ReskinModeSwitch(overlay.ModeSwitches, baseLoose) ?? baseLoose;
             if (Resolvable(skinLoose)) looseForms[name] = skinLoose;
         }
+
+        // The same skin problem for repair, and the same fix — but read off the mode switches BOTH ways, because a
+        // themed damaged wall is not a cooverlay of its own: ItmWallAERO01's switches carry all four base states at
+        // once (ItmWall1x1 → ItmWallAERO01, ItmWall1x1Dmg → ItmWallAERO01Dmg, …), so the damaged skin only ever
+        // appears as the right-hand side of a pair. Walk each pair, repair the LEFT side through the base map, then
+        // re-skin the result forward through the same overlay. Every cooverlay damaged state on stock 1.0.0.9
+        // resolves this way (1,794 of them, none needing a cross-overlay hop), so no unskinned fallback is offered:
+        // repairing a Testudo wall into a generic one would be a re-skin nobody asked for.
+        foreach (var (_, (el, _)) in index.Type("cooverlays"))
+        {
+            var overlay = CoOverlayDef.Parse(el);
+            var switches = overlay.ModeSwitches;
+            for (var i = 0; i + 1 < switches.Length; i += 2)
+            {
+                var (baseState, skinState) = (switches[i], switches[i + 1]);
+                if (repairForms.ContainsKey(skinState) || !repairForms.TryGetValue(baseState, out var baseRepaired))
+                    continue;
+                if (ReskinModeSwitch(switches, baseRepaired) is { } skinRepaired && Resolvable(skinRepaired))
+                    repairForms[skinState] = skinRepaired;
+            }
+        }
+
+        // A repair job hands back the Off state (ItmAlarmSmokeDmg → ItmAlarmSmokeOff), which the ship rating never
+        // counts. Prefer the powered counterpart exactly as the install map does, applied last so a skin mapped in
+        // base-state terms above gets its own On state rather than the base's.
+        foreach (var broken in repairForms.Keys.ToList())
+            repairForms[broken] = PreferPoweredState(index, repairForms[broken]);
 
         // Resolve a buildable palette entry, warning when its sprite is missing on disk.
         PartDef? Resolve(string defName, string category, string fallbackOrigin, string[] inputs, string[] tools, bool warnMissingSprite)
@@ -824,6 +889,7 @@ public sealed class Catalog
             SpecialItems = specialItems,
             LooseForms = looseForms,
             InstalledForms = installedForms,
+            RepairForms = repairForms,
             Warnings = warnings,
             Index = index,
         };

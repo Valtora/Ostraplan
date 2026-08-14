@@ -408,10 +408,16 @@ public static class SaveGrant
     /// return the resulting Ship-Rating Condition grade. Mirrors <see cref="SaveEdit"/>'s pass: <c>IsSystem</c>
     /// and undamageable parts stay pristine but still count in the mean, so the grade matches the game's
     /// all-installed-parts denominator. Null when wear is off, leaving the ship pristine.
+    ///
+    /// <para>A repair pass (<see cref="WearOptions.IsRepair"/>) grades A without touching anything: a granted ship's
+    /// condition owners are minted fresh from their defs, and no def declares <c>StatDamage</c>, so there is nothing
+    /// here to clear. It is still worth answering rather than falling through to the roll, so the baked rating says
+    /// A for the same reason the update path's does.</para>
     /// </summary>
     private static string? ApplyWear(WearOptions? wear, IReadOnlyList<(JsonObject Co, PartDef Part)> parts)
     {
         if (wear is not { Enabled: true } w) return null;
+        if (w.IsRepair) return Rating.ConditionGrade(1.0);
         var rng = WearModel.NewRng(w);
         var ceiling = WearModel.CeilingFor(w.TargetCondition);
         var rates = new List<double>();

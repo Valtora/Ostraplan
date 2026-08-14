@@ -328,6 +328,9 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   and rating are untouched. (Named "Re-skin" so it isn't confused with the app's
   light/dark theme.) To re-skin an *area* rather than the whole ship, see
   [Surfaces mode](#surfaces-mode--painting-the-deck).
+- **Repair All…** (Design): swap every broken part on the ship — damaged walls, patched
+  hull plates, wrecked devices — for its working form, ship-wide, in one undo step. See
+  [Repairing damage](#repairing-damage).
 
 ## Saving & sharing
 
@@ -584,10 +587,10 @@ Because it's a copy, granting a ship back into the save it came from is legal, a
 how you clone a ship within one playthrough.
 
 **Re-rolling the condition instead.** The **Condition / Wear** panel on **The ship**
-step offers "Keep each part's condition from the source save", ticked by default for a
-transfer. Untick it to get the wear slider back and have the ship arrive at a chosen
-average instead. Parts you drew in after importing were never on the original, so they
-arrive undamaged either way.
+step picks "Keep each part's condition from the source save" by default for a transfer.
+The other two answers are a pristine ship or one worn to a chosen average — see
+[The condition a ship arrives in](#the-condition-a-ship-arrives-in). Parts you drew in
+after importing were never on the original, so they arrive undamaged whichever you pick.
 
 ## Editing your live in-game ship
 
@@ -634,14 +637,16 @@ identity*, so you can redesign the structure out-of-game and write it back.
   shows what the edit takes out of your credits and how much is left. Both follow the
   sliders live. The meter turns red and tells you how far short you are once the cost
   passes your balance, which is exactly when Next refuses.
-- **"Make Loose Item", "Install item" and toggling a door count as moves, not purchases.**
-  A part you already own that only changes *state* is priced on the moved multiplier, and
-  the counts line names it separately (`… · 3 un/installed · …`). Uninstalling and
-  re-installing the same part is free: it ends up exactly where it started. Replacing a
-  part with a genuinely **different** part is still new material and prices as added.
-- **Wear** is on **The ship** step, as it is for every destination (on by default at
-  ~88%). On a save edit it re-rolls the condition of **every** installed part to the
-  chosen average, replacing existing damage. Untick it to keep each part's current wear.
+- **"Make Loose Item", "Install item", toggling a door and repairing a part count as moves,
+  not purchases.** A part you already own that only changes *state* is priced on the moved
+  multiplier, and the counts line names it separately (`… · 3 un/installed · …`).
+  Uninstalling and re-installing the same part is free: it ends up exactly where it started.
+  Replacing a part with a genuinely **different** part is still new material and prices as
+  added.
+- **Condition** is on **The ship** step, as it is for every destination. On a save edit you
+  can keep the wear the ship already has, **repair everything** back to 100%, or re-roll it
+  to a chosen average — the last two both act on every installed part, not just the ones you
+  edited. See [The condition a ship arrives in](#the-condition-a-ship-arrives-in).
 - Like every destination, it reopens at the start rather than on Review. Landing one click
   from rewriting a save you already have is a footgun, and this is the path where it would
   cost the most.
@@ -833,6 +838,49 @@ certifies its room, and an item that ships full — a gas canister comes charged
 with its gas — keeps that charge across the swap. Re-installing into a spot that
 no longer fits isn't blocked, just flagged in **Problems** (like a move into an
 illegal tile).
+
+## Repairing damage
+
+A ship imported out of a save arrives with everything that has happened to it. There are
+**two** kinds of damage in Ostranauts, they are stored in completely different places, and
+each has its own fix.
+
+**Parts that are broken as parts.** A damaged wall, a patched hull plate, a wrecked alarm
+is a different *part* in the game's data, not a healthy part with a number on it — so it
+belongs to the design and travels in the `.oplan`. **Design ▸ Repair All…** swaps every one
+of them for the working part, using the game's own repair jobs, so nothing is invented.
+
+- It tells you how many it found, and of how many kinds, before it changes anything.
+- Tile, rotation, custom name and contents all ride across. One undo step for the lot.
+- To fix a section rather than the whole ship, select it, right-click and choose **Repair**.
+  The entry only appears when something in the selection is actually broken.
+- A **themed** wall or floor is repaired into the same theme (a damaged Testudo wall
+  becomes an intact Testudo wall, not a generic one).
+- **Repaired devices come back switched on**, the same as a device you build. The game's
+  repair job hands back the *off* state; Ostraplan prefers the on one wherever it can name
+  it, exactly as it does on install.
+- On a save write-back a repair counts as a **move**, not a purchase — you already own the
+  part (see [What an edit costs](#what-an-edit-costs)).
+
+**Wear a part has accumulated.** This is the other kind, and it is *not* in the design: it
+is a running total against each part's health pool, stored on the ship in your save. It is
+what the ship's **Condition** rating averages. You clear it on the way in, from the
+**Condition / Wear** panel — see below.
+
+## The condition a ship arrives in
+
+The **Condition / Wear** panel on the **The ship** step of the export wizard is one choice
+with three answers:
+
+| Choice | What it does |
+|---|---|
+| **Keep each part's condition** | The ship keeps the wear it has. Offered only where there is some to keep: updating a ship in a save (its own), or granting a design imported from one (the source ship's, matched part by part). Parts you drew in afterwards were never on the original and arrive undamaged. |
+| **Full condition** | Every installed part at 100%. On an update this is **"Repair everything"** and actively clears the accumulated wear across the whole ship, bringing Condition back to **A**. On a ship being built fresh it is simply a pristine build. |
+| **Worn** | Damaged to a target **average** condition (10%–100%). Parts spread randomly around it, none below 10%. **88%** is the game's own kiosk ("Used") wear. |
+
+Both **Full condition** and **Worn** act on **every** installed part on the ship, not only
+the parts you edited. Neither touches parts that are broken as parts — that is **Repair
+All**, above.
 
 ## Switching devices on and off
 

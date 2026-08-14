@@ -843,10 +843,24 @@ public static class SaveEdit
     /// <c>IsSystem</c> and undamageable (no <c>StatDamageMax</c>) parts, which stay pristine but still count in the
     /// mean. Returns the resulting Ship-Rating Condition grade, or null when wear is off (leaving each part's
     /// existing damage untouched). Mutates <paramref name="outCOs"/> in place.
+    ///
+    /// <para>"Repair All" (<see cref="WearOptions.IsRepair"/>) is the same pass run the other way: every structural
+    /// CO has its <c>StatDamage</c> cleared outright, including the system and undamageable parts the roll skips.
+    /// Skipping those would be right for a roll — the game never damages them either — but wrong for a repair,
+    /// where the point is that nothing is left carrying damage whatever put it there. This is the only path that
+    /// removes damage at all: on an update the kept COs arrive with the ship's real wear on them, and an unarmed
+    /// pass deliberately leaves it.</para>
     /// </summary>
     private static string? ApplyWear(WearOptions? wear, JsonArray outCOs, HashSet<string> structuralIds, Catalog catalog)
     {
         if (wear is not { Enabled: true } w) return null;
+        if (w.IsRepair)
+        {
+            foreach (var node in outCOs)
+                if (node is JsonObject repaired && Str(repaired, "strID") is { } rid && structuralIds.Contains(rid))
+                    SetStatDamage(repaired, 0);
+            return Rating.ConditionGrade(1.0);
+        }
         var rng = WearModel.NewRng(w);
         var ceiling = WearModel.CeilingFor(w.TargetCondition);
         var rates = new List<double>();
