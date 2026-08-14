@@ -176,8 +176,16 @@ public sealed class RemoveCommand(IReadOnlyList<Placement> placements) : IDocCom
             : $"Remove {AuditFmt.Batch(placements.Select(p => p.DefName), f)}";
 }
 
+/// <summary>
+/// Shift a batch of parts by a fixed offset. Undo restores the poses <b>and</b> the given-ness the parts
+/// held beforehand: moving an imported part re-authors it (the placement law then judges it, and the bill
+/// counts it as new construction), so an undo that only put the tiles back would leave the design
+/// permanently changed by a nudge nobody kept.
+/// </summary>
 public sealed class MoveCommand(IReadOnlyList<Placement> placements, int dx, int dy) : IDocCommand, IAuditDescribable
 {
+    private readonly bool[] _given = [.. placements.Select(p => p.IsGiven)];
+
     public void Do(ShipDocument doc)
     {
         using var _ = doc.SuspendChanged();
@@ -187,7 +195,8 @@ public sealed class MoveCommand(IReadOnlyList<Placement> placements, int dx, int
     public void Undo(ShipDocument doc)
     {
         using var _ = doc.SuspendChanged();
-        foreach (var p in placements) doc.MoveTo(p, p.X - dx, p.Y - dy);
+        for (var i = 0; i < placements.Count; i++)
+            doc.MoveTo(placements[i], placements[i].X - dx, placements[i].Y - dy, _given[i]);
     }
 
     public string Describe(Func<string, string?> f) =>
@@ -199,13 +208,14 @@ public sealed class MoveCommand(IReadOnlyList<Placement> placements, int dx, int
 /// <summary>
 /// Apply explicit (x,y,rot) poses to a batch of parts as one step — the group rotation of
 /// a multi-part selection, where every part both moves and turns. Reversible to the parts'
-/// prior poses (stored at construction, before Do runs).
+/// prior poses and given-ness (stored at construction, before Do runs; see <see cref="MoveCommand"/>).
 /// </summary>
 public sealed class SetPosesCommand : IDocCommand, IAuditDescribable
 {
     private readonly Placement[] _parts;
     private readonly (int X, int Y, int Rot)[] _after;
     private readonly (int X, int Y, int Rot)[] _before;
+    private readonly bool[] _given;
 
     public string Describe(Func<string, string?> f) =>
         _parts.Length == 1
@@ -217,11 +227,13 @@ public sealed class SetPosesCommand : IDocCommand, IAuditDescribable
         _parts = new Placement[poses.Count];
         _after = new (int, int, int)[poses.Count];
         _before = new (int, int, int)[poses.Count];
+        _given = new bool[poses.Count];
         for (var i = 0; i < poses.Count; i++)
         {
             _parts[i] = poses[i].Part;
             _after[i] = (poses[i].X, poses[i].Y, poses[i].Rot);
             _before[i] = (poses[i].Part.X, poses[i].Part.Y, poses[i].Part.Rot);
+            _given[i] = poses[i].Part.IsGiven;
         }
     }
 
@@ -234,7 +246,7 @@ public sealed class SetPosesCommand : IDocCommand, IAuditDescribable
     public void Undo(ShipDocument doc)
     {
         using var _ = doc.SuspendChanged();
-        for (var i = 0; i < _parts.Length; i++) doc.SetPose(_parts[i], _before[i].X, _before[i].Y, _before[i].Rot);
+        for (var i = 0; i < _parts.Length; i++) doc.SetPose(_parts[i], _before[i].X, _before[i].Y, _before[i].Rot, _given[i]);
     }
 }
 
@@ -244,6 +256,7 @@ public sealed class RotateCommand : IDocCommand, IAuditDescribable
     private readonly Placement _p;
     private readonly (int X, int Y, int Rot) _before;
     private readonly (int X, int Y, int Rot) _after;
+    private readonly bool _given;   // given-ness before the turn, restored on undo (see MoveCommand)
 
     public string Describe(Func<string, string?> f) =>
         $"Rotate {AuditFmt.Name(f, _p.DefName)} {AuditFmt.At(_after.X, _after.Y)} → r{_after.Rot}";
@@ -252,6 +265,7 @@ public sealed class RotateCommand : IDocCommand, IAuditDescribable
     {
         _p = p;
         _before = (p.X, p.Y, p.Rot);
+        _given = p.IsGiven;
         var (w, h) = doc.FootprintOf(p);
         var newRot = GridMath.Norm(p.Rot + delta);
         var part = doc.Part(p);
@@ -260,7 +274,7 @@ public sealed class RotateCommand : IDocCommand, IAuditDescribable
     }
 
     public void Do(ShipDocument doc) => doc.SetPose(_p, _after.X, _after.Y, _after.Rot);
-    public void Undo(ShipDocument doc) => doc.SetPose(_p, _before.X, _before.Y, _before.Rot);
+    public void Undo(ShipDocument doc) => doc.SetPose(_p, _before.X, _before.Y, _before.Rot, _given);
 }
 
 // ---- zone commands (crew/trade zones — see ShipZone) ----

@@ -19,6 +19,10 @@ each release was verified against is recorded in
   priced, weighed and rated as the tan bin, and lost the roomier container filter. Only these two bins (and their
   damaged forms) were affected; every other part already resolved correctly, and a check now holds the whole
   catalogue to it.
+- **Undo takes a moved part all the way back.** Nudging an imported part hands it to the placement rules — that is
+  intended, since you have just built it somewhere new — but `Ctrl+Z` only put the tiles back, so the part stayed
+  flagged, and stayed on the bill as new construction, with no way to undo either. Undo now restores it completely,
+  for a drag, a rotate and a group transform alike.
 - **A canister no longer draws over the machine it feeds.** An installed gas canister sits on its regulator's
   gas-input point, which is *the regulator's own row*, so the game's sprite sort cannot tell the two apart and
   Ostraplan fell through to the order they were placed in: drop the canister second and it covered the Hydra. It

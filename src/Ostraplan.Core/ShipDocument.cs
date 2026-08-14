@@ -506,7 +506,14 @@ public sealed class ShipDocument
         RaiseChanged();
     }
 
-    internal void MoveTo(Placement p, int x, int y)
+    /// <summary>
+    /// Reposition a part. <paramref name="given"/> is the <see cref="Placement.IsGiven"/> state to land in:
+    /// null (the default) means "this is an authoring act", which clears it. An <b>undo</b> passes the state
+    /// the part held before the move, so reversing a move truly restores the part — otherwise a nudge and a
+    /// Ctrl+Z leave imported structure permanently re-authored, re-judged by the placement law and counted as
+    /// new construction. See <see cref="MoveCommand"/>.
+    /// </summary>
+    internal void MoveTo(Placement p, int x, int y, bool? given = null)
     {
         var part = Part(p);
         Unindex(p);   // reindex under the new pose
@@ -516,13 +523,14 @@ public sealed class ShipDocument
         // Moving a part is an authoring act: clear its given-ness so the placement law re-applies (a device
         // dragged off its wall must flag). OriginStrID is KEPT — the part is still the same save item, so its
         // live-state CO and cargo travel with it and the diff sees a move, not a delete+new.
-        p.IsGiven = false;
+        p.IsGiven = given ?? false;
         if (part is not null) Conds.Apply(p, part.Item, +1);
         Index(p);
         RaiseChanged();
     }
 
-    internal void SetPose(Placement p, int x, int y, int rot)
+    /// <summary>Reposition and turn a part. <paramref name="given"/> as <see cref="MoveTo"/>.</summary>
+    internal void SetPose(Placement p, int x, int y, int rot, bool? given = null)
     {
         var part = Part(p);
         Unindex(p);
@@ -531,7 +539,7 @@ public sealed class ShipDocument
         p.Y = y;
         p.Rot = GridMath.Norm(rot);
         // repositioning re-authors the part: clear given-ness so the law re-applies; keep OriginStrID (identity)
-        p.IsGiven = false;
+        p.IsGiven = given ?? false;
         if (part is not null) Conds.Apply(p, part.Item, +1);
         Index(p);
         RaiseChanged();

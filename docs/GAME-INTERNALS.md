@@ -367,7 +367,11 @@ Consequently, imported structure must not be re-validated against the placement
 law; only genuinely new construction (a newly placed or moved part) is.
 
 > **Ported in Ostraplan:** imported parts are marked **given** (`Placement.IsGiven`)
-> and skipped by `ProblemScan`; moving or rotating a given part clears the flag.
+> and skipped by `ProblemScan`; moving or rotating a given part clears the flag, and
+> **undoing** that move restores it (`MoveCommand` / `SetPosesCommand` /
+> `RotateCommand` snapshot it, and `ShipDocument.MoveTo` / `SetPose` take the state
+> to land in) — otherwise a nudge and a Ctrl+Z leave imported structure permanently
+> re-authored, judged by the law and billed as new construction.
 > A **constructibility pass** re-simulates a canonical floors→walls→rest build
 > order with incremental CheckFit and warns (only) if some part never becomes
 > placeable.
