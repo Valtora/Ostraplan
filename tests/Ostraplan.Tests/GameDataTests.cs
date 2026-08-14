@@ -291,6 +291,69 @@ public class GameDataTests
         Assert.True(CheckFit.Check(doc, wall, 2, 5, 0, includeEnvelope: true).Ok);   // inside the hull
     }
 
+    /// <summary>
+    /// A name that is BOTH a condowner and a cooverlay resolves through the condowner: the game reads the
+    /// overlay only when no condowner of that name exists (<c>DataHandler.GetCondOwner</c>). Core ships eight
+    /// such names — the grey Rakow "Reserve" bins, which carry a full condowner alongside a legacy cooverlay
+    /// pointing at the "01" sibling. Reading the overlay first gave the 2x104 the 2x101's item def, whose
+    /// socket mask demands <c>TILFloor</c> under the bin; the grey bin hangs on a bulkhead with nothing
+    /// beneath it, so every imported one went "needs a sealed floor beneath" the moment it was touched.
+    /// </summary>
+    [SkippableFact]
+    public void A_condowner_wins_over_a_cooverlay_of_the_same_name()
+    {
+        var g = TestData.RequireGame();
+        var resolver = new PartResolver(g.Index);
+
+        var grey = resolver.Resolve("ItmStorageBin2x104");
+        var vanilla = resolver.Resolve("ItmStorageBin2x101");
+        Skip.If(grey is null || vanilla is null, "this install lacks the bulkhead bins");
+
+        Assert.Equal("ItmStorageBin2x104", grey!.Item.Name);
+        Assert.DoesNotContain("TILFloor", grey.Item.SocketReqs);          // hangs on a wall, needs no deck
+        Assert.Contains("TILWall", grey.Item.SocketReqs);
+        Assert.Contains("TILFloor", vanilla!.Item.SocketReqs);            // the 01 genuinely does
+
+        // …and the same through the catalog, which is what a document actually places against.
+        var part = g.Catalog.Lookup("ItmStorageBin2x104");
+        Assert.NotNull(part);
+        Assert.Equal("ItmStorageBin2x104", part!.Item.Name);
+        Assert.Contains("IsGray", part.StartingConds);                    // the "Reserve" bin's own conds…
+        Assert.Contains("IsTough", part.StartingConds);
+        Assert.Equal(1482.0, part.StartingCondValues["StatBasePrice"]);   // …not the 01's 882
+        Assert.Equal(18.0, part.StartingCondValues["StatMass"]);
+
+        // The corner bin is the same story, and the mask difference is a wall vs a floor on one cell.
+        var corner = resolver.Resolve("ItmStorageBin2x2C04");
+        Assert.Equal("ItmStorageBin2x2C04", corner?.Item.Name);
+        Assert.DoesNotContain("TILFloor", corner!.Item.SocketReqs);
+    }
+
+    /// <summary>
+    /// The guard behind the test above: no name may resolve through a cooverlay while a condowner of that
+    /// name exists. Written against the eight "04" bins in core 1.0.0.7; if a game patch (or a mod) adds
+    /// more, they are covered automatically, and if core ever drops the duplicate overlays this still holds.
+    /// </summary>
+    [SkippableFact]
+    public void No_cooverlay_shadows_a_real_condowner()
+    {
+        var g = TestData.RequireGame();
+        var owners = g.Index.Type("condowners");
+        var resolver = new PartResolver(g.Index);
+
+        var shadowed = new List<string>();
+        foreach (var (name, _) in g.Index.Type("cooverlays"))
+        {
+            if (!owners.TryGetValue(name, out var own)) continue;   // overlay-only: the fallback is correct
+            var expected = Json.Str(own.El, "strItemDef") ?? name;
+            var actual = resolver.Resolve(name)?.Item.Name;
+            if (actual is not null && !string.Equals(actual, expected, StringComparison.Ordinal))
+                shadowed.Add($"{name}: resolved to item '{actual}', condowner says '{expected}'");
+        }
+
+        Assert.True(shadowed.Count == 0, string.Join("; ", shadowed));
+    }
+
     [SkippableFact]
     public void Large_tank_footprint_is_the_7x7_socket_grid_not_the_3x3_sprite()
     {

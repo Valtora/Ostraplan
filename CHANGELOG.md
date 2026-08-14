@@ -12,6 +12,13 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Fixed
+- **Grey bulkhead bins no longer demand a floor they never needed.** The grey Rakow "Reserve" bins — the 2x and the
+  corner, the ones you see hung on the outside of a hull — are their own part in the game, but Ostraplan was reading
+  them as the tan "Vanilla" bin they sit next to in the data. That one mounts over a deck, so touching a grey bin
+  turned it red with *needs a sealed floor beneath* even though the game is perfectly happy with it. They were also
+  priced, weighed and rated as the tan bin, and lost the roomier container filter. Only these two bins (and their
+  damaged forms) were affected; every other part already resolved correctly, and a check now holds the whole
+  catalogue to it.
 - **A canister no longer draws over the machine it feeds.** An installed gas canister sits on its regulator's
   gas-input point, which is *the regulator's own row*, so the game's sprite sort cannot tell the two apart and
   Ostraplan fell through to the order they were placed in: drop the canister second and it covered the Hydra. It

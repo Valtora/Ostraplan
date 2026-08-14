@@ -821,7 +821,14 @@ public sealed class Catalog
         var owners = index.Type("condowners");
         var items = index.Type("items");
 
-        var overlay = overlays.TryGetValue(defName, out var ov) ? CoOverlayDef.Parse(ov.El) : null;
+        // A REAL condowner of this name always wins; the overlay is a fallback for names that have none
+        // (DataHandler.GetCondOwner: `if (!dictCOs.ContainsKey(strCO)) { … strCO = overlay.strCOBase; }`).
+        // Eight core names are both — the grey Rakow "Reserve" bins (ItmStorageBin2x104 / 2x2C04 + their
+        // Dmg/Loose forms) ship a full condowner alongside a legacy cooverlay pointing at the "01" sibling.
+        // Reading the overlay first gave them the 01's item def (a socket mask demanding a floor the
+        // exterior-mountable grey bin does not need), the 01's price/mass, and the skin's condloot on top.
+        var direct = owners.ContainsKey(defName);
+        var overlay = !direct && overlays.TryGetValue(defName, out var ov) ? CoOverlayDef.Parse(ov.El) : null;
         var coName = string.IsNullOrWhiteSpace(overlay?.COBase) ? defName : overlay!.COBase!;
         var co = owners.TryGetValue(coName, out var rawCo) ? CondOwnerDef.Parse(rawCo.El) : null;
         var itemName = string.IsNullOrWhiteSpace(co?.ItemDefName) ? coName : co!.ItemDefName!;

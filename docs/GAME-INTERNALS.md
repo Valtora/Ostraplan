@@ -154,6 +154,31 @@ data/items   ── geometry: nCols, aSocketAdds / Reqs / Forbids, strImg, bHasS
 - A naive `items[strStartInstall]` lookup finds only ~157 of ~330 parts — the
   condowner/cooverlay hop is mandatory.
 
+**The overlay is a fallback, not a priority.** `DataHandler.GetCondOwner` reads
+`dictCOOverlays` only when `dictCOs` has no entry of that name:
+
+```csharp
+if (!dictCOs.ContainsKey(strCO)) {
+    if (!dictCOOverlays.ContainsKey(strCO)) return null;
+    jsonCOOverlay = dictCOOverlays[strCO];
+    strCO = jsonCOOverlay.strCOBase;          // only now does the skin's base apply
+}
+```
+
+A real condowner therefore wins outright, and when it does, `jsonCOOverlay` stays
+null — so `COOverlay.Init` never runs and none of the skin's deltas (`strCondLoot`,
+`strImg`, `mapIAReplaces`) apply either. Core 1.0.0.7 ships **eight** names that are
+both: the grey Rakow "Reserve" bins `ItmStorageBin2x104` / `ItmStorageBin2x2C04` and
+their `Dmg`/`Loose` forms, each a complete condowner *and* a legacy cooverlay
+pointing at the "01" sibling. Resolving overlay-first hands them the 01's
+`strItemDef`, and the 01's socket mask **requires `TILFloor`** beneath the bin while
+the 04's does not — the grey bin mounts on a bulkhead with open space under it, so
+every imported one reads "needs a sealed floor beneath". It also mis-priced them
+(882 vs 1482), under-massed them (14 vs 18 kg) and dropped `IsTough` / the
+`Cumbersome` container filter. (Only the friendly name is genuinely overlay-first in
+the game — `GetCOFriendlyName` reads the skin regardless — and for these eight it is
+identical either way.)
+
 > **Ported in Ostraplan:** `Catalog.Build` (palette), `Catalog.Lookup` /
 > `Catalog.ResolveDef` (on-demand resolution of any placed def, including the
 > ~half of a real ship that is not in the buildable palette: raw hull,

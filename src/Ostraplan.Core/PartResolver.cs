@@ -53,18 +53,24 @@ public sealed class PartResolver
 
     private ResolvedPart? Build(string name)
     {
-        // name → real condowner, directly or through a cooverlay skin (DataHandler.LoadCO fallback)
+        // name → real condowner, directly or through a cooverlay skin. The order is the game's: a REAL
+        // condowner always wins, and the overlay is consulted only when there is none
+        // (DataHandler.GetCondOwner: `if (!dictCOs.ContainsKey(strCO)) { … strCO = overlay.strCOBase; }`).
+        // Core ships eight names that are BOTH — the grey Rakow "Reserve" bins (ItmStorageBin2x104 /
+        // 2x2C04 and their Dmg/Loose forms) carry a full condowner AND a legacy cooverlay pointing at the
+        // "01" sibling — so overlay-first handed them the 01's item def, and with it a socket mask
+        // requiring a floor the exterior-mountable grey bin does not need. See GAME-INTERNALS §2.
         CondOwnerDef? co = null;
         CoOverlayDef? overlay = null;
-        if (_overlays.TryGetValue(name, out var ov))
+        if (_owners.TryGetValue(name, out var direct))
+        {
+            co = CondOwnerDef.Parse(direct.El);
+        }
+        else if (_overlays.TryGetValue(name, out var ov))
         {
             overlay = CoOverlayDef.Parse(ov.El);
             var baseName = string.IsNullOrWhiteSpace(overlay.COBase) ? name : overlay.COBase!;
             if (_owners.TryGetValue(baseName, out var baseCo)) co = CondOwnerDef.Parse(baseCo.El);
-        }
-        else if (_owners.TryGetValue(name, out var direct))
-        {
-            co = CondOwnerDef.Parse(direct.El);
         }
 
         // item def: the condowner's strItemDef, else the placed name itself (some items place directly)
