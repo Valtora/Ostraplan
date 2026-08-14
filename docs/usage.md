@@ -692,10 +692,33 @@ alone, so a stripped salvage console stays stripped.
 The set is the game's stock one, plus **course plot** and **flight dynamics** for the trips
 that need them. Those two ride along without a place on the screen: a stock console's
 thirteen modules tile it exactly, and neither of the extras fits the one gap left. They are
-still aboard — sit at the console in game, open its edit menu, and drag either onto the
-screen when you are plotting a burn or flying in atmosphere. Everything else appears exactly
-where the game puts it on a stock console, which Ostraplan writes into the ship so it does
-not depend on what order the game happens to read the modules in.
+still aboard, and the arrange window below is where you decide what goes where. Everything
+else appears exactly where the game puts it on a stock console, which Ostraplan writes into
+the ship so it does not depend on what order the game happens to read the modules in.
+
+### Arranging the console screen
+
+Right-click a nav console and choose **Arrange screen…** for the planner's version of the
+console's own edit menu in game. The board is the console screen; each module is a panel at
+its place on it.
+
+- **Drag a panel** to move it. A module keeps the size its def gives it, so only its corner
+  moves, and it lands on the same two-decimal grid the game's own drag uses.
+- **Drag it onto the tray** on the right to take it off the screen. It stays aboard the
+  ship, exactly like a module you shelve in game, and you can put it back at the console any
+  time.
+- **Drag one out of the tray** to place it, or **double-click** it to drop it in the first
+  free spot that takes it.
+- A panel turns **red** while it would not fit: off the screen, or overlapping another. Two
+  panels may share an edge, which is how the stock thirteen tile the board exactly. Dropping
+  a red panel snaps it back to where it came from.
+- **Reset to stock** puts the console back to the arrangement the game itself would produce.
+
+The arrangement is part of the design: it is saved with the `.oplan`, undone with `Ctrl+Z`,
+and written into the ship on export or a save write-back. A console you never arrange
+carries no arrangement of its own, so it follows the stock layout. On a ship you are writing
+back into a save, arranging a console overwrites whatever arrangement it had in game — that
+being the point — while a console you leave alone keeps the layout you built at it.
 
 ## Power
 

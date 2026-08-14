@@ -56,6 +56,13 @@ each release was verified against is recorded in
   later.
 
 ### Added
+- **Arrange the nav console screen yourself (right-click a console ▸ Arrange screen…).** The planner's version of
+  the console's own edit menu in game: the board is the screen, each module is a panel on it, and you drag them
+  where you want them. Drag a panel onto the tray to take it off the screen and out of the tray to put it back, or
+  double-click a shelved one to drop it in the first free spot. A panel turns red where it would not fit and snaps
+  back if you drop it there; two panels may share an edge, which is how the stock set tiles the board exactly.
+  **Reset to stock** returns the console to the arrangement the game itself would produce. The arrangement is part
+  of the design: saved with it, undoable, and written into the ship on export and on a save write-back.
 - **An empty nav console is stocked when the ship comes in, not quietly at export.** Ships from before 1.0 have
   consoles with nothing in them at all — the game had no console inventory back then — and a stock ship template
   keeps its modules in a spawner Ostraplan doesn't import, so both arrive bare. Ostraplan used to slip the modules

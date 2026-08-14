@@ -1164,7 +1164,13 @@ Two consequences worth knowing:
 > a rect or resizes a panel: `StandardModules` is ordered by screen priority, and the two
 > situational modules it carries beyond the stock 13 (course plot, flight dynamics) ride in
 > the tray. On a **kept** console the write fills only keys the save leaves empty, so a
-> screen the player arranged in game survives the write-back.
+> screen the player arranged in game survives the write-back — unless the user arranged that
+> console here, in `NavArrangeWindow` (the planner's stand-in for the console's edit menu),
+> in which case their layout is written whole. A stored layout lives on
+> `Placement.NavLayout` and in the `.oplan`; a console left alone stores nothing and follows
+> the computed arrangement. The one deviation from the game: it lets a module be dropped
+> overlapping another and resolves it by shelving one on the next load, while the dialog
+> snaps such a drop back, since a design should not record an outcome decided later.
 
 ### Ship identity on spawn
 

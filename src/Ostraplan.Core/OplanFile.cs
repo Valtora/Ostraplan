@@ -81,6 +81,8 @@ public sealed class OplanFile
                            // Persist a FULL snapshot of a container's contents once it has been edited, so authored
                            // cargo is authoritative on reopen rather than re-derived from the (possibly moved) save.
                            Cargo = doc.IsCargoEdited(p) && p.Cargo.Count > 0 ? p.Cargo.Select(ToOplanCargo).ToList() : null,
+                           NavLayout = p.NavLayout is { Count: > 0 } nav
+                               ? new Dictionary<string, string>(nav, StringComparer.Ordinal) : null,
                        })
                        .ToList(),
             Zones = doc.Zones.Select(ToOplanZone).ToList(),
@@ -141,6 +143,8 @@ public sealed class OplanFile
                 OriginStrID = part.Origin, SwappedFromStrID = part.SwappedFrom, SwappedFromDef = part.SwappedFromDef,
                 CustomName = Rename.OrNull(part.Name),   // verbatim: an imported name must survive a reopen unchanged
                 ZBias = part.Z ?? 0,
+                NavLayout = part.NavLayout is { Count: > 0 } nav
+                    ? new Dictionary<string, string>(nav, StringComparer.Ordinal) : null,
             };
             doc.Add(placement);
             byIndex[i] = placement;
@@ -306,6 +310,12 @@ public sealed class OplanPart
     /// inventory editor (see <see cref="ShipDocument.IsCargoEdited"/>). Null for un-edited parts, whose cargo is
     /// re-read from the linked save on open. See <see cref="OplanCargo"/>.</summary>
     [JsonPropertyName("cargo")] public List<OplanCargo>? Cargo { get; set; }
+    /// <summary>A nav console's screen arrangement, when the user laid one out in the arrange dialog (see
+    /// <see cref="Placement.NavLayout"/>): module GUI-prefab key → anchor rect, <c>""</c> for a shelved module.
+    /// Null — and omitted — for every other part and for a console left at the game's own arrangement, which is
+    /// computed rather than stored. Additive at format v1, like the rest: an older build ignores it and
+    /// round-trips it through <see cref="Extra"/>.</summary>
+    [JsonPropertyName("navLayout")] public Dictionary<string, string>? NavLayout { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }
 

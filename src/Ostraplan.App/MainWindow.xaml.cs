@@ -2620,6 +2620,9 @@ public partial class MainWindow : Window
             var n = ct.Cargo.Count;
             menu.Items.Add(new Separator());
             menu.Items.Add(Item("View contents" + (n > 0 ? $" ({n})" : "") + "…", "", (_, _) => OpenInventory(ct)));
+            // a nav console's screens are its modules, and where each one sits is the console's own arrangement
+            if (NavConsole.IsConsole(_doc?.Part(ct)))
+                menu.Items.Add(Item("Arrange screen…", "", (_, _) => OpenNavArrange(ct)));
         }
 
         menu.Items.Add(new Separator());
@@ -2708,6 +2711,22 @@ public partial class MainWindow : Window
         if (_doc is null || _catalog is null || _sprites is null) return;
         var friendly = Rename.Display(p, _doc.Part(p));
         new InventoryWindow(_catalog, _sprites, p.DefName, friendly, p.Cargo, _doc, _stack, p) { Owner = this }.ShowDialog();
+    }
+
+    /// <summary>Open the nav console's screen arrangement — the planner's stand-in for the console's own edit
+    /// menu in game (see <see cref="NavArrangeWindow"/>). A console with no modules aboard has nothing to
+    /// arrange, and says so rather than opening an empty board.</summary>
+    private void OpenNavArrange(Placement p)
+    {
+        if (_doc is null || _catalog is null) return;
+        if (NavConsole.NeedsModules(p.Cargo))
+        {
+            Dlg.Info(this, "Arrange screen",
+                "This console has no modules in it, so there is nothing to arrange. Its screens are separate "
+                + "items held inside it: add some under \"View contents\".");
+            return;
+        }
+        new NavArrangeWindow(_catalog, _doc, _stack, p, Rename.Display(p, _doc.Part(p))) { Owner = this }.ShowDialog();
     }
 
     /// <summary>

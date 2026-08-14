@@ -83,7 +83,7 @@ public sealed class Placement
             // CustomName rides across: switching a device off, or uninstalling it, does not change what it is
             // called. ZBias does too: a canister pushed behind its regulator stays behind it once uninstalled.
             DefName = targetDef, X = X, Y = Y, Rot = rot, IsGiven = false, Cargo = Cargo, CustomName = CustomName,
-            ZBias = ZBias,
+            ZBias = ZBias, NavLayout = NavLayout,
             OriginStrID = backHome ? carriedId : null,
             SwappedFromStrID = backHome ? null : carriedId,
             SwappedFromDef = backHome || carriedId is null ? null : carriedDef,
@@ -116,6 +116,18 @@ public sealed class Placement
     /// preserves; this tree drives the inventory view and the cargo-loss warning.
     /// </summary>
     public IReadOnlyList<CargoItem> Cargo { get; set; } = [];
+
+    /// <summary>
+    /// A nav console's own screen arrangement, when the user has laid one out: the game's <c>NavModConfig</c> map,
+    /// module GUI-prefab key → anchor rect (<c>"xMin|yMin|xMax|yMax"</c>), with <c>""</c> for a module that is
+    /// aboard but shelved in the console's edit menu. Null on every other part, and on a console left at the
+    /// arrangement the game itself would produce (<see cref="NavConsole.Arrange"/> computes that on demand, so a
+    /// design does not carry a copy of the defaults around).
+    ///
+    /// <para>A key the map does not mention falls back to that computed default, so a module added to the console
+    /// after the arrangement was made still lands somewhere sensible rather than vanishing.</para>
+    /// </summary>
+    public IReadOnlyDictionary<string, string>? NavLayout { get; set; }
 }
 
 /// <summary>
@@ -553,6 +565,15 @@ public sealed class ShipDocument
     {
         p.Cargo = cargo;
         _cargoEdited.Add(p.Id);
+        RaiseChanged();
+    }
+
+    /// <summary>Replace a nav console's screen arrangement (see <see cref="Placement.NavLayout"/>); null restores
+    /// the computed default. Like cargo, this lives inside the part rather than on the tile grid, so it touches no
+    /// spatial index or tile conditions.</summary>
+    internal void SetNavLayout(Placement p, IReadOnlyDictionary<string, string>? layout)
+    {
+        p.NavLayout = layout;
         RaiseChanged();
     }
 

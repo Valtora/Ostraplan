@@ -327,8 +327,10 @@ public static class SaveEdit
                 var modules = NavConsole.NeedsModules(p.Cargo) && chg.Kind == PartChangeKind.New
                     ? NavConsole.StandardModules
                     : p.Cargo.Where(c => !c.Slotted).Select(c => c.DefName).ToList();
-                ApplyNavConfig(consoleItem, NavConsole.ConfigEntries(catalog, consoleDef, modules),
-                    onlyFillEmpty: chg.Kind != PartChangeKind.New);
+                // An arrangement the user made is theirs, not a default, so it overwrites the save's own config
+                // even on a kept console — that is what asking for it means.
+                ApplyNavConfig(consoleItem, NavConsole.ConfigEntries(catalog, consoleDef, modules, p.NavLayout),
+                    onlyFillEmpty: chg.Kind != PartChangeKind.New && p.NavLayout is null);
             }
 
             structuralIds.Add(containerId);

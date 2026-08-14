@@ -246,6 +246,44 @@ public class EngineTests
     }
 
     [Fact]
+    public void Oplan_persists_a_nav_consoles_screen_arrangement()
+    {
+        var cat = new Fixtures().Part("Nav", startingConds: ["IsNavStation", "IsContainer"], container: (5, 4)).Build();
+        var doc = new ShipDocument(cat);
+        var console = new Placement { DefName = "Nav" };
+        new PlaceCommand(console).Do(doc);
+        var stack = new CommandStack();
+        var layout = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["NavModMap"] = "0.00|0.00|0.50|1.00",
+            ["NavModWarnings"] = "",   // shelved, and that choice has to survive too
+        };
+
+        stack.Push(doc, new SetNavLayoutCommand(console, console.NavLayout, layout));
+        Assert.Equal(layout, console.NavLayout);
+
+        var tmp = Path.Combine(Path.GetTempPath(), $"ostraplan-test-{Guid.NewGuid():N}.oplan");
+        try
+        {
+            var file = new OplanFile
+            {
+                Parts = [new OplanPart { Def = "Nav", NavLayout = new Dictionary<string, string>(layout) }],
+            };
+            file.Save(tmp);
+            var (reloaded, _) = OplanFile.Load(tmp).ToDocument(cat);
+
+            Assert.Equal(layout, reloaded.Placements[0].NavLayout);
+        }
+        finally
+        {
+            File.Delete(tmp);
+        }
+
+        stack.Undo(doc);
+        Assert.Null(console.NavLayout);   // undo puts it back to the arrangement the game would compute
+    }
+
+    [Fact]
     public void Oplan_persists_view_orientation()
     {
         var tmp = Path.Combine(Path.GetTempPath(), $"ostraplan-test-{Guid.NewGuid():N}.oplan");

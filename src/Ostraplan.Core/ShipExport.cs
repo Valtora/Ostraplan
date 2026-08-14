@@ -300,7 +300,7 @@ public static class ShipExport
                     ? NavConsole.StandardModules
                     : placement!.Cargo.Where(c => !c.Slotted).Select(c => c.DefName).ToList();
                 if (catalog.Lookup(part.Part.DefName) is { } consoleDef
-                    && NavConsole.ConfigEntries(catalog, consoleDef, modules) is { Count: > 0 } entries)
+                    && NavConsole.ConfigEntries(catalog, consoleDef, modules, placement?.NavLayout) is { Count: > 0 } entries)
                     item.AGPMSettings = [.. item.AGPMSettings ?? [], NavConfigGpm(entries)];
             }
             if (NavConsole.IsConsole(part.Part) && NavConsole.NeedsModules(placement?.Cargo ?? []))

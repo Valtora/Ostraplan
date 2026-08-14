@@ -44,9 +44,18 @@ dotnet build Ostraplan.slnx                # build everything
 > build of the solution hits it anyway, delete `src\Ostraplan.App\obj` and
 > `src\Ostraplan.App\bin` and rebuild.
 
-The app takes one developer flag: `--smoke` shows and closes a native-backed WPF
-window and exits, which is what `publish.ps1` uses to prove a published build actually
-loads its native DLLs.
+The app takes a few developer flags, each of which renders something and exits:
+
+| Flag | What it does |
+|---|---|
+| `--smoke` | Shows and closes a native-backed WPF window. `publish.ps1` uses it to prove a published build loads its native DLLs. |
+| `--dlgsmoke <dir>` | The standard dialogs, light and dark, as PNGs. |
+| `--invsmoke <dir>` | The inventory viewer: a synthesized backpack, an editable one, rotation, and the first real save container. Needs the install. |
+| `--navsmoke <dir>` | The nav console arrange board, at rest and mid-drag, so the screen layout can be eyeballed against the game's. Needs the install. |
+| `--svgsmoke <dir>` | A real ship's room map to SVG, validated as XML. Needs the install. |
+
+The preview renders are for eyeballing a layout change; they are not assertions, so they
+do not replace a test.
 
 ## Test
 

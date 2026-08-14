@@ -156,6 +156,24 @@ public sealed class SetCargoCommand(Placement placement, IReadOnlyList<CargoItem
         $"Edit contents of {AuditFmt.Name(f, placement.DefName)} ({before.Count} → {after.Count} items)";
 }
 
+/// <summary>
+/// Swap a nav console's screen arrangement — the arrange dialog's result. Like <see cref="SetCargoCommand"/> the
+/// caller hands in both maps, so Do/Undo are a plain assignment; null means "back to the arrangement the game
+/// itself would produce".
+/// </summary>
+public sealed class SetNavLayoutCommand(
+    Placement placement, IReadOnlyDictionary<string, string>? before, IReadOnlyDictionary<string, string>? after)
+    : IDocCommand, IAuditDescribable
+{
+    public void Do(ShipDocument doc) => doc.SetNavLayout(placement, after);
+    public void Undo(ShipDocument doc) => doc.SetNavLayout(placement, before);
+    public string Describe(Func<string, string?> f) =>
+        after is null
+            ? $"Reset the screen arrangement of {AuditFmt.Name(f, placement.DefName)}"
+            : $"Arrange the screen of {AuditFmt.Name(f, placement.DefName)} " +
+              $"({after.Count(e => e.Value.Length > 0)} of {after.Count} module(s) on screen)";
+}
+
 public sealed class RemoveCommand(IReadOnlyList<Placement> placements) : IDocCommand, IAuditDescribable
 {
     public void Do(ShipDocument doc)

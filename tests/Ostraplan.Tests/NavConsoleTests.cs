@@ -160,6 +160,36 @@ public class NavConsoleTests
         Assert.Null(slots[2].Pos);
     }
 
+    [SkippableFact]
+    public void An_arranged_console_exports_the_users_layout_not_the_stock_one()
+    {
+        var g = TestData.RequireGame();
+        if (g.Catalog.Lookup("ItmStationNav") is not { } consoleDef || !NavConsole.IsConsole(consoleDef)) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        var doc = new ShipDocument(g.Catalog);
+        var console = Fixtures.Place(doc, "ItmStationNav", 0, 0);
+        NavConsole.StockEmptyConsoles(doc, g.Catalog);
+
+        // the user swaps the two situational modules onto the screen and shelves the map to make room
+        new SetNavLayoutCommand(console, null, new Dictionary<string, string>(System.StringComparer.Ordinal)
+        {
+            ["NavModMap"] = "",
+            ["NavModCoursePlot"] = "0.25|0.00|0.50|0.40",
+            ["NavModFlightDynamics"] = "0.25|0.40|0.50|0.60",
+        }).Do(doc);
+
+        var (exported, _, _) = ShipExport.Build(doc, g.Catalog, specs, "NavArrangeTest");
+        var panel = Assert.Single(
+            exported.AItems.First(i => i.StrName == "ItmStationNav").AGPMSettings ?? [], p => p.StrName == "NavModConfig");
+        var flat = panel.DictGUIPropMap.Select(x => x as string).ToList();
+        string? Pos(string key) => flat.IndexOf(key) is var i && i >= 0 ? flat[i + 1] : null;
+
+        Assert.Equal("", Pos("NavModMap"));                             // shelved by the user
+        Assert.Equal("0.25|0.00|0.50|0.40", Pos("NavModCoursePlot"));   // and these two put on screen
+        Assert.Equal("0.25|0.40|0.50|0.60", Pos("NavModFlightDynamics"));
+        Assert.Equal("0.65|0.40|0.90|0.60", Pos("NavModMooringControl"));   // untouched: still the game's own rect
+    }
+
     [Fact]
     public void Rects_round_to_the_games_two_decimals_and_keep_their_size()
     {

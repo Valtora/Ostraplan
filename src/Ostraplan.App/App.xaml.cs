@@ -176,6 +176,51 @@ public partial class App : Application
             return;
         }
 
+        // preview render: draw the nav console's arrange board (a console stocked with the standard set) to a PNG
+        // for eyeballing the screen layout against the game's own. Needs the game install.
+        if (e.Args.Contains("--navsmoke"))
+        {
+            var dir = e.Args.SkipWhile(a => a != "--navsmoke").Skip(1).FirstOrDefault() ?? AppContext.BaseDirectory;
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var env = GameEnv.Locate(null);
+                var catalog = Catalog.Build(DataIndex.Load(env));
+                var doc = new ShipDocument(catalog);
+                var console = new Placement { DefName = "ItmStationNav" };
+                new PlaceCommand(console).Do(doc);
+                NavConsole.StockEmptyConsoles(doc, catalog);
+
+                var win = new NavArrangeWindow(catalog, doc, new CommandStack(), console, "Nav Station");
+
+                void Shot(string file)
+                {
+                    var panel = win.PreviewContent;
+                    panel.Background = ThemeManager.WindowBg;
+                    panel.Measure(new Size(1100, double.PositiveInfinity));
+                    panel.Arrange(new Rect(0, 0, panel.DesiredSize.Width, panel.DesiredSize.Height));
+                    panel.UpdateLayout();
+                    var bmp = new RenderTargetBitmap(
+                        Math.Max(1, (int)Math.Ceiling(panel.DesiredSize.Width)),
+                        Math.Max(1, (int)Math.Ceiling(panel.DesiredSize.Height)), 96, 96, PixelFormats.Pbgra32);
+                    bmp.Render(panel);
+                    var enc = new PngBitmapEncoder();
+                    enc.Frames.Add(BitmapFrame.Create(bmp));
+                    using var fs = File.Create(Path.Combine(dir, file));
+                    enc.Save(fs);
+                }
+
+                Shot("nav-arrange.png");
+                // mid-drag: flight dynamics out of the tray and held over the map, which it cannot share — the
+                // panel should follow the cursor in the "will not fit" colour
+                win.PreviewDrag("ItmNavModFlightDynamics", 330, 240);
+                Shot("nav-arrange-drag.png");
+            }
+            catch (Exception ex) { File.WriteAllText(Path.Combine(dir, "navsmoke-error.txt"), ex.ToString()); }
+            Shutdown(0);
+            return;
+        }
+
         // render self-test: render a real ship's room map to SVG, validate it parses as XML, and write it out
         // for eyeballing, then exit. Confirms the SVG serializer (embedded sprite layer + vector annotations)
         // produces well-formed output. Needs the game install.
