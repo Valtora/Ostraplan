@@ -11,6 +11,8 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.87.0] 2026-08-14, Repair All, canister and tank fills, and nav console arrangement
+
 ### Added
 - **Repair All.** A ship you imported out of a save arrives with everything that has happened to it, and there was
   no way to undo any of it. There are two kinds of damage in Ostranauts and Ostraplan now clears both.
@@ -50,6 +52,35 @@ each release was verified against is recorded in
   from the part's specification, so a ship with three empty oxygen cans was valued, rated and flown as though they
   were full — on a stock O2 RTA that is about $5,600 of oxygen counted on a $410 shell, three times over. A
   half-empty ship now prices and flies as a half-empty ship.
+- **Arrange the nav console screen yourself (right-click a console ▸ Arrange screen…).** The planner's version of
+  the console's own edit menu in game: the board is the screen, each module is a panel on it, and you drag them
+  where you want them. Drag a panel onto the tray to take it off the screen and out of the tray to put it back, or
+  double-click a shelved one to drop it in the first free spot. A panel turns red where it would not fit and snaps
+  back if you drop it there; two panels may share an edge, which is how the stock set tiles the board exactly.
+  **Reset to stock** returns the console to the arrangement the game itself would produce. The arrangement is part
+  of the design: saved with it, undoable, and written into the ship on export and on a save write-back.
+- **An empty nav console is stocked when the ship comes in, not quietly at export.** Ships from before 1.0 have
+  consoles with nothing in them at all — the game had no console inventory back then — and a stock ship template
+  keeps its modules in a spawner Ostraplan doesn't import, so both arrive bare. Ostraplan used to slip the modules
+  in on the way out, which worked but left the console looking empty in the planner the whole time you were
+  designing. It now fits them at import, says so in the import summary, and you can see them under **View
+  contents…**, take one out, or put a different one in. A console that already carries a module is left exactly
+  as it is, salvage gaps and all.
+- **Move Back and Move Forward (`Ctrl+[` / `Ctrl+]`).** Right-click a part or a loose item and step it through the
+  pile of things sharing its tile when the automatic order is not what you want, with **Reset order** to hand that
+  pile back to it. The choice is saved with the design, and it stays inside the render layer, so nothing can be
+  pushed under a deck plate or over a conduit run.
+- **Press `` ` `` to step down the stack under the cursor.** Reaching a part drawn underneath meant a trip through
+  the right-click menu every time; now the selection walks down the pile a keystroke at a time and wraps at the
+  bottom. The menu still lists the whole pile for when you want to see it.
+- **Ostraplan says what an update brought.** An update applies on restart, so until now the app came back looking
+  identical and the only way to find out what had changed was to go and read the release on GitHub. The first
+  launch after updating shows that version's notes, covering **every release you crossed** if you had been away
+  for a few of them. **Help ▾ ▸ View Changelog** brings them back whenever you want, and **All releases on
+  GitHub** in that window opens the published release.
+  - The notes are read from the changelog **built into the copy you are running**, so they describe your build
+    rather than whatever GitHub currently calls latest, and they work offline and in the portable zip.
+  - A fresh install shows nothing: it has not updated from anything.
 
 ### Fixed
 - **"Replace with…" and "Find and Replace All…" no longer hide the parts a big canister obviously matches.** A swap
@@ -105,37 +136,6 @@ each release was verified against is recorded in
   re-stacked by hand. It is also listed in the right-click stack picker, where before it was invisible.
 - **A part standing inside a bigger part's body draws under it**, rather than over it if it happened to be placed
   later.
-
-### Added
-- **Arrange the nav console screen yourself (right-click a console ▸ Arrange screen…).** The planner's version of
-  the console's own edit menu in game: the board is the screen, each module is a panel on it, and you drag them
-  where you want them. Drag a panel onto the tray to take it off the screen and out of the tray to put it back, or
-  double-click a shelved one to drop it in the first free spot. A panel turns red where it would not fit and snaps
-  back if you drop it there; two panels may share an edge, which is how the stock set tiles the board exactly.
-  **Reset to stock** returns the console to the arrangement the game itself would produce. The arrangement is part
-  of the design: saved with it, undoable, and written into the ship on export and on a save write-back.
-- **An empty nav console is stocked when the ship comes in, not quietly at export.** Ships from before 1.0 have
-  consoles with nothing in them at all — the game had no console inventory back then — and a stock ship template
-  keeps its modules in a spawner Ostraplan doesn't import, so both arrive bare. Ostraplan used to slip the modules
-  in on the way out, which worked but left the console looking empty in the planner the whole time you were
-  designing. It now fits them at import, says so in the import summary, and you can see them under **View
-  contents…**, take one out, or put a different one in. A console that already carries a module is left exactly
-  as it is, salvage gaps and all.
-- **Move Back and Move Forward (`Ctrl+[` / `Ctrl+]`).** Right-click a part or a loose item and step it through the
-  pile of things sharing its tile when the automatic order is not what you want, with **Reset order** to hand that
-  pile back to it. The choice is saved with the design, and it stays inside the render layer, so nothing can be
-  pushed under a deck plate or over a conduit run.
-- **Press `` ` `` to step down the stack under the cursor.** Reaching a part drawn underneath meant a trip through
-  the right-click menu every time; now the selection walks down the pile a keystroke at a time and wraps at the
-  bottom. The menu still lists the whole pile for when you want to see it.
-- **Ostraplan says what an update brought.** An update applies on restart, so until now the app came back looking
-  identical and the only way to find out what had changed was to go and read the release on GitHub. The first
-  launch after updating shows that version's notes, covering **every release you crossed** if you had been away
-  for a few of them. **Help ▾ ▸ View Changelog** brings them back whenever you want, and **All releases on
-  GitHub** in that window opens the published release.
-  - The notes are read from the changelog **built into the copy you are running**, so they describe your build
-    rather than whatever GitHub currently calls latest, and they work offline and in the portable zip.
-  - A fresh install shows nothing: it has not updated from anything.
 
 ## [0.80.0] 2026-08-13, Flight Dynamics, retrofit costing, import choices and device switching
 
