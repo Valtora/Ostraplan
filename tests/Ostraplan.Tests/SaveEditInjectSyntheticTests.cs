@@ -343,4 +343,49 @@ public class SaveEditInjectSyntheticTests
         Assert.Equal("Ibex", id.Model);
         Assert.Equal("Salvage Tug", id.Designation);
     }
+
+    [Fact]
+    public void A_nav_config_write_merges_into_the_consoles_own_panel()
+    {
+        // the console item as a save holds it: other panels present, and a NavModConfig the player has arranged
+        var item = new JsonObject
+        {
+            ["strName"] = "ItmStationNav",
+            ["aGPMSettings"] = new JsonArray
+            {
+                new JsonObject { ["strName"] = "Panel A", ["dictGUIPropMap"] = new JsonArray { "strGUIPrefab", "NavStation" } },
+                new JsonObject { ["strName"] = "NavModConfig", ["dictGUIPropMap"] = new JsonArray { "NavModMap", "0.10|0.10|0.90|0.90", "NavModWarnings", "" } },
+            },
+        };
+
+        SaveEdit.ApplyNavConfig(item, [("NavModMap", "0.25|0.00|0.65|0.80"), ("NavModWarnings", "0.75|0.80|1.00|1.00"), ("NavModCoursePlot", "")], onlyFillEmpty: true);
+
+        var panels = (JsonArray)item["aGPMSettings"]!;
+        Assert.Equal(2, panels.Count);                                          // no duplicate panel
+        Assert.Equal("Panel A", (string?)panels[0]!["strName"]);                // other panels untouched
+        var flat = ((JsonArray)panels[1]!["dictGUIPropMap"]!).Select(n => (string?)n).ToList();
+        Assert.Equal(
+            ["NavModMap", "0.10|0.10|0.90|0.90",          // the player put the map there: left alone
+             "NavModWarnings", "0.75|0.80|1.00|1.00",     // empty, so ours fills it
+             "NavModCoursePlot", ""],                     // new key, trayed
+            flat);
+    }
+
+    [Fact]
+    public void A_new_consoles_nav_config_is_written_over_the_defaults()
+    {
+        var item = new JsonObject
+        {
+            ["strName"] = "ItmStationNav",
+            ["aGPMSettings"] = new JsonArray
+            {
+                new JsonObject { ["strName"] = "NavModConfig", ["dictGUIPropMap"] = new JsonArray { "NavModMap", "0.10|0.10|0.90|0.90" } },
+            },
+        };
+
+        SaveEdit.ApplyNavConfig(item, [("NavModMap", "0.25|0.00|0.65|0.80")], onlyFillEmpty: false);
+
+        var flat = ((JsonArray)((JsonArray)item["aGPMSettings"]!)[0]!["dictGUIPropMap"]!).Select(n => (string?)n).ToList();
+        Assert.Equal(["NavModMap", "0.25|0.00|0.65|0.80"], flat);   // a console with no history to protect
+    }
 }

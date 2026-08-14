@@ -3875,6 +3875,17 @@ public partial class MainWindow : Window
                       "Turn on \"Items lying on the deck\" at import to bring them in.");
         if (result.SystemDropped > 0)
             notes.Add($"{result.SystemDropped} loot spawner and system object(s) were dropped.\nThey populate the ship at runtime, and aren't buildable structure.");
+        if (result.NavConsolesStocked > 0)
+            notes.Add($"{result.NavConsolesStocked} nav console(s) came in empty and were fitted with the standard " +
+                      $"module set ({result.NavModulesInstalled} module(s) in all).\n" +
+                      "A console is only a frame: its screens are separate modules held inside it, and a ship from "
+                      + "before 1.0 has none at all. Right-click the console and choose \"View contents\" to change "
+                      + "what it carries."
+                      + (result.NavModulesTrayed > 0
+                          ? $"\n{result.NavModulesTrayed} of them are aboard but not on the screen: the stock layout "
+                            + "leaves no room. In game, open the console's edit menu and drag one in when the trip "
+                            + "calls for it."
+                          : ""));
         // skippedHandled: the save-edit path already ran the missing-mods stand-in prompt, which says all of this
         // and more — don't follow it with a second, weaker dialog about the same defs.
         var reportSkipped = result.Skipped.Count > 0 && !skippedHandled;

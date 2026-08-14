@@ -59,6 +59,19 @@ public sealed record ImportResult(
 
     /// <summary>Items lying loose on the deck that were left behind, stack members included.</summary>
     public int LooseDropped { get; init; }
+
+    /// <summary>Nav consoles that arrived with nothing inside and were stocked with the standard module set
+    /// (see <see cref="NavConsole.StockEmptyConsoles"/>). Reported because it is an addition to the design, not
+    /// something the source ship carried.</summary>
+    public int NavConsolesStocked { get; init; }
+
+    /// <summary>Modules installed by that stocking, across every console. Not counted in
+    /// <see cref="ContainedKept"/> — nothing brought them in.</summary>
+    public int NavModulesInstalled { get; init; }
+
+    /// <summary>Of those, how many the console screen has no room for and so start in the console's edit-menu
+    /// tray (see <see cref="NavConsole.Arrange"/>) — aboard and usable, but not on screen until placed.</summary>
+    public int NavModulesTrayed { get; init; }
 }
 
 /// <summary>
@@ -157,6 +170,7 @@ public static class TemplateImport
         // into their head's quantity) — excluded from every "left behind" tally.
         var absorbed = new HashSet<TemplateItem>();
         var taken = 0;   // contained items attached as container contents
+        int navConsoles = 0, navModules = 0, navTrayed = 0;   // nav consoles stocked with the standard module set
 
         using (doc.SuspendChanged())
         {
@@ -233,6 +247,13 @@ public static class TemplateImport
             if (opts.ContainerContents && shipNode is not null && placedByStrId.Count > 0)
                 taken = AttachCargo(doc, catalog, shipNode, placedByStrId, retainOrigin);
 
+            // A nav console that came in empty gets the standard module set, so the planner shows what the export
+            // will actually spawn (see NavConsole). Not on the save-edit path: its cargo is attached afterwards
+            // from the retained context, which would overwrite this — SaveEditImport calls the same fill once that
+            // is done.
+            if (opts.ContainerContents && !retainOrigin)
+                (navConsoles, navModules, navTrayed) = NavConsole.StockEmptyConsoles(doc, catalog);
+
             // Convert stored zones to document coordinates. On import the document origin coincides with the
             // game grid origin, so a flat index maps straight to a doc tile; indices past the grid are dropped
             // (a corrupt/stale ship). Zones are pure overlays — no placement law, no tile conds.
@@ -286,11 +307,15 @@ public static class TemplateImport
         return new ImportResult(doc, skippedList, structureDropped + deckDropped + crewDropped, systems,
             ShipName(tmpl), doc.Placements.Count)
         {
-            ContainedKept = doc.Placements.Sum(p => CountCargo(p.Cargo)),
+            // the stocked nav modules are Ostraplan's own addition, not something the ship carried in
+            ContainedKept = doc.Placements.Sum(p => CountCargo(p.Cargo)) - navModules,
             CrewDropped = crewDropped,
             DeckDropped = deckDropped,
             LooseKept = looseKept,
             LooseDropped = looseDropped,
+            NavConsolesStocked = navConsoles,
+            NavModulesInstalled = navModules,
+            NavModulesTrayed = navTrayed,
         };
     }
 

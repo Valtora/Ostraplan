@@ -1088,6 +1088,84 @@ none of this. `aCOs` is omitted entirely when a design has no cargo.
 > (read). A round-trip (`doc → export → parse → import`) reproduces the same tiles /
 > rooms / rating exactly.
 
+### A nav console is stocked by a loot spawner, not by parented modules
+
+A nav console (`ItmStationNav`) is a bare frame: a 5×4 container
+(`strContainerCT: TIsFitContainerNavMod`) whose screens are separate hot-swappable
+`ItmNavMod*` items held loose inside it. Its own def carries **no** module loot: `strLoot`
+is `ItmNAVDataStorage`, a `DataStore` chip that goes in the console's `data` **slot**
+(`aSlotsWeHave: ["data"]`) with a datafile or two inside it. So every console in the game
+holds something, and none of it is a screen — a console is "empty" when it has no **loose**
+cargo, not when it has no cargo.
+
+Core templates do not parent modules to the console either. Across the 220 core
+`data/ships` files, **not one of the 127 consoles carries a module item**. Instead a
+`SysLootSpawner` sits at the console's own `fX/fY` with a `strType: "Loot"` prop map
+naming a stock set in `data/loot`, `strCount: "1"`, and `strNew`/`strDamaged`/`strDerelict`
+all `"True"` — the game rolls it at spawn, so a derelict copy of the ship gets the damaged
+variants. **82 of the 127 consoles have such a spawner**; the other 45 are meant to be
+bare.
+
+| Set | Modules | Core consoles using it |
+|---|---|---|
+| `ItmNavStationModsPod` | 13, including `MooringControl`; no torch, no weapons | 35 |
+| `ItmNavStationModsTorchShip` | 13, including `CoursePlot` + `TorchDrive`, no mooring | 18 |
+| `ItmNavStationModsCombat` | 15, including `WeaponsMFD` + `Fire2x2` | 12 |
+| `ItmNavStationModsAtmo` | 12, including `FlightDynamics`, no mooring or sensors | 9 |
+| `ItmNavStationModsTorchCombat` / `…2`, `…TorchShip2` | 13–17 | 8 |
+
+`ItmNavStationModsRandom*` are a different shape and easy to misread: `…RandomPod` is a
+**single weighted pick** (`A=0.125x1|B=0.125x1|…`), not a set — it is what a salvage
+container or a shop rolls, not what a console is fitted with.
+
+> **Ported in Ostraplan:** `NavConsole`. The spawner itself is **not** reproduced (it is
+> an `IsSystem` object, dropped on import like every other): Ostraplan bakes
+> `NavConsole.StandardModules` (the `Pod` set plus `CoursePlot`) as literal contained
+> items, which works identically on the template path (`ShipExport`) and the save path
+> (`SaveEdit`), and needs no spawner behaviour. `NavConsole.StockEmptyConsoles` fits them
+> at **import** to any console that arrives without modules — a pre-1.0 ship (consoles had
+> no inventory at all before 1.0) or a core template, whose modules were in the dropped
+> spawner — so the planner shows what will actually spawn. A console placed from the
+> palette is filled by the same list at export/inject time. All three gate on
+> `NavConsole.NeedsModules` (no **loose** cargo), never on "no cargo": the slotted data
+> chip above made every imported console look stocked, and they exported with a chip and no
+> screens.
+
+### The console screen is anchor rects, and a module with no room is shelved
+
+Where each module appears on the console is **not** derived from its inventory cell. The
+console's own `NavModConfig` prop map holds `module key → "xMin|yMin|xMax|yMax"` (anchors in
+0..1, y up), keyed by the module's **GUI prefab** (`NavModMap`), not its item def name.
+`GUIOrbitDraw.LoadModules` walks the modules in the console, reads that map, and falls back
+to the module's own `strDefaultPos` when the console has no entry (or an empty one).
+
+`EditMenu.DoesModFit` then decides whether it stays: a rect outside 0..1, or one strictly
+overlapping a module **already placed**, gets `DisableMod()` — the module remains in the
+console and in the edit menu's tray, it just is not on screen. So **the order the modules
+are walked in decides who keeps a contested slot**, and that order is container order.
+`SaveModules` writes the inverse: every key blanked, then the anchors of each active module
+at 2dp, which is why `""` is the game's own "in the tray" marker.
+
+Two consequences worth knowing:
+
+- **Stock rects collide by design.** `NavModMooringControl` and `NavModFlightDynamics` are
+  the same rect; `NavModSensorsMFD`, `NavModTorchDrive` and `NavModWeaponsMFD` are another.
+  No stock loot set carries both of a pair — except `ItmNavStationModsTorchShip` (18 core
+  consoles), where `NavModCoursePlot` (`0|0.4|0.25|0.8`) swallows `NavModTargetData`
+  (`0.15|0.4|0.25|0.8`), so one of those two loads shelved in vanilla.
+- **The pod set tiles the screen exactly**, leaving one free `0.15×0.4` strip at
+  `0|0.4|0.15|0.8`. Nothing else fits it at its stock size, so a 14th module has to be
+  resized or shelved.
+
+> **Ported in Ostraplan:** `NavConsole.Arrange` reproduces `LoadModules` + `DoesModFit`
+> (defaults, bounds, strict overlap, first-come order) and `NavConsole.ConfigEntries` emits
+> the `SaveModules` shape, which `ShipExport` and `SaveEdit` bake onto the console so the
+> contested slots are decided by the design rather than by container order. It never invents
+> a rect or resizes a panel: `StandardModules` is ordered by screen priority, and the two
+> situational modules it carries beyond the stock 13 (course plot, flight dynamics) ride in
+> the tray. On a **kept** console the write fills only keys the save leaves empty, so a
+> screen the player arranged in game survives the write-back.
+
 ### Ship identity on spawn
 
 - `publicName` is re-rolled to a random `DataHandler.GetShipName()` **only** when the
@@ -1592,8 +1670,8 @@ wraps each value in `<color=#009900>` (good) or `<color=#990000>` (bad). It is t
 own ship checklist, and it is reachable only by sitting at a console on a ship that already
 exists — which is why a planner has to recompute it.
 
-The module is a physical item like every other nav module (`ItmNavModDiagnostics`, §Nav
-console loadout in `NavConsole`), so a console without it shows no diagnostic page at all.
+The module is a physical item like every other nav module (`ItmNavModDiagnostics`; how a
+console gets its modules is §17), so a console without it shows no diagnostic page at all.
 
 ### The sixteen rows
 
@@ -1911,6 +1989,8 @@ sets), giving a 220-ship rooms **and** certification gate. Only **Babak / Babak 
 | Save write-back (frame rebuild, room-CO drop, dimensions) | ported | `SaveEdit`, `SaveEditImport` |
 | Ship zones (`aZones`) as authored data | modelled (preserve/draw/edit, not validated) | `ShipZone` / `ZoneGeometry` |
 | Wear/damage (`BreakIn` / `DamageAllCOs`) | ported (optional) | `WearModel` |
+| Nav console loadout (`SysLootSpawner` + `ItmNavStationMods*`, §17) | modelled (the stock `Pod` set + course plot + flight dynamics, baked as literal items; the spawner is not reproduced) | `NavConsole` |
+| Nav console screen layout (`GUIOrbitDraw.LoadModules`, `EditMenu.DoesModFit`, `SaveModules`, §17) | ported (rects, bounds, overlap, tray; no rect is invented or resized) | `NavConsole.Arrange` / `ConfigEntries` |
 | Obtainability (brokers, chargen) | ported | `KioskExport`, `StartingShipExport` |
 | Contained/slotted sub-objects on read; exterior-margin trim | not modelled (corpus-only; import drops sub-objects) | — |
 | Crew LOS/proximity, docked-ship, station build-zone permission **in `CheckFit`** | excluded (in-game only — they gate the interactive builder, not a spawned ship) | never ported |

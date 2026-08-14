@@ -77,10 +77,20 @@ public static class SaveEditImport
         // context, not from Build), so its tallies still call every contained item dropped. Settle them from what
         // was actually attached, or the import report claims the ship's whole inventory was left behind.
         var attached = import.Doc.Placements.Sum(p => p.Cargo.Sum(c => c.SubtreeCount));
+
+        // Now — after the save's own contents are on the placements, which is what Build had to leave to this
+        // path — stock any nav console that has none. A pre-1.0 save is the case: consoles had no inventory
+        // before 1.0, so they read in empty and the inject would write them back empty (a console the save
+        // already had is kept verbatim, so the inject's own new-console fill never sees it). See NavConsole.
+        var (navConsoles, navModules, navTrayed) = NavConsole.StockEmptyConsoles(import.Doc, catalog);
+
         import = import with
         {
             ContainedKept = attached,
             ContainedDropped = Math.Max(0, import.ContainedDropped - attached),
+            NavConsolesStocked = navConsoles,
+            NavModulesInstalled = navModules,
+            NavModulesTrayed = navTrayed,
         };
         return new SaveEditImportResult(import, context);
     }

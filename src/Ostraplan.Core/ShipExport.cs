@@ -290,14 +290,28 @@ public static class ShipExport
             {
                 EmitCargo(placement.Cargo, strID, fx, fy);   // the design's contents (original + authored), pristine
             }
-            else if (NavConsole.IsConsole(part.Part))
+            if (NavConsole.IsConsole(part.Part))
             {
-                // An EMPTY nav console is a bare frame: its interface is assembled from hot-swappable module items
-                // contained inside it. Ostraplan places only the console, so install the standard module set here or
-                // it spawns blank. Each module is baked the same way as EmitContained's cargo (bForceLoad + marker +
+                // The console's screen arrangement. Whatever modules it ends up carrying, bake where each one sits
+                // (NavConsole.Arrange / ConfigEntries) so the console the player sits at is laid out the way we
+                // planned it rather than however the game happens to walk the container. Item prop maps merge into
+                // the def's key by key, so this panel touches nothing else the console declares.
+                var modules = NavConsole.NeedsModules(placement?.Cargo ?? [])
+                    ? NavConsole.StandardModules
+                    : placement!.Cargo.Where(c => !c.Slotted).Select(c => c.DefName).ToList();
+                if (catalog.Lookup(part.Part.DefName) is { } consoleDef
+                    && NavConsole.ConfigEntries(catalog, consoleDef, modules) is { Count: > 0 } entries)
+                    item.AGPMSettings = [.. item.AGPMSettings ?? [], NavConfigGpm(entries)];
+            }
+            if (NavConsole.IsConsole(part.Part) && NavConsole.NeedsModules(placement?.Cargo ?? []))
+            {
+                // A nav console with no MODULES is a bare frame: its interface is assembled from hot-swappable
+                // module items held loose inside it, so install the standard set here or it spawns blank. The test
+                // is NavConsole.NeedsModules, not "has no cargo": every console carries a slotted data chip, which
+                // is not a screen. Each module is baked the same way as EmitContained's cargo (bForceLoad + marker +
                 // a CO): a nav console has no default module loot, so without that the modules would be dropped on a
-                // template spawn and the console would come back empty (see EmitContained, NavConsole, Babak.json).
-                // A console that already carries modules (a save-imported one) keeps them via EmitCargo above.
+                // template spawn and the console would come back empty (see EmitContained, NavConsole).
+                // A console that already carries modules keeps exactly those, via EmitCargo above.
                 foreach (var modDef in NavConsole.StandardModules)
                 {
                     var modId = Guid.NewGuid().ToString();
@@ -729,6 +743,14 @@ public static class ShipExport
     {
         StrName = Rename.Panel,
         DictGUIPropMap = [Rename.NameKey, name],
+    };
+
+    /// <summary>Build a nav console's <c>NavModConfig</c> panel: each module's key against its screen anchor rect,
+    /// or <c>""</c> for one that waits in the edit-menu tray (see <see cref="NavConsole.ConfigEntries"/>).</summary>
+    private static ExportedGpmSetting NavConfigGpm(IReadOnlyList<(string Key, string Value)> entries) => new()
+    {
+        StrName = "NavModConfig",
+        DictGUIPropMap = [.. entries.SelectMany(e => new object?[] { e.Key, e.Value })],
     };
 
     /// <summary>Build the <c>Electrical</c> GPM panel for a wired item: the game's flat, order-sensitive

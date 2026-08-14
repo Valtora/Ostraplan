@@ -230,6 +230,10 @@ public static class SaveEdit
                         ["strName"] = c.DefName, ["fX"] = px, ["fY"] = py, ["fRotation"] = (double)c.GridRot, ["strID"] = cid,
                         [c.Slotted ? "strSlotParentID" : "strParentID"] = parentId,
                     };
+                    // A contained DEVICE needs its GUI-prop-maps baked too, the same as a new placed part: a nav
+                    // module's page comes from its GPM, and a save load restores these from the file rather than
+                    // rebuilding them from the def. Null for inert cargo (a tool, a shirt, a can).
+                    if (GpmSettings(catalog, c.DefName) is { } cgpm) citem["aGPMSettings"] = cgpm;
                     outItems.Add(citem);
                     outItemsById[cid] = citem;
                     var cco = SynthesizeCo(c.DefName, cid, catalog, ctx.Source.RegId, ctx.Epoch);
@@ -283,10 +287,11 @@ public static class SaveEdit
                 outItemsById[containerId] = item;
                 outCOs.Add(SynthesizeCo(p.DefName, containerId, catalog, ctx.Source.RegId, ctx.Epoch));
 
-                // a newly-added EMPTY nav console is a bare frame — install the standard nav-module set as contained
-                // children (exactly how a real ship template carries them), each a fresh item + CO. A console that
-                // already carries modules (kept, or transferred through a re-skin) keeps them via its cargo below.
-                if (p.Cargo.Count == 0 && NavConsole.IsConsole(catalog.Lookup(p.DefName)))
+                // a newly-added nav console with no MODULES is a bare frame — install the standard nav-module set as
+                // contained children, each a fresh item + CO. The test is NavConsole.NeedsModules, not "has no
+                // cargo": a slotted data chip is not a screen. A console that already carries modules (kept, or
+                // transferred through a re-skin) keeps them via its cargo below.
+                if (NavConsole.NeedsModules(p.Cargo) && NavConsole.IsConsole(catalog.Lookup(p.DefName)))
                     foreach (var modDef in NavConsole.StandardModules)
                     {
                         var modId = Guid.NewGuid().ToString();
@@ -311,6 +316,20 @@ public static class SaveEdit
             // cleared a name back to the stock one — both have to reach the item that is actually written.
             if (outItemsById.GetValueOrDefault(containerId) is { } namedItem)
                 ApplyRename(namedItem, p.CustomName);
+
+            // A nav console's screen arrangement: where each module it holds sits, so the console reads the way the
+            // design intends instead of however the game walks the container (see NavConsole.Arrange). On a KEPT
+            // console only the keys the save leaves empty are filled — a player who arranged their own console in
+            // game keeps that arrangement, and only the modules Ostraplan just put in get placed.
+            if (NavConsole.IsConsole(catalog.Lookup(p.DefName)) && catalog.Lookup(p.DefName) is { } consoleDef
+                && outItemsById.GetValueOrDefault(containerId) is { } consoleItem)
+            {
+                var modules = NavConsole.NeedsModules(p.Cargo) && chg.Kind == PartChangeKind.New
+                    ? NavConsole.StandardModules
+                    : p.Cargo.Where(c => !c.Slotted).Select(c => c.DefName).ToList();
+                ApplyNavConfig(consoleItem, NavConsole.ConfigEntries(catalog, consoleDef, modules),
+                    onlyFillEmpty: chg.Kind != PartChangeKind.New);
+            }
 
             structuralIds.Add(containerId);
             EmitCargo(p.Cargo, containerId, fx, fy);
@@ -967,6 +986,41 @@ public static class SaveEdit
 
         if (panels is null) item["aGPMSettings"] = panels = [];
         panels.Add(Rename.PanelNode(value));
+    }
+
+    /// <summary>
+    /// Write a nav console's <c>NavModConfig</c> panel — the module → screen-rect map the console's GUI reads
+    /// (<see cref="NavConsole.ConfigEntries"/>) — merging into whatever panel the item already carries rather
+    /// than replacing it, since a save's console holds the player's own arrangement in the same map.
+    ///
+    /// <para>With <paramref name="onlyFillEmpty"/> an existing non-empty position is never touched: on a kept
+    /// console only the modules Ostraplan has just put in get placed, and a screen the player laid out in game
+    /// comes back exactly as they left it. A new console has no history to protect, so its entries are written
+    /// outright over the defaults its def supplied.</para>
+    /// </summary>
+    internal static void ApplyNavConfig(JsonObject item, IReadOnlyList<(string Key, string Value)> entries, bool onlyFillEmpty)
+    {
+        if (entries.Count == 0) return;
+        if (item["aGPMSettings"] is not JsonArray panels) item["aGPMSettings"] = panels = [];
+
+        var panel = panels.OfType<JsonObject>().FirstOrDefault(p => Str(p, "strName") == "NavModConfig");
+        if (panel is null)
+        {
+            panel = new JsonObject { ["strName"] = "NavModConfig", ["dictGUIPropMap"] = new JsonArray() };
+            panels.Add(panel);
+        }
+        if (panel["dictGUIPropMap"] is not JsonArray flat) panel["dictGUIPropMap"] = flat = [];
+
+        foreach (var (key, value) in entries)
+        {
+            // the map is the game's flat [key, value, key, value, …] array, so an existing key is rewritten in place
+            var at = -1;
+            for (var i = 0; i + 1 < flat.Count; i += 2)
+                if (flat[i]?.GetValue<string>() == key) { at = i + 1; break; }
+            if (at < 0) { flat.Add(key); flat.Add(value); continue; }
+            if (onlyFillEmpty && flat[at]?.GetValue<string>() is { Length: > 0 }) continue;   // the player's own placement
+            flat[at] = value;
+        }
     }
 
     private static string SourceDir(SaveShipContext ctx) => Path.GetDirectoryName(ctx.ZipPath)!;

@@ -213,4 +213,55 @@ public class ShipImportTests(ITestOutputHelper output)
         }
         Assert.True(checkedShips > 0, "no core ships with interior compartments were checked");
     }
+
+    [SkippableFact]
+    public void A_core_ships_empty_nav_console_is_stocked_on_import_and_survives_export()
+    {
+        // Real data, because this is where the game's own shape matters: a core template keeps its console's
+        // modules in a SysLootSpawner (dropped on import as a system object), so every console arrives empty and
+        // has to be stocked here — the same state a pre-1.0 ship arrives in. See NavConsole.
+        var g = TestData.RequireGame();
+        if (g.Catalog.Lookup("ItmStationNav") is not { } consoleDef || !NavConsole.IsConsole(consoleDef)) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+
+        var expected = NavConsole.StandardModules.OrderBy(x => x, System.StringComparer.Ordinal).ToList();
+        foreach (var entry in TemplateImport.ListShipFiles(g.Index))
+        {
+            ImportResult r;
+            try { r = TemplateImport.LoadFile(entry.Path, g.Catalog); } catch { continue; }
+            var consoles = r.Doc.Placements.Where(p => NavConsole.IsConsole(g.Catalog.Lookup(p.DefName))).ToList();
+            if (consoles.Count == 0) continue;
+
+            Assert.Equal(consoles.Count, r.NavConsolesStocked);
+            Assert.Equal(consoles.Count * expected.Count, r.NavModulesInstalled);
+            // the modules are the LOOSE contents; the console's slotted data chip came from the ship and stays
+            Assert.All(consoles, c => Assert.Equal(
+                expected, c.Cargo.Where(x => !x.Slotted).Select(x => x.DefName)
+                    .OrderBy(x => x, System.StringComparer.Ordinal).ToList()));
+            Assert.All(consoles, c => Assert.Contains(c.Cargo, x => x.Slotted));
+
+            // and they reach the exported template, each parented to its own console
+            var (exported, _, _) = ShipExport.Build(r.Doc, g.Catalog, specs, "NavStockTest");
+            var consoleIds = exported.AItems
+                .Where(i => consoles.Any(c => c.DefName == i.StrName)).Select(i => i.StrID).ToHashSet();
+            var byParent = exported.AItems
+                .Where(i => i.StrParentID is { } pid && consoleIds.Contains(pid))
+                .GroupBy(i => i.StrParentID!);
+            Assert.Equal(consoles.Count, byParent.Count());
+            Assert.All(byParent, grp => Assert.Equal(
+                expected, grp.Select(i => i.StrName).OrderBy(x => x, System.StringComparer.Ordinal).ToList()));
+
+            // each console also carries the screen arrangement for what it holds: a NavModConfig panel with an
+            // entry per module, empty for the two the stock layout has no room for (NavConsole.Arrange)
+            foreach (var item in exported.AItems.Where(i => consoleIds.Contains(i.StrID)))
+            {
+                var panel = Assert.Single(item.AGPMSettings ?? [], p => p.StrName == "NavModConfig");
+                var flat = panel.DictGUIPropMap.Select(x => x as string).ToList();
+                Assert.Equal(expected.Count * 2, flat.Count);
+                Assert.Equal(2, flat.Where((_, i) => i % 2 == 1).Count(v => v is { Length: 0 }));
+            }
+            return;
+        }
+        Assert.Fail("no ship template with a nav console was found");
+    }
 }

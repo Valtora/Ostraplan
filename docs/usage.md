@@ -679,6 +679,24 @@ drill into nested containers. On an editable design you can also **add, remove a
 rearrange** loose cargo; contents travel with the ship through **Export** and save
 write-back.
 
+A **nav console** is a container too, and an important one: the console itself is only a
+frame, and every screen on it is a separate module sitting inside. A console that comes in
+with no modules — any ship from before 1.0, where consoles had no inventory at all, and
+stock ship templates, whose modules are spawned by something Ostraplan doesn't import — is
+fitted with the stock loadout at import, and the import summary says so. The data chip in
+the console's own slot doesn't count as a module, and is kept. Open the console with **View
+contents…** to see what it carries, pull a module you don't want, or add one you do (the
+weapons and torch-drive modules included). A console that already has modules is left
+alone, so a stripped salvage console stays stripped.
+
+The set is the game's stock one, plus **course plot** and **flight dynamics** for the trips
+that need them. Those two ride along without a place on the screen: a stock console's
+thirteen modules tile it exactly, and neither of the extras fits the one gap left. They are
+still aboard — sit at the console in game, open its edit menu, and drag either onto the
+screen when you are plotting a burn or flying in atmosphere. Everything else appears exactly
+where the game puts it on a stock console, which Ostraplan writes into the ship so it does
+not depend on what order the game happens to read the modules in.
+
 ## Power
 
 Two aids for wiring a ship's electrics, both driven by the game's own power model.

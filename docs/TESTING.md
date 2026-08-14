@@ -83,6 +83,7 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 | Save grant (a new ship into a save) | `SaveGrantTests`, `SaveGrantWriteTests` (the owner-registry insert) | `SaveGrantWriteTests` (end-to-end, real saves) |
 | Diff / identity | `SaveEditTests` (pure) | `SaveEditTests` (end-to-end) |
 | Export (mapping, `mod_info` shape, nav) | `ShipExportMappingTests`, `NavConsoleTests` | `ShipExportTests` |
+| Nav console loadout + screen arrangement | `NavConsoleTests` | `NavConsoleTests` (the stock rects), `ShipImportTests` |
 | `.oplan` round-trip | `EngineTests` | `SaveEditTests` |
 | Cargo edit / inventory grid | `CargoEditTests`, `InventoryGridTests`, `CargoTests` | `ContainerModelTests` |
 | Data parsers (`Defs`, `CondAmount`) | `DefsParsingTests`, `CondAmountTests` | — |

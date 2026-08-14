@@ -12,6 +12,25 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Fixed
+- **An imported ship's nav console no longer exports with no screens at all.** A console is only a frame: every
+  screen on it is a separate module held inside, and Ostraplan fits a set to a console that has none. It decided
+  "has none" by asking whether the console was empty, and a console is never empty — it carries a data chip in
+  its own slot, on every ship in the game. So the modules went in only for a console you placed yourself, and any
+  ship you imported and exported came back with a chip, no screens, and nothing to fly it with. The test is now
+  whether the console holds a **module**, and a chip, a manual or anything else in a slot no longer counts.
+- **The module set is the one a stock console actually has.** It was missing **Mooring Control**, the page you
+  moor and dock with. It is now the game's own stock loadout, plus **Course Plot** and **Flight Dynamics** for
+  the trips that need them.
+- **The console is laid out the way the game lays one out.** Each screen has a fixed place on the console, and
+  the game shelves any module whose place is already taken — deciding which one loses by whatever order it reads
+  the console's contents in. Ostraplan now works that out itself and writes the arrangement into the ship, so a
+  console comes up looking like a stock console instead of like a coin toss. The stock thirteen fill the screen
+  exactly; **Course Plot** and **Flight Dynamics** are aboard but shelved, and you drag either onto the screen
+  from the console's own edit menu when you need it. The import summary says so, and a console you arranged
+  yourself in game is never rearranged by a write-back.
+- **A device dropped into a container comes back working.** Cargo written into a save was written without its
+  control panels, so a nav module put into a console by hand had no page behind it. It now carries the same panel
+  wiring a newly-built part gets.
 - **Grey bulkhead bins no longer demand a floor they never needed.** The grey Rakow "Reserve" bins — the 2x and the
   corner, the ones you see hung on the outside of a hull — are their own part in the game, but Ostraplan was reading
   them as the tan "Vanilla" bin they sit next to in the data. That one mounts over a deck, so touching a grey bin
@@ -37,6 +56,13 @@ each release was verified against is recorded in
   later.
 
 ### Added
+- **An empty nav console is stocked when the ship comes in, not quietly at export.** Ships from before 1.0 have
+  consoles with nothing in them at all — the game had no console inventory back then — and a stock ship template
+  keeps its modules in a spawner Ostraplan doesn't import, so both arrive bare. Ostraplan used to slip the modules
+  in on the way out, which worked but left the console looking empty in the planner the whole time you were
+  designing. It now fits them at import, says so in the import summary, and you can see them under **View
+  contents…**, take one out, or put a different one in. A console that already carries a module is left exactly
+  as it is, salvage gaps and all.
 - **Move Back and Move Forward (`Ctrl+[` / `Ctrl+]`).** Right-click a part or a loose item and step it through the
   pile of things sharing its tile when the automatic order is not what you want, with **Reset order** to hand that
   pile back to it. The choice is saved with the design, and it stays inside the render layer, so nothing can be
