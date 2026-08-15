@@ -1,5 +1,6 @@
 using System.Runtime.CompilerServices;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Threading;
 using Ostraplan.Core;
@@ -25,9 +26,16 @@ namespace Ostraplan.App;
 /// bigger than the screen) and re-centred on whatever it was centred on. Windows that size to their content need
 /// none of that: they follow their content on their own.</para>
 ///
-/// <para>The one thing outside its reach is the popup layer (dropdowns, tooltips, the toolbar's dropdown menus).
-/// WPF positions a popup through the transform chain of its placement target, so those scale with the window
-/// that owns them.</para>
+/// <para><b>The popup layer.</b> A popup renders in its own top-level window, so whether it picks the scale up
+/// depends on where its content sits in the visual tree. A dropdown declared inside a control's template — a
+/// ComboBox's list, a MenuItem's submenu — is a visual descendant of the element that owns it and inherits the
+/// transform for free. A <see cref="ContextMenu"/> or a <see cref="ToolTip"/> is not: it is attached to a
+/// placement target, which positions it but does not put it under that target in the tree, so it opened at 100%
+/// however large the rest of the app was. <see cref="Install"/> therefore scales those two on
+/// <see cref="ContextMenu.OpenedEvent"/> / <see cref="ToolTip.OpenedEvent"/> — the earliest per-open moment,
+/// since <see cref="FrameworkElement.LoadedEvent"/> never fires for either. Scaling one after it opens is safe:
+/// WPF re-fits a popup to the work area when its size changes, so a menu opened at the bottom of the screen
+/// still lands on screen. Submenus need nothing of their own; they inherit from the menu that opened them.</para>
 /// </summary>
 public static class UiScale
 {
@@ -48,8 +56,8 @@ public static class UiScale
     }
 
     /// <summary>
-    /// Set the startup scale and hook every window the app opens from here on. Called once, from
-    /// <see cref="App.OnStartup"/>, before the first window is created.
+    /// Set the startup scale and hook every window the app opens from here on, plus the two popup kinds that
+    /// don't inherit it. Called once, from <see cref="App.OnStartup"/>, before the first window is created.
     /// </summary>
     public static void Install(double scale)
     {
@@ -58,6 +66,18 @@ public static class UiScale
         _installed = true;
         EventManager.RegisterClassHandler(typeof(Window), FrameworkElement.LoadedEvent,
             new RoutedEventHandler((sender, _) => { if (sender is Window w) ApplyTo(w, resize: true); }));
+
+        // Per open rather than once per instance: a menu is reopened over and over, and the scale may have moved
+        // in Settings since the last time. Reading the live Scale here is also why nothing has to track them.
+        EventManager.RegisterClassHandler(typeof(ContextMenu), ContextMenu.OpenedEvent, new RoutedEventHandler(ScalePopup));
+        EventManager.RegisterClassHandler(typeof(ToolTip), ToolTip.OpenedEvent, new RoutedEventHandler(ScalePopup));
+    }
+
+    /// <summary>Scale a popup that has just opened. See the popup-layer note on the class.</summary>
+    private static void ScalePopup(object sender, RoutedEventArgs e)
+    {
+        if (sender is not FrameworkElement popup) return;
+        popup.LayoutTransform = Scale == UiScaling.Default ? Transform.Identity : Frozen(Scale);
     }
 
     /// <summary>

@@ -12,6 +12,11 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Fixed
+- **Right-click menus and tooltips follow the UI scale** ([#25](https://github.com/Valtora/Ostraplan/issues/25)).
+  Everything else grew with the setting and these two stayed at 100%, which on a high-density screen is exactly
+  where it hurts. A menu attached to what you right-clicked is positioned by it but not part of it, so it never
+  inherited the scale the way a dropdown does; it is scaled on open now, and submenus follow the menu that opened
+  them. A menu opened at the edge of the screen is still fitted onto it at the larger size.
 - **A Surfaces brush lands at the rotation you aimed it at** ([#27](https://github.com/Valtora/Ostraplan/issues/27)).
   Pressing **R** turned the ghost but not the tile: painting a decal onto a floor that was already there re-used
   that floor's rotation, and painting a decal onto a copy of itself did nothing at all, so an arrow under a door
