@@ -71,7 +71,10 @@ public static class SaveEditImport
         var source = new SaveSourceRef(saveName, regId);
         import.Doc.SourceSave = source;
 
-        var context = BuildContext(source, zipPath, shipNode, import.Doc, catalog, SaveImport.PlayerCoId(zip), SaveImport.SessionEpoch(zip));
+        // One read of the session record, not three: it is the biggest thing in a save (tens of MB), and this
+        // needs the player CO, the epoch, and — for the cost deduction — which ship the player is standing on.
+        var session = SaveImport.ReadSession(zip);
+        var context = BuildContext(source, zipPath, shipNode, import.Doc, catalog, session, zip, regId);
 
         // Build ran before BuildContext hung the cargo on the placements (this path attaches from the retained
         // context, not from Build), so its tallies still call every contained item dropped. Settle them from what
@@ -95,9 +98,9 @@ public static class SaveEditImport
         return new SaveEditImportResult(import, context);
     }
 
-    /// <summary>Assemble the full context: the mutable ship record, every item/CO indexed by strID, and each
-    /// structural part's imported pose + contained-cargo subtree.</summary>
-    private static SaveShipContext BuildContext(SaveSourceRef source, string zipPath, JsonNode shipNode, ShipDocument doc, Catalog catalog, string? playerCoId, double epoch)
+    /// <summary>Assemble the full context: the mutable ship record, every item/CO indexed by strID, each
+    /// structural part's imported pose + contained-cargo subtree, and where the player's money is.</summary>
+    private static SaveShipContext BuildContext(SaveSourceRef source, string zipPath, JsonNode shipNode, ShipDocument doc, Catalog catalog, SessionRecord? session, ZipArchive zip, string regId)
     {
         var (itemsById, cosById, children) = ShipJson.Index(shipNode);
 
@@ -114,13 +117,21 @@ public static class SaveEditImport
                 p.Fill = ReadFill(id, itemsById, cosById, catalog, doc.Part(p));
             }
 
+        // The player's money follows the character, not the ship: it is on their CO, which lives in the record for
+        // whatever they were standing on when the game saved. Resolved here, once, because reading it can mean
+        // parsing a second large ship record and this import already runs off the UI thread.
+        var (coRegId, balance) = SaveEdit.LocatePlayerBalance(
+            zip, shipNode, regId, session?.PlayerCoId, session?.ShipRegId);
+
         return new SaveShipContext
         {
             Source = source,
             ZipPath = zipPath,
             ShipRecord = shipNode,
-            PlayerCoId = playerCoId,
-            Epoch = epoch,
+            PlayerCoId = session?.PlayerCoId,
+            PlayerCoRegId = coRegId,
+            PlayerBalance = balance,
+            Epoch = session?.Epoch ?? 0,
             Origins = origins,
             ItemsById = itemsById,
             CosById = cosById,

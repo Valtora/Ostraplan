@@ -39,10 +39,27 @@ public sealed class SaveShipContext
     public required string ZipPath { get; init; }
 
     /// <summary>The player character CO's <c>strID</c> (the session record's <c>strPlayerCO</c>). Its
-    /// <c>StatUSD</c> cond is the authoritative money balance, and — for the player's own ship — that CO is crew
-    /// in this ship record, so the save-edit cost deduction rewrites it here. Null if the record couldn't be
-    /// read or the player CO isn't on this ship (then the edit-cost deduction is unavailable).</summary>
+    /// <c>StatUSD</c> cond is the authoritative money balance. Null if the session record couldn't be read.</summary>
     public string? PlayerCoId { get; init; }
+
+    /// <summary>
+    /// The RegID of the ship record that actually <b>holds</b> the player CO — which is not necessarily the ship
+    /// being edited. A character's CO entry lives in the record for whatever they were standing on when the game
+    /// saved: their own ship while aboard it, but the station's record while docked, and another of their ships
+    /// when they are on that one instead. Null when the CO couldn't be located anywhere.
+    ///
+    /// <para>This is what makes the cost deduction independent of where the player happens to be standing. Equal
+    /// to <see cref="SaveSourceRef.RegId"/> in the aboard case, where the deduction rides along in the ship record
+    /// the inject already rewrites; anything else and the writer patches that second record too (see
+    /// <c>SaveEdit.PatchPlayerBalance</c>).</para>
+    /// </summary>
+    public string? PlayerCoRegId { get; init; }
+
+    /// <summary>The player's credit balance, resolved once at import from wherever
+    /// <see cref="PlayerCoRegId"/> says the CO lives — reading it can mean parsing a second (large) ship record,
+    /// so it is not re-derived on demand. Null when there is no balance to deduct from, which is what disables
+    /// the edit-cost option in the UI.</summary>
+    public double? PlayerBalance { get; init; }
 
     /// <summary>The save's current game epoch (<c>objSystem.dfEpoch</c>) — stamped onto tickers baked into
     /// injected/healed device COs so they fire on load. 0 if it couldn't be read (the ticker still fires, just

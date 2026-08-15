@@ -637,6 +637,12 @@ identity*, so you can redesign the structure out-of-game and write it back.
   shows what the edit takes out of your credits and how much is left. Both follow the
   sliders live. The meter turns red and tells you how far short you are once the cost
   passes your balance, which is exactly when Next refuses.
+- **The deduction follows your character, not the ship.** Your credits sit on your
+  character, and in a save that character is filed wherever they were standing when the game
+  wrote it: on your ship while you're aboard, in the station's record while you're docked. So
+  the cost comes off your balance whether or not you're on the ship you're editing, and
+  whether or not you're on a ship at all. The option only greys out on a save with no
+  readable character record to charge.
 - **"Make Loose Item", "Install item", toggling a door and repairing a part count as moves,
   not purchases.** A part you already own that only changes *state* is priced on the moved
   multiplier, and the counts line names it separately (`… · 3 un/installed · …`).

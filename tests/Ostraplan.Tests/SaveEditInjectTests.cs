@@ -475,7 +475,8 @@ public class SaveEditInjectTests(ITestOutputHelper output)
     public void Charging_an_edit_deducts_statusd_on_the_player_co_and_saveinfo_money()
     {
         // the cost deduction: rewrite the player CO's StatUSD (authoritative balance) and mirror saveInfo.money
-        // into the written copy; the player CO lives on their own ship, so it's the file we already splice.
+        // into the written copy. This is the aboard case, where the player CO is crew in the very record the
+        // inject splices; for the docked case see the test below.
         var g = TestData.RequireGame();
         if (FirstImport(g.Env, g.Catalog) is not { } r) return;
         var specs = RoomCertifier.LoadSpecs(g.Index);
@@ -518,6 +519,86 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         var x = cond.IndexOf('x');
         return x >= 0 && double.TryParse(cond[(x + 1)..], System.Globalization.NumberStyles.Float,
             System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : 0;
+    }
+
+    [SkippableFact]
+    public void Charging_an_edit_deducts_from_the_player_wherever_they_are_standing()
+    {
+        // A character's CO — and so their money — lives in the record for whatever they were standing on when the
+        // game saved: a station's record while docked, or another of their ships. Editing an owned ship from there
+        // must still find the balance, and must still write the deduction, into that other record. Regression for
+        // the edit-cost option being disabled on every save taken away from the ship being edited.
+        var g = TestData.RequireGame();
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+
+        (SaveEntry Save, SaveShipChoice Ship)? away = null;
+        foreach (var save in SaveImport.ListSaves(g.Env))
+            if (SaveImport.ListPlayerShips(save.ZipPath).FirstOrDefault(c => c.Owned && !c.Current) is { } ship)
+            {
+                away = (save, ship);
+                break;
+            }
+        Skip.If(away is null, "no save on this machine has the player away from one of their own ships");
+        var (entry, choice) = away!.Value;
+
+        var r = SaveEditImport.ImportForEditing(entry, choice.RegId, g.Catalog);
+        var ctx = r.Context;
+        var coId = ctx.PlayerCoId;
+        Assert.NotNull(coId);
+
+        // the premise: the character is somewhere else, so the record being edited does not hold them
+        Assert.NotEqual(ctx.Source.RegId, ctx.PlayerCoRegId);
+        Assert.NotNull(ctx.PlayerCoRegId);
+
+        // the balance resolves anyway — this is what used to come back null and grey the checkbox out
+        var balance = SaveEdit.CurrentBalance(ctx);
+        Assert.NotNull(balance);
+        _out.WriteLine($"{entry.Name}: editing {ctx.Source.RegId}, {coId} is on {ctx.PlayerCoRegId} with {balance:n2}");
+
+        const double cost = 100.0;
+        var charge = new EditCharge(coId!, cost, balance!.Value - cost);
+
+        var temp = Path.Combine(Path.GetTempPath(), $"ostraplan_charge_away_{Guid.NewGuid():N}");
+        try
+        {
+            var (outDir, report) = SaveEdit.Inject(r.Doc, ctx, g.Catalog, specs, temp, overwrite: true, charge: charge);
+            Assert.Equal(cost, report.Charged);
+
+            var zip = Path.Combine(outDir, Path.GetFileName(outDir) + ".zip");
+
+            // the deduction landed in the record that actually holds the character
+            Assert.Equal(balance.Value - cost, StatUsdIn(zip, ctx.PlayerCoRegId!, coId!)!.Value, 2);
+            // and not in the edited one, which never had them
+            Assert.Null(StatUsdIn(zip, ctx.Source.RegId, coId!));
+            // saveInfo.money mirrors the new balance the same as it does aboard
+            var saveInfo = JsonNode.Parse(File.ReadAllText(Path.Combine(outDir, "saveInfo.json")));
+            var money = (saveInfo is JsonArray a ? a[0] : saveInfo)!.AsObject()["money"]!.GetValue<double>();
+            Assert.Equal(balance.Value - cost, money, 2);
+
+            // the original save is untouched: still the pre-edit balance where the character stands
+            Assert.Equal(balance.Value, StatUsdIn(ctx.ZipPath, ctx.PlayerCoRegId!, coId!)!.Value, 2);
+        }
+        finally { if (Directory.Exists(temp)) Directory.Delete(temp, recursive: true); }
+    }
+
+    /// <summary>The summed <c>StatUSD</c> on <paramref name="coId"/> in a save's <c>ships/&lt;regId&gt;.json</c>,
+    /// searching every ship record in the file; null when that CO isn't in it at all.</summary>
+    private static double? StatUsdIn(string zipPath, string regId, string coId)
+    {
+        var top = JsonNode.Parse(ReadShipEntry(zipPath, regId));
+        IEnumerable<JsonObject> ships = top switch
+        {
+            JsonArray arr => arr.OfType<JsonObject>(),
+            JsonObject obj => new[] { obj },
+            _ => [],
+        };
+        foreach (var ship in ships)
+            foreach (var co in (ship["aCOs"] as JsonArray ?? []).OfType<JsonObject>())
+                if ((string?)co["strID"] == coId)
+                    return (co["aConds"] as JsonArray ?? []).Select(n => (string?)n)
+                        .Where(s => s is not null && s.StartsWith("StatUSD=", StringComparison.Ordinal))
+                        .Sum(s => ParseAmount(s!));
+        return null;
     }
 
     [SkippableFact]

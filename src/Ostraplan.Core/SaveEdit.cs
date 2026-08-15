@@ -198,17 +198,19 @@ public static class SaveEdit
         }
 
         // opt-in cost deduction: rewrite the player CO's StatUSD (the authoritative balance) to the new total.
-        // The player CO is crew on their own ship, so it's one of the kept COs above; saveInfo.money is mirrored
-        // at write time. The UI has already checked affordability, so a missing player CO here is a hard error.
+        // The CO is one of the kept COs above whenever the player was standing on the ship being edited; when they
+        // were docked at a station or on another of their ships it lives in that record instead, and the writer
+        // patches it there (see PatchPlayerBalance). saveInfo.money is mirrored at write time either way. The UI
+        // has already checked affordability, so a player CO that is nowhere at all is a hard error.
         if (charge is { } ch)
         {
             var applied = false;
             foreach (var co in outCOs)
                 if (co is JsonObject o && Str(o, "strID") == ch.PlayerCoId) { SetStatUsd(o, ch.NewBalance); applied = true; break; }
-            if (!applied)
+            if (!applied && (ctx.PlayerCoRegId is not { Length: > 0 } reg || reg == ctx.Source.RegId))
                 throw new InvalidDataException(
-                    "The player's money couldn't be found on this ship, so the edit cost can't be deducted. " +
-                    "Uncheck \"Deduct edit cost\" and try again.");
+                    "The player's money couldn't be found in this save, so the edit cost can't be deducted. " +
+                    "Untick \"Deduct the edit cost\" and try again.");
         }
 
         // Emit contained cargo for every surviving container from its current Placement.Cargo — the tree is the
@@ -580,6 +582,7 @@ public static class SaveEdit
         }
         var targetZip = MaterializeCopy(SourceDir(ctx), Path.GetFileName(ctx.ZipPath), outputSaveDir, newMoney);
         SpliceShipInZip(targetZip, ctx.Source.RegId, ship);
+        PatchPlayerBalance(ctx, targetZip, newMoney);   // no-op unless the player's money lives in another record
     }
 
     /// <summary>
@@ -601,6 +604,7 @@ public static class SaveEdit
         }
 
         SpliceShipInZip(ctx.ZipPath, ctx.Source.RegId, ship);
+        PatchPlayerBalance(ctx, ctx.ZipPath, newMoney);   // no-op unless the player's money lives in another record
         var saveInfoPath = Path.Combine(SourceDir(ctx), "saveInfo.json");
         if (newMoney is not null && File.Exists(saveInfoPath)) UpdateSaveInfo(saveInfoPath, null, newMoney);
         return backupDir;
@@ -1112,14 +1116,97 @@ public static class SaveEdit
         catch { /* a cosmetic saveInfo update must never fail the inject */ }
     }
 
-    /// <summary>The player's current credit balance for this ship — the summed <c>StatUSD</c> on the player CO
-    /// (<see cref="SaveShipContext.PlayerCoId"/>), or null when that CO isn't on this ship (no deduction possible).</summary>
-    public static double? CurrentBalance(SaveShipContext ctx)
+    /// <summary>The player's current credit balance — the summed <c>StatUSD</c> on the player CO
+    /// (<see cref="SaveShipContext.PlayerCoId"/>), or null when there is no CO to charge. Reads the edited record
+    /// first, since the player is usually standing on the ship they are editing, and otherwise falls back to the
+    /// balance <see cref="LocatePlayerBalance"/> resolved at import from wherever the CO actually lives.</summary>
+    public static double? CurrentBalance(SaveShipContext ctx) =>
+        ctx.PlayerCoId is { } coId && FindCo(ctx.ShipRecord, coId) is { } co ? SumStatUsd(co) : ctx.PlayerBalance;
+
+    /// <summary>
+    /// Find the player CO and read their balance, for the import that builds a <see cref="SaveShipContext"/>.
+    /// Returns the RegID of the record holding the CO and the balance on it, or <c>(null, null)</c> when the
+    /// character cannot be located at all.
+    ///
+    /// <para>The CO is on the edited ship whenever the player was standing on it, and that record is already
+    /// parsed. Otherwise it is in the record for whatever they <b>were</b> standing on — a station while docked,
+    /// or another of their ships — which has to be read out of the zip. That second read is why this is resolved
+    /// once, at import, rather than on demand: a station record runs to tens of megabytes.</para>
+    /// </summary>
+    internal static (string? RegId, double? Balance) LocatePlayerBalance(
+        ZipArchive zip, JsonNode editedRecord, string editedRegId, string? coId, string? standingOnRegId)
     {
-        if (ctx.PlayerCoId is not { } coId) return null;
-        foreach (var co in Arr(ctx.ShipRecord, "aCOs"))
-            if (Str(co, "strID") == coId) return SumStatUsd(co);
+        if (coId is not { Length: > 0 }) return (null, null);
+        if (FindCo(editedRecord, coId) is { } aboard) return (editedRegId, SumStatUsd(aboard));
+        if (standingOnRegId is not { Length: > 0 } || standingOnRegId == editedRegId) return (null, null);
+
+        try
+        {
+            if (zip.GetEntry($"ships/{standingOnRegId}.json") is not { } entry) return (null, null);
+            if (FindPlayerCoInFile(JsonNode.Parse(SaveImport.ReadText(entry)), coId) is not { } elsewhere)
+                return (null, null);
+            return (standingOnRegId, SumStatUsd(elsewhere));
+        }
+        catch (Exception)
+        {
+            return (null, null);   // an unreadable record just means no deduction, never a failed import
+        }
+    }
+
+    /// <summary>The player CO inside a ship <b>file</b>'s parsed node, searching every ship record in it rather
+    /// than only the largest — a save's ship file can hold siblings, and the character is not necessarily on the
+    /// biggest of them. Used by both the read and the write, so the two always agree on which entry to touch.</summary>
+    private static JsonObject? FindPlayerCoInFile(JsonNode? top, string coId)
+    {
+        IEnumerable<JsonObject> ships = top switch
+        {
+            JsonArray arr => arr.OfType<JsonObject>(),
+            JsonObject obj => new[] { obj },
+            _ => [],
+        };
+        foreach (var ship in ships)
+            if (FindCo(ship, coId) is { } co) return co;
         return null;
+    }
+
+    /// <summary>One ship record's <c>aCOs</c> entry with this <c>strID</c>, or null.</summary>
+    private static JsonObject? FindCo(JsonNode? ship, string coId)
+    {
+        foreach (var co in Arr(ship, "aCOs"))
+            if (co is JsonObject o && Str(o, "strID") == coId) return o;
+        return null;
+    }
+
+    /// <summary>
+    /// Write the deducted balance onto the player CO in the record that <b>holds</b> it, inside
+    /// <paramref name="zipPath"/>. A no-op in the usual case: when the player was aboard the ship being edited,
+    /// the deduction already rode along in the ship record the inject spliced. This is the docked (or
+    /// standing-on-another-ship) case, where the character — and so the money — is in a second record that the
+    /// edit does not otherwise touch.
+    /// </summary>
+    private static void PatchPlayerBalance(SaveShipContext ctx, string zipPath, double? newBalance)
+    {
+        if (newBalance is not { } bal || ctx.PlayerCoId is not { Length: > 0 } coId) return;
+        if (ctx.PlayerCoRegId is not { Length: > 0 } reg || reg == ctx.Source.RegId) return;
+
+        using var za = ZipFile.Open(zipPath, ZipArchiveMode.Update);
+        var entryName = $"ships/{reg}.json";
+        var entry = za.GetEntry(entryName)
+            ?? throw new InvalidDataException(
+                $"'{entryName}' holds the player's money but is not in the save, so the edit cost can't be deducted.");
+
+        string text;
+        using (var r = new StreamReader(entry.Open())) text = r.ReadToEnd();
+        var top = JsonNode.Parse(text);
+        if (FindPlayerCoInFile(top, coId) is not { } co)
+            throw new InvalidDataException(
+                "The player's money is no longer where the save said it was, so the edit cost can't be deducted. " +
+                "Untick \"Deduct the edit cost\" and try again.");
+
+        SetStatUsd(co, bal);
+        entry.Delete();
+        using var w = new StreamWriter(za.CreateEntry(entryName).Open());
+        w.Write(top!.ToJsonString(Indented));
     }
 
     /// <summary>Sum every <c>StatUSD=…</c> starting cond on a CO (the game accumulates them via GetCondAmount).</summary>

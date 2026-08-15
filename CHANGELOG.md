@@ -11,6 +11,18 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Fixed
+- **"Deduct the edit cost from your credits" works while you're docked.** The checkbox was
+  disabled, with "No player balance found in this save", on any save written while you were
+  not standing on the ship you were editing — docked at a station, aboard someone else's
+  vessel, or editing a second ship of your own. Nothing was wrong with the save. Your credits
+  are on your character, and a save files that character in the record of whatever they were
+  standing on at the time, so on a docked save the money is in the station's record and
+  Ostraplan was only ever looking in the ship's. It now finds the character wherever they
+  are, and writes the deduction back to that record, so the option is available and correct
+  in every case. Autosaves were the usual way to hit this, since a docking autosave puts you
+  on the station.
+
 ## [0.87.3] 2026-08-15, the game's own draw order, aimed surface brushes, and menus that scale
 
 ### Fixed
