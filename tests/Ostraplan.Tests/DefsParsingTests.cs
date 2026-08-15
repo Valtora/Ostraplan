@@ -31,6 +31,15 @@ public class DefsParsingTests
         Assert.Equal(1, item.Height);
     }
 
+    [Fact]
+    public void ItemDef_reads_fZScale_and_defaults_it_to_one()
+    {
+        Assert.Equal(1.01, ItemDef.Parse(El("""{ "strName":"X", "fZScale":1.01 }""")).ZScale);
+        Assert.Equal(0.01, ItemDef.Parse(El("""{ "strName":"X", "fZScale":0.01 }""")).ZScale);
+        // JsonItemDef's constructor default, and what every core wall relies on by leaving the field out
+        Assert.Equal(1.0, ItemDef.Parse(El("""{ "strName":"X" }""")).ZScale);
+    }
+
     [Theory]
     [InlineData("StatMass=1.0x45", 45)]     // magnitude is AFTER the x; the number before it is the apply chance
     [InlineData("IsSystem=1.0x1", 1)]

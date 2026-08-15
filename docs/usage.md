@@ -932,20 +932,26 @@ Several things can share a tile — a deck plate, the fixture on it, a canister 
 that fixture, a jacket dropped on the floor — and the order they draw in is worked out
 for you:
 
-- **Layers first.** Deck plates draw under everything standing on them, walls and doors
-  next, then fixtures, then power conduits as thin runs on top. Nothing can be shuffled
-  out of its layer.
-- **Canisters draw under what they feed.** A gas canister installed on an RCS
-  regulator's input sits *on the regulator's own row*, so the game's own sprite sort
-  cannot separate them and it used to come down to which you placed second. Canisters
-  now go behind, which is how they read in game.
-- **A small part inside a bigger one draws under it**, and loose deck clutter draws over
+- **The part decides, not the ship.** Every part in Ostranauts carries its own place in
+  the draw order, and Ostraplan reads it off the game's data. Deck plates and floor
+  decals are at the bottom, then seats and chargers, canisters, alarms and vents, then
+  walls, doors and racks, and bulkhead bins and power conduit on top. Two of the same
+  part draw the same way everywhere on the ship, whatever order they were built in.
+- **Yes, walls draw over most fixtures.** That is the game's own order, not a slip. It is
+  also why a wall can hide something mounted on its tile: press **`** or use the
+  right-click list to reach it.
+- Where the game gives two parts the *same* place in the order it stops answering, and
+  Ostraplan settles it: **canisters draw under what they feed** (a canister on an RCS
+  regulator's input sits on the regulator's own row, so nothing else can separate them),
+  **a small part inside a bigger one draws under it**, and loose deck clutter draws over
   installed parts, because that is what "lying on the floor" looks like.
 
 When you disagree, say so: **Move Back** and **Move Forward** (right-click, or
 **Ctrl+[** and **Ctrl+]**) step the selected part or loose item through the pile on its
 tile, and **Reset order** puts that pile back to automatic. The choice is saved with the
-design.
+design. A nudge only moves a part against the ones the game put at the same place in the
+order as it — it will not push a fixture under a deck plate, and it will not put a rack
+over the bin the game draws on top of it.
 
 Anything drawn underneath is still one keystroke away: press **`** with the cursor over
 a stacked tile to step the selection down the pile, wrapping at the bottom. The

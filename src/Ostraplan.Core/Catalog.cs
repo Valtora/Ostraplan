@@ -396,21 +396,21 @@ public sealed class Catalog
         foreach (var child in loot.Loots) GatherConds(child, acc, visited);
     }
 
-    // Render z-order (bottom -> top). The game leaves nLayer at 0 for every item and
-    // Y-sorts sprites over a floor tile-layer; Ostraplan's own renderer instead ranks
-    // each part by what it contributes to its tiles, so floors never occlude what sits
-    // on them. Ties within a layer fall to <see cref="ShipDocument.RenderOrder"/>'s
-    // remaining terms (a manual bias, the object rank below, then bottom edge and
-    // insertion order).
+    // What KIND of deck element a part is, from what it contributes to its tiles. This is a classification, not
+    // the draw order: the draw order is the game's own fZScale (<see cref="ItemDef.ZScale"/> ->
+    // <see cref="ShipDocument.RenderOrder"/>), and the two deliberately disagree — the game puts walls at 1.0,
+    // above most fixtures, while a wall is still "structure" here whatever it draws over. What reads these is the
+    // swap classing (<see cref="SwapClass"/>), the Surfaces focus, and the right-click layer filter.
     public const int LayerFloor = 0;      // IsFloor / IsFloorSealed / IsFloorFlex
     public const int LayerWall = 1;       // IsWall / IsPortal (doors carry both wall and floor conds — checked first)
     public const int LayerFixture = 2;    // beds, appliances, sensors, and everything unclassified
-    public const int LayerConduit = 3;    // IsPowerConduit — thin power runs, drawn on top
+    public const int LayerConduit = 3;    // IsPowerConduit — thin power runs
 
-    // Automatic rank WITHIN the fixture layer, applied after any manual bias. Canisters slot into and against
-    // the machinery they feed (a gas canister on an RCS regulator's GasInput point shares its row, so a plain
-    // Y-sort can't separate them), so they draw under it; loose deck clutter draws over both, which is where a
-    // dropped item reads as lying on the floor rather than being part of the fixture.
+    // Automatic rank below the z-scale and the manual bias, so it only ever separates two defs the game gave the
+    // same fZScale. Canisters slot into and against the machinery they feed (a gas canister on an RCS regulator's
+    // GasInput point shares its row, and the two can share a z-scale), so they draw under it; loose deck clutter
+    // draws over both, which is where a dropped item reads as lying on the floor rather than being part of the
+    // fixture.
     public const int RankVessel = 0;      // gas / fuel canisters and RTAs (the game's own TIsVessel set)
     public const int RankInstalled = 1;   // every other placed part
     public const int RankLoose = 2;       // loose floor items (see LooseObject)
@@ -443,7 +443,8 @@ public sealed class Catalog
     private static readonly HashSet<string> FloorConds = new(StringComparer.Ordinal) { "IsFloor", "IsFloorSealed", "IsFloorFlex" };
     private readonly ConcurrentDictionary<string, int> _renderLayer = new(StringComparer.Ordinal);
 
-    /// <summary>The z-layer a part draws in, from the conditions its sockets add (memoized by def name).</summary>
+    /// <summary>The kind of deck element a part is, from the conditions its sockets add (memoized by def name).
+    /// Not the draw order — see the constants above.</summary>
     public int RenderLayer(PartDef? part)
     {
         if (part is null) return LayerFixture;

@@ -15,9 +15,9 @@ public class EngineTests
         Warnings = [],
     };
 
-    private static PartDef Part(string name, int w, int h, string loot = "L") => new(
+    private static PartDef Part(string name, int w, int h, string loot = "L", double zScale = 1.0) => new(
         name, name, "HULL", "core",
-        new ItemDef(name, "", false, null, 0, w, [.. Enumerable.Repeat(loot, w * h)], [], []),
+        new ItemDef(name, "", false, null, 0, w, [.. Enumerable.Repeat(loot, w * h)], [], []) { ZScale = zScale },
         null, [], [], [], new Dictionary<string, double>(), new Dictionary<string, (double, double)>());
 
     [Fact]
@@ -76,31 +76,35 @@ public class EngineTests
     }
 
     [Fact]
-    public void Draw_order_layers_floor_under_wall_under_fixture_under_conduit()
+    public void Draw_order_follows_the_defs_z_scale_not_the_order_they_went_down()
     {
+        // The z-scales the game's own data gives these four: floor 0.01, an ordinary fixture 0.2, wall 1.0 (the
+        // JsonItemDef default, which every core wall leaves unset), power conduit 1.02.
         var cat = Fake(
-            [Part("F", 1, 1, "FloorLoot"), Part("W", 1, 1, "WallLoot"),
-             Part("X", 1, 1, "FixLoot"), Part("C", 1, 1, "CondLoot")],
+            [Part("F", 1, 1, "FloorLoot", 0.01), Part("W", 1, 1, "WallLoot"),
+             Part("X", 1, 1, "FixLoot", 0.2), Part("C", 1, 1, "CondLoot", 1.02)],
             [new LootDef("FloorLoot", ["IsFloorSealed"], []), new LootDef("WallLoot", ["IsWall"], []),
              new LootDef("FixLoot", ["IsFixture"], []), new LootDef("CondLoot", ["IsPowerConduit"], [])]);
         var doc = new ShipDocument(cat);
-        // scrambled insertion order: the render layer must re-sort them regardless
+        // scrambled insertion order: the z-scale must re-sort them regardless
         foreach (var def in new[] { "X", "C", "F", "W" })
             new PlaceCommand(new Placement { DefName = def, X = 0, Y = 0 }).Do(doc);
 
-        Assert.Equal(["F", "W", "X", "C"], doc.DrawOrder().Select(p => p.DefName));
-        Assert.Equal("C", doc.HitTest(0, 0)!.DefName);   // topmost layer wins the hit-test
+        // note the wall over the fixture: that is the game's order, not the deck-element classing Ostraplan
+        // still uses for swaps and the Surfaces focus (Catalog.RenderLayer, where a wall ranks below a fixture).
+        Assert.Equal(["F", "X", "W", "C"], doc.DrawOrder().Select(p => p.DefName));
+        Assert.Equal("C", doc.HitTest(0, 0)!.DefName);   // the topmost drawable wins the hit-test
     }
 
     [Fact]
     public void HitTestStack_lists_covering_parts_topmost_first()
     {
         var cat = Fake(
-            [Part("F", 1, 1, "FloorLoot"), Part("X", 1, 1, "FixLoot"), Part("C", 1, 1, "CondLoot")],
+            [Part("F", 1, 1, "FloorLoot", 0.01), Part("X", 1, 1, "FixLoot", 0.2), Part("C", 1, 1, "CondLoot", 1.02)],
             [new LootDef("FloorLoot", ["IsFloorSealed"], []), new LootDef("FixLoot", ["IsFixture"], []),
              new LootDef("CondLoot", ["IsPowerConduit"], [])]);
         var doc = new ShipDocument(cat);
-        foreach (var def in new[] { "F", "X", "C" })
+        foreach (var def in new[] { "C", "F", "X" })   // scrambled: the z-scale decides, not the order they went down
             new PlaceCommand(new Placement { DefName = def, X = 0, Y = 0 }).Do(doc);
 
         Assert.Equal(["C", "X", "F"], doc.HitTestStack(0, 0).Select(p => p.DefName));   // conduit, fixture, floor

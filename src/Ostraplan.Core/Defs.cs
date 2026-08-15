@@ -42,6 +42,19 @@ public sealed record ItemDef(
     /// the wall sprite is lit; a non-wall block casts shadow but its whole sprite is lit when touched.</summary>
     public bool IsWallForLight { get; init; }
 
+    /// <summary>
+    /// The game's own draw-order scalar (<c>fZScale</c>) — <b>higher draws nearer the viewer</b>. The game applies
+    /// it twice, both monotonic in this value and agreeing in direction: the sprite's world Z is
+    /// <c>-fZScale × 4</c> (<c>Item.GetZPos</c>, and the camera looks down +Z so a more negative Z is nearer), and
+    /// its material's render queue is <c>2000 + round(fZScale × 100)</c> (<c>Item.SetData</c>). Sorting on the raw
+    /// value therefore reproduces the game's order exactly.
+    ///
+    /// <para>The default is <c>1f</c>, straight off <c>JsonItemDef</c>'s constructor, and it is a deliberate one
+    /// rather than a fallback: of the 1034 core item defs only 55 leave it unset, and those are the walls, the
+    /// racks and the struts — the things the game means to sit at 1.0, above every ordinary fixture.</para>
+    /// </summary>
+    public double ZScale { get; init; } = 1.0;
+
     public static ItemDef Parse(JsonElement e) => new(
         Json.Str(e, "strName") ?? "",
         Json.Str(e, "strImg") ?? "",
@@ -57,6 +70,7 @@ public sealed record ItemDef(
         ImgNorm = Json.Str(e, "strImgNorm"),
         ShadowBoxes = Json.StrArray(e, "aShadowBoxes").Select(ShadowBox.Parse).OfType<ShadowBox>().ToArray(),
         IsWallForLight = Json.StrArray(e, "aSocketAdds").Contains("TILWallAdds"),
+        ZScale = Json.Dbl(e, "fZScale", 1.0),
     };
 }
 

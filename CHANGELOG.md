@@ -11,6 +11,18 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Fixed
+- **Objects draw in the game's order instead of the order they were built** ([#28](https://github.com/Valtora/Ostraplan/issues/28)).
+  Bins sat behind racks on one tile and in front of them on the next; atmosphere alarms disappeared behind EVA
+  chargers and seats. Every part in Ostranauts carries its own place in the draw order (`fZScale` in the item
+  data, which the game turns into both a sprite depth and a render queue), and Ostraplan was not reading it — it
+  fell through to the order the save happened to list things in, so two identical spots on one ship could
+  disagree. It reads it now, so a bin is always in front of a rack and an alarm always in front of a charger,
+  whatever order they went down in. Two consequences worth knowing: **walls and doors draw over most fixtures**,
+  which is the game's own order and can hide something mounted on a wall tile (press **`** or use the right-click
+  list to reach it), and **Move Back / Move Forward** now only shuffle a part against the ones the game puts at
+  the same place in the order as it, rather than overruling an answer the game already gave.
+
 ## [0.87.0] 2026-08-14, Repair All, canister and tank fills, and nav console arrangement
 
 ### Added

@@ -4,9 +4,10 @@ namespace Ostraplan.Core;
 /// Moving one drawable up or down the pile of things sharing a tile — the manual override over the automatic
 /// render order (see <see cref="ShipDocument.RenderOrder"/>).
 ///
-/// <para>The pile a nudge works in is <b>everything drawn on that tile in the same render layer</b>: a fixture is
-/// never shuffled against the deck plate under it or the conduit over it, because those layers are the part of
-/// the order that keeps floors from occluding what stands on them.</para>
+/// <para>The pile a nudge works in is <b>everything drawn on that tile that shares its <see cref="ItemDef.ZScale"/></b>.
+/// That is the set the game itself leaves open: two defs with different z-scales are already ordered by the game,
+/// and a nudge across them would put Ostraplan's guess over a ported answer. A fixture is therefore never shuffled
+/// against the deck plate under it or the conduit over it, and a bin never against the rack it stands on.</para>
 ///
 /// <para>A nudge swaps the target with its neighbour and then <b>writes the resulting order out</b> as consecutive
 /// <see cref="Placement.ZBias"/> values across that pile, rather than trying to shift one value and hope. Ties are
@@ -21,12 +22,12 @@ public static class ZOrder
 
     /// <summary>
     /// The pile <paramref name="item"/> is nudged within at (<paramref name="x"/>,<paramref name="y"/>), bottom to
-    /// top: everything drawn on that tile that shares its render layer. Empty when the item isn't drawn there.
+    /// top: everything drawn on that tile that shares its z-scale. Empty when the item isn't drawn there.
     /// </summary>
     public static IReadOnlyList<RenderItem> StackAt(ShipDocument doc, int x, int y, RenderItem item)
     {
-        var layer = LayerOf(doc, item);
-        var stack = doc.RenderStackAt(x, y).Where(i => LayerOf(doc, i) == layer).Reverse().ToList();
+        var z = ZScaleOf(doc, item);
+        var stack = doc.RenderStackAt(x, y).Where(i => ZScaleOf(doc, i) == z).Reverse().ToList();
         return stack.Any(i => i.Id == item.Id) ? stack : [];
     }
 
@@ -64,6 +65,6 @@ public static class ZOrder
     public static IReadOnlyList<BiasChange> Reset(ShipDocument doc, RenderItem item, int x, int y) =>
         [.. StackAt(doc, x, y, item).Where(e => e.ZBias != 0).Select(e => new BiasChange(e, e.ZBias, 0))];
 
-    private static int LayerOf(ShipDocument doc, RenderItem item) =>
-        doc.Catalog.RenderLayer(doc.Catalog.Lookup(item.DefName));
+    private static double ZScaleOf(ShipDocument doc, RenderItem item) =>
+        doc.ZScaleOf(doc.Catalog.Lookup(item.DefName));
 }

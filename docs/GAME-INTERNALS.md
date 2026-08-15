@@ -922,28 +922,50 @@ content of a name, and stores it verbatim.
 
 ## 15. Rendering
 
-- **Z-order.** `nLayer` is `0` for **every** item in the data; the game does not layer
-  items by `nLayer`, it Y-sorts sprites over a separate floor tile-layer. A single-pass
-  renderer instead ranks each part by the conditions it contributes: **floor** (`IsFloor`
-  / `IsFloorSealed` / `IsFloorFlex`) < **wall/door** (`IsWall` / `IsPortal`, checked
-  first — a door also seals floor) < **fixtures & the rest** < **power conduit**
-  (`IsPowerConduit`, thin runs on top). Hit-testing returns the topmost layer.
+- **Z-order is `fZScale`, per item def. Higher draws nearer the viewer.** `nLayer` is `0`
+  for every item and the game never reads it. What it reads is `JsonItemDef.fZScale`,
+  applied twice by `Item`, both monotonic in the value and agreeing in direction:
+
+  | Where | `Item.cs` | Effect |
+  |---|---|---|
+  | Sprite position | `_tf.position.z = GetZPos()` = `-fZScale × 4` | The camera looks down **+Z** (mouse picking rays start at `z = -10` and travel `Vector3.forward`), so a more negative Z is **nearer**. |
+  | Material queue | `rend.sharedMaterial.renderQueue = 2000 + round(fZScale × 100)` | A higher queue draws **later**. |
+
+  Sorting on the raw `fZScale` therefore reproduces the game's order exactly. The default
+  is `1f`, from `JsonItemDef`'s constructor, and it is deliberate: of the 1034 core item
+  defs only 55 leave it unset, and those are the **walls, racks and struts**. The scale
+  the shipped data actually uses:
+
+  | `fZScale` | What sits there |
+  |---|---|
+  | 0.001 | background regolith plate |
+  | 0.01 | floors, floor labels/decals |
+  | 0.02 – 0.5 | loose forms (all `…Loose` variants are 0.5), seats 0.1, chargers 0.2, canisters 0.5 |
+  | 0.74 – 0.98 | scrubbers, vents, atmosphere alarms 0.75, RCS distro 0.8, hull sensors 0.98 |
+  | **1.0** | **walls, doors, racks** — the unset default |
+  | 1.01 – 1.02 | bulkhead bins 1.01, RCS clusters 1.01, power conduit 1.02 |
+  | 1.5 | the highest the data goes |
+
+  Note that **walls draw over most fixtures**. That is the game, not a bug: `Catalog.RenderLayer`'s
+  floor < wall < fixture < conduit ranking is a classification of what kind of deck element a part is,
+  used by the swap classing, the Surfaces focus and the right-click layer filter, and it deliberately
+  does not agree with the draw order.
 - **Sprite draw.** Non-sheet sprites draw at `vScale` size centred on the footprint
   (§4). Sheet items draw per tile.
 
-> **Ported in Ostraplan:** `Catalog.RenderLayer` → `ShipDocument.RenderOrder`;
+> **Ported in Ostraplan:** `ItemDef.ZScale` → `ShipDocument.RenderOrder`;
 > `RenderStackAt` drives the right-click layer picker and the `` ` `` cycle key.
 
-**Where the game stops answering.** Two items on the same row cannot be separated by a
-Y-sort, and `nLayer` is 0 on both, so the game itself does not define which draws first.
-This is not a corner case: a canister installed on an RCS regulator's `GasInput` point
-sits at pixel offset `(±16, 0)`, i.e. **exactly** the regulator's own row. Ostraplan
-therefore adds its own terms below the layer rank, and they are a **convention, not a
-port** — do not "fix" them towards a game behaviour that does not exist:
+**Where the game stops answering.** Two defs given the *same* `fZScale` cannot be
+separated: their sprites sit at one Z in one render queue, and `nLayer` is 0 on both. This
+is not a corner case — a canister installed on an RCS regulator's `GasInput` point sits at
+pixel offset `(±16, 0)`, i.e. **exactly** the regulator's own row. Ostraplan therefore adds
+its own terms **below** the z-scale, and they are a **convention, not a port** — do not
+"fix" them towards a game behaviour that does not exist:
 
 | Term | Rule |
 |---|---|
-| Manual bias | `Placement.ZBias` / `LooseObject.ZBias`, the user's Move Back / Move Forward. Applied inside the render layer, so nothing can be pushed under a deck plate. |
+| Manual bias | `Placement.ZBias` / `LooseObject.ZBias`, the user's Move Back / Move Forward. Applied inside one z-scale, so a nudge settles what the game leaves open rather than overruling what it decides — and nothing can be pushed under a deck plate. |
 | Object rank | Canisters, then other placed parts, then loose deck clutter. |
 | Bottom edge | The body's last row (`BodyBounds`), so a small part standing within a larger one's body reads as sitting in it. |
 | Insertion | Last resort, so an unedited design draws the same way twice. |
@@ -2025,9 +2047,11 @@ from the amounts, so only the amounts need writing.
 
 ## Appendix A — Quick reference
 
-- **`nLayer` is always 0** — rank by contributed conditions (§15). Within a layer the game
-  answers nothing (its Y-sort ties on a shared row), so those terms are Ostraplan's own
-  convention plus a manual override (§15).
+- **`nLayer` is always 0; draw order is `fZScale`** — higher draws nearer, walls sit at the
+  1.0 default and so draw over most fixtures (§15). `Catalog.RenderLayer`'s floor/wall/
+  fixture/conduit ranking classifies the *kind* of deck element and is not the draw order.
+  Between two defs sharing one `fZScale` the game answers nothing, so those terms are
+  Ostraplan's own convention plus a manual override (§15).
 - **Footprint ≠ sprite** — socket grid vs `vScale`; the big tanks are 7×7 footprint / 3×3
   sprite (§4). Keep the footprint for the Law.
 - **CheckFit is presence-only** — count multiplicity / nested triggers / `bAND=false` are

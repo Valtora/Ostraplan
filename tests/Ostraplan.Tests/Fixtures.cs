@@ -95,7 +95,7 @@ public sealed class Fixtures
         IReadOnlyList<(double X, double Y)>? powerInputs = null, (double X, double Y)? powerOutput = null,
         string[]? lights = null, ShadowBox[]? shadowBoxes = null, bool lightWall = false,
         string[]? interactions = null, IReadOnlyList<(string Instance, string Template)>? gpm = null,
-        int apron = 0)
+        int apron = 0, double zScale = 1.0)
     {
         var body = "Blank";
         if (tileConds is { Length: > 0 })
@@ -124,6 +124,7 @@ public sealed class Fixtures
             Lights = lights ?? [],
             ShadowBoxes = shadowBoxes ?? [],
             IsWallForLight = lightWall,
+            ZScale = zScale,
         };
         var values = new Dictionary<string, double>(condValues ?? new Dictionary<string, double>());
         if (basePrice > 0) values["StatBasePrice"] = basePrice;
@@ -144,9 +145,14 @@ public sealed class Fixtures
     }
 
     // ---- semantic shortcuts (game-authentic tile conditions) ----
+    //
+    // Each carries the fZScale (ItemDef.ZScale) its real counterpart declares, so a synthetic catalog draws in the
+    // same order as the game's own data: floors 0.01, a generic fixture 0.2, a bin 1.01, walls and doors 1.0 (the
+    // JsonItemDef default, which those defs leave unset on purpose), conduit 1.02.
 
     /// <summary>A sealed floor tile (IsFloor + IsFloorSealed) — the walkable base rooms flood over.</summary>
-    public Fixtures Floor(string name = "Floor") => Part(name, tileConds: ["IsFloor", "IsFloorSealed"], category: "HULL");
+    public Fixtures Floor(string name = "Floor") =>
+        Part(name, tileConds: ["IsFloor", "IsFloorSealed"], category: "HULL", zScale: 0.01);
 
     /// <summary>A hull wall (IsWall + IsObstruction) — a room boundary. Carries the core wall's light-occluder box
     /// (a full tile, wall-flagged — <c>ItmWall1x1</c>'s <c>aShadowBoxes</c>), so Light Viz shadows behind it.</summary>
@@ -163,18 +169,19 @@ public sealed class Fixtures
     /// <summary>A door tile (IsWall + IsPortal): seals the hull like a wall, but is a walkable portal.</summary>
     public Fixtures Door(string name = "Door") => Part(name, tileConds: ["IsWall", "IsPortal"], startingConds: ["IsPortal"], category: "HULL");
 
-    /// <summary>A thin power conduit (IsPowerConduit) — the top render layer.</summary>
-    public Fixtures Conduit(string name = "Conduit") => Part(name, tileConds: ["IsPowerConduit"], category: "POWR");
+    /// <summary>A thin power conduit (IsPowerConduit) — the top of the draw order.</summary>
+    public Fixtures Conduit(string name = "Conduit") =>
+        Part(name, tileConds: ["IsPowerConduit"], category: "POWR", zScale: 1.02);
 
     /// <summary>A generic solid fixture (IsFixture + IsObstruction), optionally ringed by <paramref name="apron"/>
     /// tiles of under-floor-only reservation like the big canisters.</summary>
-    public Fixtures Fixture(string name, int w = 1, int h = 1, int apron = 0) =>
-        Part(name, w, h, tileConds: ["IsFixture", "IsObstruction"], category: "FURN", apron: apron);
+    public Fixtures Fixture(string name, int w = 1, int h = 1, int apron = 0, double zScale = 0.2) =>
+        Part(name, w, h, tileConds: ["IsFixture", "IsObstruction"], category: "FURN", apron: apron, zScale: zScale);
 
     /// <summary>A container fixture with an inventory grid of the given size and an optional accept-filter trigger.</summary>
-    public Fixtures Container(string name, int gridW = 4, int gridH = 4, string? filterCt = null) =>
+    public Fixtures Container(string name, int gridW = 4, int gridH = 4, string? filterCt = null, double zScale = 1.01) =>
         Part(name, tileConds: ["IsFixture", "IsObstruction", "IsContainer"], startingConds: ["IsContainer"],
-            container: (gridW, gridH), containerCT: filterCt, category: "FURN");
+            container: (gridW, gridH), containerCT: filterCt, category: "FURN", zScale: zScale);
 
     /// <summary>
     /// A gas canister: a sealed vessel with a volume, a temperature and a pressure rating, holding
@@ -184,7 +191,7 @@ public sealed class Fixtures
     /// </summary>
     public Fixtures Tank(string name, string gas = "O2", double mols = 0,
         double volume = 0.787, double pressureMax = 41400, double temp = 293,
-        IReadOnlyDictionary<string, double>? bulk = null, double basePrice = 410)
+        IReadOnlyDictionary<string, double>? bulk = null, double basePrice = 410, double zScale = 0.5)
     {
         var values = new Dictionary<string, double>
         {
@@ -195,7 +202,8 @@ public sealed class Fixtures
         if (mols > 0) values["StatGasMol" + gas] = mols;
         foreach (var (cond, amount) in bulk ?? new Dictionary<string, double>()) values[cond] = amount;
         return Part(name, tileConds: ["IsFixture", "IsObstruction"], category: "HVAC", basePrice: basePrice,
-            startingConds: ["IsAirtight", "IsInstalled", "IsVessel" + gas, "IsGasMolChanged"], condValues: values);
+            startingConds: ["IsAirtight", "IsInstalled", "IsVessel" + gas, "IsGasMolChanged"], condValues: values,
+            zScale: zScale);
     }
 
     /// <summary>Register a parallax location (data/parallax) with the given sun-light names, for Light Viz's

@@ -365,19 +365,24 @@ public sealed class ShipDocument
     /// <summary>
     /// The sort key that puts one drawable under another, bottom-to-top. In order:
     /// <list type="number">
-    /// <item><b>Render layer</b> (floor → wall → fixture → conduit, see <see cref="Catalog.RenderLayer"/>), so a
-    /// deck plate never occludes what stands on it and no other term can undo that.</item>
+    /// <item>The def's own <b>z-scale</b> (<see cref="ItemDef.ZScale"/>, the game's <c>fZScale</c>), which is the
+    /// game's answer and outranks everything else. It orders by <i>object type</i>: background plate 0.001,
+    /// floors and floor labels 0.01, seats 0.1, chargers 0.2, canisters 0.5, alarms 0.75, walls and doors 1.0,
+    /// bulkhead bins 1.01, power conduit 1.02.</item>
     /// <item>The object's <b>manual bias</b> (<see cref="Placement.ZBias"/>), which is why a nudge beats every
-    /// automatic rule below it.</item>
+    /// automatic rule below it. It sits under the z-scale because a nudge exists to settle what the game leaves
+    /// open, not to overrule what it decides — see <see cref="ZOrder"/>.</item>
     /// <item>The <b>object rank</b>: canisters, then other placed parts, then loose deck clutter
     /// (<see cref="Catalog.RankVessel"/>).</item>
     /// <item>The body's <b>bottom edge</b>, so a small part standing within a larger one's body reads as sitting
-    /// in it. The game answers none of this — <c>nLayer</c> is 0 for every def and its Y-sort ties whenever two
-    /// items share a row, which is exactly the case here — so this is Ostraplan's convention, not a port.</item>
+    /// in it.</item>
     /// <item><b>Insertion order</b>, the last resort, so an unchanged design draws the same way twice.</item>
     /// </list>
+    /// <para>Everything below the z-scale only ever separates two defs the game gave the same z-scale, where its
+    /// own sprite sort ties and it defines no order at all. Those terms are Ostraplan's convention; the z-scale
+    /// above them is a port (§15).</para>
     /// </summary>
-    private (int Layer, int Bias, int NLayer, int Rank, int Bottom, long Seq) RenderKey(RenderItem item)
+    private (double ZScale, int Bias, int NLayer, int Rank, int Bottom, long Seq) RenderKey(RenderItem item)
     {
         var part = Catalog.Lookup(item.DefName);
         var rank = Catalog.IsVessel(part) ? Catalog.RankVessel
@@ -386,9 +391,13 @@ public sealed class ShipDocument
         // The def's own nLayer sits below the manual bias rather than above it: it is 0 for every def the game
         // ships (§15), so a mod is the only thing that can set it, and a nudge that refused to move a part would
         // be a no-op with nothing on screen to explain it.
-        return (Catalog.RenderLayer(part), item.ZBias, part?.Item.NLayer ?? 0, rank, BottomEdge(item),
+        return (ZScaleOf(part), item.ZBias, part?.Item.NLayer ?? 0, rank, BottomEdge(item),
                 _order.GetValueOrDefault(item.Id));
     }
+
+    /// <summary>The draw-order scalar a drawable sorts by. An unresolved def (a part the catalog has never heard
+    /// of, drawn as a placeholder) takes the same 1.0 the game's own DTO defaults to.</summary>
+    internal double ZScaleOf(PartDef? part) => part?.Item.ZScale ?? 1.0;
 
     /// <summary>The row just past the bottom of a drawable's above-floor body — <see cref="BodyBounds"/> for a
     /// placement (so the big tanks measure their visible 3×3 body, not the 7×7 under-floor ring) and the rotated
@@ -410,8 +419,8 @@ public sealed class ShipDocument
     private IEnumerable<Placement> InDrawOrder(IEnumerable<Placement> parts) =>
         parts.Select(p => new RenderItem(p, null)).OrderBy(RenderKey, RenderKeyComparer).Select(i => i.Placement!);
 
-    private static readonly Comparer<(int Layer, int Bias, int NLayer, int Rank, int Bottom, long Seq)> RenderKeyComparer =
-        Comparer<(int, int, int, int, int, long)>.Default;
+    private static readonly Comparer<(double ZScale, int Bias, int NLayer, int Rank, int Bottom, long Seq)> RenderKeyComparer =
+        Comparer<(double, int, int, int, int, long)>.Default;
 
     /// <summary>The placements alone, bottom-to-top. Prefer <see cref="RenderOrder"/> for anything that draws:
     /// this omits the loose items, which share the same order.</summary>
