@@ -122,7 +122,77 @@ public class SurfacePaintTests
 
         var target = SurfacePaint.SwapTargetAt(doc, cat.Lookup("Floor")!, 0, 0);
         Assert.Same(floor, target);
-        Assert.Null(ReplaceOps.BuildSwap(doc, [target!], "Floor"));   // no-op, so a re-entering stroke is free
+        Assert.Null(ReplaceOps.BuildSwap(doc, [target!], "Floor"));       // no-op, so a re-entering stroke is free
+        Assert.Null(ReplaceOps.BuildSwap(doc, [target!], "Floor", 0));    // and still free when the stroke aims it
+    }
+
+    [Fact]
+    public void A_re_skin_lands_at_the_rotation_the_stroke_aimed_it_at()
+    {
+        // Issue #27: the brush is turned with R and the ghost previews the turn, but the re-skin used to inherit
+        // whatever the part underneath was rotated to, so a decal painted onto an existing floor came out square.
+        var cat = Cat();
+        var doc = new ShipDocument(cat);
+        Fixtures.Place(doc, "Floor", 1, 1);
+
+        var target = SurfacePaint.SwapTargetAt(doc, cat.Lookup("FloorChecker")!, 1, 1);
+        var swap = ReplaceOps.BuildSwap(doc, [target!], "FloorChecker", 90);
+        Assert.NotNull(swap);
+        swap!.Value.Cmd.Do(doc);
+
+        var now = Assert.Single(doc.Placements);
+        Assert.Equal("FloorChecker", now.DefName);
+        Assert.Equal(90, now.Rot);
+    }
+
+    [Fact]
+    public void Turning_a_decal_that_is_already_down_is_not_a_no_op()
+    {
+        // The other half of #27: the tile already holds this exact def, so the "nothing to do" skip swallowed the
+        // stroke entirely and pressing R then clicking did nothing at all.
+        var cat = Cat();
+        var doc = new ShipDocument(cat);
+        Fixtures.Place(doc, "FloorChecker", 0, 0);
+
+        var target = SurfacePaint.SwapTargetAt(doc, cat.Lookup("FloorChecker")!, 0, 0);
+        var swap = ReplaceOps.BuildSwap(doc, [target!], "FloorChecker", 180);
+        Assert.NotNull(swap);
+        swap!.Value.Cmd.Do(doc);
+
+        Assert.Equal(180, Assert.Single(doc.Placements).Rot);
+    }
+
+    [Fact]
+    public void Replace_with_still_keeps_each_parts_own_rotation()
+    {
+        // The guard on the change above: "Replace with…" and Find and Replace pass no rotation, and must go on
+        // re-skinning a rotated part in place rather than squaring it up.
+        var cat = Cat();
+        var doc = new ShipDocument(cat);
+        var floor = Fixtures.Place(doc, "Floor", 0, 0, rot: 270);
+
+        var swap = ReplaceOps.BuildSwap(doc, [floor], "FloorChecker");
+        Assert.NotNull(swap);
+        swap!.Value.Cmd.Do(doc);
+
+        Assert.Equal(270, Assert.Single(doc.Placements).Rot);
+    }
+
+    [Fact]
+    public void An_autotiling_skin_still_normalises_to_rot_zero()
+    {
+        // A sheet part picks its cell from its neighbours, so it has no rotation to respect and an aimed stroke
+        // must not give it one.
+        var cat = new Fixtures().Floor("Floor").Part("FloorSheet", tileConds: ["IsFloor", "IsFloorSealed"],
+            category: "HULL", sheet: true, zScale: 0.01).Build();
+        var doc = new ShipDocument(cat);
+        var floor = Fixtures.Place(doc, "Floor", 0, 0);
+
+        var swap = ReplaceOps.BuildSwap(doc, [floor], "FloorSheet", 90);
+        Assert.NotNull(swap);
+        swap!.Value.Cmd.Do(doc);
+
+        Assert.Equal(0, Assert.Single(doc.Placements).Rot);
     }
 
     [Fact]

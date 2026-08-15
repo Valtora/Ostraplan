@@ -55,8 +55,15 @@ public static class ReplaceOps
     /// placement two tiles up and left, so the machine lands where the old one stood instead of jumping. The
     /// wider apron may then want floor the ship doesn't have, which the problem scan flags rather than blocks,
     /// exactly as it does for a move or a rotation into a spot that no longer fits.</para>
+    /// <para><paramref name="rot"/> overrides the rotation the replacement lands at, for the one caller that has
+    /// a rotation of its own to impose: a <see cref="SurfacePaint"/> stroke, where the user has aimed the brush
+    /// with R and the ghost is previewing it. "Replace with…" and Find and Replace leave it null and keep each
+    /// part's own rotation, which is what makes them a re-skin rather than a re-placement. An override also
+    /// re-places a part that is <b>already</b> this def at a different rotation, which the plain path skips as a
+    /// no-op — turning a decal you have already laid is the whole of the request.</para>
     /// </summary>
-    public static (CompositeCommand Cmd, List<Placement> New)? BuildSwap(ShipDocument doc, IReadOnlyList<Placement> parts, string newDef)
+    public static (CompositeCommand Cmd, List<Placement> New)? BuildSwap(
+        ShipDocument doc, IReadOnlyList<Placement> parts, string newDef, int? rot = null)
     {
         var target = doc.Catalog.Lookup(newDef);
         var sheet = target?.Item.HasSpriteSheet == true;
@@ -64,10 +71,11 @@ public static class ReplaceOps
         var created = new List<Placement>();
         foreach (var p in parts)
         {
-            if (doc.IsLocked(p) || p.DefName == newDef) continue;
-            var rot = sheet ? 0 : p.Rot;
+            if (doc.IsLocked(p)) continue;
+            var newRot = sheet ? 0 : rot ?? p.Rot;
+            if (p.DefName == newDef && (rot is null || p.Rot == newRot)) continue;
             var from = doc.Catalog.BodyBox(doc.Part(p), p.Rot);
-            var to = doc.Catalog.BodyBox(target, rot);
+            var to = doc.Catalog.BodyBox(target, newRot);
             // Carry any cargo onto the replacement — a defensive safety net. The UI won't re-skin a container
             // (CommonClass/CompatibleTargets exclude them), so p.Cargo is empty here for walls/floors/fixtures and
             // this is a no-op; but should a def-change ever carry cargo, the inject re-parents it instead of
@@ -75,7 +83,7 @@ public static class ReplaceOps
             var repl = new Placement
             {
                 DefName = newDef, X = p.X + from.X - to.X, Y = p.Y + from.Y - to.Y,
-                Rot = rot, IsGiven = p.IsGiven, Cargo = p.Cargo,
+                Rot = newRot, IsGiven = p.IsGiven, Cargo = p.Cargo,
             };
             cmds.Add(new RemoveCommand([p]));
             cmds.Add(new PlaceCommand(repl));

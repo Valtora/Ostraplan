@@ -982,6 +982,12 @@ of armoured wall). **Alt+click** picks a skin off the ship to paint with, and
 **double-click** flood-selects a whole connected run of one skin if you would rather
 select it and use **Replace with…**.
 
+**R** turns the brush, and a re-skin lands the way the ghost shows it — which is how
+you get an arrow decal pointing the right way under a door, or turn one you have
+already laid without deleting it first. Autotiling skins (most walls and hull floors)
+have no rotation of their own: they pick their sprite from their neighbours, so **R**
+does nothing to them by design.
+
 ### What a stroke may do — Replace, Both, Fill
 
 **PAINT** in the Surfaces bar decides what a stroke does to each tile, and it is

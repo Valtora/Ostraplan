@@ -1699,11 +1699,13 @@ public sealed class ShipCanvas : FrameworkElement
                 if (SurfacePaint.SwapTargetAt(Doc, part, pose.X, pose.Y) is { } target)
                 {
                     // The tile is spoken for by this class: re-skin it (unless this stroke only fills), and never
-                    // stack a second one on it either way. BuildSwap returns null when there is nothing to do
-                    // (already this skin, or the target is locked), which is also what absorbs a stroke re-entering
-                    // a tile it just painted.
+                    // stack a second one on it either way. The pose's rotation goes with it — the brush is aimed
+                    // with R and the ghost previews that, so a re-skin has to land the way the preview showed it
+                    // rather than inheriting whatever the part underneath was turned to. BuildSwap returns null
+                    // when there is nothing to do (already this skin at this rotation, or the target is locked),
+                    // which is also what absorbs a stroke re-entering a tile it just painted.
                     if (PaintMode != SurfacePaintMode.Fill
-                        && ReplaceOps.BuildSwap(Doc, [target], part.DefName) is { } swap)
+                        && ReplaceOps.BuildSwap(Doc, [target], part.DefName, pose.Rot) is { } swap)
                     {
                         swap.Cmd.Do(Doc);
                         _stroke.Add(swap.Cmd);

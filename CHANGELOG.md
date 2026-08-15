@@ -12,6 +12,12 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Fixed
+- **A Surfaces brush lands at the rotation you aimed it at** ([#27](https://github.com/Valtora/Ostraplan/issues/27)).
+  Pressing **R** turned the ghost but not the tile: painting a decal onto a floor that was already there re-used
+  that floor's rotation, and painting a decal onto a copy of itself did nothing at all, so an arrow under a door
+  came out square whichever way you tried. A re-skin now lands the way the ghost showed it, and turning a decal
+  you have already laid works without deleting it first. **Replace with…** and **Find and Replace All…** are
+  unchanged: they keep each part's own rotation, which is what makes them a re-skin rather than a re-placement.
 - **Objects draw in the game's order instead of the order they were built** ([#28](https://github.com/Valtora/Ostraplan/issues/28)).
   Bins sat behind racks on one tile and in front of them on the next; atmosphere alarms disappeared behind EVA
   chargers and seats. Every part in Ostranauts carries its own place in the draw order (`fZScale` in the item
