@@ -934,7 +934,8 @@ content of a name, and stores it verbatim.
   Sorting on the raw `fZScale` therefore reproduces the game's order exactly. The default
   is `1f`, from `JsonItemDef`'s constructor, and it is deliberate: of the 1034 core item
   defs only 55 leave it unset, and those are the **walls, racks and struts**. The scale
-  the shipped data actually uses:
+  the shipped data actually uses (counts and values read off a stock **1.0.0.9** install,
+  Steam build 24663190):
 
   | `fZScale` | What sits there |
   |---|---|
