@@ -11,6 +11,8 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [0.87.3] 2026-08-15, the game's own draw order, aimed surface brushes, and menus that scale
+
 ### Fixed
 - **Right-click menus and tooltips follow the UI scale** ([#25](https://github.com/Valtora/Ostraplan/issues/25)).
   Everything else grew with the setting and these two stayed at 100%, which on a high-density screen is exactly
