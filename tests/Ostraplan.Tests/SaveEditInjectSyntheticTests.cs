@@ -27,6 +27,13 @@ public class SaveEditInjectSyntheticTests
         ["strID"] = id, ["strCODef"] = def, ["bAlive"] = true, ["aConds"] = new JsonArray("DEFAULT"),
     };
 
+    /// <summary>A sub-object held inside another item: cargo in a container, or a member under a stack head.
+    /// It rides at its holder's world position, which is what a save records for contained items.</summary>
+    private static JsonObject Contained(string id, string name, string parentId, double fx = 102, double fy = 199) => new()
+    {
+        ["strID"] = id, ["strName"] = name, ["fX"] = fx, ["fY"] = fy, ["fRotation"] = 0.0, ["strParentID"] = parentId,
+    };
+
     /// <summary>
     /// A synthetic source ship. The default frame (4×3, content at doc (1,1)–(2,1)) is one the GAME could
     /// actually produce: it rebuilds the tilemap as the part bounding box plus a one-tile margin, so content is
@@ -265,6 +272,107 @@ public class SaveEditInjectSyntheticTests
         Assert.All(ammo, i => Assert.Contains((string)i["strID"]!, CoIds(ship)));   // every copy carries a CO
         var headCo = ((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()).Single(o => (string)o["strID"]! == (string)head["strID"]!);
         Assert.Equal(2, ((JsonArray)headCo["aStack"]!).Count);                  // head lists its members
+    }
+
+    [Fact]
+    public void An_authored_stack_in_a_container_is_injected_with_astack_on_each_head()
+    {
+        // ammo authored into a ship weapon. Without the head's aStack the game orphans the members on load and the
+        // weapon comes up holding N loose singles, which is how 40 rounds arrived as 40 separate bullets.
+        var cat = new Fixtures().Floor("Floor").Container("Weapon", 3, 3).Part("Ammo", stackLimit: 20).Build();
+        var ctx = Context(
+            new JsonArray(Item("a", "Floor", 101, 199), Item("w", "Weapon", 102, 199)),
+            new JsonArray(Co("a", "Floor"), Co("w", "Weapon")),
+            new() { ["a"] = new OriginPart(1, 1, 0, []), ["w"] = new OriginPart(2, 1, 0, []) });
+        var weapon = new Placement { DefName = "Weapon", X = 2, Y = 1, OriginStrID = "w" };
+        var doc = Fixtures.Doc(cat, new Placement { DefName = "Floor", X = 1, Y = 1, OriginStrID = "a" }, weapon);
+        weapon.Cargo = CargoEdit.Add([], null, (3, 3), cat.Lookup("Ammo")!, 40)!;   // two stacks of 20
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
+
+        var ammo = Items(ship).Where(i => (string)i["strName"]! == "Ammo").ToList();
+        Assert.Equal(40, ammo.Count);                                               // 2 heads + 38 members
+        var heads = ammo.Where(i => (string?)i["strParentID"] == "w").ToList();
+        Assert.Equal(2, heads.Count);
+        var cos = ((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()).ToList();
+        foreach (var head in heads)
+        {
+            var headCo = Assert.Single(cos, c => (string)c["strID"]! == (string)head["strID"]!);
+            var members = Assert.IsType<JsonArray>(headCo["aStack"]);
+            Assert.Equal(19, members.Count);                                        // head + 19 = a stack of 20
+            Assert.All(members, m => Assert.Equal((string)head["strID"]!,
+                (string?)Items(ship).Single(i => (string)i["strID"]! == (string)m!)["strParentID"]));
+        }
+        Assert.Equal(2, cos.Count(c => c["aStack"] is not null));                    // only the heads
+    }
+
+    [Fact]
+    public void Topping_up_an_imported_stack_writes_the_added_members_and_relists_them()
+    {
+        // an ORIGINAL stack the user added to: the extra rounds are authored members appended under the save's own
+        // head, so the descent has to reach them and the head's saved aStack has to be rewritten to match.
+        var cat = new Fixtures().Floor("Floor").Container("Weapon", 3, 3).Part("Ammo", stackLimit: 20).Build();
+        var ctx = Context(
+            new JsonArray(
+                Item("a", "Floor", 101, 199), Item("w", "Weapon", 102, 199),
+                Contained("h", "Ammo", "w"), Contained("m1", "Ammo", "h"), Contained("m2", "Ammo", "h")),
+            new JsonArray(Co("a", "Floor"), Co("w", "Weapon"), Co("h", "Ammo"), Co("m1", "Ammo"), Co("m2", "Ammo")),
+            new()
+            {
+                ["a"] = new OriginPart(1, 1, 0, []),
+                ["w"] = new OriginPart(2, 1, 0, ["h", "m1", "m2"]),
+            });
+        var head = new CargoItem("h", "Ammo", "Ammo", false,
+            [new CargoItem("m1", "Ammo", "Ammo", false, []), new CargoItem("m2", "Ammo", "Ammo", false, [])])
+        { Stack = 3, IsStack = true };
+        var weapon = new Placement { DefName = "Weapon", X = 2, Y = 1, OriginStrID = "w", Cargo = [head] };
+        var doc = Fixtures.Doc(cat, new Placement { DefName = "Floor", X = 1, Y = 1, OriginStrID = "a" }, weapon);
+        weapon.Cargo = CargoEdit.Add(weapon.Cargo, null, (3, 3), cat.Lookup("Ammo")!, 10)!;   // 3 -> 13
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
+
+        Assert.Equal(13, Items(ship).Count(i => (string)i["strName"]! == "Ammo"));
+        var headCo = ((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()).Single(o => (string)o["strID"]! == "h");
+        var members = Assert.IsType<JsonArray>(headCo["aStack"]);
+        Assert.Equal(12, members.Count);                                            // the save's two, plus the ten
+        Assert.Contains("m1", members.Select(m => (string)m!));
+        Assert.All(members, m => Assert.Contains((string)m!, ItemIds(ship)));        // no id the save no longer has
+    }
+
+    [Fact]
+    public void An_imported_stack_taken_down_to_one_item_loses_its_astack()
+    {
+        // the members go out with the drop set, so leaving the saved list behind would point the game at ids that
+        // are no longer in aItems.
+        var cat = new Fixtures().Floor("Floor").Container("Weapon", 3, 3).Part("Ammo", stackLimit: 20).Build();
+        var ctx = Context(
+            new JsonArray(
+                Item("a", "Floor", 101, 199), Item("w", "Weapon", 102, 199),
+                Contained("h", "Ammo", "w"), Contained("m1", "Ammo", "h")),
+            new JsonArray(Co("a", "Floor"), Co("w", "Weapon"),
+                new JsonObject
+                {
+                    ["strID"] = "h", ["strCODef"] = "Ammo", ["bAlive"] = true,
+                    ["aConds"] = new JsonArray("DEFAULT"), ["aStack"] = new JsonArray("m1"),
+                },
+                Co("m1", "Ammo")),
+            new()
+            {
+                ["a"] = new OriginPart(1, 1, 0, []),
+                ["w"] = new OriginPart(2, 1, 0, ["h", "m1"]),
+            });
+        var head = new CargoItem("h", "Ammo", "Ammo", false, [new CargoItem("m1", "Ammo", "Ammo", false, [])])
+        { Stack = 2, IsStack = true };
+        var weapon = new Placement { DefName = "Weapon", X = 2, Y = 1, OriginStrID = "w", Cargo = [head] };
+        var doc = Fixtures.Doc(cat, new Placement { DefName = "Floor", X = 1, Y = 1, OriginStrID = "a" }, weapon);
+        weapon.Cargo = CargoEdit.RemoveOne(weapon.Cargo, "h");                       // 2 -> a lone round
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
+
+        Assert.Equal(1, Items(ship).Count(i => (string)i["strName"]! == "Ammo"));
+        Assert.DoesNotContain("m1", ItemIds(ship));
+        var headCo = ((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()).Single(o => (string)o["strID"]! == "h");
+        Assert.Null(headCo["aStack"]);
     }
 
     // ---- identity ----

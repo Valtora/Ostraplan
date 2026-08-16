@@ -23,6 +23,15 @@ each release was verified against is recorded in
   its airlock. Dismissible, for the case where the port is a deliberate internal bay.
 
 ### Fixed
+- **Ammo stacks survive the trip into your save.** A hundred rounds loaded into a PDC arrived
+  in game as a hundred separate bullets rather than five stacks of twenty, and rounds added to
+  ammo the ship already carried did not arrive at all. Ostranauts stores a stack as one item
+  that lists the rest, and the list was the part Ostraplan was leaving out when it wrote into an
+  existing save: the rounds were all written, with nothing tying them together, so the game
+  loaded them as singles. Stacks are now listed on the way out, and re-listed from whatever the
+  stack actually holds, so topping one up and taking from one both land. This only ever affected
+  updating a ship in an existing save. Exporting a design as a mod, and granting a whole new ship
+  into a save, were always written correctly.
 - **"Deduct the edit cost from your credits" works while you're docked.** The checkbox was
   disabled, with "No player balance found in this save", on any save written while you were
   not standing on the ship you were editing — docked at a station, aboard someone else's

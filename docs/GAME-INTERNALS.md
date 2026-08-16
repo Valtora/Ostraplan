@@ -1421,6 +1421,23 @@ keeping the original Compartments leaves **every original unbound** — an `IsRo
 room claims, i.e. a ghost room. The fix is to drop every room CO and let the game rebuild
 each from the saved strID (room atmosphere is regenerated anyway via `bPrefill`).
 
+### A cargo stack lives in the head CO's `aStack`, on this path too
+
+`CondOwner.PostGameLoad` is the same code a save load runs, so the stack rule from
+[§17](#17-ship-serialization-templates-and-saves) applies verbatim to an inject: a stack
+is re-collected **only** from its head CO's `aStack`, and a lead item whose copies are
+merely parented to it comes back as N loose singles in the container. What differs from a
+template export is only what a save load does *not* need — a save keeps every `strID`
+already, so `bForceLoad` and the `aCondOverrides` marker are template concerns.
+
+The head's saved `aStack` is authoritative only while the stack is untouched. Adding to a
+stack appends authored members under the save's own head, and removing from one takes
+members out of `aItems` through the drop set, so the field has to be **rewritten from the
+members that actually survive** rather than left as the save wrote it. Writing the
+members but not the list produced the reported "a hundred rounds of ammo arrive as a
+hundred separate bullets"; leaving them out of the descent entirely lost every round
+added to ammo the ship already carried.
+
 ### `dimensions` is display-only but locale-sensitive
 
 The game writes it with `((float)nCols * 0.32f).ToString("#.00")`; formatting with a
@@ -1428,8 +1445,9 @@ comma-decimal locale emits `"15,36m x 11,20m"` into the save. Use `InvariantCult
 
 > **Ported in Ostraplan:** `SaveEdit` (inject), `SaveEditImport` (context). The frame is
 > written as `bbox(item footprints) ± one-tile margin`; crew `nDestTile` is recomputed on
-> any reframe; room COs are dropped (`SaveEdit.RoomCoIds`). Asserted against every local
-> save (`SaveEditFrameTests`).
+> any reframe; room COs are dropped (`SaveEdit.RoomCoIds`). Cargo stacks are relisted by
+> `SaveEdit.SetStackMembers` from the members `EmitCargo` emitted. Asserted against every
+> local save (`SaveEditFrameTests`), plus `SaveEditInjectSyntheticTests` for the stacks.
 
 ---
 

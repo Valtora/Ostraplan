@@ -218,10 +218,13 @@ public static class SaveEdit
         // any item lacking a CO). An ORIGINAL item was already written verbatim above; here its parent, grid
         // position and rotation are reconciled to the tree so a re-parent (re-skin / move between containers), a
         // rearrange, or a rotate persists — writes are guarded to what actually changed, so an untouched item (or a
-        // non-grid contained item like a nav module) is left exactly as it was. Recurses for nesting; a stack's
-        // members are verbatim (parented to their lead) so we don't descend into them.
-        void EmitCargo(IReadOnlyList<CargoItem> nodes, string parentId, double px, double py)
+        // non-grid contained item like a nav module) is left exactly as it was. Recurses for nesting and for a
+        // stack's members alike: a stack the user topped up holds ORIGINAL members plus authored ones, and skipping
+        // the descent left the authored half out of the save entirely. Returns the strIDs emitted at this level, so
+        // a stack head can list its members (see SetStackMembers).
+        List<string> EmitCargo(IReadOnlyList<CargoItem> nodes, string parentId, double px, double py)
         {
+            var emitted = new List<string>(nodes.Count);
             foreach (var c in nodes)
             {
                 if (c.Authored)
@@ -241,7 +244,8 @@ public static class SaveEdit
                     var cco = SynthesizeCo(c.DefName, cid, catalog, ctx.Source.RegId, ctx.Epoch);
                     if (c.GridX != 0 || c.GridY != 0) { cco["inventoryX"] = c.GridX; cco["inventoryY"] = c.GridY; }
                     outCOs.Add(cco);
-                    EmitCargo(c.Children, cid, px, py);   // stack members / nested authored contents
+                    SetStackMembers(cco, c, EmitCargo(c.Children, cid, px, py));   // stack members / nested authored contents
+                    emitted.Add(cid);
                 }
                 else if (outItemsById.TryGetValue(c.StrID, out var orig))
                 {
@@ -250,16 +254,22 @@ public static class SaveEdit
                     var origItem = ctx.ItemsById.GetValueOrDefault(c.StrID);
                     if (origItem is null || GridMath.Norm((int)Math.Round(Dbl(origItem, "fRotation"))) != c.GridRot)
                         orig["fRotation"] = (double)c.GridRot;                                // inventory rotation
-                    if (outCosById.TryGetValue(c.StrID, out var co))
+                    outCosById.TryGetValue(c.StrID, out var co);
+                    if (co is not null)
                     {
                         var origCo = ctx.CosById.GetValueOrDefault(c.StrID);
                         if (origCo is null || Int(origCo, "inventoryX") != c.GridX) co["inventoryX"] = c.GridX;
                         if (origCo is null || Int(origCo, "inventoryY") != c.GridY) co["inventoryY"] = c.GridY;
                     }
-                    if (!c.IsStack)   // real container: recurse; a stack's members stay verbatim under their lead
-                        EmitCargo(c.Children, c.StrID, Dbl(orig, "fX"), Dbl(orig, "fY"));
+                    var childIds = EmitCargo(c.Children, c.StrID, Dbl(orig, "fX"), Dbl(orig, "fY"));
+                    // The save's own aStack is only right while the stack is untouched. Rewriting it from the
+                    // members that actually survived is what makes a top-up and a part-removal both land, and it
+                    // clears ids the drop set has already taken out of aItems.
+                    if (co is not null) SetStackMembers(co, c, childIds);
+                    emitted.Add(c.StrID);
                 }
             }
+            return emitted;
         }
 
         // new structural parts need BOTH a fresh aItems entry and a matching aCOs entry. Loading a save (unlike a
@@ -974,6 +984,35 @@ public static class SaveEdit
         // loads with no Power ticker and can never draw power (a save loads tickers from the CO, not the def).
         if (part is not null) BakeTickers(co, part, epoch, catalog, onlyPower: false);
         return co;
+    }
+
+    /// <summary>
+    /// Record <paramref name="memberIds"/> on a stack head's condition owner, or clear the field when
+    /// <paramref name="node"/> is not a stack.
+    ///
+    /// <para>A stack exists in a save only as its head CO's <c>aStack</c> (a list of member <c>strID</c>s that
+    /// <c>CondOwner.PostGameLoad</c> re-collects). A lead item with its copies merely parented to it is not a
+    /// stack: the game orphans the members and the container comes up holding N loose singles, which is what a
+    /// hundred rounds of ammo authored into a ship weapon used to turn into. A real (drillable) container is left
+    /// alone, since its children are separate items with their own inventory cells rather than stack members.</para>
+    ///
+    /// <para>A saved <c>aStack</c> is cleared only when the node has been taken down to a lone item, whose members
+    /// the drop set has just removed from <c>aItems</c>. Anything else that carries the field keeps it: the field
+    /// belongs to whatever wrote it, and a def that is stackable <i>and</i> reads as a container would be walked
+    /// here as a container (<see cref="Cargo.BuildForest"/>) with its stack none of this method's business.</para>
+    /// </summary>
+    private static void SetStackMembers(JsonObject co, CargoItem node, IReadOnlyList<string> memberIds)
+    {
+        if (node.IsStack && memberIds.Count > 0)
+        {
+            var arr = new JsonArray();
+            foreach (var id in memberIds) arr.Add(id);
+            co["aStack"] = arr;
+        }
+        else if (node.Children.Count == 0)
+        {
+            co.Remove("aStack");
+        }
     }
 
     /// <summary>Add the def's declared tickers to a CO that's missing them, stamped with the current
