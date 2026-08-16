@@ -47,6 +47,14 @@ dotnet build Ostraplan.slnx                # build everything
 > works, and both pull App and Core in as dependencies. If a XAML-only incremental
 > build of the solution hits it anyway, delete `src\Ostraplan.App\obj` and
 > `src\Ostraplan.App\bin` and rebuild.
+>
+> A bare `dotnet test` can trip it too, because its restore properties re-trigger the
+> markup compile. Build the test project first, then run with `--no-build`:
+>
+> ```powershell
+> dotnet build tests\Ostraplan.Tests\Ostraplan.Tests.csproj
+> dotnet test tests\Ostraplan.Tests\Ostraplan.Tests.csproj --no-build
+> ```
 
 The app takes a few developer flags, each of which renders something and exits:
 
@@ -185,6 +193,11 @@ profile:
 - **Install root:** `%LOCALAPPDATA%\Ostraplan`
 - **User data:** `%APPDATA%\Ostraplan` (settings, activity log, bug-report diagnostics,
   and the `autosave\` snapshot store). It survives updates and uninstalls.
+
+Velopack replaced a self-installing, self-adopting exe in v0.49.0. That build put itself
+in `%LOCALAPPDATA%\Programs\Ostraplan`, and `LegacyInstall.cs` tidies that directory away
+once on first run of a Velopack build. User data never moved, so there was nothing to
+migrate.
 
 `VelopackApp.Build().Run()` is the first statement of an explicit `Program.Main`
 (App.xaml is compiled as a `Page` so the SDK does not also generate one): the

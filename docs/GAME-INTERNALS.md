@@ -284,6 +284,47 @@ The condition vocabulary that drives structural logic: `IsFloor` /
 (sub-floor), `IsPowerConduit` / `IsPowerPath` (power runs), `IsDockSys` /
 `IsInstalled` (docking ports).
 
+### Skin cond-loots (`COOverlay.Init`) — where a branded part's stats come from
+
+The loots above write **tile** conditions. A cooverlay's `strCondLoot` is a second,
+separate mechanism that writes the **part's own** conditions, and it is what makes the
+branded walls and floors genuinely distinct parts rather than reskins.
+
+A branded metal wall (Testudo, Ryokka, Langdon-Phillips, Mobile Space Systems, Minsheng,
+Van Hummel, …) is a cooverlay whose `strCOBase` is the shared condowner `ItmWall1x1` at
+24 kg, but whose `strCondLoot` carries **signed per-brand deltas** applied on top.
+`DataHandler.GetCondOwner` adds the `COOverlay` and calls `Init`, which runs
+`Loot.ApplyCondLoot` and accumulates through `AddCondAmount`. This happens on **every**
+spawn: build, template and loot alike. A built wall's real stats are therefore
+`base + loot deltas`, never the base alone.
+
+`CNDOLWallMSSLFWhite` (the MSS "Light Framework") is the worked example: `-StatMass x4`,
+`StatBasePrice +65`, `-StatInstallProgressMax x150`, `IsMSS`, `IsWhite`, `-IsHiddenInv`.
+Against `ItmWall1x1` (mass 24, price 21, install 600, `IsHiddenInv` 2) that gives mass 20,
+price 86, install 450, `IsHiddenInv` 1, plus the two brand conds, matching the baked wall
+on a real player ship cond for cond. Built mass per brand: MSS 20, Testudo 25, Van Hummel
+27, Ryokka 28, Langdon-Phillips 48; Testudo Aero takes `-10` to 14; Caylon plastic is
+unchanged.
+
+> **Zero means absent.** `AddCondAmount` removes a condition it drives to `<= 0` rather
+> than storing it at zero, so the Caylon floor loot's `-StatMass x13` against a 6.5 kg
+> grate leaves **no mass condition at all**. Mirror the removal; do not store a negative.
+
+Two traps when reading this data. A shallow or partial spawn can skip the overlay loot
+entirely and leave a part showing its flat base stats with `DEFAULT` and no brand
+conditions, which looks like evidence that the brands are identical and is not: the
+canonical player-built part carries the full deltas. And `LootDef.CondName` keeps the
+leading `-` (`"-StatMass=…"` returns `-StatMass`), so strip it before keying, because
+`CondAmount` handles the sign separately.
+
+> **Ported in Ostraplan:** `CoOverlayDef.CondLoot` and `Catalog.ApplyCondLoot`, which fold
+> the loot's `aCOs` deltas (recursing `aLoots`, condition-type only, dropping `<= 0`) onto
+> the base `StartingCondValues` / `StartingCondNames`. Before v0.43.0 `Catalog.ResolveDef`
+> resolved to `strCOBase` and read that def's `aStartingConds` while ignoring
+> `strCondLoot`, so every branded wall showed the flat 24 kg. Tests:
+> `CondLootOverlayTests`. Retuning per-brand stats means editing the `CNDOLWall*` loots in
+> `data/loot`, not authoring new condowners.
+
 ---
 
 ## 4. Footprints and sprites — two independent sizes
@@ -1536,6 +1577,26 @@ template one).
 > **Ported in Ostraplan:** `KioskExport` (`AppendShipToPool`, `PinShipToPool`),
 > `StartingShipExport`. Where another ship mod overrides the same pool, whole-object load
 > semantics would drop one side; the resolution is Ostrasort's per-item-union `--patch`.
+
+### Apartments are hidden stations
+
+Recorded because it is asked for regularly, and the answer is not obvious. An apartment is
+an ordinary ship record spawned as a **station**: `GUIShipBroker.OnPurchaseConfirm` calls
+`SpawnShip(…, isStation: true)`, then `HideFromSystem`, `LockToBO(station)` and
+`bIsBO = true`. Six stock templates across five station brokers, priced
+`sum(aRooms.roomValue) × discount × 10`.
+
+The RegID is `<STATION>|RES_<n>` and **the pipe is load-bearing**:
+`DataHandler.GetTransitConnections` truncates at it, and `TargetsWildCard` is
+`strTargetRegID.Contains("|")`. A RegID without it means no transit route in or out.
+
+The real blocker on doing anything with these in a planner is not the plumbing. The parts
+involved (`ItmKioskTransit02` / `03b`, `ItmDockSys02Closed`, `ItmSink01Station`) have
+**no install, uninstall or dismantle recipe at all**, so there is no bill of materials, no
+cost and no socket rule to port. Adding those recipes is a data mod, which is the answer
+to give: see [SCOPE.md](SCOPE.md#often-the-honest-answer-is-thats-a-mod). Verified against
+the 0.16-era decompile while closing
+[issue #12](https://github.com/Valtora/Ostraplan/issues/12).
 
 ---
 
