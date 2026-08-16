@@ -9,7 +9,9 @@
 # the app itself, so it's a no-op — the artifacts are installers, not the app).
 param([switch]$NoLaunch)
 $ErrorActionPreference = 'Stop'
-$root   = $PSScriptRoot
+# The script lives in scripts\, so the repo root is one level up. Everything it
+# reads and writes is anchored there, not at the caller's working directory.
+$root   = Split-Path -Parent $PSScriptRoot
 $rawDir = Join-Path $root 'publish\raw'          # plain self-contained publish (what Velopack packs)
 $relDir = Join-Path $root 'publish\releases'     # the release artifacts
 $csproj = Join-Path $root 'src\Ostraplan.App\Ostraplan.App.csproj'

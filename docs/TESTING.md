@@ -9,9 +9,9 @@ For building, versioning and releasing, see [DEVELOPMENT.md](DEVELOPMENT.md).
 ## Running
 
 ```powershell
-.\test.ps1                        # everything (Debug)
-.\test.ps1 -Filter Rooms          # only tests whose full name contains "Rooms"
-.\test.ps1 -Configuration Release
+.\scripts\test.ps1                        # everything (Debug)
+.\scripts\test.ps1 -Filter Rooms          # only tests whose full name contains "Rooms"
+.\scripts\test.ps1 -Configuration Release
 ```
 
 or straight through the SDK:

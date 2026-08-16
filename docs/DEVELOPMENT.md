@@ -1,8 +1,9 @@
 # Development
 
 How to build, run, test, and release Ostraplan. For the rules a contribution has to
-meet, see [CONTRIBUTING.md](../CONTRIBUTING.md); for what the tool is allowed to
-become, see [SCOPE.md](SCOPE.md).
+meet, see [CONTRIBUTING.md](../CONTRIBUTING.md); for the conventions a change has to
+follow, see [CONVENTIONS.md](CONVENTIONS.md); for what the tool is allowed to become,
+see [SCOPE.md](SCOPE.md).
 
 ## Prerequisites
 
@@ -21,8 +22,11 @@ src/Ostraplan.Core        the engine: ported game logic, data parsing, export, s
 src/Ostraplan.App         the WPF app: canvas, palette, inspector, export wizard
 tests/Ostraplan.Tests     the xUnit suite
 docs/                     this documentation
-test.ps1 / publish.ps1    the two entry-point scripts
+scripts/                  test.ps1 and publish.ps1, the two entry-point scripts
 ```
+
+Both scripts anchor their paths on the repo root rather than the working directory, so
+they run correctly from anywhere, but the documented form here is from the root.
 
 `Ostraplan.Core` holds everything that can be tested without a window, which is why
 most of the suite is game-free and fast. Keep new logic there and let the app call
@@ -48,7 +52,7 @@ The app takes a few developer flags, each of which renders something and exits:
 
 | Flag | What it does |
 |---|---|
-| `--smoke` | Shows and closes a native-backed WPF window. `publish.ps1` uses it to prove a published build loads its native DLLs. |
+| `--smoke` | Shows and closes a native-backed WPF window. `scripts\publish.ps1` uses it to prove a published build loads its native DLLs. |
 | `--dlgsmoke <dir>` | The standard dialogs, light and dark, as PNGs. |
 | `--invsmoke <dir>` | The inventory viewer: a synthesized backpack, an editable one, rotation, and the first real save container. Needs the install. |
 | `--navsmoke <dir>` | The nav console arrange board, at rest and mid-drag, so the screen layout can be eyeballed against the game's. Needs the install. |
@@ -60,9 +64,9 @@ do not replace a test.
 ## Test
 
 ```powershell
-.\test.ps1                          # everything (Debug)
-.\test.ps1 -Filter Rooms            # only tests whose full name contains "Rooms"
-.\test.ps1 -Configuration Release
+.\scripts\test.ps1                  # everything (Debug)
+.\scripts\test.ps1 -Filter Rooms    # only tests whose full name contains "Rooms"
+.\scripts\test.ps1 -Configuration Release
 ```
 
 Most tests are game-free and run anywhere. Tests that genuinely need a local
@@ -72,31 +76,52 @@ always honest. There is no CI: run the suite locally before you commit.
 [TESTING.md](TESTING.md) covers how the suite is structured, how to write a game-free
 test with the `Fixtures` builder, and what is covered where.
 
+## How work lands
+
+Ostraplan has **no pull-request workflow**. It is a one-person project and work is
+committed straight to `main`. Where a branch is used at all, it is merged `--ff-only` so
+the individual commits stay distinct instead of being squashed into one.
+
+Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/), and
+an issue reference goes **in the subject, in parentheses at the end**:
+
+```
+feat(walk): show which tiles crew can reach and which fittings they can use (#14)
+```
+
+Not a `Refs:` footer. Those `(#N)` suffixes are the project's own convention and look
+like the numbers GitHub appends on a squash merge, which is why the history reads as
+PR-based when it is not.
+
+Outside contributions are a different path and do go through a pull request. See
+[CONTRIBUTING.md](../CONTRIBUTING.md), which is written for that case.
+
 ## Versioning
 
 `<Version>` in `src/Ostraplan.App/Ostraplan.App.csproj` is the **single source of
-truth**. It is what Help shows, what `publish.ps1` reads off the built exe to name the
-artifacts, and what the in-app update check compares against GitHub release tags.
+truth**. It is what Help shows, what `scripts\publish.ps1` reads off the built exe to name
+the artifacts, and what the in-app update check compares against GitHub release tags.
 
 Semver, and it moves on **every user-facing change**: patch for a fix, minor for a
 feature, major for a break. Bump per change, not per release. Releases are cut
 separately and routinely batch several bumps.
 
 Every bump gets a `CHANGELOG.md` entry describing the change for users, written under
-`## [Unreleased]` until a release closes it into a versioned heading.
+`## [Unreleased]` until a release closes it into a versioned heading. Entries stay under
+`[Unreleased]`: the dated `## [X.Y.Z] — YYYY-MM-DD` heading is written only when a
+release is actually cut.
 
 ## Publishing the artifacts
 
 ```powershell
-.\publish.ps1
+.\scripts\publish.ps1
 ```
 
 **Close the running app first**: it locks its own exe and the publish will fail.
 (Ostranauts itself running is fine, that is a different exe.)
 
-`publish.ps1` does a self-contained `win-x64` publish into `publish\raw`, smoke-tests
-the published exe, reads the version off it, then packs with Velopack into
-`publish\releases`:
+It does a self-contained `win-x64` publish into `publish\raw`, smoke-tests the published
+exe, reads the version off it, then packs with Velopack into `publish\releases`:
 
 | Artifact | What it is |
 |---|---|
@@ -112,12 +137,20 @@ beside the exe.
 
 ## Cutting a release
 
+Cutting a release is a **separate, deliberate step**, not something a change triggers.
+Versions are bumped per change and releases batch several of them, so the accumulated
+`[Unreleased]` block is what gets promoted to a dated heading when one is cut.
+
 Every release **must** carry the Velopack artifacts. A notes-only release ships no
 binaries, and every installed copy's update check then sees nothing, so the release
 may as well not exist.
 
-1. Bump `<Version>` and close off the `CHANGELOG.md` entry.
-2. Run `.\publish.ps1`.
+The release **title is the bare version** and nothing else (`v0.52.0`, not
+`v0.52.0 — Light Viz`). Feature summaries belong in the notes body.
+
+1. Bump `<Version>`, and promote the `[Unreleased]` block to a dated
+   `## [X.Y.Z] — YYYY-MM-DD` heading matching it.
+2. Run `.\scripts\publish.ps1`.
 3. Publish in one shot. This creates the GitHub release **and** attaches every asset:
 
    ```powershell

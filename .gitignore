@@ -1,10 +1,23 @@
+# Build output
 bin/
 obj/
 publish/
-.vs/
-*.user
-*.bak
+TestResults/
+
+# Velopack's default output directory, used when --outputDir is omitted
+Releases/
 
 # Auto-generated WPF temp projects (created + deleted per build; a leftover one
 # gets loaded as a duplicate project and breaks the C# Dev Kit project system).
 *_wpftmp.*
+
+# IDE and editor state
+.vs/
+.idea/
+*.user
+*.suo
+*.userprefs
+
+# Local scratch
+*.bak
+*.tmp

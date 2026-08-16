@@ -5,15 +5,17 @@
 # SKIPPED — not passed — when the game is absent, so a green run is always honest.
 # See docs/TESTING.md (and docs/DEVELOPMENT.md for the wider build/release flow).
 #
-#   .\test.ps1                        # run everything (Debug)
-#   .\test.ps1 -Filter Rooms          # only tests whose full name contains "Rooms"
-#   .\test.ps1 -Configuration Release
+#   .\scripts\test.ps1                        # run everything (Debug)
+#   .\scripts\test.ps1 -Filter Rooms          # only tests whose full name contains "Rooms"
+#   .\scripts\test.ps1 -Configuration Release
 param(
     [string]$Filter,
     [string]$Configuration = 'Debug'
 )
 $ErrorActionPreference = 'Stop'
-$proj = Join-Path $PSScriptRoot 'tests\Ostraplan.Tests\Ostraplan.Tests.csproj'
+# The script lives in scripts\, so the repo root is one level up.
+$root = Split-Path -Parent $PSScriptRoot
+$proj = Join-Path $root 'tests\Ostraplan.Tests\Ostraplan.Tests.csproj'
 
 $dotnetArgs = @('test', $proj, '-c', $Configuration, '--nologo')
 if ($Filter) { $dotnetArgs += @('--filter', "FullyQualifiedName~$Filter") }

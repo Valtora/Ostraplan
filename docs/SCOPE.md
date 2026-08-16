@@ -34,6 +34,20 @@ save internals bounded. Every save-state feature pins Ostraplan to game internal
 would otherwise never have to touch, and each one has to be re-verified against every
 game patch, forever.
 
+### Often the honest answer is "that's a mod"
+
+A request that wants a station fitting placeable is usually asking for game data, not for
+a feature. Closing [issue #12](https://github.com/Valtora/Ostraplan/issues/12) (apartment
+editing) turned on exactly that: the parts it wanted to move
+(`ItmKioskTransit02`/`03b`, `ItmDockSys02Closed`, `ItmSink01Station`) have **no install,
+uninstall or dismantle recipe at all**, so there is no bill of materials, no cost and no
+socket rule to port. That, rather than any plumbing, was the real blocker.
+
+A loose form plus an install/uninstall pair is a handful of JSON objects in a mod, and
+Ostraplan's palette then picks the part up for free, because the catalogue is built from
+the installables across game data *and* enabled mods. Pointing at that is a better answer
+than declining flatly, and it costs the tool nothing.
+
 ## In scope
 
 - **Designing a ship** on the game's real tile grid, with every buildable part from

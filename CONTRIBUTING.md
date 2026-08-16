@@ -45,8 +45,8 @@ You need the **.NET 10 SDK**. Windows only (the app is WPF).
 
 ```powershell
 dotnet run --project src\Ostraplan.App     # build and launch
-.\test.ps1                                 # run the xUnit suite (Debug)
-.\test.ps1 -Filter Rooms                   # run a subset by name
+.\scripts\test.ps1                         # run the xUnit suite (Debug)
+.\scripts\test.ps1 -Filter Rooms           # run a subset by name
 ```
 
 Most tests are **game-free** and run anywhere. Tests that need a local Ostranauts
@@ -61,7 +61,7 @@ how to write a game-free test.
 
 ## Pull request checklist
 
-- Tests pass (`.\test.ps1`); add tests for logic changes.
+- Tests pass (`.\scripts\test.ps1`); add tests for logic changes.
 - **Bump the version.** Any user-facing fix or feature bumps `<Version>` in
   `src/Ostraplan.App/Ostraplan.App.csproj`. The built-in update check compares this
   against GitHub release tags, so it must move when behaviour changes. (Bump per
@@ -77,6 +77,10 @@ how to write a game-free test.
 - Match the surrounding code: its naming, comment density, and idioms. Ostraplan's
   code leans on clear comments that explain *why* a ported rule works the way it does.
 - Objective, plain tone in user-facing text, docs, and commit messages.
+- [docs/CONVENTIONS.md](docs/CONVENTIONS.md) has the rules that are not obvious from the
+  code: where logic belongs, how a custom control style has to chain to the Fluent theme,
+  and when a tunable parameter should be a user control instead of a constant. Worth
+  reading before a UI change.
 
 ## Conduct
 

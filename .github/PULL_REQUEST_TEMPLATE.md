@@ -11,12 +11,12 @@ agree on the approach before you write the code.
 
 ## How it was tested
 
-<!-- Which tests you ran (`.\test.ps1`), and any manual testing in the app. If it touches ported
-     game logic, say how you confirmed it still matches the game ("the Law"). -->
+<!-- Which tests you ran (`.\scripts\test.ps1`), and any manual testing in the app. If it touches
+     ported game logic, say how you confirmed it still matches the game ("the Law"). -->
 
 ## Checklist
 
-- [ ] `.\test.ps1` passes (game-gated tests may show as **skipped**, which is fine).
+- [ ] `.\scripts\test.ps1` passes (game-gated tests may show as **skipped**, which is fine).
 - [ ] I bumped `<Version>` in `src/Ostraplan.App/Ostraplan.App.csproj` (any user-facing fix or feature — see [CONTRIBUTING](../CONTRIBUTING.md)).
 - [ ] I added a `CHANGELOG.md` entry describing the change.
 - [ ] No game assets or copyrighted Ostranauts data are committed (Ostraplan reads everything from the user's install at runtime).

@@ -9,11 +9,13 @@ silently wrong answers). Each system below is described as the game implements i
 with the relevant `Type.Method` citations; a short **Ported in Ostraplan** note
 points to where that system is reimplemented.
 
-**Verified against game `1.0.0.7`** (`GameEnv.VerifiedGameVersion`, Steam build 24535205).
-Rating
-cutoffs and other magic numbers are compiled into the DLL and invisible to data
-diffing, so they can drift silently between patches. The version pin exists to
-flag exactly that: re-verify after every game update.
+**Verified against game `1.0.0.7`** (`GameEnv.VerifiedGameVersion`, Steam build 24535205),
+except where a section carries a later stamp of its own. Rating cutoffs and other magic
+numbers are compiled into the DLL and invisible to data diffing, so they can drift between
+patches with nothing in the data to show for it. The version pin exists to flag that.
+
+The per-section **"re-verify" notes say what to check when a sweep runs, not how often to
+run one**. See [When a sweep is warranted](#when-a-sweep-is-warranted) in section 1.
 
 **Contents**
 
@@ -74,7 +76,41 @@ updates. The members that matter most:
 | `GasContainer.cs` | `Run` (pressure/partial pressures/mass), `Init`, `AddGasMols`, `GetGasMass`, `CheckPressureDifference` (the burst check), `GetTotalGasValue` |
 | `JsonItem.cs` | `ApplyOverrideCondsToCO` (how `aCondOverrides` reaches a spawned condowner) |
 
-**Re-verification checklist after a game patch:**
+### The GPU shaders
+
+Some of the render constants are not in the C# assembly at all. The Light Viz falloff and
+the blend modes live in compiled Unity shaders, so `ilspycmd` cannot reach them and
+section 16 was reconstructed like this instead:
+
+1. `pip install UnityPy`, load `Ostranauts_Data/resources.assets`, filter
+   `obj.type.name == "Shader"`. The ones that matter: `Sprites/LoSPass` (the light-mesh
+   fragment, which is the falloff math), `Sprites/DefaultAdditive` (glow decals),
+   `Sprites/AlbedoPass`, `Hidden/FinalCombinePass`, `Sprites/StencilCombinePass`.
+2. Read the typetree: `platforms` / `offsets` / `compressedLengths` /
+   `decompressedLengths` / `compressedBlob`, LZ4-block-decompress, then a header of
+   `int32 count` followed by `count ×` **triplets** of `(offset, length, segment)`. Each
+   subprogram segment holds a `DXBC` container: find the magic, and the total length is
+   at magic + 24.
+3. Disassemble through the system `d3dcompiler_47.dll` via ctypes (`D3DDisassemble`). No
+   external tooling is needed.
+4. Blend state is `m_ParsedForm.m_SubShaders[].m_Passes[].m_State.rtBlend0`, against
+   Unity's `BlendMode` enum (1 = One, 4 = OneMinusDstColor, 5 = SrcAlpha). `LoSPass` is
+   `OneMinusDstColor One`, a screen blend; `DefaultAdditive` is `SrcAlpha One`.
+
+### When a sweep is warranted
+
+**A full re-verification sweep is not run against every game patch.** Sweeps happen on
+major game versions, or when specifically asked for. The suite already runs against the
+live install's data, so data drift surfaces on its own as a parity regression, and a full
+decompile re-read per patch is cost without signal.
+
+A **"verified X" stamp moves only for a port that was actually re-read** against the newer
+decompile. That includes the per-port comments in the code, the stamps in this file, and
+`GameEnv.VerifiedGameVersion`. If a piece of work happens to re-read one port, move that
+port's stamp alone and leave the rest, which is why the sections here do not all carry the
+same version.
+
+**When a sweep does run:**
 1. Re-decompile; diff `CheckFit`, `SetData`, `RotateCW`, `CalculateRating`
    (cutoffs), `CreateRooms`, `RoomSpec.Matches`, `GetBasePrice` for logic changes.
 2. Re-run the parity corpus (`ParityTests`, `GameDataTests`) — it asserts the
@@ -1003,7 +1039,8 @@ Autotile connectivity honours `bAND`: `TIsWall` is one AND req (`IsWall`), but
 The game's lighting is a **deferred light pass**, reconstructed from the decompiled
 `Visibility` / `Occluder` / `Block` / `Item` / `GameRenderer` and the disassembled GPU
 shaders in `resources.assets` (`Sprites/LoSPass`, `Sprites/DefaultAdditive`, and the
-combine passes; extracted with UnityPy, DXBC disassembled via `d3dcompiler_47`).
+combine passes; extracted with UnityPy, DXBC disassembled via `d3dcompiler_47`, procedure
+in [section 1](#the-gpu-shaders)).
 
 - **The visible ship IS the light accumulation.** In normal play the main camera **does
   not draw the sprite layer at all** (`CrewSim.ToggleAmbientLight` masks the Default

@@ -1,4 +1,4 @@
-<p align="center"><img src="Ostraplan-logo.png" alt="Ostraplan" width="180"/></p>
+<p align="center"><img src="docs/assets/Ostraplan-logo.png" alt="Ostraplan" width="180"/></p>
 
 # Ostraplan
 
@@ -95,7 +95,7 @@ Needs the **.NET 10 SDK**. Windows only (the app is WPF).
 
 ```powershell
 dotnet run --project src\Ostraplan.App     # build and launch
-.\test.ps1                                 # run the test suite (most tests are game-free)
+.\scripts\test.ps1                         # run the test suite (most tests are game-free)
 ```
 
 Tests that need a local Ostranauts install report as **skipped** (never a false pass) when it is absent, so a green run is always honest.
@@ -110,6 +110,7 @@ For the full build, test, versioning and release procedure, see **[docs/DEVELOPM
 - [docs/OPLAN-FORMAT.md](docs/OPLAN-FORMAT.md) — the `.oplan` document format, field by field.
 - [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) — building, running, versioning, and cutting a release.
 - [docs/TESTING.md](docs/TESTING.md) — how the test suite is structured (game-free vs game-gated) and how to run it.
+- [docs/CONVENTIONS.md](docs/CONVENTIONS.md) — the conventions a change has to follow: where logic lives, theming and control styles, and what gets exposed as a user control.
 - [CHANGELOG.md](CHANGELOG.md) — what shipped, version by version.
 - [CONTRIBUTING.md](CONTRIBUTING.md) — bug reports and pull requests.
 - [SECURITY.md](SECURITY.md) — reporting a security issue.
