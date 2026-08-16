@@ -73,10 +73,81 @@ public static class ProblemScan
                     "airlock's face (Item.CheckFit), and a blocked face cannot mate with a station collar."));
         }
 
+        AddBlockedPortWarnings(doc, catalog, ports, problems);
         AddLegalityProblems(doc, problems);
         AddWalkabilityWarnings(doc, catalog, problems);
 
         return problems;
+    }
+
+    /// <summary>The dismiss key for the blocked mating-face warning.</summary>
+    public const string BlockedPortAlertKey = "blocked-mating-face";
+
+    /// <summary>
+    /// New construction parked in a port's <b>mating corridor</b> — the strip directly ahead of its face, as wide
+    /// as the port itself — so that port can never take a station collar.
+    ///
+    /// <para>Only the ports the envelope does <b>not</b> cover are checked. The bounding port (see
+    /// <see cref="BoundingPort"/>, always the Primary when one exists) already refuses this outright through
+    /// <c>Item.CheckFit</c> and is reported above as Blocking. Every other port bounds nothing in game, which is
+    /// what lets a towing brace land in front of a Secondary with the ghost showing green (issue #29). The brace
+    /// is the case that surfaced it: its <c>aSocketReqs</c> carries a single <c>TILDockSys</c> cell, so a
+    /// one-point requirement that <b>every</b> rotation can satisfy at some offset, three of the four leaving the
+    /// brace across or against the airlock.</para>
+    ///
+    /// <para><b>Warning, not Blocking, and the corridor rather than the whole half-plane.</b> The game genuinely
+    /// permits it (re-read against <c>Item.CheckFit</c> on 1.0.0.9: the build path calls it with
+    /// <c>GUIInventory.Selected == null</c>, which is exactly the branch that skips the crew proximity/LOS gate,
+    /// so nothing else applies), and a Secondary facing into the hull is a legitimate internal docking bay whose
+    /// half-plane covers most of the ship. Bounding the flag laterally to the port's own width keeps the claim to
+    /// what it can actually justify, that a collar has no room to mate. Imported structure is skipped exactly as
+    /// it is for the Blocking rule: the game never re-validates existing hull.</para>
+    /// </summary>
+    private static void AddBlockedPortWarnings(
+        ShipDocument doc, Catalog catalog, List<Placement> ports, List<Problem> problems)
+    {
+        var bounding = BoundingPort(doc, catalog);
+        foreach (var port in ports)
+        {
+            if (ReferenceEquals(port, bounding)) continue;   // already covered, as a Blocking envelope breach
+            if (doc.Part(port) is not { } portPart) continue;
+            if (!TryGetFace(portPart, port, out var axisY, out var dir, out var face)) continue;
+
+            // the collar mates across the port's full width, so only that strip can block it
+            var (pw, ph) = doc.FootprintOf(port);
+            var (lo, hi) = axisY ? (port.X, port.X + pw - 1) : (port.Y, port.Y + ph - 1);
+
+            var cells = new List<(int X, int Y)>();
+            var names = new List<string>();
+            foreach (var q in doc.Placements)
+            {
+                if (q.IsGiven || ReferenceEquals(q, port)) continue;
+                var (w, h) = doc.FootprintOf(q);
+                var hit = false;
+                for (var r = 0; r < h; r++)
+                    for (var c = 0; c < w; c++)
+                    {
+                        var (x, y) = (q.X + c, q.Y + r);
+                        if ((axisY ? x : y) < lo || (axisY ? x : y) > hi) continue;   // outside the corridor
+                        if (((axisY ? y : x) + 0.5 - face) * dir <= 0.01) continue;   // inboard of the face
+                        cells.Add((x, y));
+                        hit = true;
+                    }
+                if (hit && doc.Part(q) is { } qPart) names.Add(qPart.Friendly);
+            }
+
+            if (cells.Count == 0) continue;
+            var distinct = names.Distinct().ToList();
+            var listed = string.Join(", ", distinct.Take(4)) + (distinct.Count > 4 ? ", …" : "");
+            problems.Add(new Problem(ProblemSeverity.Warning,
+                $"\"{portPart.Friendly}\" at ({port.X},{port.Y}) is blocked and cannot dock",
+                $"{cells.Count} tile(s) sit ahead of its mating face ({listed}), so no station collar can reach it. " +
+                "The game allows this — only the primary airlock's face bounds construction — so it is advice, not " +
+                "a block. A part that should be mounted on the airlock (a towing brace) usually just needs to share " +
+                "the airlock's rotation; otherwise move it inboard, or Dismiss if this port is a deliberate internal " +
+                "bay (highlighted tiles show what is in the way).",
+                cells, DismissKey: BlockedPortAlertKey));
+        }
     }
 
     /// <summary>The dismiss key for the unreachable-devices warning.</summary>

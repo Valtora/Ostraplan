@@ -15,6 +15,16 @@ public class ProblemScanTests
         new Dictionary<string, double>(),
         new Dictionary<string, (double, double)> { ["DockA"] = (0, 8), ["DockB"] = (0, 24) });
 
+    // the buildable Secondary: same geometry, but IsTypeB, so Ship.AddCO files it behind every
+    // non-TypeB port and it never becomes the bounding port while a Primary exists (BoundingPort).
+    private static PartDef DocksysB() => new(
+        "DockB", "Secondary Airlock", "HULL", "core",
+        new ItemDef("DockB", "", false, null, 0, 7, [.. Enumerable.Repeat("L", 14)], [], []),
+        null, [], [],
+        ["IsDockSys", "IsInstalled", ProblemScan.TypeBCond],
+        new Dictionary<string, double>(),
+        new Dictionary<string, (double, double)> { ["DockA"] = (0, 8), ["DockB"] = (0, 24) });
+
     private static PartDef Floor() => new(
         "Floor", "Floor", "HULL", "core",
         new ItemDef("Floor", "", false, null, 0, 1, ["L"], [], []),
@@ -26,7 +36,7 @@ public class ProblemScanTests
     private static Catalog Cat() => new()
     {
         Parts = [],
-        ByDefName = new[] { Docksys(), Floor() }.ToDictionary(p => p.DefName),
+        ByDefName = new[] { Docksys(), DocksysB(), Floor() }.ToDictionary(p => p.DefName),
         Loots = new Dictionary<string, LootDef> { ["L"] = new("L", ["IsX"], []) },
         Triggers = new Dictionary<string, CondTriggerDef>
         {
@@ -110,6 +120,67 @@ public class ProblemScanTests
         Assert.True(axisY);
         Assert.Equal(-1, dir);        // outward = up (toward negative doc y)
         Assert.Equal(0, face, 3);     // exactly the footprint's top edge
+    }
+
+    // ---- a Secondary's mating face (issue #29) ----
+    //
+    // The envelope only ever comes from the bounding port, so nothing stops a part landing ahead of a
+    // Secondary. The game is the same, which is why this is advice rather than a block.
+
+    // Primary at y 0 facing up, Secondary at y 20 rotated 180 so it faces DOWN (outward = +y, face at y 22).
+    private static ShipDocument TwoPortDoc(Catalog cat, params Placement[] extra) => Doc(cat,
+        [.. new[]
+        {
+            new Placement { DefName = "Dock", X = 0, Y = 0 },
+            new Placement { DefName = "DockB", X = 0, Y = 20, Rot = 180 },
+        }.Concat(extra)]);
+
+    [Fact]
+    public void A_part_ahead_of_a_secondary_face_is_a_dismissible_warning()
+    {
+        var cat = Cat();
+        var doc = TwoPortDoc(cat, new Placement { DefName = "Floor", X = 3, Y = 22 });   // in the corridor, past the face
+        var problem = Assert.Single(ProblemScan.Scan(doc, cat));
+        Assert.Equal(ProblemSeverity.Warning, problem.Severity);          // never Blocking: the game allows it
+        Assert.Equal(ProblemScan.BlockedPortAlertKey, problem.DismissKey);
+        Assert.Contains("cannot dock", problem.Title);
+        Assert.Contains((3, 22), problem.Cells!);
+    }
+
+    [Fact]
+    public void The_bounding_port_is_not_reported_twice()
+    {
+        // A tile past the PRIMARY's face is the Blocking envelope breach and must not also surface as this warning.
+        var cat = Cat();
+        var doc = TwoPortDoc(cat, new Placement { DefName = "Floor", X = 3, Y = -1 });
+        var problem = Assert.Single(ProblemScan.Scan(doc, cat));
+        Assert.Equal("Construction beyond the airlock", problem.Title);
+    }
+
+    [Fact]
+    public void Only_the_ports_own_width_counts_as_its_mating_corridor()
+    {
+        // Past the face but off to the side: a collar still has room, and flagging the whole half-plane would
+        // condemn most of the ship whenever a Secondary faces inboard as an internal docking bay.
+        var cat = Cat();
+        Assert.Empty(ProblemScan.Scan(TwoPortDoc(cat, new Placement { DefName = "Floor", X = 9, Y = 22 }), cat));
+        Assert.Empty(ProblemScan.Scan(TwoPortDoc(cat, new Placement { DefName = "Floor", X = -1, Y = 22 }), cat));
+    }
+
+    [Fact]
+    public void Inboard_of_the_face_is_clean()
+    {
+        var cat = Cat();
+        Assert.Empty(ProblemScan.Scan(TwoPortDoc(cat, new Placement { DefName = "Floor", X = 3, Y = 19 }), cat));
+    }
+
+    [Fact]
+    public void Imported_structure_never_trips_the_warning()
+    {
+        // Same rule as the Blocking check: the game never re-validates existing hull.
+        var cat = Cat();
+        var doc = TwoPortDoc(cat, new Placement { DefName = "Floor", X = 3, Y = 22, IsGiven = true });
+        Assert.Empty(ProblemScan.Scan(doc, cat));
     }
 
     // ---- per-placement legality (P1) ----

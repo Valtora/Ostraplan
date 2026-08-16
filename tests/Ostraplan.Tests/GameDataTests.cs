@@ -375,4 +375,48 @@ public class GameDataTests
         Assert.True(g.Catalog.IsUnderFloorLoot("TILSubfloorAdds"));
         Assert.False(g.Catalog.IsUnderFloorLoot("TIL2DeckAdds"));
     }
+
+    /// <summary>
+    /// Issue #29. <c>ItmTowingBrace01</c>'s <c>aSocketReqs</c> carries exactly one non-Blank cell
+    /// (<c>TILDockSys</c>), so the requirement is a single point and <b>every</b> brace rotation satisfies it at
+    /// some offset against a port. Three of the four leave the brace across or against the airlock, and on a
+    /// Secondary nothing bounds them, so the ghost reads green on a pose that parks the brace ahead of the
+    /// mating face. The game accepts those poses too (this is not a placement-offset defect), so the outcome is
+    /// the dismissible <see cref="ProblemScan.BlockedPortAlertKey"/> warning rather than a refusal.
+    /// </summary>
+    [SkippableFact]
+    public void Towing_brace_rotated_against_a_secondary_lands_ahead_of_its_face()
+    {
+        var g = TestData.RequireGame();
+        var brace = g.Catalog.ByDefName["ItmTowingBrace01"];
+
+        // one TILDockSys cell in the whole ring: that is what makes all four rotations placeable
+        Assert.Single(brace.Item.SocketReqs, r => r != "Blank");
+        Assert.Contains("TILDockSys", brace.Item.SocketReqs);
+
+        // the reporter's design: the seeded Primary at the origin, plus a Secondary facing west
+        static ShipDocument Design(Catalog cat, params Placement[] extra)
+        {
+            var d = new ShipDocument(cat);
+            new PlaceCommand(new Placement { DefName = Catalog.PrimaryDocksysDef, X = 0, Y = 0 }).Do(d);
+            new PlaceCommand(new Placement { DefName = "ItmDockSys03Closed", X = 0, Y = 40, Rot = 270 }).Do(d);
+            foreach (var p in extra) new PlaceCommand(p).Do(d);
+            return d;
+        }
+
+        // matched rotation is the pose the game's own tugs use (Station Tug: port (1,6) rot270, brace (2,6) rot270)
+        var right = new Placement { DefName = brace.DefName, X = 1, Y = 40, Rot = 270 };
+        Assert.True(CheckFit.Check(Design(g.Catalog), brace, right.X, right.Y, right.Rot).Ok);
+        Assert.DoesNotContain(ProblemScan.Scan(Design(g.Catalog, right), g.Catalog),
+            p => p.DismissKey == ProblemScan.BlockedPortAlertKey);
+
+        // the reported pose: brace at rot 90 against a rot 270 port, two tiles the wrong side of the face
+        var wrong = new Placement { DefName = brace.DefName, X = -2, Y = 40, Rot = 90 };
+        Assert.True(CheckFit.Check(Design(g.Catalog), brace, wrong.X, wrong.Y, wrong.Rot).Ok,
+            "the game accepts this pose, so Ostraplan must too — the fix is the warning, not a refusal");
+        var problem = Assert.Single(ProblemScan.Scan(Design(g.Catalog, wrong), g.Catalog),
+            p => p.DismissKey == ProblemScan.BlockedPortAlertKey);
+        Assert.Equal(ProblemSeverity.Warning, problem.Severity);
+        Assert.Contains("Secondary", problem.Title);
+    }
 }

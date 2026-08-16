@@ -11,6 +11,17 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **A warning when something is parked in front of an airlock that needs to dock**
+  ([#29](https://github.com/Valtora/Ostraplan/issues/29)). A towing brace attaches to an
+  airlock by a single tile, which means all four of its rotations find somewhere to sit,
+  and three of them leave it lying across the airlock or out in front of it. Only the
+  primary airlock's face stops you building past it, so on a secondary the brace would go
+  down two tiles the wrong side of the hatch with nothing said. That pose is legal in the
+  game too, so Ostraplan still places it, but the port it blocks can never take a station
+  collar and you now get told so. The usual fix is to give the brace the same rotation as
+  its airlock. Dismissible, for the case where the port is a deliberate internal bay.
+
 ### Fixed
 - **"Deduct the edit cost from your credits" works while you're docked.** The checkbox was
   disabled, with "No player balance found in this save", on any save written while you were

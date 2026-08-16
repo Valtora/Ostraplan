@@ -16,8 +16,9 @@ public sealed record FitResult(
 }
 
 /// <summary>
-/// Port of <c>Item.CheckFit</c> (Assembly-CSharp, verified against game 1.0.0.7):
-/// can this part occupy this pose given the ship's accumulated tile conditions?
+/// Port of <c>Item.CheckFit</c> (Assembly-CSharp, verified against game 1.0.0.7; the method itself
+/// re-read unchanged at 1.0.0.9 for issue #29): can this part occupy this pose given the ship's
+/// accumulated tile conditions?
 ///
 /// <para>Model (traced from CheckFit + CondTrigger.Triggered + Loot.GetLootNames):</para>
 /// <list type="bullet">
@@ -44,6 +45,13 @@ public sealed record FitResult(
 /// <para>Excluded by design (in-game only, cannot occur in a planner): crew
 /// proximity/LOS (GUIInventory selection), docked-ship WouldConnectShips, and
 /// station-zone (JsonZone) restrictions.</para>
+///
+/// <para>The proximity/LOS gate is <b>not</b> a rule the build menu applies. It runs only when
+/// <c>GUIInventory.instance.Selected != null</c>, which is the hand-drop-from-inventory path;
+/// <c>CrewSim.PaintInstall</c> / <c>PaintPos</c> call CheckFit only when <c>Selected == null</c>, so the two are
+/// mutually exclusive and a build job is gated by the socket masks and the envelope alone. Do not reach for
+/// "the interactive builder would have stopped it" to explain a pose the planner accepts — for a build job
+/// there is nothing else to stop it (issue #29).</para>
 /// </summary>
 public static class CheckFit
 {
