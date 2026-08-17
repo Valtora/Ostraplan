@@ -306,7 +306,8 @@ public static class ShipExport
             if (overrides is { Count: > 0 }) item.ACondOverrides = [.. overrides];
 
             if (IsDocksysPart(part.Part, catalog))
-                docksysPorts.Add((strID, part.Part.Has("IsTypeB"), part.Part.DefName == Catalog.PrimaryDocksysDef, part.AnchorIndex));
+                docksysPorts.Add((strID, part.Part.Has(ProblemScan.TypeBCond),
+                    catalog.IsPrimaryDocksys(catalog.Lookup(part.Part.DefName)), part.AnchorIndex));
 
             if (placement is { Cargo.Count: > 0 })
             {
@@ -440,7 +441,8 @@ public static class ShipExport
         if (docksysPorts.Count > 0)
         {
             // Mirror the game's registration order: non-TypeB (primary) ports first, TypeB ports last; the primary
-            // is the Primary Airlock (ItmDockSys02Closed) when present, else the first non-TypeB port.
+            // is a primary-class airlock when present (by conditions, so any state variant counts), else the first
+            // non-TypeB port.
             var ordered = docksysPorts.Where(p => !p.TypeB).Concat(docksysPorts.Where(p => p.TypeB)).ToList();
             primaryPortId = docksysPorts.FirstOrDefault(p => p.PrimaryDef).Id ?? ordered[0].Id;
             aDockingPorts = ordered.Select(p => p.Id).OrderBy(id => id == primaryPortId ? 0 : 1).ToArray();

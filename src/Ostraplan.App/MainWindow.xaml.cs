@@ -1590,7 +1590,10 @@ public partial class MainWindow : Window
         if (_catalog is not { } catalog) return;
         CloseReports();
 
-        // designs saved before the primary-airlock convention gain one at the origin
+        // Designs saved before the primary-airlock convention gain one at the origin. IsLocked reads the port's
+        // CONDITIONS (Catalog.IsPrimaryDocksys), so a ship whose airlock is pried open, damaged or modded already
+        // counts as having one; matching the def name alone used to seed a SECOND airlock here, which moved the
+        // written grid frame and left the ship unable to dock.
         if (catalog.ByDefName.ContainsKey(Catalog.PrimaryDocksysDef) && !doc.Placements.Any(doc.IsLocked))
             new PlaceCommand(new Placement { DefName = Catalog.PrimaryDocksysDef, X = 0, Y = 0 }).Do(doc);
 

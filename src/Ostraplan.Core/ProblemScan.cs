@@ -43,6 +43,8 @@ public static class ProblemScan
             return problems;
         }
 
+        AddDuplicatePrimaryWarning(doc, catalog, problems);
+
         // Exactly ONE port bounds construction, and only the Primary ever does — see BoundingPort.
         if (BoundingPort(doc, catalog) is { } port
             && TryGetFace(doc.Part(port)!, port, out var axisY, out var dir, out var face))
@@ -78,6 +80,47 @@ public static class ProblemScan
         AddWalkabilityWarnings(doc, catalog, problems);
 
         return problems;
+    }
+
+    /// <summary>
+    /// More than one PRIMARY-class port. A ship owns exactly one: <c>Ship.AddCO</c> files every non-TypeB port with
+    /// <c>aDocksys.Insert(0, …)</c>, so a second one displaces the first at index 0 and silently becomes the port
+    /// that bounds construction and that a station collar mates to.
+    ///
+    /// <para>Ostraplan used to CREATE this. It recognised the primary airlock by the def name
+    /// <c>ItmDockSys02Closed</c> alone, so a ship whose airlock had been pried open in game
+    /// (<c>ItmDockSys02Open</c>) read as having none, and reopening the design seeded a fresh one at the origin.
+    /// That moved the written grid frame and left the ship unable to dock. The seeding is condition-based now, but
+    /// designs saved while it was not still carry the stray port, and it has to be deleted by hand — hence a named,
+    /// tile-highlighted Blocking problem rather than a silent repair.</para>
+    /// </summary>
+    private static void AddDuplicatePrimaryWarning(ShipDocument doc, Catalog catalog, List<Problem> problems)
+    {
+        var primaries = doc.Placements.Where(p => catalog.IsPrimaryDocksys(doc.Part(p))).ToList();
+        if (primaries.Count < 2) return;
+
+        // Which one WINS is the useful part, and it is rarely the one the user means: Insert(0, …) puts the
+        // LAST-registered non-TypeB port at the head of aDocksys, so a port added after the ship's real airlock
+        // displaces it. Name every candidate and say which the game would take, rather than guessing an intruder.
+        var cells = primaries.SelectMany(p =>
+        {
+            var (w, h) = doc.FootprintOf(p);
+            return from r in Enumerable.Range(0, h) from c in Enumerable.Range(0, w) select (p.X + c, p.Y + r);
+        }).ToList();
+        var listed = string.Join(", ", primaries.Select(p => $"{doc.Part(p)?.Friendly ?? p.DefName} at ({p.X},{p.Y})"));
+        var winner = BoundingPort(doc, catalog) is { } w2
+            ? $"{doc.Part(w2)?.Friendly ?? w2.DefName} at ({w2.X},{w2.Y})" : null;
+
+        problems.Add(new Problem(ProblemSeverity.Blocking,
+            $"{primaries.Count} primary docking ports",
+            $"A ship can only have one. Every primary port is registered at the head of Ship.aDocksys, so the " +
+            $"last one loaded wins and becomes the port that bounds construction and that a station collar mates " +
+            $"to, which moves the ship relative to its dock. Found: {listed}." +
+            (winner is null ? "" : $" The game would dock by {winner}.") +
+            " Delete all but the one your ship actually docks by. An older Ostraplan added a stray port at the " +
+            "origin when it could not recognise an airlock that had been pried open in game, so if one of these " +
+            "sits at (0,0) away from the hull, that is the one to remove.",
+            cells));
     }
 
     /// <summary>The dismiss key for the blocked mating-face warning.</summary>

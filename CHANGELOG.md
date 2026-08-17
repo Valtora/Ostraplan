@@ -23,6 +23,19 @@ each release was verified against is recorded in
   its airlock. Dismissible, for the case where the port is a deliberate internal bay.
 
 ### Fixed
+- **A ship whose airlock was pried open came back from the save shifted, and could not dock.**
+  If you had forced your primary airlock open in game (running out of power will do it), the save
+  holds it as a different object to the closed one, and Ostraplan only recognised the closed
+  version. So it decided your ship had no primary airlock at all: the airlock stopped being fixed
+  in place, the export tagged no port as the primary, and reopening the design quietly added a
+  *second* airlock at the origin. That extra port is what moved everything. The game registers each
+  primary port at the head of its list, so the newest one wins, and the ship is then positioned by
+  an airlock sitting out in space instead of the real one, a few tiles off from the station collar.
+  Ostraplan now identifies the primary airlock by what it *is* rather than by which state it is in,
+  so open, damaged and modded airlocks all count, and your ship's own state is left exactly as you
+  had it. Designs saved while this was broken still carry the stray port, so the problem scan now
+  reports a ship carrying more than one primary airlock, names each one with its tile, and says
+  which one the game would dock by. Delete the one at the origin.
 - **Reactor parts could be built on top of one another, and Ostraplan said nothing.** A design could
   stack two Reactor Fuel Regulators across six shared tiles, bury a Fusion Core Pump and a Pellet
   Feeder inside one of them, drop a Laser Capacitor over the top, and pave the Field Coils' centre

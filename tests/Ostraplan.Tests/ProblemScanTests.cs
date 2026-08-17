@@ -404,4 +404,104 @@ public class ProblemScanTests
         // the core fixture sits on the trusted modded wall, so it must NOT be flagged "needs a wall"
         Assert.DoesNotContain(problems, p => p.Severity == ProblemSeverity.Blocking && p.Title.Contains("wall"));
     }
+
+    // ---- the primary port is identified by CONDITIONS, not by def name ----
+
+    /// <summary>The same primary airlock in a different STATE, as a save carries it once a player pries the
+    /// door open: a distinct def name, identical conditions.</summary>
+    private static PartDef DocksysOpen() => new(
+        "DockOpen", "Primary Exterior Airlock (Open)", "HULL", "core",
+        new ItemDef("DockOpen", "", false, null, 0, 7, [.. Enumerable.Repeat("L", 14)], [], []),
+        null, [], [],
+        ["IsDockSys", "IsInstalled"],
+        new Dictionary<string, double>(),
+        new Dictionary<string, (double, double)> { ["DockA"] = (0, 8), ["DockB"] = (0, 24) });
+
+    private static Catalog CatWithOpen()
+    {
+        var baseline = Cat();
+        return new Catalog
+        {
+            Parts = baseline.Parts,
+            ByDefName = baseline.ByDefName.Values.Append(DocksysOpen()).ToDictionary(p => p.DefName),
+            Loots = baseline.Loots,
+            Triggers = baseline.Triggers,
+            Warnings = baseline.Warnings,
+        };
+    }
+
+    [Fact]
+    public void A_primary_port_in_another_state_is_still_the_fixed_port()
+    {
+        // Regression: IsLocked matched the def name ItmDockSys02Closed, so a ship whose airlock had been pried
+        // open read as having NO primary port. It stopped being fixed against edits, and reopening the design
+        // seeded a second airlock at the origin, which moved the written grid frame and broke docking.
+        var cat = CatWithOpen();
+        var open = new Placement { DefName = "DockOpen", X = 10, Y = 3 };
+        var doc = Doc(cat, open);
+
+        Assert.True(cat.IsPrimaryDocksys(cat.ByDefName["DockOpen"]));
+        Assert.True(doc.IsLocked(open), "an open primary airlock is still fixed to the ship");
+        // and the reopen path, which seeds a primary when the design has none, must now find one
+        Assert.True(doc.Placements.Any(doc.IsLocked), "reopening this design must not seed another airlock");
+    }
+
+    [Fact]
+    public void A_secondary_port_is_not_fixed_to_the_ship()
+    {
+        // the guard on the relaxation: a Secondary is TypeB, freely placeable, and must stay movable
+        var cat = Cat();
+        var sec = new Placement { DefName = "DockB", X = 4, Y = 4 };
+        var doc = Doc(cat, sec);
+
+        Assert.False(cat.IsPrimaryDocksys(cat.ByDefName["DockB"]));
+        Assert.False(doc.IsLocked(sec));
+    }
+
+    [Fact]
+    public void Two_primary_ports_are_reported_and_the_stray_is_named()
+    {
+        // What an already-damaged design looks like: the real airlock plus the one an older Ostraplan seeded at
+        // the origin. The game files both at the head of aDocksys, so the extra one takes over as the port a
+        // station collar mates to.
+        var cat = CatWithOpen();
+        var real = new Placement { DefName = "DockOpen", X = 10, Y = 3 };
+        var stray = new Placement { DefName = "Dock", X = 0, Y = 0 };
+        var problems = ProblemScan.Scan(Doc(cat, real, stray), cat);
+
+        var dup = Assert.Single(problems, p => p.Title.Contains("primary docking ports"));
+        Assert.Equal(ProblemSeverity.Blocking, dup.Severity);
+        Assert.Equal("2 primary docking ports", dup.Title);
+        Assert.Contains("(0,0)", dup.Detail);      // both are named; the user knows which is theirs
+        Assert.Contains("(10,3)", dup.Detail);
+        Assert.Contains((0, 0), dup.Cells!);
+        Assert.Contains((10, 3), dup.Cells!);
+        // and the diagnosis that matters: the stray, registered last, is the one the game would dock by
+        Assert.Contains("would dock by Dock at (0,0)", dup.Detail);
+    }
+
+    [Fact]
+    public void One_primary_port_reports_nothing()
+    {
+        var cat = CatWithOpen();
+        var problems = ProblemScan.Scan(Doc(cat, new Placement { DefName = "DockOpen", X = 10, Y = 3 }), cat);
+        Assert.DoesNotContain(problems, p => p.Title.Contains("primary docking ports"));
+    }
+
+    [SkippableFact]
+    public void The_real_open_airlock_def_resolves_as_a_primary_port()
+    {
+        // Pins the actual def a save carries once the door is pried open, which is what the bug report hit.
+        var g = TestData.RequireGame();
+        foreach (var def in new[] { "ItmDockSys02Closed", "ItmDockSys02Open" })
+        {
+            var part = g.Catalog.Lookup(def);
+            Skip.If(part is null, $"{def} not in this install");
+            Assert.True(g.Catalog.IsPrimaryDocksys(part), $"{def} must count as the primary port");
+        }
+        // a Secondary, in either state, must not
+        foreach (var def in new[] { "ItmDockSys03Closed", "ItmDockSys03Open" })
+            if (g.Catalog.Lookup(def) is { } sec)
+                Assert.False(g.Catalog.IsPrimaryDocksys(sec), $"{def} is a Secondary and must stay movable");
+    }
 }

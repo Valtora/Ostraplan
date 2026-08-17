@@ -439,6 +439,32 @@ public sealed class Catalog
                 : part.StartingConds.Any(VesselConds.Contains));
     }
 
+    private readonly ConcurrentDictionary<string, bool> _isPrimaryPort = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// True when a part is a <b>primary-class</b> docking port: the game's <c>TIsDockSysInstalled</c> trigger fires
+    /// and the part is not <c>IsTypeB</c>. This is the port <c>Ship.AddCO</c> files with <c>aDocksys.Insert(0, …)</c>,
+    /// so it leads <c>aDocksys</c> and bounds construction (see <see cref="ProblemScan.BoundingPort"/>); every
+    /// Secondary is TypeB and is freely placeable.
+    ///
+    /// <para>Read the <b>conditions</b>, never the def name. <see cref="PrimaryDocksysDef"/> is only the variant a
+    /// new design is seeded with; the same port has other states, and a save carries whichever one the ship is
+    /// actually in. A player who pries their airlock open has <c>ItmDockSys02Open</c>, and matching on
+    /// <c>ItmDockSys02Closed</c> alone made Ostraplan treat that ship as having no primary port at all: it stopped
+    /// being fixed against edits, the export tagged no port as primary, and reopening the design seeded a SECOND
+    /// airlock at the origin, which moved the written grid frame and broke docking.</para>
+    /// </summary>
+    public bool IsPrimaryDocksys(PartDef? part)
+    {
+        if (part is null) return false;
+        return _isPrimaryPort.GetOrAdd(part.DefName, _ =>
+            Triggers.ContainsKey(ProblemScan.DocksysTrigger)
+                ? ProblemScan.IsDocksys(part, this) && !part.StartingConds.Contains(ProblemScan.TypeBCond)
+                // No trigger in the data means a synthetic catalog (Fixtures), which carries no condtrigs; fall
+                // back to the seeded def so those tests still see a fixed port. Same shape as IsVessel's fallback.
+                : part.DefName == PrimaryDocksysDef);
+    }
+
     private static readonly HashSet<string> WallConds = new(StringComparer.Ordinal) { "IsWall", "IsPortal" };
     private static readonly HashSet<string> FloorConds = new(StringComparer.Ordinal) { "IsFloor", "IsFloorSealed", "IsFloorFlex" };
     private readonly ConcurrentDictionary<string, int> _renderLayer = new(StringComparer.Ordinal);

@@ -502,6 +502,20 @@ law; only genuinely new construction (a newly placed or moved part) is.
   job**, so players can neither build nor remove one. The buildable port is the
   **Secondary**, `ItmDockSys03Closed`.
 
+> **Ported in Ostraplan: identify the Primary by its CONDITIONS, never its def name.**
+> `Catalog.IsPrimaryDocksys` is `TIsDockSysInstalled` (`IsDockSys` + `IsInstalled`)
+> without `IsTypeB`, memoized per def. `Catalog.PrimaryDocksysDef` is *only* the
+> variant a brand-new design is seeded with. The same port exists in other states,
+> and a save carries whichever one the ship is in: a player who pries the door open
+> has `ItmDockSys02Open`, and a damaged one is `…Dmg`. Matching `ItmDockSys02Closed`
+> alone made such a ship read as having **no** primary port, which cost three things
+> at once — the airlock stopped being fixed against move/rotate/delete, `ShipExport`
+> tagged no port as primary, and reopening the design seeded a *second* airlock at
+> the origin. That last one moved the written grid frame (the inject writes bbox±1)
+> and left the ship unable to dock or undock. `ProblemScan` now reports a design
+> carrying more than one primary-class port, because designs saved while this was
+> broken still hold the stray.
+
 ### The one real positional rule: no construction beyond the primary's mating face
 
 A port's face comes from its `DockA → DockB` arrow (condowner `mapPoints`, pixels

@@ -324,8 +324,10 @@ public sealed class ShipDocument
 
     public PartDef? Part(Placement p) => Catalog.Lookup(p.DefName);
 
-    /// <summary>The primary airlock is fixed to the ship: no move/rotate/delete/duplicate.</summary>
-    public bool IsLocked(Placement p) => p.DefName == Catalog.PrimaryDocksysDef;
+    /// <summary>The primary airlock is fixed to the ship: no move/rotate/delete/duplicate. Identified by its
+    /// CONDITIONS (see <see cref="Catalog.IsPrimaryDocksys"/>), so an imported ship whose airlock is pried open,
+    /// damaged or modded is still recognised as having one.</summary>
+    public bool IsLocked(Placement p) => Catalog.IsPrimaryDocksys(Part(p));
 
     public (int W, int H) FootprintOf(Placement p)
     {
