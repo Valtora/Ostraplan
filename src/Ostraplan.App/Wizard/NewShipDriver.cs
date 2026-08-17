@@ -114,7 +114,7 @@ public sealed class NewShipDriver : ExportDriver
             _stations = await ListStationsOffThread(save, session.Index);
             _station = _stations.FirstOrDefault(s =>
                            string.Equals(s.RegId, session.Plan.NewShip.StationRegId, StringComparison.Ordinal))
-                       ?? _stations.FirstOrDefault();
+                       ?? ResidenceGrant.Preferred(_stations);
             session.Plan.NewShip.StationRegId = _station?.RegId;
         }
         return null;

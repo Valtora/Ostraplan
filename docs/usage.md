@@ -723,6 +723,13 @@ playthroughs. Adding or transferring one asks **which station** it belongs at, o
 **Save & price** step. There is no mod export: the game sells a residence through a Real
 Estate broker, which a ship mod cannot stock.
 
+**The station list.** Alphabetical by name, and it holds only real stations: the game
+builds an apartment's registration off a station proper, never off the residential module
+hanging under it, so a name like "Azikiwe Estates Transfer Station" is not offered even
+though that is the place you catch the lift from. Pick "K-Leg: Port Azikiwe" and the
+transit kiosk at the transfer station will offer your apartment. The picker opens on the
+station you are standing in, or failing that on one the game can actually reach.
+
 **The station warning is worth reading.** An apartment is reached through its station's
 transit kiosk, and a station only offers that route if the game's data defines one. Pick a
 station that has none and Ostraplan says so twice, on the step and again on Review: the

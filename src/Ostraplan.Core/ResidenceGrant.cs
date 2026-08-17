@@ -17,7 +17,10 @@ namespace Ostraplan.Core;
 /// does, and inherits its body-orbit lock.</param>
 /// <param name="HasTransitRoute">Whether game data defines a <c>&lt;RegId&gt;|</c> transit node. Without one the
 /// apartment exists and is owned but nothing can reach it — see <see cref="ResidenceGrant"/>.</param>
-public sealed record ResidenceStation(string RegId, string DisplayName, GrantAnchor Anchor, bool HasTransitRoute)
+/// <param name="IsPlayerLocation">Whether this is the station the player is standing on. The list itself is
+/// alphabetical, so this is what <see cref="ResidenceGrant.Preferred"/> reads to open on a sensible one.</param>
+public sealed record ResidenceStation(
+    string RegId, string DisplayName, GrantAnchor Anchor, bool HasTransitRoute, bool IsPlayerLocation = false)
 {
     /// <summary>The transit node a residence at this station resolves to, which is the station's RegID with the
     /// pipe kept: <c>DataHandler.GetTransitConnections</c> truncates at and <b>including</b> it.</summary>
@@ -62,20 +65,25 @@ public static class ResidenceGrant
     // ---- choosing a station ----
 
     /// <summary>
-    /// The stations in <paramref name="zipPath"/>'s save a residence could be attached to, best first: a station
-    /// with a transit route ahead of one without, and the player's own location ahead of everything.
+    /// The stations in <paramref name="zipPath"/>'s save a residence could be attached to, in alphabetical order —
+    /// a list of twenty-odd is read by looking a name up in it, not by trusting its ranking. Which one to open on
+    /// is a separate question, and <see cref="Preferred"/> answers it.
     ///
-    /// <para>A station is any ship whose <c>objSS.bIsBO</c> is set, which is the game's own test
-    /// (<c>Ship.IsStation</c>). Sub-modules are excluded — their RegIDs already carry a pipe, and hanging a
-    /// residence off one would mint <c>BCRS|RES_1|RES_1</c>, which truncates to the same transit node but reads
-    /// as nonsense. That exclusion is also what the game's 0.15.0.x migration did by hand, rewriting
-    /// <c>BCRS_RES|RES…</c> to <c>BCRS|RES…</c>.</para>
+    /// <para>A host is what <c>GUIShipBroker.SetupApartments</c> would resolve to, which is
+    /// <c>GetNearestStation(…, excludeOutposts: true)</c> and therefore <see cref="IsFullStation"/>: docking ports,
+    /// <c>bIsBO</c>, a classification no higher than <c>GroundStationUnfinished</c>, and no pipe in the RegID. A
+    /// residential module such as <c>OKLG_RES</c> or <c>BCRS_RES</c> fails the port test, which is precisely why
+    /// the game never builds a registration from one. That is also what the 0.15.0.x save migration did by hand,
+    /// rewriting <c>BCRS_RES|RES…</c> to <c>BCRS|RES…</c>.</para>
+    ///
+    /// <para>A ship the data already routes to — one with a <c>&lt;RegID&gt;|</c> transit node — is kept whatever
+    /// the port test says. Vanilla never exercises that branch (all eight routed stations have ports), but a mod
+    /// is free to hang a route off a portless module, and our filter should not be the thing that forbids it.</para>
     /// </summary>
     public static IReadOnlyList<ResidenceStation> ListStations(string zipPath, DataIndex index)
     {
         var transitNodes = TransitNodes(index);
         var stations = new List<ResidenceStation>();
-        string? playerStation = null;
 
         using var zip = ZipFile.OpenRead(zipPath);
         var playerShipReg = SaveImport.PlayerShipRegId(zip);
@@ -92,24 +100,67 @@ public static class ResidenceGrant
             if (ShipJson.Largest(record) is not JsonObject ship) continue;
             var regId = Str(ship, "strRegID") ?? SaveZip.DecodeName(Path.GetFileNameWithoutExtension(entry.FullName));
             if (regId.Length == 0 || SaveZip.IsSubStation(regId)) continue;
-            if (ship["objSS"] is not JsonObject situ || situ["bIsBO"]?.GetValue<bool>() != true) continue;
+
+            var routed = transitNodes.Contains(regId + "|");
+            if (!IsFullStation(ship) && !routed) continue;
 
             var name = Str(ship, "publicName") is { Length: > 0 } p && p != "$TEMPLATE" ? p : regId;
             stations.Add(new ResidenceStation(
-                regId, name, GrantAnchor.FromShipRecord(ship), transitNodes.Contains(regId + "|")));
-            if (regId == playerShipReg) playerStation = regId;
+                regId, name, GrantAnchor.FromShipRecord(ship), routed, regId == playerShipReg));
         }
 
-        return [.. stations
-            .OrderByDescending(s => s.RegId == playerStation)
-            .ThenByDescending(s => s.HasTransitRoute)
-            .ThenBy(s => s.DisplayName, StringComparer.OrdinalIgnoreCase)];
+        return [.. stations.OrderBy(s => s.DisplayName, StringComparer.OrdinalIgnoreCase)];
     }
+
+    /// <summary>
+    /// Which of <paramref name="stations"/> to open a picker on: where the player is standing, else one the game
+    /// can actually reach, else whatever is first. Null only when the list is empty.
+    ///
+    /// <para>This is separate from the list's order on purpose. Sorting the offer by usefulness makes a
+    /// twenty-entry list unsearchable, but defaulting to whatever happens to sort first would put a station with
+    /// no residence transit route under the cursor, and accepting that default is exactly how an apartment ends up
+    /// owned and unreachable.</para>
+    /// </summary>
+    public static ResidenceStation? Preferred(IReadOnlyList<ResidenceStation> stations) =>
+        stations.FirstOrDefault(s => s.IsPlayerLocation)
+        ?? stations.FirstOrDefault(s => s.HasTransitRoute)
+        ?? stations.FirstOrDefault();
 
     /// <summary>Every transit node name in the effective (mod-resolved) data. Read from the index rather than
     /// hard-coded so a mod that adds a station's residence route is seen.</summary>
     private static HashSet<string> TransitNodes(DataIndex index) =>
         [.. index.Type("transit").Keys];
+
+    /// <summary>The highest <c>Ship.TypeClassification</c> that still counts as a whole station:
+    /// <c>GroundStationUnfinished</c> (4). <c>Ship.IsNotAFullStation</c> is <c>Classification &gt; </c> this, which
+    /// is what <c>GetNearestStation</c>'s <c>excludeOutposts</c> rejects — buoys (5), outposts (6), waypoints,
+    /// projectiles and the rest.</summary>
+    private const int LastFullStationType = 4;
+
+    /// <summary>
+    /// <c>Ship.IsStation() &amp;&amp; !IsNotAFullStation</c>, read off a saved record. This is the test
+    /// <c>GetNearestStation(…, excludeOutposts: true)</c> applies, and so the test that decides which registration
+    /// a bought apartment is built from.
+    ///
+    /// <para>The docking-port half is the one that matters in practice. <c>Ship.HasDockingPorts</c> is true when
+    /// <c>aDockingPorts</c> holds any entry not prefixed <c>"MP|"</c> (a mooring point is not a dock), and every
+    /// stock residential module — <c>OKLG_RES</c>, <c>BCRS_RES</c>, <c>BCER_ROOF</c>, <c>MSUZ_RB</c> — carries
+    /// <c>bIsBO</c> with no ports at all. Judging on <c>bIsBO</c> alone is <c>IsStationHidden</c>, not
+    /// <c>IsStation</c>, and it is what let a residence be minted as <c>OKLG_RES|RES_1</c>: a registration no
+    /// transit node truncates to, so <c>GetConnectionsForKiosk</c> found no ship matching its <c>OKLG|</c>
+    /// wildcard and fell back to a <c>TIsDead</c>-gated placeholder row.</para>
+    /// </summary>
+    private static bool IsFullStation(JsonObject ship)
+    {
+        if (ship["objSS"] is not JsonObject situ || situ["bIsBO"]?.GetValue<bool>() != true) return false;
+        if (ship["ShipType"] is JsonValue t && t.TryGetValue<int>(out var type) && type > LastFullStationType)
+            return false;
+
+        foreach (var port in ship["aDockingPorts"] as JsonArray ?? [])
+            if (port is JsonValue v && v.TryGetValue<string>(out var id)
+                && !id.StartsWith("MP|", StringComparison.Ordinal)) return true;
+        return false;
+    }
 
     // ---- the registration ----
 

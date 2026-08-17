@@ -168,14 +168,14 @@ public class ResidenceGrantTests
     // ---- listing stations out of a save ----
 
     [SkippableFact]
-    public void Only_bIsBO_ships_are_offered_and_sub_modules_are_not()
+    public void Only_full_stations_are_offered_and_sub_modules_are_not()
     {
         var g = TestData.RequireGame();
         var zip = SaveWith(
-            ("J-P3HF", regId: "J-P3HF", isBo: false, name: "Vagabond"),          // the player's vessel
-            ("BCRS", regId: "BCRS", isBo: true, name: "Ring Station"),           // a station
-            ("BCRS%RES_1", regId: "BCRS|RES_1", isBo: true, name: "an apartment"),   // a sub-module
-            ("HQCH", regId: "HQCH", isBo: true, name: "Hab Quarters"));
+            new Row("J-P3HF", "J-P3HF", "Vagabond", IsBo: false),                // the player's vessel
+            new Row("BCRS", "BCRS", "Ring Station"),                             // a station
+            new Row("BCRS%RES_1", "BCRS|RES_1", "an apartment"),                 // a sub-module, by RegID
+            new Row("HQCH", "HQCH", "Hab Quarters"));
         try
         {
             var stations = ResidenceGrant.ListStations(zip, g.Index);
@@ -188,6 +188,63 @@ public class ResidenceGrantTests
     }
 
     [SkippableFact]
+    public void A_residential_module_is_not_a_host_however_much_it_looks_like_one()
+    {
+        // The regression. OKLG_RES ("Azikiwe Estates Transfer Station") carries bIsBO and no docking ports, which
+        // is IsStationHidden, not IsStation. Offering it minted OKLG_RES|RES_1, a registration that truncates to
+        // the transit node "OKLG_RES|" — which does not exist — so GetConnectionsForKiosk matched no ship against
+        // its "OKLG|" wildcard and emitted the TIsDead placeholder row instead. The apartment was owned, present
+        // and unreachable, and the homeowner cond was minted as the undefined IsHomeownerOKLG_RES besides.
+        var g = TestData.RequireGame();
+        var zip = SaveWith(
+            new Row("OKLG", "OKLG", "K-Leg: Port Azikiwe"),
+            new Row("OKLG_RES", "OKLG_RES", "K-Leg: Azikiwe Estates Transfer Station", Ports: false));
+        try
+        {
+            var stations = ResidenceGrant.ListStations(zip, g.Index);
+
+            Assert.Equal("OKLG", Assert.Single(stations).RegId);
+            Assert.Equal("OKLG|RES_1", ResidenceGrant.MintRegId(new HashSet<string>(), stations[0].RegId));
+            Assert.Equal("IsHomeownerOKLG", ResidenceGrant.HomeownerCond(stations[0].RegId));
+            Assert.True(stations[0].HasTransitRoute);
+        }
+        finally { File.Delete(zip); }
+    }
+
+    [SkippableFact]
+    public void Buoys_and_outposts_are_not_offered_even_with_docking_ports()
+    {
+        // GetNearestStation is called with excludeOutposts: true, which is Ship.IsNotAFullStation — anything
+        // classified above GroundStationUnfinished. OKLG alone carries four NAV buoys and a security outpost.
+        var g = TestData.RequireGame();
+        var zip = SaveWith(
+            new Row("OKLG", "OKLG", "K-Leg: Port Azikiwe"),
+            new Row("OKLG_NAV1", "OKLG_NAV1", "OKLG NAV", ShipType: 5),      // Buoy
+            new Row("OKLG_SEC", "OKLG_SEC", "OKLG SEC", ShipType: 6));       // Outpost
+        try
+        {
+            Assert.Equal("OKLG", Assert.Single(ResidenceGrant.ListStations(zip, g.Index)).RegId);
+        }
+        finally { File.Delete(zip); }
+    }
+
+    [SkippableFact]
+    public void A_ship_the_data_already_routes_to_is_offered_whatever_its_ports_say()
+    {
+        // The union branch. No vanilla ship needs it (all eight routed stations have ports), but a mod is free to
+        // hang a "<RegID>|" node off something portless, and the station filter should not be what forbids that.
+        var g = TestData.RequireGame();
+        var zip = SaveWith(new Row("VORB", "VORB", "Venus Orbital", IsBo: false, Ports: false));
+        try
+        {
+            var station = Assert.Single(ResidenceGrant.ListStations(zip, g.Index));
+            Assert.Equal("VORB", station.RegId);
+            Assert.True(station.HasTransitRoute);
+        }
+        finally { File.Delete(zip); }
+    }
+
+    [SkippableFact]
     public void A_station_the_game_has_no_residence_route_to_is_listed_but_flagged()
     {
         // The real case: vanilla MVOL places a Real Estate kiosk and has no "MVOL|" transit node, so an
@@ -195,9 +252,9 @@ public class ResidenceGrantTests
         // and refusing outright would be Ostraplan overruling the user's data.
         var g = TestData.RequireGame();
         var zip = SaveWith(
-            ("J-P3HF", regId: "J-P3HF", isBo: false, name: "Vagabond"),
-            ("BCRS", regId: "BCRS", isBo: true, name: "Ring Station"),
-            ("MVOL", regId: "MVOL", isBo: true, name: "Mercury Volanus"));
+            new Row("J-P3HF", "J-P3HF", "Vagabond", IsBo: false),
+            new Row("BCRS", "BCRS", "Ring Station"),
+            new Row("MVOL", "MVOL", "Mercury Volanus"));
         try
         {
             var stations = ResidenceGrant.ListStations(zip, g.Index);
@@ -206,25 +263,59 @@ public class ResidenceGrantTests
             Assert.False(stations.Single(s => s.RegId == "MVOL").HasTransitRoute);
             Assert.Equal("BCRS|", stations.Single(s => s.RegId == "BCRS").TransitNodeName);
 
-            // Routed stations sort ahead of stranded ones, so the default choice is never the broken one.
-            Assert.Equal("BCRS", stations[0].RegId);
+            // It is listed, but it is not what the picker opens on: accepting that default is how an apartment
+            // ends up owned and unreachable.
+            Assert.Equal("BCRS", ResidenceGrant.Preferred(stations)!.RegId);
         }
         finally { File.Delete(zip); }
     }
 
     [SkippableFact]
-    public void The_station_the_player_is_standing_on_is_offered_first()
+    public void Stations_are_listed_alphabetically_by_name()
+    {
+        // A save holds twenty-odd of them, which is a list you read by looking a name up in — so the order is the
+        // names', not a ranking. What is useful about a station is said beside it, not by where it sits.
+        var g = TestData.RequireGame();
+        var zip = SaveWith(
+            playerShip: "MSUZ",
+            new Row("MSUZ", "MSUZ", "Panmen"),
+            new Row("BCRS", "BCRS", "Zhonghuamen Terminal"),
+            new Row("MVOL", "MVOL", "Upsilon Docking"),
+            new Row("HQCH", "HQCH", "Qincheng Station"));
+        try
+        {
+            Assert.Equal(
+                ["Panmen", "Qincheng Station", "Upsilon Docking", "Zhonghuamen Terminal"],
+                ResidenceGrant.ListStations(zip, g.Index).Select(s => s.DisplayName));
+        }
+        finally { File.Delete(zip); }
+    }
+
+    [SkippableFact]
+    public void The_picker_opens_on_the_station_the_player_is_standing_on()
     {
         var g = TestData.RequireGame();
         var zip = SaveWith(
             playerShip: "MSUZ",
-            ("BCRS", regId: "BCRS", isBo: true, name: "Ring Station"),
-            ("MSUZ", regId: "MSUZ", isBo: true, name: "Suzhou"));
+            new Row("BCRS", "BCRS", "A Ring Station"),        // sorts first, and is routed
+            new Row("MSUZ", "MSUZ", "Zed Station"));          // sorts last
         try
         {
-            Assert.Equal("MSUZ", ResidenceGrant.ListStations(zip, g.Index)[0].RegId);
+            var stations = ResidenceGrant.ListStations(zip, g.Index);
+
+            Assert.Equal(["A Ring Station", "Zed Station"], stations.Select(s => s.DisplayName));
+            Assert.Equal("MSUZ", ResidenceGrant.Preferred(stations)!.RegId);
         }
         finally { File.Delete(zip); }
+    }
+
+    [Fact]
+    public void Preferring_a_station_falls_through_to_first_when_none_is_reachable()
+    {
+        var stranded = new[] { Station("Alpha", transit: false), Station("Beta", transit: false) };
+
+        Assert.Equal("Alpha", ResidenceGrant.Preferred(stranded)!.RegId);
+        Assert.Null(ResidenceGrant.Preferred([]));
     }
 
     // ---- helpers ----
@@ -241,13 +332,18 @@ public class ResidenceGrantTests
     private static List<string> Conds(JsonObject co) =>
         [.. (co["aConds"] as JsonArray ?? []).Select(n => (string)n!)];
 
-    private static string SaveWith(params (string Entry, string regId, bool isBo, string name)[] ships) =>
-        SaveWith("J-P3HF", ships);
+    /// <summary>One ship in a synthetic save. The defaults describe a plain orbital station, so a test states only
+    /// the property it is about: <c>IsBo: false</c> for a vessel, <c>Ports: false</c> for a residential module,
+    /// <c>ShipType</c> above 4 for a buoy or an outpost.</summary>
+    private sealed record Row(
+        string Entry, string RegId, string Name, bool IsBo = true, bool Ports = true, int ShipType = 0);
+
+    private static string SaveWith(params Row[] ships) => SaveWith("J-P3HF", ships);
 
     /// <summary>A save zip holding a session record and one entry per ship. Built by concatenation rather than
     /// raw string literals: the JSON here is brace-dense, and a $$"""…""" hole beside a literal '}}' does not
     /// parse.</summary>
-    private static string SaveWith(string playerShip, params (string Entry, string regId, bool isBo, string name)[] ships)
+    private static string SaveWith(string playerShip, params Row[] ships)
     {
         var path = Path.Combine(Path.GetTempPath(), $"ostraplan-res-grant-{Guid.NewGuid():N}.zip");
         using (var zip = ZipFile.Open(path, ZipArchiveMode.Create))
@@ -256,11 +352,13 @@ public class ResidenceGrantTests
                 "[{\"strShip\":\"" + playerShip + "\",\"strPlayerCO\":\"Ada\","
                 + "\"objSystem\":{\"dfEpoch\":0,\"dictShipOwners\":[]}}]");
 
-            foreach (var (entry, regId, isBo, name) in ships)
-                Write(zip, "ships/" + entry + ".json",
-                    "[{\"strName\":\"" + regId + "\",\"strRegID\":\"" + regId + "\","
-                    + "\"publicName\":\"" + name + "\",\"nCols\":8,\"nRows\":8,\"aItems\":[],"
-                    + "\"objSS\":{\"bIsBO\":" + (isBo ? "true" : "false") + ",\"bBOLocked\":true,"
+            foreach (var row in ships)
+                Write(zip, "ships/" + row.Entry + ".json",
+                    "[{\"strName\":\"" + row.RegId + "\",\"strRegID\":\"" + row.RegId + "\","
+                    + "\"publicName\":\"" + row.Name + "\",\"nCols\":8,\"nRows\":8,\"aItems\":[],"
+                    + "\"ShipType\":" + row.ShipType + ","
+                    + "\"aDockingPorts\":[" + (row.Ports ? "\"" + row.RegId + "-port\"" : "") + "],"
+                    + "\"objSS\":{\"bIsBO\":" + (row.IsBo ? "true" : "false") + ",\"bBOLocked\":true,"
                     + "\"boPORShip\":\"Ceres\",\"vPosx\":1.5,\"vPosy\":2.5,"
                     + "\"vBOOffsetx\":0.1,\"vBOOffsety\":0.2,\"vVelX\":0,\"vVelY\":0,\"size\":100}}]");
         }

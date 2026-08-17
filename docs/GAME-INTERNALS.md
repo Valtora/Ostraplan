@@ -1703,6 +1703,42 @@ RegID contains the target; and a 0.15.0.x save migration rewrote `BCRS_RES|RES�
 `BCRS|RES…`, which is why the prefix is the **top-level** station and not the residential
 sub-module. A RegID without a pipe means no transit route in or out.
 
+**`<STATION>` is not the ship the kiosk stands on.** `GUIShipBroker.SetupApartments` uses
+`COSelf.ship.strRegID` only when that ship `IsStation()`, and otherwise takes
+`GetNearestStation(…, excludeOutposts: true)`. Both paths require `IsStation()`, which is
+`HasDockingPorts && bIsBO` — and `HasDockingPorts` means an `aDockingPorts` entry not
+prefixed `"MP|"`, a mooring point being no dock. Four of the eight placed Real Estate kiosks
+sit on a portless residential module (`BCER_ROOF`, `BCRS_RES`, `MSUZ_RB`, and `MVOL`'s on
+the station proper), so the nearest-station fallback is the normal path, not the exceptional
+one. That fallback is what the 0.15.0.x migration was cleaning up after.
+
+The distinction is easy to get wrong because a residential module looks like a station from
+every angle except the one that counts: it carries `bIsBO`, it is a separate ship record, it
+has a transit node of its own and a public name that says "Station". `bIsBO` alone is
+`IsStationHidden`, not `IsStation`. In a save the discriminator is exact and cheap: across
+all sixty body-orbit ships in a stock game, every one with a `<RegID>|` node has docking
+ports and every residential module has none.
+
+**How the connection actually resolves, and what a failure looks like.**
+`JsonTransit.GetConnectionsForKiosk` expands a wildcard by scanning `CrewSim.system.dictShips`
+for keys **containing** the target, emitting one row per match labelled
+`"<label> | <RegID>"`. If nothing matches it emits a single row keeping the bare label and
+**overriding `ctUserOptional` to `TIsDead`**, so the entry is present and permanently
+disabled. A "Private Residence" row with no ` | ` suffix is therefore diagnostic: it means no
+loaded ship's RegID contains the wildcard, not that the user failed a gate. `OKLG_RES|RES_1`
+does not contain `OKLG|`, which is exactly how a residence minted off the wrong prefix
+presents.
+
+Note also that this expansion consults **no ownership registry at all**. `dictShipOwners`
+does not gate the kiosk; `ctUserOptional` (`TIsHomeowner<STATION>`) is the only user gate,
+and it is copied onto each expanded row.
+
+**A residence is reached from the residential module, not from the station.** At K-Leg the
+`OKLG` node offers no Private Residence connection whatsoever: the player transits
+`OKLG` → `OKLG_RES` ("Azikiwe Estates Transfer Station"), and the residence row lives on the
+`OKLG_RES` and `OKLG|` nodes. So the module a residence's registration must **not** name is
+the same module the player reaches it from.
+
 **Ownership is one registry, not two.** `CondOwner.ClaimShip` early-returns for an
 `IsPlayer` CO when the ship `IsStation()` or `IsStationHidden()`, and the broker calls it
 straight after `RegisterShipOwner`, so the claim is refused. An owned apartment therefore
@@ -1756,9 +1792,11 @@ already placeable.
 > `WriteGrant` and `SaveZip` for the §17 filename encoding. A design carries `DocumentKind.Residence`, which
 > gates the four vessel-only analyses and routes the delivery. `SaveImport` now unions `aMyShips` with
 > `dictShipOwners` so an owned apartment is findable, and `SaveEdit.ValidateSubStation` aborts a write-back that
-> would lose the registration or the station lock. **Re-verify per patch:** the pipe convention in
-> `Ship.InitShip`, the `ClaimShip` station refusal, and whether the transit node set still matches the stations
-> that place a Real Estate kiosk.
+> would lose the registration or the station lock. `ResidenceGrant.IsFullStation` is the `IsStation()` +
+> `excludeOutposts` pair above; a ship the data already routes to is kept regardless, so a mod may hang a route
+> off something portless. **Re-verify per patch:** the pipe convention in `Ship.InitShip`, the `ClaimShip`
+> station refusal, the docking-port half of `IsStation`, and whether the transit node set still matches the
+> stations that place a Real Estate kiosk.
 
 > **Not ported:** making a designed residence purchasable through a Real Estate broker. That needs a
 > `strType: "station"` self-reference loot plus an `Itm<STATION>ResBrokerInv.aLoots` append, which is a second
