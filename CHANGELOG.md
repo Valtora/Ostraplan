@@ -23,6 +23,12 @@ each release was verified against is recorded in
   its airlock. Dismissible, for the case where the port is a deliberate internal bay.
 
 ### Fixed
+- **A ship whose registration contains a `|` was written to the wrong file inside a save.** The game
+  substitutes two characters it cannot put in a Windows filename (`|` becomes `%`, `*` becomes `§`),
+  so a sub-station stored as `ships/VORB%Aux.json` was being looked for under its raw registration.
+  Nothing in a normal save has either character, which is why this never surfaced; it would have,
+  the first time anyone edited an apartment. Writing a new ship was the dangerous half, because that
+  path creates the file if it is missing and would have left two records claiming one registration.
 - **Clothing arrived in game with no pockets, and could not be filled in Ostraplan either.** Put a
   pair of coveralls in a backpack and there was nowhere to put anything, and the pair that reached
   your save came back as coveralls with no pockets at all: useless, permanently. Coveralls have no

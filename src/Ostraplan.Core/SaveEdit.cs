@@ -670,7 +670,7 @@ public static class SaveEdit
     internal static void SpliceShipInZip(string zipPath, string regId, JsonObject ship)
     {
         using var za = ZipFile.Open(zipPath, ZipArchiveMode.Update);
-        var entryName = $"ships/{regId}.json";
+        var entryName = SaveZip.ShipEntry(regId);
         var entry = za.GetEntry(entryName)
             ?? throw new InvalidDataException($"'{entryName}' is not in the save.");
         string original;
@@ -1181,7 +1181,7 @@ public static class SaveEdit
 
         try
         {
-            if (zip.GetEntry($"ships/{standingOnRegId}.json") is not { } entry) return (null, null);
+            if (zip.GetEntry(SaveZip.ShipEntry(standingOnRegId)) is not { } entry) return (null, null);
             if (FindPlayerCoInFile(JsonNode.Parse(SaveImport.ReadText(entry)), coId) is not { } elsewhere)
                 return (null, null);
             return (standingOnRegId, SumStatUsd(elsewhere));
@@ -1229,7 +1229,7 @@ public static class SaveEdit
         if (ctx.PlayerCoRegId is not { Length: > 0 } reg || reg == ctx.Source.RegId) return;
 
         using var za = ZipFile.Open(zipPath, ZipArchiveMode.Update);
-        var entryName = $"ships/{reg}.json";
+        var entryName = SaveZip.ShipEntry(reg);
         var entry = za.GetEntry(entryName)
             ?? throw new InvalidDataException(
                 $"'{entryName}' holds the player's money but is not in the save, so the edit cost can't be deducted.");

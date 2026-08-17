@@ -531,7 +531,7 @@ public static class SaveGrant
         if (session.PlayerCoId is not { Length: > 0 } coId)
             throw new InvalidDataException("This save's character record names no player, so a ship can't be registered to them.");
 
-        var shipEntry = zip.GetEntry($"ships/{session.ShipRegId}.json")
+        var shipEntry = zip.GetEntry(SaveZip.ShipEntry(session.ShipRegId))
             ?? throw new InvalidDataException($"The ship the player is on ('{session.ShipRegId}') is not among this save's ships.");
         var record = LargestShip(JsonNode.Parse(SaveImport.ReadText(shipEntry)))
             ?? throw new InvalidDataException($"The ship the player is on ('{session.ShipRegId}') has no readable record.");
@@ -543,10 +543,13 @@ public static class SaveGrant
                 "The player's character wasn't found on the ship they're standing on, so ownership can't be written. " +
                 "Load the save in game, then save again from aboard your own ship.");
 
+        // Decoded, because the file name is not the RegID: the game substitutes '|' and '*' on write
+        // (SaveZip), so an apartment's BCRS|RES_1 is stored as BCRS%RES_1 and a raw read would let a mint
+        // collide with a registration that is already taken.
         var regIds = zip.Entries
             .Where(e => e.FullName.StartsWith("ships/", StringComparison.Ordinal)
                 && e.FullName.EndsWith(".json", StringComparison.OrdinalIgnoreCase))
-            .Select(e => Path.GetFileNameWithoutExtension(e.FullName))
+            .Select(e => SaveZip.DecodeName(Path.GetFileNameWithoutExtension(e.FullName)))
             .ToHashSet(StringComparer.Ordinal);
 
         return new GrantContext
@@ -655,11 +658,11 @@ public static class SaveGrant
         using var za = ZipFile.Open(targetZip, ZipArchiveMode.Update);
 
         // The new ship. A save's ship files are top-level arrays, the same shape a data/ships file uses.
-        var entry = za.CreateEntry($"ships/{regId}.json");
+        var entry = za.CreateEntry(SaveZip.ShipEntry(regId));
         using (var w = new StreamWriter(entry.Open()))
             w.Write(new JsonArray(ship.DeepClone()).ToJsonString(Indented));
 
-        ReplaceEntry(za, $"ships/{ctx.PlayerShipRegId}.json", (r, w) =>
+        ReplaceEntry(za, SaveZip.ShipEntry(ctx.PlayerShipRegId), (r, w) =>
         {
             var spliced = SpliceShip(JsonNode.Parse(r.ReadToEnd()), ctx.PlayerShipRecord);
             w.Write(spliced.ToJsonString(Indented));

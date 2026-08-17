@@ -53,7 +53,7 @@ public static class SaveEditImport
     private static SaveEditImportResult ImportShip(string zipPath, string saveName, string regId, Catalog catalog)
     {
         using var zip = ZipFile.OpenRead(zipPath);
-        var shipEntry = zip.GetEntry($"ships/{regId}.json")
+        var shipEntry = zip.GetEntry(SaveZip.ShipEntry(regId))
             ?? throw new InvalidDataException($"The ship '{regId}' is not among save \"{saveName}\"'s ships.");
         var text = SaveImport.ReadText(shipEntry);
 

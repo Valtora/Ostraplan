@@ -79,7 +79,7 @@ public static class SaveImport
 
         var regId = PlayerShipRegId(zip, out var why)
             ?? throw new InvalidDataException(NoSessionMessage(why));
-        var shipEntry = zip.GetEntry($"ships/{regId}.json")
+        var shipEntry = zip.GetEntry(SaveZip.ShipEntry(regId))
             ?? throw new InvalidDataException($"The player's ship '{regId}' is not among this save's ships.");
 
         var text = ReadText(shipEntry);
@@ -96,7 +96,7 @@ public static class SaveImport
     {
         using var zip = ZipFile.OpenRead(zipPath);
 
-        var shipEntry = zip.GetEntry($"ships/{regId}.json")
+        var shipEntry = zip.GetEntry(SaveZip.ShipEntry(regId))
             ?? throw new InvalidDataException($"The ship '{regId}' is not among this save's ships.");
 
         var text = ReadText(shipEntry);
@@ -241,7 +241,7 @@ public static class SaveImport
     private static IReadOnlyList<string> ReadMyShips(ZipArchive zip, string? currentShipReg, string? playerCoId)
     {
         if (currentShipReg is null || playerCoId is null) return [];
-        if (zip.GetEntry($"ships/{currentShipReg}.json") is not { } entry) return [];
+        if (zip.GetEntry(SaveZip.ShipEntry(currentShipReg)) is not { } entry) return [];
         try
         {
             using var doc = JsonDocument.Parse(ReadText(entry));
@@ -259,7 +259,7 @@ public static class SaveImport
     /// "make model · designation" subtitle.</summary>
     private static (string? Name, string Sub) ShipDisplay(ZipArchive zip, string reg)
     {
-        if (zip.GetEntry($"ships/{reg}.json") is not { } entry) return (null, reg);
+        if (zip.GetEntry(SaveZip.ShipEntry(reg)) is not { } entry) return (null, reg);
         try
         {
             using var doc = JsonDocument.Parse(ReadText(entry));
