@@ -7,9 +7,10 @@ release tags.
 
 Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
-[docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (currently **1.0.0.7**).
+[docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.7**, and **1.0.0.11** for the
+apartment and save-record work).
 
-## [Unreleased]
+## [0.88.0] 2026-08-17, apartments
 
 ### Added
 - **Apartments.** You can design a station residence, and put it in your game
@@ -53,8 +54,37 @@ each release was verified against is recorded in
   game too, so Ostraplan still places it, but the port it blocks can never take a station
   collar and you now get told so. The usual fix is to give the brace the same rotation as
   its airlock. Dismissible, for the case where the port is a deliberate internal bay.
+- **Adding a ship or an apartment to a save can now write the save itself, not only a copy.**
+  "Save & price" gained the same **Write to** choice the edit destination has: a copy, which
+  stays the default and leaves the original untouched, or the save in place. In place keeps a
+  backup save beside the original unless you untick that, and asks you to confirm first,
+  warning you if Ostranauts is running. Iterating on an apartment no longer leaves a row of
+  numbered copies behind. Do it from the game's Main Menu either way: the game holds the whole
+  save in memory and its next autosave writes over anything you put there.
 
 ### Fixed
+- **Your apartment could not be reached, because it was registered to the wrong station.**
+  Adding one at K-Leg listed "Azikiwe Estates Transfer Station" among the stations, and picking
+  it produced an apartment that existed, was yours, and had a permanently greyed-out "Private
+  Residence" button at the transit kiosk. That transfer station is not a station in the game's
+  sense: it is a module hanging under Port Azikiwe with no docking ports, and the game builds an
+  apartment's registration off the station proper, never off the module. The registration it
+  produced therefore matched no transit route at all, and the kiosk's greyed-out row was not a
+  gate you had failed but a placeholder the game shows when it can find nothing to offer. The
+  homeowner condition was wrong for the same reason. The station list now holds only stations the
+  game would itself use, which in a stock save means every residential module, navigation buoy
+  and outpost is gone from it, and it is sorted alphabetically. An apartment already written
+  against a module cannot be repaired, since the registration is baked into the save. Add it
+  again from a save taken before you wrote it.
+- **Editing any ship you were not standing on failed outright.** Importing it lost every item's
+  live state, so wear, gas, inventory, door positions and container fills all read as empty, and
+  writing it back then aborted with a complaint about an item having no condition owner.
+  Ostranauts keeps one registry of that state for the whole game and splits it across the save's
+  files when it writes: the ship you are standing on gets its own, and every other ship's goes
+  into your character's record. Ostraplan only ever looked in the ship's file. It now reads them
+  from wherever the save put them and moves them back into the ship as part of the write. Any
+  apartment you own is affected by definition, since you are hardly ever standing in it, and so
+  is a second ship, and your own ship on any save taken while you were docked.
 - **The PROBLEMS list was unreadable when a warning had buttons on it.** The title and the Show/Dismiss
   buttons shared one row, and the buttons took their width first, so in a narrow inspector a title like
   "1 sealed-off compartment" wrapped to three or four characters a line. The buttons now sit under the
