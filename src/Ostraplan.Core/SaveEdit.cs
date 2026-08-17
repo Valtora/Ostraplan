@@ -559,9 +559,11 @@ public static class SaveEdit
     /// <summary>A never-colliding backup folder in the Saves root (the source save's parent): "&lt;name&gt; (backup)",
     /// then "(backup 2)"… It sits <b>beside</b> the save, never inside it, so deleting the (possibly broken) edited
     /// save can't delete its backup. Public so the UI can name it. See <see cref="WriteInPlace"/>.</summary>
-    public static string SuggestBackupDir(SaveShipContext ctx)
+    public static string SuggestBackupDir(SaveShipContext ctx) => SuggestBackupDir(SourceDir(ctx));
+
+    /// <inheritdoc cref="SuggestBackupDir(SaveShipContext)"/>
+    public static string SuggestBackupDir(string srcDir)
     {
-        var srcDir = SourceDir(ctx);
         var parent = Path.GetDirectoryName(srcDir)!;
         var baseName = StripBackupSuffix(StripOstraplanSuffix(new DirectoryInfo(srcDir).Name));
         var candidate = Path.Combine(parent, $"{baseName} (backup)");

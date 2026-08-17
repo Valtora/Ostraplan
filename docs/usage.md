@@ -524,24 +524,30 @@ Writes a spawnable local mod (`data/ships/<Name>.json` in
 
 ### Into a save game
 
-Adds the design to a **copy** of a save as a brand-new ship you already own, without
-replacing anything that's already there. Use it to fly a design you've just drawn, or
-to move a ship from one save to another.
+Adds the design to a save as a brand-new ship you already own, without replacing
+anything that's already there. Use it to fly a design you've just drawn, or to move a
+ship from one save to another.
 
 Its one destination-specific step is **Save & price**:
 
 1. Pick the **save game**. Ostraplan reads it and tells you where the ship will appear.
-2. Optionally tick **Charge for the ship** and type a price. Your character's balance
+2. Choose where it **writes to**: a copy, or the original save in place. A copy is the
+   default and leaves the original untouched. In place is for when you don't want a
+   pile of copies as you iterate; it keeps a backup save unless you untick that too,
+   and it asks you to confirm before it writes.
+3. Optionally tick **Charge for the ship** and type a price. Your character's balance
    is shown live, and Next refuses with the reason if you can't afford it. Left
    unticked, the ship is a gift.
-3. **Review** shows the registration the ship will be given, how far out it will be
-   parked, and the name of the copy. Click **Add ship** to write it.
+4. **Review** shows the registration the ship will be given, how far out it will be
+   parked, and which save it lands in. Click **Add ship** to write it.
 
 What you get:
 
-- A new save folder, `<save> (Ostraplan)`. **Your original save is never modified** —
-  not even opened for writing. Load the copy to see the ship, and press **Refresh** in
-  the game's Load menu if it isn't listed.
+- Writing to a copy: a new save folder, `<save> (Ostraplan)`, with **your original save
+  never modified** — not even opened for writing. Writing in place: the save itself,
+  and a backup save named `<save> (backup)` beside it in your Saves folder unless you
+  turned that off. Either way, press **Refresh** in the game's Load menu if the save
+  isn't listed.
 - The ship parked **3 to 5 km** from wherever you are, undocked, exactly where the game
   itself puts a ship you've bought when the station has no free port. Take the
   **P.A.S.S. ferry** to board it (that range limit is 5,000 km, so it's comfortably
@@ -552,7 +558,9 @@ What you get:
   offers it, and your crew treat it as yours and will work on it.
 
 Do this from the game's **Main Menu**, not while the save is loaded, or the game may
-overwrite the copy on its next autosave.
+overwrite the write on its next autosave. That matters for either destination, and it
+matters most in place: the game holds the whole save in memory and writes it back on
+its own schedule.
 
 A design that's linked to a save can still be added to one; the dialog reminds you that
 this creates a **separate new ship** rather than updating the one you imported. To change

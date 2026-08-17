@@ -649,11 +649,73 @@ public static class SaveGrant
         double price = 0, string? outputSaveDir = null, bool overwrite = false,
         ResidenceStation? residence = null)
     {
+        var newBalance = ClaimAndCharge(ctx, regId, price, residence);
+
+        var srcDir = Path.GetDirectoryName(ctx.ZipPath)!;
+        var outDir = outputSaveDir ?? SuggestCopyDir(srcDir);
+        if (Directory.Exists(outDir))
+        {
+            if (!overwrite) throw new IOException($"'{Path.GetFileName(outDir)}' already exists.");
+            Directory.Delete(outDir, recursive: true);
+        }
+
+        var targetZip = SaveEdit.MaterializeCopy(srcDir, Path.GetFileName(ctx.ZipPath), outDir, newBalance);
+        ApplyToSave(targetZip, ctx, regId, ship);
+
+        return (outDir, report with { Charged = price > 0 ? price : null, ResultingBalance = newBalance });
+    }
+
+    /// <summary>
+    /// Write an already-built grant into <paramref name="ctx"/>'s save <b>itself</b>, rather than a copy. Returns
+    /// the save's folder, where the pre-write backup landed (null when <paramref name="backup"/> is false), and the
+    /// report restated with what was charged.
+    ///
+    /// <para>The mirror of <see cref="SaveEdit.WriteInPlace"/>, and it carries the same warning: the caller
+    /// confirms with the user and makes sure the game is not sitting in that save, because the game holds the
+    /// whole save in memory and its next autosave would write over this.</para>
+    ///
+    /// <para>The backup is a separate, loadable save <b>beside</b> this one in the Saves folder, never inside it,
+    /// so deleting a save that turned out badly cannot take its own backup with it.</para>
+    ///
+    /// <para><b>One shot</b>, for the same reason <see cref="WriteGrant"/> is.</para>
+    /// </summary>
+    public static (string SaveDir, string? BackupDir, GrantReport Report) WriteGrantInPlace(
+        GrantContext ctx, string regId, JsonObject ship, GrantReport report,
+        double price = 0, bool backup = true, ResidenceStation? residence = null)
+    {
+        var newBalance = ClaimAndCharge(ctx, regId, price, residence);
+
+        var srcDir = Path.GetDirectoryName(ctx.ZipPath)!;
+        string? backupDir = null;
+        if (backup)
+        {
+            backupDir = SaveEdit.SuggestBackupDir(srcDir);
+            SaveEdit.MaterializeCopy(srcDir, Path.GetFileName(ctx.ZipPath), backupDir, null);
+        }
+
+        ApplyToSave(ctx.ZipPath, ctx, regId, ship);
+
+        // MaterializeCopy mirrors the balance into the copy's saveInfo; writing in place there is no copy, so the
+        // save's own saveInfo is patched here. Without it the load menu shows the pre-purchase figure.
+        var saveInfo = Path.Combine(srcDir, "saveInfo.json");
+        if (newBalance is not null && File.Exists(saveInfo)) SaveEdit.UpdateSaveInfo(saveInfo, null, newBalance);
+
+        return (srcDir, backupDir, report with { Charged = price > 0 ? price : null, ResultingBalance = newBalance });
+    }
+
+    /// <summary>
+    /// The half of a grant that is the same wherever it is written: the player claims the ship and pays for it.
+    /// Mutates <paramref name="ctx"/>'s player ship record, which is what makes a grant one-shot. Returns the new
+    /// balance, or null when the grant was a gift.
+    ///
+    /// <para>dictShipOwners (written into the session record later) is what the ferry and the broker read;
+    /// <c>aMyShips</c> is what <c>CondOwner.OwnsShip</c> reads, which gates crew pledges, <c>bTargetOwned</c>
+    /// interactions and fast-forward. A ship with only the first is reachable but your crew won't work on it.</para>
+    /// </summary>
+    private static double? ClaimAndCharge(GrantContext ctx, string regId, double price, ResidenceStation? residence)
+    {
         CheckPrice(ctx, price);
 
-        // The owning half of the grant. dictShipOwners (written into the session record below) is what the ferry
-        // and the broker read; aMyShips is what CondOwner.OwnsShip reads, which gates crew pledges, bTargetOwned
-        // interactions and fast-forward. A ship with only the first is reachable but your crew won't work on it.
         var playerCo = FindCo(ctx.PlayerShipRecord, ctx.PlayerCoId)
             ?? throw new InvalidDataException("The player's character owner disappeared from the record — grant aborted.");
 
@@ -671,25 +733,10 @@ public static class SaveGrant
             ClaimShip(playerCo, regId);
         }
 
-        double? newBalance = null;
-        if (price > 0)
-        {
-            newBalance = ctx.Balance - price;
-            SaveEdit.SetStatUsd(playerCo, newBalance.Value);
-        }
-
-        var srcDir = Path.GetDirectoryName(ctx.ZipPath)!;
-        var outDir = outputSaveDir ?? SuggestCopyDir(srcDir);
-        if (Directory.Exists(outDir))
-        {
-            if (!overwrite) throw new IOException($"'{Path.GetFileName(outDir)}' already exists.");
-            Directory.Delete(outDir, recursive: true);
-        }
-
-        var targetZip = SaveEdit.MaterializeCopy(srcDir, Path.GetFileName(ctx.ZipPath), outDir, newBalance);
-        WriteIntoCopy(targetZip, ctx, regId, ship);
-
-        return (outDir, report with { Charged = price > 0 ? price : null, ResultingBalance = newBalance });
+        if (price <= 0) return null;
+        var newBalance = ctx.Balance - price;
+        SaveEdit.SetStatUsd(playerCo, newBalance);
+        return newBalance;
     }
 
     /// <summary>A grant is never allowed to overdraw the player. Checked at both entry points, so
@@ -703,11 +750,12 @@ public static class SaveGrant
     }
 
     /// <summary>
-    /// Apply the grant's three edits to the copied archive: add the new ship, replace the player's ship record
-    /// (which now claims the ship and carries the deducted balance), and register the ownership in the session
-    /// record. Ordered so the session record — the big one — is touched last.
+    /// Apply the grant's three edits to a save archive: add the new ship, replace the player's ship record (which
+    /// now claims the ship and carries the deducted balance), and register the ownership in the session record.
+    /// Ordered so the session record — the big one — is touched last. The archive is the copy or the original
+    /// depending on which entry point called; nothing here knows the difference.
     /// </summary>
-    private static void WriteIntoCopy(string targetZip, GrantContext ctx, string regId, JsonObject ship)
+    private static void ApplyToSave(string targetZip, GrantContext ctx, string regId, JsonObject ship)
     {
         using var za = ZipFile.Open(targetZip, ZipArchiveMode.Update);
 

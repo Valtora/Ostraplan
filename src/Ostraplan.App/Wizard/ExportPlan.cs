@@ -72,6 +72,13 @@ public sealed class NewShipPlan
     public bool Charge { get; set; }
     public double Price { get; set; }
 
+    /// <summary>True = add the ship to the original save itself; false = add it to a copy. Separate from
+    /// <see cref="UpdatePlan.InPlace"/> so the two destinations remember their own answers.</summary>
+    public bool InPlace { get; set; }
+
+    /// <summary>Back the original up before an in-place write. Only meaningful when <see cref="InPlace"/>.</summary>
+    public bool Backup { get; set; } = true;
+
     /// <summary>Carry each part's real damage across from the save the design was imported from, instead of rolling
     /// fresh wear. Defaults on: a design that came from a save is almost always being moved rather than minted, and
     /// a transfer that quietly re-rolled the ship's condition would be wrong in a way nobody would think to check.
@@ -189,6 +196,8 @@ public sealed class ExportPlan
         plan.NewShip.SaveName = last.SaveName;
         plan.NewShip.Charge = last.Charge;
         plan.NewShip.Price = last.Price;
+        plan.NewShip.InPlace = last.AddInPlace;
+        plan.NewShip.Backup = last.AddBackup;
 
         plan.Update.InPlace = last.InPlace;
         plan.Update.Backup = last.Backup;
@@ -228,6 +237,8 @@ public sealed class ExportPlan
         last.SaveName = NewShip.SaveName;
         last.Charge = NewShip.Charge;
         last.Price = NewShip.Price;
+        last.AddInPlace = NewShip.InPlace;
+        last.AddBackup = NewShip.Backup;
 
         last.InPlace = Update.InPlace;
         last.Backup = Update.Backup;

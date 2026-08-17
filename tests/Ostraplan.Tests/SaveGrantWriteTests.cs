@@ -277,6 +277,93 @@ public class SaveGrantWriteTests(ITestOutputHelper output)
     }
 
     [SkippableFact]
+    public void Granting_in_place_writes_the_save_itself_and_backs_it_up_beside_it()
+    {
+        // Never against a real save: this one is exercised on a throwaway copy of one, which is also what makes
+        // the backup assertion safe (SuggestBackupDir puts it beside the save, so it lands in temp too).
+        var g = TestData.RequireGame();
+        Skip.If(FirstGrantable(g.Env) is null, "no local save the player can be granted a ship in");
+        var (real, _) = FirstGrantable(g.Env)!.Value;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+
+        var root = Path.Combine(Path.GetTempPath(), "OstraplanInPlace-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            var saveDir = Path.Combine(root, real.Name);
+            var zipPath = SaveEdit.MaterializeCopy(
+                Path.GetDirectoryName(real.ZipPath)!, Path.GetFileName(real.ZipPath), saveDir, null);
+            var ctx = SaveGrant.ReadContext(real with { Name = real.Name, ZipPath = zipPath });
+
+            var price = ctx.Balance > 0 ? Math.Round(ctx.Balance / 2) : 0;
+            var regId = SaveGrant.MintRegId(ctx.ExistingRegIds, ctx.PlayerShipRegId);
+            var (ship, built) = SaveGrant.BuildShip(
+                Design(g.Catalog), g.Catalog, specs, regId, ctx.Anchor, new GrantOptions("In Place"), ctx.Epoch);
+
+            var (written, backupDir, report) = SaveGrant.WriteGrantInPlace(ctx, regId, ship, built, price);
+
+            // the save itself now holds the ship and owns it — no copy was made to hold it instead
+            Assert.Equal(saveDir, written);
+            Assert.Contains(SaveZip.ShipEntry(regId), EntryNames(zipPath));
+            Assert.Equal(ctx.PlayerCoId, Owners(ReadEntry(zipPath, ctx.SessionEntryName))[regId]);
+
+            // and the pre-write state is recoverable, from a save beside this one rather than inside it
+            Assert.NotNull(backupDir);
+            Assert.Equal(root, Path.GetDirectoryName(backupDir));
+            Assert.DoesNotContain(SaveZip.ShipEntry(regId),
+                EntryNames(Directory.EnumerateFiles(backupDir!, "*.zip").Single()));
+
+            if (price > 0)
+            {
+                Assert.Equal(price, report.Charged);
+                var info = JsonNode.Parse(File.ReadAllText(Path.Combine(saveDir, "saveInfo.json")))!;
+                var infoObj = info is JsonArray a ? a[0]!.AsObject() : info.AsObject();
+                Assert.Equal(ctx.Balance - price, (double)infoObj["money"]!, 2);
+            }
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    [SkippableFact]
+    public void Granting_in_place_can_skip_the_backup()
+    {
+        var g = TestData.RequireGame();
+        Skip.If(FirstGrantable(g.Env) is null, "no local save the player can be granted a ship in");
+        var (real, _) = FirstGrantable(g.Env)!.Value;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+
+        var root = Path.Combine(Path.GetTempPath(), "OstraplanInPlace-" + Guid.NewGuid().ToString("N")[..8]);
+        try
+        {
+            var saveDir = Path.Combine(root, real.Name);
+            var zipPath = SaveEdit.MaterializeCopy(
+                Path.GetDirectoryName(real.ZipPath)!, Path.GetFileName(real.ZipPath), saveDir, null);
+            var ctx = SaveGrant.ReadContext(real with { ZipPath = zipPath });
+            var regId = SaveGrant.MintRegId(ctx.ExistingRegIds, ctx.PlayerShipRegId);
+            var (ship, built) = SaveGrant.BuildShip(
+                Design(g.Catalog), g.Catalog, specs, regId, ctx.Anchor, new GrantOptions("No Backup"), ctx.Epoch);
+
+            var (_, backupDir, _) = SaveGrant.WriteGrantInPlace(ctx, regId, ship, built, backup: false);
+
+            Assert.Null(backupDir);
+            Assert.Equal([saveDir], Directory.EnumerateDirectories(root));
+            Assert.Contains(SaveZip.ShipEntry(regId), EntryNames(zipPath));
+        }
+        finally
+        {
+            if (Directory.Exists(root)) Directory.Delete(root, recursive: true);
+        }
+    }
+
+    private static IReadOnlyList<string> EntryNames(string zipPath)
+    {
+        using var z = ZipFile.OpenRead(zipPath);
+        return [.. z.Entries.Select(e => e.FullName)];
+    }
+
+    [SkippableFact]
     public void Grant_refuses_a_price_the_player_cannot_afford()
     {
         var g = TestData.RequireGame();

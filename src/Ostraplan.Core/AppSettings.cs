@@ -51,6 +51,12 @@ public sealed class LastExport
     [JsonPropertyName("charge")] public bool Charge { get; set; }
     [JsonPropertyName("price")] public double Price { get; set; }
 
+    /// <summary>Where the new-ship destination writes, kept apart from <see cref="InPlace"/> so adding a ship and
+    /// editing one remember their own answers. Adding is the more cautious of the two by nature — it is usually a
+    /// try-it-and-see — so this defaults off where the edit destination's does too.</summary>
+    [JsonPropertyName("addInPlace")] public bool AddInPlace { get; set; }
+    [JsonPropertyName("addBackup")] public bool AddBackup { get; set; } = true;
+
     [JsonPropertyName("inPlace")] public bool InPlace { get; set; }
     [JsonPropertyName("backup")] public bool Backup { get; set; } = true;
     [JsonPropertyName("deduct")] public bool Deduct { get; set; }

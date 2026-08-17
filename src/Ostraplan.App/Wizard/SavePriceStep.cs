@@ -16,9 +16,10 @@ namespace Ostraplan.App.Wizard;
 public sealed class SavePriceStep : WizardStep
 {
     private readonly ComboBox _picker, _station;
-    private readonly TextBlock _intro, _status, _balance, _problem, _stationNote;
+    private readonly TextBlock _intro, _status, _balance, _problem, _stationNote, _backupHint;
     private readonly StackPanel _stationRow;
-    private readonly CheckBox _charge;
+    private readonly RadioButton _copy, _inPlace;
+    private readonly CheckBox _charge, _backup;
     private readonly TextBox _price;
 
     private WizardSession? _session;
@@ -34,7 +35,7 @@ public sealed class SavePriceStep : WizardStep
     {
         var body = Body();
 
-        _intro = Note(body, AddNote);
+        _intro = Note(body, "");   // filled by SyncIntro, which depends on controls built below
 
         Header(body, "SAVE GAME");
         _picker = Add(body, new ComboBox { DisplayMemberPath = nameof(SaveEntry.Name), MaxDropDownHeight = 240 });
@@ -58,6 +59,32 @@ public sealed class SavePriceStep : WizardStep
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0),
         };
         _stationRow.Children.Add(_stationNote);
+
+        Header(body, "WRITE TO");
+        _copy = Add(body, new RadioButton
+        {
+            Content = "A copy (keeps the original save untouched)", Foreground = Ink, IsChecked = true,
+            Margin = new Thickness(0, 2, 0, 2),
+        });
+        _inPlace = Add(body, new RadioButton
+        {
+            Content = "The original save, in place", Foreground = Ink, Margin = new Thickness(0, 2, 0, 2),
+        });
+        Note(body,
+            "Writing in place modifies the original save. Return to the Main Menu in game before writing, or the " +
+            "game may overwrite this on its next autosave.", indent: 20);
+
+        _backup = Add(body, new CheckBox
+        {
+            Content = "Back up the original save first", Foreground = Ink, IsChecked = true,
+            Margin = new Thickness(20, 4, 0, 2),
+        });
+        _backupHint = Note(body,
+            "A separate, loadable copy in your Saves folder (beside this save). Untick to skip it and avoid piling " +
+            "up backups as you iterate, but then a bad write can't be rolled back.", indent: 38);
+
+        _copy.Checked += (_, _) => { SyncBackup(); SyncIntro(); OnChanged(); };
+        _inPlace.Checked += (_, _) => { SyncBackup(); SyncIntro(); OnChanged(); };
 
         _charge = Add(body, new CheckBox
         {
@@ -89,28 +116,42 @@ public sealed class SavePriceStep : WizardStep
         Content = body;
     }
 
-    private const string AddNote =
-        "Adds this design to a copy of the save as a new ship you own, parked a few kilometres away and " +
-        "reachable by P.A.S.S. ferry. The original save is never modified.";
+    /// <summary>Name the save the design came from when there is one. On a transfer this is the whole question the
+    /// step is asking — which save it goes to, as against the one it came out of — and the two are easy to confuse
+    /// in a list of similarly-named autosaves. Empty when the design did not come from a save.</summary>
+    private string _introPrefix = "";
 
-    private const string AddResidenceNote =
-        "Adds this design to a copy of the save as an apartment you own at a station, reached through that " +
-        "station's transit kiosk. The original save is never modified.";
+    /// <summary>What this step is about to do, in the terms the user chose. The last sentence is the one that
+    /// matters and it reverses with the destination, so it is built rather than fixed.</summary>
+    private void SyncIntro()
+    {
+        var residence = _session?.Doc.IsResidence == true;
+        var what = residence
+            ? "as an apartment you own at a station, reached through that station's transit kiosk"
+            : "as a new ship you own, parked a few kilometres away and reachable by P.A.S.S. ferry";
+        _intro.Text = _introPrefix + (_inPlace.IsChecked == true
+            ? $"Adds this design to the save {what}. The save itself is modified."
+            : $"Adds this design to a copy of the save {what}. The original save is never modified.");
+    }
+
+    /// <summary>The backup choice only applies to an in-place write; a copy leaves the original untouched already.</summary>
+    private void SyncBackup()
+    {
+        var on = _inPlace.IsChecked == true;
+        _backup.IsEnabled = on;
+        _backup.Opacity = _backupHint.Opacity = on ? 1.0 : 0.4;
+    }
 
     public override void Enter(WizardSession session)
     {
         _session = session;
         var plan = session.Plan.NewShip;
 
-        // Name the save the design came from when there is one. On a transfer this is the whole question the step
-        // is asking — which save it goes to, as against the one it came out of — and the two are easy to confuse
-        // in a list of similarly-named autosaves.
         var residence = session.Doc.IsResidence;
-        var note = residence ? AddResidenceNote : AddNote;
-        _intro.Text = session.SourceSave is { } src
+        _introPrefix = session.SourceSave is { } src
             ? $"This {(residence ? "residence" : "ship")} was read out of \"{src.SaveName}\". " +
-              $"Pick the save to add it to. {note}"
-            : note;
+              "Pick the save to add it to. "
+            : "";
         _stationRow.Visibility = residence ? Visibility.Visible : Visibility.Collapsed;
 
         _syncing = true;   // assigning SelectedItem raises SelectionChanged, which would re-read the save
@@ -124,6 +165,12 @@ public sealed class SavePriceStep : WizardStep
         {
             _syncing = false;
         }
+
+        _inPlace.IsChecked = plan.InPlace;
+        _copy.IsChecked = !plan.InPlace;
+        _backup.IsChecked = plan.Backup;
+        SyncBackup();
+        SyncIntro();
 
         _charge.IsChecked = plan.Charge;
         _price.Text = plan.Price.ToString("0.##", CultureInfo.InvariantCulture);
@@ -287,6 +334,8 @@ public sealed class SavePriceStep : WizardStep
         var plan = session.Plan.NewShip;
         plan.Charge = _charge.IsChecked == true;
         plan.Price = Price;
+        plan.InPlace = _inPlace.IsChecked == true;
+        plan.Backup = _backup.IsChecked == true;
         if (session.Doc.IsResidence && session.Driver is NewShipDriver driver)
             plan.StationRegId = driver.Station?.RegId;
     }

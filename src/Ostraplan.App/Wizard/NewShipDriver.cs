@@ -5,8 +5,8 @@ using Ostraplan.Core;
 namespace Ostraplan.App.Wizard;
 
 /// <summary>
-/// The new-ship destination: the design lands in a <b>copy</b> of a save as a ship the player already owns, parked
-/// a few kilometres off wherever they are.
+/// The new-ship destination: the design lands in a save as a ship the player already owns, parked a few
+/// kilometres off wherever they are. Into a copy by default, or into the save itself when they ask for that.
 ///
 /// <para>Build and write are genuinely separate here, so Review's artifact is the one written — no rebuild, and
 /// therefore no chance of the registration, the spawn point or the wear differing from what was reported. None of
@@ -39,14 +39,16 @@ public sealed class NewShipDriver : ExportDriver
     public override ExportDestination Destination => ExportDestination.NewShipInSave;
     public override string Name => "Into a save game";
     public override string Blurb =>
-        "Adds the design to a copy of a save as something you already own. Your original save is never modified.";
+        "Adds the design to a save as something you already own, without replacing anything already in it.";
     public override string CommitVerb => "Add ship";
 
+    // No promise about the original save here: which save is written is the user's choice on the next step, and a
+    // blurb that says "never modified" would be a claim this destination may not keep.
     public override string BlurbFor(WizardSession session) => session.ByKind(
-        "Adds the design to a copy of a save as a brand-new ship you own, parked a few kilometres out and "
-        + "reachable by P.A.S.S. ferry. Your original save is never modified.",
-        "Adds the design to a copy of a save as an apartment you own at a station of your choosing, reached "
-        + "through that station's transit kiosk. Your original save is never modified.");
+        "Adds the design to a save as a brand-new ship you own, parked a few kilometres out and reachable by "
+        + "P.A.S.S. ferry. Writes to a copy unless you choose otherwise.",
+        "Adds the design to a save as an apartment you own at a station of your choosing, reached through that "
+        + "station's transit kiosk. Writes to a copy unless you choose otherwise.");
 
     public override string? Unavailable(WizardSession session) =>
         session.Saves.Count == 0 ? "No save games found." : null;
@@ -193,8 +195,18 @@ public sealed class NewShipDriver : ExportDriver
         facts.Add(new("Cost", price > 0
             ? $"{Money(price)}, leaving {Money(ctx.Balance - price)} of {Money(ctx.Balance)}"
             : $"a gift. Your balance stays at {Money(ctx.Balance)}"));
-        facts.Add(new("Writes to", $"a new save named {Path.GetFileName(_outDir)}"));
-        facts.Add(new("Original save", $"\"{ctx.SaveName}\" is not modified"));
+        if (plan.NewShip.InPlace)
+        {
+            facts.Add(new("Writes to", $"the save \"{ctx.SaveName}\" itself, replacing it"));
+            facts.Add(new("Original save", plan.NewShip.Backup
+                ? $"backed up first, beside it, as {Path.GetFileName(SaveEdit.SuggestBackupDir(SaveDir(ctx)))}"
+                : "NOT backed up — you unticked it, so there is nothing to roll back to"));
+        }
+        else
+        {
+            facts.Add(new("Writes to", $"a new save named {Path.GetFileName(_outDir)}"));
+            facts.Add(new("Original save", $"\"{ctx.SaveName}\" is not modified"));
+        }
 
         var warnings = new List<string>(_report.Warnings);
         if (residence is { HasTransitRoute: false } stranded)
@@ -221,7 +233,26 @@ public sealed class NewShipDriver : ExportDriver
         var plan = session.Plan;
         var price = plan.NewShip.Charge ? plan.NewShip.Price : 0;
         var residence = session.Doc.IsResidence ? _station : null;
-        var (outDir, report) = await WriteOffThread(ctx, _regId, ship, built, price, _outDir, residence);
+        var noun = residence is null ? "ship" : "apartment";
+
+        string outDir;
+        GrantReport report;
+        string? backupName = null;
+        if (plan.NewShip.InPlace)
+        {
+            // The one confirmation the wizard keeps. It is irreversible, and it is the only place that can check
+            // whether the game is running, which the Review pane cannot usefully do minutes earlier.
+            if (!ConfirmInPlace(session, ctx.SaveName, plan.NewShip.Backup, noun))
+                throw new OperationCanceledException();
+            string? backupDir;
+            (outDir, backupDir, report) =
+                await WriteInPlaceOffThread(ctx, _regId, ship, built, price, plan.NewShip.Backup, residence);
+            backupName = backupDir is null ? null : Path.GetFileName(backupDir);
+        }
+        else
+        {
+            (outDir, report) = await WriteOffThread(ctx, _regId, ship, built, price, _outDir, residence);
+        }
 
         // the context has now claimed the ship and taken the deduction, so it cannot be written again
         _ctx = null;
@@ -257,10 +288,16 @@ public sealed class NewShipDriver : ExportDriver
         lines.Add("");
         lines.Add($"Load this save to see it: {Path.GetFileName(outDir)}");
         lines.Add("In the game's Load menu, press Refresh if it isn't listed.");
-        lines.Add("Your original save is unchanged.");
+        lines.Add(InPlaceWrite.Outcome(plan.NewShip.InPlace, backupName, noun));
 
         return new DoneReport($"\"{report.PublicName}\" ({report.RegId}) is in your save.", lines);
     }
+
+    /// <summary>The loud in-place confirmation, on the same terms as the update destination's.</summary>
+    private static bool ConfirmInPlace(WizardSession session, string saveName, bool backup, string noun) =>
+        Dlg.Confirm(session.Owner, DlgKind.Danger, $"Add this {noun} to {saveName} in place?",
+            InPlaceWrite.GameRunningWarning() + InPlaceWrite.BackupExplanation(backup, noun),
+            "Write in place");
 
     /// <summary>How the ship's condition was decided, for the Review pane. Carrying the real condition is the one
     /// worth naming explicitly: it is the difference between moving a ship and minting a fresh copy of it.</summary>
@@ -275,6 +312,14 @@ public sealed class NewShipDriver : ExportDriver
         GrantContext ctx, string regId, JsonObject ship, GrantReport report, double price, string outDir,
         ResidenceStation? residence) =>
         Ui.OffThread(() => SaveGrant.WriteGrant(ctx, regId, ship, report, price, outDir, overwrite: false, residence));
+
+    private static Task<(string SaveDir, string? BackupDir, GrantReport Report)> WriteInPlaceOffThread(
+        GrantContext ctx, string regId, JsonObject ship, GrantReport report, double price, bool backup,
+        ResidenceStation? residence) =>
+        Ui.OffThread(() => SaveGrant.WriteGrantInPlace(ctx, regId, ship, report, price, backup, residence));
+
+    /// <summary>The save's own folder, which is what an in-place write targets and what a backup is named beside.</summary>
+    private static string SaveDir(GrantContext ctx) => Path.GetDirectoryName(ctx.ZipPath)!;
 
     private static void SaveSettings(WizardSession session) => session.Settings.Save();
 

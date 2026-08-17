@@ -445,12 +445,7 @@ public sealed class UpdateDriver : ExportDriver
                   "until you do.");
         lines.Add($"Then load {writtenName} to see your edited ship, with crew and cargo intact.");
         lines.Add("");
-        lines.Add(plan.Update.InPlace
-            ? backupName is not null
-                ? $"Your original save was backed up first, as a separate save named {backupName}. It sits beside " +
-                  "this save in your Saves folder, not inside it, so deleting the edited save won't remove it."
-                : "No backup was made (you unticked it), so this overwrote the original save in place."
-            : "Your original save is unchanged.");
+        lines.Add(InPlaceWrite.Outcome(plan.Update.InPlace, backupName, "edit"));
 
         return new DoneReport($"\"{writtenName}\" has your edited ship.", lines);
     }
@@ -463,24 +458,10 @@ public sealed class UpdateDriver : ExportDriver
 
     /// <summary>The loud in-place confirmation. Detects a running Ostranauts and gates on the user confirming they
     /// are at the Main Menu, because editing a loaded save would be clobbered by the next autosave.</summary>
-    private static bool ConfirmInPlace(WizardSession session, string saveName, bool backup)
-    {
-        var running = System.Diagnostics.Process.GetProcessesByName("Ostranauts").Length > 0;
-        var gameWarn = running
-            ? "Ostranauts is running.\n" +
-              "Editing in place is only safe from the Main Menu.\n" +
-              "If this save is loaded, the game will overwrite your edit on its next autosave.\n\n" +
-              "Confirm you are at the Main Menu, not in your loaded game, before continuing.\n\n"
-            : "";
-        var backupLine = backup
-            ? "Ostraplan first copies this save to a separate backup save in your Saves folder, beside this one, not inside it.\n" +
-              "Then it writes your edit into the original save, replacing it.\n" +
-              "If the edit goes wrong, load the backup to recover."
-            : "You unticked the backup, so this writes straight into the original save, replacing it.\n" +
-              "There will be no backup to roll back to if the edit goes wrong.";
-        return Dlg.Confirm(session.Owner, DlgKind.Danger, $"Overwrite {saveName} in place?",
-            $"{gameWarn}{backupLine}", "Overwrite in place");
-    }
+    private static bool ConfirmInPlace(WizardSession session, string saveName, bool backup) =>
+        Dlg.Confirm(session.Owner, DlgKind.Danger, $"Overwrite {saveName} in place?",
+            InPlaceWrite.GameRunningWarning() + InPlaceWrite.BackupExplanation(backup, "edit"),
+            "Overwrite in place");
 
     /// <summary>How the ship will read in game, and whether that is a change. This destination writes the identity
     /// rather than preserving it, and the in-place write is irreversible, so an unintended edit is worth seeing
