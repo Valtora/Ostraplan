@@ -193,7 +193,7 @@ public class SaveGrantWriteTests(ITestOutputHelper output)
             var zip = Directory.EnumerateFiles(dir, "*.zip").Single();
 
             // 1. the ship is there, and every item carries the CO a save load demands
-            var shipFile = ReadEntry(zip, $"ships/{report.RegId}.json");
+            var shipFile = ReadEntry(zip, SaveZip.ShipEntry(report.RegId));
             var ship = JsonNode.Parse(shipFile)!.AsArray()[0]!;
             var coIds = ship["aCOs"]!.AsArray().Select(c => (string)c!["strID"]!).ToHashSet(StringComparer.Ordinal);
             foreach (var item in ship["aItems"]!.AsArray())
@@ -204,7 +204,7 @@ public class SaveGrantWriteTests(ITestOutputHelper output)
             var owners = Owners(session);
             Assert.Equal(ctx.PlayerCoId, owners[report.RegId]);
 
-            var playerShip = JsonNode.Parse(ReadEntry(zip, $"ships/{ctx.PlayerShipRegId}.json"))!;
+            var playerShip = JsonNode.Parse(ReadEntry(zip, SaveZip.ShipEntry(ctx.PlayerShipRegId)))!;
             var record = playerShip is JsonArray arr
                 ? arr.OfType<JsonObject>().OrderByDescending(o => (o["aItems"] as JsonArray)?.Count ?? 0).First()
                 : playerShip.AsObject();
@@ -255,7 +255,7 @@ public class SaveGrantWriteTests(ITestOutputHelper output)
 
             // the authoritative balance is the player CO's StatUSD; saveInfo.money is the mirror the menu shows
             var zip = Directory.EnumerateFiles(dir, "*.zip").Single();
-            var playerShip = JsonNode.Parse(ReadEntry(zip, $"ships/{ctx.PlayerShipRegId}.json"))!;
+            var playerShip = JsonNode.Parse(ReadEntry(zip, SaveZip.ShipEntry(ctx.PlayerShipRegId)))!;
             var record = playerShip is JsonArray arr
                 ? arr.OfType<JsonObject>().OrderByDescending(o => (o["aItems"] as JsonArray)?.Count ?? 0).First()
                 : playerShip.AsObject();
@@ -320,7 +320,7 @@ public class SaveGrantWriteTests(ITestOutputHelper output)
 
             Assert.Equal(regId, written.RegId);   // the registration Review displayed is the one in the save
             var zip = Directory.EnumerateFiles(dir, "*.zip").Single();
-            var onDisk = JsonNode.Parse(ReadEntry(zip, $"ships/{regId}.json"))!.AsArray()[0]!;
+            var onDisk = JsonNode.Parse(ReadEntry(zip, SaveZip.ShipEntry(regId)))!.AsArray()[0]!;
             Assert.Equal(reviewed, onDisk.ToJsonString());
         }
         finally

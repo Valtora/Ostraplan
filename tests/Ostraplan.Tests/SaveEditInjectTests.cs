@@ -44,10 +44,13 @@ public class SaveEditInjectTests(ITestOutputHelper output)
 
     private static int Count(JsonNode ship, string prop) => ((JsonArray)ship[prop]!).Count;
 
+    /// <summary>Through <see cref="SaveZip.ShipEntry"/>, never "ships/&lt;RegID&gt;.json": the save writer
+    /// substitutes '|' for '%', so once the player can stand inside an apartment the naive name misses the entry
+    /// (GAME-INTERNALS §17).</summary>
     private static string ReadShipEntry(string zipPath, string regId)
     {
         using var z = ZipFile.OpenRead(zipPath);
-        using var r = new StreamReader(z.GetEntry($"ships/{regId}.json")!.Open());
+        using var r = new StreamReader(z.GetEntry(SaveZip.ShipEntry(regId))!.Open());
         return r.ReadToEnd();
     }
 
