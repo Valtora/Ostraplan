@@ -37,9 +37,14 @@ public static class ProblemScan
 
         if (ports.Count == 0)
         {
+            // The rule is the same either way (an empty Ship.aDocksys means nothing can ever mate), but the part
+            // to reach for is not: a residence's front door onto the station corridor is the Primary Exterior
+            // Airlock, which has no build recipe and so lives on the SPECIAL tab rather than in HULL.
             problems.Add(new Problem(ProblemSeverity.Blocking, "No docking port",
                 "Without an installed docking port the game's Ship.aDocksys stays empty and the ship can never " +
-                "hard-dock. Add one from the HULL tab (Secondary Exterior Airlock)."));
+                (doc.IsResidence
+                    ? "mate with the station. Add the Primary Exterior Airlock from the SPECIAL tab."
+                    : "hard-dock. Add one from the HULL tab (Secondary Exterior Airlock).")));
             return problems;
         }
 

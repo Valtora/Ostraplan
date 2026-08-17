@@ -27,7 +27,17 @@ public sealed class ModDriver : ExportDriver
 
     /// <summary>Always available. A design with parts can always be written as a mod, which is what makes this the
     /// fallback the other two destinations point at when they cannot be used.</summary>
-    public override string? Unavailable(WizardSession session) => null;
+    /// <summary>
+    /// A residence cannot be a ship mod. Every route this destination offers puts the design in front of a
+    /// <b>ship</b> broker (kiosk stock, Special Offer, a Shipbreaker starting ship, a derelict field), and the
+    /// game buys a residence through a Real Estate broker instead, which is a different loot shape entirely: a
+    /// <c>strType: "station"</c> self-reference plus an <c>Itm&lt;STATION&gt;ResBrokerInv</c> append
+    /// (GAME-INTERNALS §19). Exporting one here would produce a mod that sells an apartment as a vessel.
+    /// </summary>
+    public override string? Unavailable(WizardSession session) =>
+        session.Doc.IsResidence
+            ? "A residence can't be a ship mod. Use \"Into a save game\" to place it at a station."
+            : null;
 
     // ---- review ----
 

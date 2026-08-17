@@ -23,11 +23,11 @@ public sealed class TemplateBrowserDialog : Window
 
     public ShipFileEntry? Selected { get; private set; }
 
-    public TemplateBrowserDialog(IReadOnlyList<ShipFileEntry> ships)
+    public TemplateBrowserDialog(IReadOnlyList<ShipFileEntry> ships, DocumentKind kind = DocumentKind.Ship)
     {
         _all = ships;
 
-        Title = "Import a ship template";
+        Title = kind == DocumentKind.Residence ? "Import an apartment template" : "Import a ship template";
         Width = 460; Height = 620;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = ThemeManager.WindowBg;
@@ -84,7 +84,7 @@ public sealed class TemplateBrowserDialog : Window
     }
 
     private static DataTemplate RowTemplate() =>
-        TwoLineRow(nameof(ShipFileEntry.Name), nameof(ShipFileEntry.Origin));
+        TwoLineRow(nameof(ShipFileEntry.Name), nameof(ShipFileEntry.OriginLabel));
 
     internal static DataTemplate TwoLineRow(string titleProp, string subProp) =>
         Row(titleProp, subProp, null);
@@ -215,9 +215,11 @@ public sealed class ShipChoiceDialog : Window
 
     public SaveShipChoice? Selected { get; private set; }
 
-    public ShipChoiceDialog(string saveName, IReadOnlyList<SaveShipChoice> ships)
+    public ShipChoiceDialog(string saveName, IReadOnlyList<SaveShipChoice> ships,
+        DocumentKind kind = DocumentKind.Ship)
     {
-        Title = "Choose a ship to edit";
+        var residence = kind == DocumentKind.Residence;
+        Title = residence ? "Choose an apartment to edit" : "Choose a ship to edit";
         Width = 480; Height = 520;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = ThemeManager.WindowBg;
@@ -231,9 +233,16 @@ public sealed class ShipChoiceDialog : Window
 
         var note = new TextBlock
         {
-            Text = $"Ships in save “{saveName}” that you own. Ostranauts imports the ship you're standing " +
-                   "on, which may be a station — pick the one you mean. Ships you don't own are shown but editing " +
-                   "them is unsupported and may break your save.",
+            // The apartment note says where they come from, because "apartments you own" is a list nobody has
+            // seen before and the game itself never shows one: an apartment is registered somewhere different
+            // from your vessels, which is why they can be listed apart in the first place.
+            Text = residence
+                ? $"Apartments in save “{saveName}” that you own, one row per station residence registered to "
+                  + "your character. Editing one keeps its registration, its place at the station and the transit "
+                  + "route that reaches it; only the layout changes."
+                : $"Ships in save “{saveName}” that you own. Ostranauts imports the ship you're standing " +
+                  "on, which may be a station — pick the one you mean. Ships you don't own are shown but editing " +
+                  "them is unsupported and may break your save.",
             Foreground = ThemeManager.Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
         };
         DockPanel.SetDock(note, Dock.Top);

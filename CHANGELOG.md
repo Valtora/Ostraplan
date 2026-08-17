@@ -12,6 +12,38 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Apartments.** You can design a station residence, and put it in your game
+  ([#12](https://github.com/Valtora/Ostraplan/issues/12)). Open one of the game's eleven residence
+  templates or pull your own apartment out of a save, redesign it, and write it back; add a new one
+  at any station in a save; or move one between playthroughs. Everything you already use works on
+  one unchanged, because a residence is a ship in every way that matters to a planner: the same
+  grid, the same placement law, the same rooms, airtightness, certification, RoomViz, WalkViz, Light
+  Viz, PowerViz, wiring, cargo, zones and bill of materials.
+
+  What changes is what a residence *is not*. It has no drive and no nav, so the Ship Rating, the
+  nav-console checklist, the propulsion figures and Flight Dynamics step aside instead of reporting
+  a design with no engine as a total failure; the report re-headlines as a residence and keeps the
+  rooms and airtightness that do apply. Kiosk prices go too, because the game does not price a
+  residence through the ship broker at all — a Real Estate broker charges the sum of the room values
+  ×10, and that figure is shown on the export Review instead.
+
+  Ostraplan works out which it is on import and says so in Ship Info, where you can overrule it.
+
+  The export wizard is one flow for both, not two. It reads what the design is and adapts: the destination
+  tiles retitle ("Update an apartment in a save"), the blurbs stop promising a P.A.S.S. ferry to something
+  that is reached by transit kiosk, the target pickers list only the matching kind, and Review labels and
+  confirmations follow. The steps themselves are identical, because the mechanics are.
+
+  Apartments get their own menu entries rather than sharing the ship ones: **Import ▸ From apartment
+  template**, **Import ▸ Your apartment, for editing**, and **Transfer Apartment to Another Save**.
+  Each lists only its own kind, so neither can be picked by accident, and the apartment template list
+  is read from the game's own Real Estate broker data so a mod that adds one appears there too.
+
+  Two things this deliberately does not do. It will not sell you one, because buying is not
+  designing (see [SCOPE](docs/SCOPE.md#apartments), which this reverses and explains why). And it
+  will not pretend a station can host an apartment when the game has no transit route to its
+  residences: pick vanilla Mercury Volanus and it tells you, twice, that the apartment would be
+  yours and unreachable.
 - **A warning when something is parked in front of an airlock that needs to dock**
   ([#29](https://github.com/Valtora/Ostraplan/issues/29)). A towing brace attaches to an
   airlock by a single tile, which means all four of its rotations find somewhere to sit,

@@ -4,8 +4,13 @@ using System.Text.Json.Nodes;
 namespace Ostraplan.Core;
 
 /// <summary>One ship template on disk, for the browser: its display name, the source that
-/// provides it (core or a mod label), and the file path.</summary>
-public sealed record ShipFileEntry(string Name, string Origin, string Path);
+/// provides it (core or a mod label), the file path, and whether it is a vessel or a station residence.</summary>
+public sealed record ShipFileEntry(string Name, string Origin, string Path, DocumentKind Kind = DocumentKind.Ship)
+{
+    /// <summary>Origin, with the kind appended for a residence — the browser's subtitle line, so the two lists
+    /// still read correctly if they are ever shown together.</summary>
+    public string OriginLabel => Kind == DocumentKind.Residence ? $"{Origin}  ·  residence" : Origin;
+}
 
 /// <summary>A def an import couldn't resolve (its geometry isn't in the loaded data) and how
 /// many tiles it dropped — surfaced so the user can enable the right mod and re-import.</summary>
@@ -85,20 +90,47 @@ public sealed record ImportResult(
 /// </summary>
 public static class TemplateImport
 {
-    /// <summary>Every ship file across core + loaded mods, later source winning a filename clash, name-sorted.</summary>
-    public static IReadOnlyList<ShipFileEntry> ListShipFiles(DataIndex index)
+    /// <summary>Every ship file across core + loaded mods, later source winning a filename clash, name-sorted.
+    /// Optionally narrowed to one <see cref="DocumentKind"/>, which is what the two Import actions use.</summary>
+    public static IReadOnlyList<ShipFileEntry> ListShipFiles(DataIndex index, DocumentKind? kind = null)
     {
+        var residences = ResidenceTemplateNames(index);
         var byName = new Dictionary<string, ShipFileEntry>(StringComparer.OrdinalIgnoreCase);
         foreach (var source in index.Sources)
         {
             var dir = Path.Combine(source.DataDir, "ships");
             if (!Directory.Exists(dir)) continue;
             foreach (var path in Directory.EnumerateFiles(dir, "*.json", SearchOption.AllDirectories))
-                byName[Path.GetFileNameWithoutExtension(path)] = new ShipFileEntry(
-                    Path.GetFileNameWithoutExtension(path), source.Label, path);
+            {
+                var name = Path.GetFileNameWithoutExtension(path);
+                byName[name] = new ShipFileEntry(name, source.Label, path,
+                    residences.Contains(name) ? DocumentKind.Residence : DocumentKind.Ship);
+            }
         }
-        return byName.Values.OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase).ToList();
+        return byName.Values
+            .Where(e => kind is null || e.Kind == kind)
+            .OrderBy(e => e.Name, StringComparer.OrdinalIgnoreCase)
+            .ToList();
     }
+
+    /// <summary>
+    /// Which ship templates are station residences, by the game's own test rather than a guess about the file.
+    ///
+    /// <para><c>Trader.GetShipLootByType("station")</c> is how a Real Estate broker finds its stock, and what it
+    /// filters on is the <c>strType</c> of each template's <b>self-reference loot</b> — a one-line entry in
+    /// <c>loot/loot_self_reference.json</c> naming the template and typed <c>"station"</c> rather than the
+    /// <c>"item"</c> everything else carries. Reading that set costs nothing (the loot table is already indexed),
+    /// it is mod-aware for free, and it agrees exactly with the eleven stock residences.</para>
+    ///
+    /// <para>This is a <b>listing</b> filter, not the authority on what a design is: a modded residence template
+    /// nobody sells has no such loot and lands in the ship list, from where importing it still reads it as a
+    /// residence off its designation (<see cref="DocumentKindGuess"/>). Getting the menu wrong is a nuisance;
+    /// getting the document's kind wrong would matter, so the two use different evidence on purpose.</para>
+    /// </summary>
+    public static HashSet<string> ResidenceTemplateNames(DataIndex index) =>
+        [.. index.Type("loot")
+            .Where(kv => Json.Str(kv.Value.El, "strType") == "station")
+            .Select(kv => kv.Key)];
 
     /// <summary>The actual <c>strName</c> of a ship file's primary ship (the largest, matching <see cref="LoadFile"/>'s
     /// choice) — the authoritative override key for "replace this ship" export, which the filename only usually
@@ -151,7 +183,7 @@ public static class TemplateImport
         ImportOptions? options = null, JsonNode? shipNode = null)
     {
         var opts = options ?? ImportOptions.Everything;
-        var doc = new ShipDocument(catalog);
+        var doc = new ShipDocument(catalog) { Kind = DocumentKindGuess.FromDesignation(tmpl.Designation) };
         var skipped = new Dictionary<string, int>(StringComparer.Ordinal);
         var systems = 0;
         int looseKept = 0, looseDropped = 0;

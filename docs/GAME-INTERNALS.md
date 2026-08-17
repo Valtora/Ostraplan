@@ -1419,6 +1419,17 @@ only the top-level layout and drops all runtime state for free.
 `saveInfo.shipName` — it is a renamed **display** name (`publicName`, e.g. "Charon") that
 matches no ship's `strName`.
 
+> **The entry name is not the RegID.** *Verified against game `1.0.0.11`.* The save is
+> written as loose files and then zipped from disk (`DotNetZipCompressor.CompressFolder`),
+> so every write goes through `DataHandler.ReplaceInvalidCharacters`, which substitutes
+> **`|` → `%`** and **`*` → `§`**. An apartment with RegID `BCRS|RES_1` is therefore the
+> entry `ships/BCRS%RES_1.json` (a stock save shows `ships/VORB%Aux.json` for `VORB|Aux`).
+> The `revert: true` branch of that function is never called anywhere, and it does not
+> need to be: `CrewSim.DoLoadGame` enumerates the folder and reads `strRegID` out of the
+> JSON body, so the filename is decorative on load. It is **not** decorative on write.
+> Addressing an entry as `ships/<RegID>.json` when the RegID contains a pipe misses the
+> real entry and, on a create-if-absent path, leaves two records claiming one RegID.
+
 > **Ported in Ostraplan:** `SaveImport` (player-ship identification + layout strip).
 
 ### Non-buildable and unresolvable defs
@@ -1618,9 +1629,11 @@ the template path `strRegID` **is** honoured (`_SpawnShip(bTemplate: false, …)
 | `objSystem.dictShipOwners` (flat alternating `[regID, ownerCOID, …]`) | `StarSystem.GetShipOwner`, hence the P.A.S.S. ferry filter and the broker's sell list | `GetShipOwner` returns the literal `"UNREGISTERED"`; the ship is unreachable and unsellable |
 | The owning CO's `aMyShips` | `CondOwner.OwnsShip` | Crew pledges, `bTargetOwned` interactions, fire response and fast-forward all treat the ship as somebody else's |
 
-`CondOwner.ClaimShip` refuses to claim a station or hidden-station ship for an `IsPlayer`
-CO, which is why an apartment (`objSS.bIsBO = true`) never enters `aMyShips` and rests on
-`dictShipOwners` plus its residence conds instead.
+`CondOwner.ClaimShip` refuses to claim a ship for an `IsPlayer` CO when that ship
+`IsStation()` or `IsStationHidden()`, which is why an apartment never enters `aMyShips`
+and rests on `dictShipOwners` plus its residence conds instead
+([below](#apartments-are-ships-sold-as-station-sub-modules)). For anything else both
+halves are required.
 
 **Placement.** `GUIShipBroker.OnPurchaseConfirm`'s no-free-port fallback calls
 `SetSituToRandomSafeCoords` with radii `2.005376131819503E-08` / `3.342293553032505E-08`
@@ -1655,25 +1668,101 @@ template one).
 > `StartingShipExport`. Where another ship mod overrides the same pool, whole-object load
 > semantics would drop one side; the resolution is Ostrasort's per-item-union `--patch`.
 
-### Apartments are hidden stations
+### Apartments are ships, sold as station sub-modules
 
-Recorded because it is asked for regularly, and the answer is not obvious. An apartment is
-an ordinary ship record spawned as a **station**: `GUIShipBroker.OnPurchaseConfirm` calls
-`SpawnShip(…, isStation: true)`, then `HideFromSystem`, `LockToBO(station)` and
-`bIsBO = true`. Six stock templates across five station brokers, priced
-`sum(aRooms.roomValue) × discount × 10`.
-
-The RegID is `<STATION>|RES_<n>` and **the pipe is load-bearing**:
-`DataHandler.GetTransitConnections` truncates at it, and `TargetsWildCard` is
-`strTargetRegID.Contains("|")`. A RegID without it means no transit route in or out.
-
-The real blocker on doing anything with these in a planner is not the plumbing. The parts
-involved (`ItmKioskTransit02` / `03b`, `ItmDockSys02Closed`, `ItmSink01Station`) have
-**no install, uninstall or dismantle recipe at all**, so there is no bill of materials, no
-cost and no socket rule to port. Adding those recipes is a data mod, which is the answer
-to give: see [SCOPE.md](SCOPE.md#often-the-honest-answer-is-thats-a-mod). Verified against
+*Verified against game `1.0.0.11`.* An earlier revision of this section, written against
 the 0.16-era decompile while closing
-[issue #12](https://github.com/Valtora/Ostraplan/issues/12).
+[issue #12](https://github.com/Valtora/Ostraplan/issues/12), called these "hidden
+stations" and named the fixture recipes as the blocker. Both claims were wrong or have
+since expired; what follows replaces them.
+
+An apartment is an **ordinary ship record** in every structural respect: the same
+`JsonShip` schema, the same `aItems` / `aRooms` / `aDockingPorts` / `nRows` / `nCols`,
+loaded and saved down the same paths. Nothing about the layout is special-cased.
+
+**It is a station, not a hidden station.** `GUIShipBroker.OnPurchaseConfirm` calls
+`SpawnShip(…, isStation: true)`, then sets `HideFromSystem`, `LockToBO(<station's BO>)`
+and `objSS.bIsBO = true`. But the two predicates split on ports, not on `bIsBO`:
+`IsStation()` is `HasDockingPorts && bIsBO`, `IsStationHidden()` is
+`!HasDockingPorts && bIsBO`. Every stock residence carries one `ItmDockSys02Closed`,
+which has `IsDockSys` + `IsInstalled` and so registers through `TIsDockSysInstalled`, so
+`IsStation()` is **true** and `IsStationHidden()` is **false**. What actually hides an
+apartment is `bShipHidden` plus `_subStation`, and neither comes from the broker:
+
+```csharp
+// Ship.InitShip
+if (strRegID.Split('|').Length > 1) { HideFromSystem = true; _subStation = true; }
+```
+
+**The pipe in the RegID is the whole mechanism.** RegIDs are `<STATION>|RES_<n>`, `n`
+being the first free index. Besides `InitShip` above, three systems key off it:
+`DataHandler.GetTransitConnections` truncates the RegID at and including the pipe (so
+`BCRS|RES_1` resolves the transit node named `BCRS|`); `JsonTransitConnection.TargetsWildCard`
+is `strTargetRegID.Contains("|")`, which fans one connection out to every loaded ship whose
+RegID contains the target; and a 0.15.0.x save migration rewrote `BCRS_RES|RES…` to
+`BCRS|RES…`, which is why the prefix is the **top-level** station and not the residential
+sub-module. A RegID without a pipe means no transit route in or out.
+
+**Ownership is one registry, not two.** `CondOwner.ClaimShip` early-returns for an
+`IsPlayer` CO when the ship `IsStation()` or `IsStationHidden()`, and the broker calls it
+straight after `RegisterShipOwner`, so the claim is refused. An owned apartment therefore
+lives in `objSystem.dictShipOwners` **only** and never reaches `aMyShips`. Anything that
+enumerates the player's property through `aMyShips` will not see it. Purchase also grants
+`IsHomeowner<STATION>` on the buyer (`GUIShipBroker.UpdateResidenceConds` applying the
+trader's `strLootResidence`), which is what the transit connection's `ctUserOptional`
+gate reads. Selling reverses the cond and calls `Destroy`, removing the record entirely.
+
+**The stock catalogue.** Eleven sellable templates (`ResAero01/02`, `ResBCER01`, `ResBCRS01/02`,
+`ResEJDR01`, `ResMLAB01`, `ResMSUZ01/02`, `ResOKLG01`, `ResRyokka01`), several of them
+re-skins of the same floor plan, from 19×23 / 346 items up to 55×65 / 3,595. Price is
+`sum(aRooms[].roomValue) × DiscountSell × 10` read off the **template's baked** room
+values, not a recompute: 3.0M to 6.1M credits before the kiosk modifier. Buying is gated
+on `TIs<SHIP>StrataLegal`, and the pools additionally on `Plot_OKLGHousing_01Done` and
+`-TutorialNoHousingYet`.
+
+**A residence reaches a broker differently from a ship.** A ship is named directly in a
+`strType: "ship"` pool's weighted `aCOs` string (§19, `KioskExport`). A residence is
+listed in `Itm<STATION>ResBrokerInv.aLoots`, and each name there resolves through a
+**self-reference loot** in `loot/loot_self_reference.json` carrying
+**`strType: "station"`** — `Trader.GetShipLootByType("station")` filters on exactly that
+tag, and without the self-reference entry `GetLoot` returns a blank and the listing is
+empty. Eleven such entries exist, one per template. So making a designed residence
+purchasable needs *two* loot objects, not one.
+
+Eleven broker pools exist; **eight** have a kiosk placed on a ship template (BCER, BCRS,
+MSUZ, MVOL, OKLG, SVIR, VENC, VNCA). JFTS, MLAB and MTRS have pools and kiosk cooverlays
+but no placement, so they are dormant. Eight stations have a `<STATION>|` transit node,
+but the sets do not match: **MVOL sells residences and has no `MVOL|` node**, so an
+apartment bought there appears to have no transit route; `VORB|` exists with no res
+broker (it serves the stock `VORB|Aux` sub-station, a non-player instance of the same
+wildcard mechanism).
+
+**The fixture-recipe blocker no longer applies to Ostraplan.** `ItmKioskTransit02` /
+`03b`, `ItmDockSys02Closed` and `ItmSink01Station` still have no install, uninstall or
+dismantle job, so they have no bill of materials and no socket rule, and that is still
+the right answer to *"make this station fitting buildable"* (see
+[SCOPE.md](SCOPE.md#often-the-honest-answer-is-thats-a-mod)). But the **SPECIAL palette
+tab**, added in v0.66.0 five days after issue #12 closed, builds `Catalog.SpecialItems`
+from every `strType: "Item"` condowner carrying `IsInstalled` that has no build job,
+which is precisely this class. Across all eleven templates the remaining recipe-less defs
+are runtime state variants the powered-state and repair maps already normalise
+(`ItmDoor01ClosedOn`, `ItmAirPump03OnG`, `ItmAlarmO2OnG`, `ItmCooler01On`,
+`ItmVent01Open`), `Compartment`, `SysLootSpawner`, and a short fixture tail
+(`ItmReactorIC02IgnitionMini`, `ItmWallRock011x1`, `ItmFloorGrate03`). All of it is
+already placeable.
+
+> **Ported in Ostraplan:** `ResidenceGrant` (station discovery, `<STATION>|RES_<n>` minting, the broker price,
+> the body-orbit situation, the homeowner cond), plus the residence branches in `SaveGrant.BuildShip` /
+> `WriteGrant` and `SaveZip` for the §17 filename encoding. A design carries `DocumentKind.Residence`, which
+> gates the four vessel-only analyses and routes the delivery. `SaveImport` now unions `aMyShips` with
+> `dictShipOwners` so an owned apartment is findable, and `SaveEdit.ValidateSubStation` aborts a write-back that
+> would lose the registration or the station lock. **Re-verify per patch:** the pipe convention in
+> `Ship.InitShip`, the `ClaimShip` station refusal, and whether the transit node set still matches the stations
+> that place a Real Estate kiosk.
+
+> **Not ported:** making a designed residence purchasable through a Real Estate broker. That needs a
+> `strType: "station"` self-reference loot plus an `Itm<STATION>ResBrokerInv.aLoots` append, which is a second
+> export shape and buys nothing the save routes do not already deliver.
 
 ---
 

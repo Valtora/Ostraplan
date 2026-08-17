@@ -83,7 +83,9 @@ public abstract class WizardStep : UserControl
     /// so the content pane's scrollbar is in one place and nothing jumps on Next.</summary>
     protected static StackPanel Body() => new() { Margin = new Thickness(0, 0, 4, 0) };
 
-    protected static void Header(Panel parent, string text) => parent.Children.Add(new TextBlock
+    /// <summary>A section caption. Returns the block so a step whose caption depends on the session (a ship's
+    /// identity versus a residence's) can retitle it on Enter; callers that never change theirs ignore it.</summary>
+    protected static TextBlock Header(Panel parent, string text) => Add(parent, new TextBlock
     {
         Text = text, Foreground = Dim, FontWeight = FontWeights.Bold, FontSize = 11,
         Margin = new Thickness(0, 16, 0, 5),

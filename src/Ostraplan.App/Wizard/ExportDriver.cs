@@ -42,6 +42,17 @@ public abstract class ExportDriver
     /// <summary>A one-line description shown under the destination's name.</summary>
     public abstract string Blurb { get; }
 
+    /// <summary>
+    /// <see cref="Name"/> and <see cref="Blurb"/> as this particular design would have them. The destination
+    /// tiles are the first thing the user reads, and for a residence the ship wording is not merely imprecise
+    /// but wrong: a residence is not parked a few kilometres out and does not take the P.A.S.S. ferry. Overridden
+    /// by the two save destinations; the default is the kind-free text.
+    /// </summary>
+    public virtual string NameFor(WizardSession session) => Name;
+
+    /// <inheritdoc cref="NameFor"/>
+    public virtual string BlurbFor(WizardSession session) => Blurb;
+
     /// <summary>The commit button's label: "Export", "Add ship", "Write".</summary>
     public abstract string CommitVerb { get; }
 

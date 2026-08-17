@@ -560,8 +560,8 @@ that ship, use **Analyse ▸ "Update Ship in Save…"** instead.
 
 ## Transferring a ship between saves
 
-**File ▸ "Transfer Ship to Another Save…"** moves a ship from one playthrough into
-another in one action. It was always possible as two separate steps and almost nobody
+**File ▸ "Transfer Ship to Another Save…"** (or **"Transfer Apartment to Another Save…"**)
+moves a ship or an apartment from one playthrough into another in one action. It was always possible as two separate steps and almost nobody
 found it, which is the only reason this exists.
 
 1. Pick the **source** save and the ship in it. Ostraplan reads the ship in and puts it
@@ -595,7 +595,9 @@ after importing were never on the original, so they arrive undamaged whichever y
 ## Editing your live in-game ship
 
 **File ▸ Import ▸ "Your ship, for editing"** imports your live ship *with its
-identity*, so you can redesign the structure out-of-game and write it back.
+identity*, so you can redesign the structure out-of-game and write it back. Your station
+apartment has its own entry, **"Your apartment, for editing"**, and works the same way:
+see [Apartments](#apartments).
 
 - Pick the ship, confirm, and redesign as normal.
 - **Analyse ▸ "Update Ship in Save…"** opens the export wizard with the **Update a ship
@@ -683,6 +685,53 @@ back like that and you can get ghost rooms and shifted zones in game.
 
 Editing a ship you don't own (a station, another vessel) is gated behind a stern
 warning — it's unsupported.
+
+## Apartments
+
+An apartment is a ship as far as Ostraplan is concerned: the same grid, the same
+placement rules, the same rooms, airtightness, certification and overlays. Everything in
+this guide applies to one unchanged, so this section is only about the ways it differs.
+
+**Its own menu entries, everywhere.** A ship and an apartment are edited the same way but
+they are not the same errand, so each has its own action and each lists only its own kind:
+
+| Ships | Apartments |
+|---|---|
+| Import ▸ From ship template… | Import ▸ From apartment template… |
+| Import ▸ Your ship, for editing… | Import ▸ Your apartment, for editing… |
+| Transfer Ship to Another Save… | Transfer Apartment to Another Save… |
+
+The apartment template list is the eleven residences a Real Estate broker sells, read from
+the game's own broker data, so a mod that adds one shows up there too.
+
+**Finding the one you own.** Ostranauts does not file an apartment with your ships. Buying
+one registers it in a different place entirely, which is why your apartment never appeared
+in the ship list and why it now has a list of its own. If you own no apartment yet, the
+picker says so and tells you the save read fine.
+
+**What Ostraplan stops showing.** A residence has no drive and no nav, so the Ship Rating,
+the nav-console **Diagnostics** checklist, the propulsion figures and **Flight Dynamics**
+do not apply and are hidden rather than reporting a design with no engine as a disaster.
+The Ship Rating button becomes **Residence Report** and keeps everything that does apply:
+rooms, certification, near-misses, airtightness and the snapshot. Kiosk prices go too,
+because the game does not price a residence through the ship broker — a Real Estate broker
+charges the summed room values ×10, and that figure appears on the export **Review**.
+
+**Getting one into your game.** The same three save routes a ship has: write your edited
+apartment back over the one you own, add a new one to a save, or move one between
+playthroughs. Adding or transferring one asks **which station** it belongs at, on the
+**Save & price** step. There is no mod export: the game sells a residence through a Real
+Estate broker, which a ship mod cannot stock.
+
+**The station warning is worth reading.** An apartment is reached through its station's
+transit kiosk, and a station only offers that route if the game's data defines one. Pick a
+station that has none and Ostraplan says so twice, on the step and again on Review: the
+apartment would be yours and completely unreachable. In vanilla, **Mercury Volanus** is the
+one that sells apartments without a route to them.
+
+**If Ostraplan guesses wrong.** The design's kind is shown in **Ship Info** and you can
+change it there. It is set on import from the registration when there is one (conclusive)
+and from the designation otherwise.
 
 ## Containers & cargo
 

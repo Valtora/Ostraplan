@@ -49,11 +49,12 @@ It is a sibling tool to [**Ostrasort**](https://github.com/Valtora/Ostrasort), t
 Getting a design into the game runs through one **wizard**: pick a destination, answer only the steps that destination needs, then a **Review** step that tells you exactly what will be written before anything is.
 
 - **Import a template.** Any core or modded ship, as a starting point.
-- **Import your ship from a save.** Pull your live layout straight out of a save game.
+- **Import your ship from a save.** Pull your live layout straight out of a save game. Your **station apartment** too: the game keeps one as an ordinary ship record and Ostraplan finds it the way the game registers it, which is not the list your vessels are in.
 - **Edit your live ship.** Import it, redesign, and write it back into a **copy** of the save, with crew, cargo and position preserved (the original untouched). Its in-game identity comes along too, and you can rewrite it. Any design will do, not only one imported from that ship: point a stock template or something you drew from scratch at a ship in a save and it replaces the layout wholesale, keeping the crew and cargo aboard.
 - **Export as a mod.** A spawnable local mod in the game's own `data/ships` shape, with rooms and rating precomputed. Give it a way into the game (broker kiosk, station Special Offer, Shipbreaker starting ship, or scattered through the derelict fields as salvage); at least one route is required, so the export can't quietly produce a ship nothing will ever spawn. You can also replace an existing ship's identity, and hand the mod to Ostrasort to register in one click.
 - **Add a design to a save as a new ship.** Drop a design into a **copy** of a save as a brand-new ship you already own, without replacing anything that's there. It arrives 3 to 5 km away, exactly where the game parks a ship you've bought with nowhere to dock, so the P.A.S.S. ferry will take you to it. Gift it, or charge yourself for it.
 - **Transfer a ship between saves.** One action takes a ship out of one playthrough and puts it in another, with its layout, cargo, loose items, zones, wiring, in-game identity and each part's real condition. It copies rather than moves, so both saves keep working and neither original is modified. Crew stay where they are: they belong to the save, not the ship.
+- **Design a station apartment.** A residence is a ship in every way that matters to a planner: same grid, same placement law, same rooms, same airtightness. Open one of the game's residence templates or your own apartment out of a save, redesign it, and write it back, add a new one at any station in a save, or move one between playthroughs. Ostraplan knows it is not a vessel, so the Ship Rating, the nav checklist, propulsion and flight dynamics step aside instead of reporting a design with no engine as a catastrophe, and it warns you if the station you picked has no transit route to its residences (vanilla Mercury Volanus is the one that does not).
 - **Wear slider.** Export or inject a ship worn rather than pristine, using the game's own kiosk damage model (defaults to the ~88% condition a "Used" kiosk ship comes at, no part below 10%).
 
 ### Mod-aware
@@ -68,7 +69,7 @@ Ostraplan does one thing: **it designs ships, and it gets them into your game.**
 
 So it won't:
 
-- **Edit your save beyond delivering a ship.** No apartments, crew, careers, money, or station contents. Adding a design to a save is in scope because a design is the input; editing save state with no design involved is not;
+- **Edit your save beyond delivering something you designed.** No crew, careers, money, or station contents. Adding a design to a save is in scope because a design is the input; editing save state with no design involved is not. An apartment you laid out yourself counts as a design; buying one from a broker does not;
 - **Simulate the ship.** No power, gas, thermal, or crew simulation (the game authors no per-device rates, so an honest budget would need a full network sim). PowerViz and WalkViz answer *connectivity and reach* from the layout, which is static data; neither runs the sim behind it;
 - **Model the economy** beyond the bill of materials;
 - **Edit more than one ship per document;**

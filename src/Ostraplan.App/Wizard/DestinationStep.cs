@@ -15,7 +15,7 @@ namespace Ostraplan.App.Wizard;
 /// </summary>
 public sealed class DestinationStep : WizardStep
 {
-    private sealed record Tile(ExportDriver Driver, RadioButton Button, TextBlock Reason);
+    private sealed record Tile(ExportDriver Driver, RadioButton Button, TextBlock Reason, TextBlock Name, TextBlock Blurb);
 
     private readonly List<Tile> _tiles = [];
     private readonly Func<ExportDestination, Task<string?>> _picked;
@@ -50,13 +50,17 @@ public sealed class DestinationStep : WizardStep
                 Foreground = ThemeManager.Warn, FontSize = 11, TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 4, 0, 0), MaxWidth = 420, Visibility = Visibility.Collapsed,
             };
+            // The captions are filled in Enter, not here: the tiles are built before there is a session, and
+            // what a destination is called depends on whether the design is a ship or a residence.
             var caption = new StackPanel { Margin = new Thickness(4, 0, 0, 0) };
-            caption.Children.Add(new TextBlock { Text = driver.Name, Foreground = Ink, FontWeight = FontWeights.SemiBold });
-            caption.Children.Add(new TextBlock
+            var name = new TextBlock { Foreground = Ink, FontWeight = FontWeights.SemiBold };
+            var blurb = new TextBlock
             {
-                Text = driver.Blurb, Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap,
+                Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap,
                 Margin = new Thickness(0, 2, 0, 0), MaxWidth = 420,
-            });
+            };
+            caption.Children.Add(name);
+            caption.Children.Add(blurb);
             caption.Children.Add(reason);
 
             var button = new RadioButton
@@ -68,7 +72,7 @@ public sealed class DestinationStep : WizardStep
             button.Checked += (_, _) => OnPicked(destination);
 
             body.Children.Add(button);
-            _tiles.Add(new Tile(driver, button, reason));
+            _tiles.Add(new Tile(driver, button, reason, name, blurb));
         }
 
         _problem = Problem(body, indent: 0);
@@ -85,6 +89,8 @@ public sealed class DestinationStep : WizardStep
         {
             foreach (var tile in _tiles)
             {
+                tile.Name.Text = tile.Driver.NameFor(session);
+                tile.Blurb.Text = tile.Driver.BlurbFor(session);
                 var reason = tile.Driver.Unavailable(session);
                 tile.Button.IsEnabled = reason is null;
                 tile.Reason.Text = reason ?? "";

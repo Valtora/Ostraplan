@@ -764,6 +764,7 @@ public partial class MainWindow : Window
                 progress.Close();
                 BtnRating.IsEnabled = BtnDiagnostics.IsEnabled = true;
                 _analysing = false;
+                SyncDocumentKindChrome();   // Diagnostics stays disabled on a residence
             }
         }
 
@@ -777,7 +778,8 @@ public partial class MainWindow : Window
         {
             // The callbacks are bound to the document that produced the report, which is why CloseReports drops the
             // window on a document swap rather than letting a stale one write into the new design.
-            var window = new RatingReportWindow(cells => Board.SetLeakCells(cells), kg => SetExtraMass(doc, kg))
+            var window = new RatingReportWindow(cells => Board.SetLeakCells(cells), kg => SetExtraMass(doc, kg),
+                residence: doc.IsResidence)
             {
                 Owner = this,
             };
@@ -838,6 +840,7 @@ public partial class MainWindow : Window
                 progress.Close();
                 BtnRating.IsEnabled = BtnDiagnostics.IsEnabled = true;
                 _analysing = false;
+                SyncDocumentKindChrome();   // Diagnostics stays disabled on a residence
             }
         }
 
@@ -1238,6 +1241,33 @@ public partial class MainWindow : Window
         var incomplete = _unresolvedParts.Count > 0 ? "  ⚠ MISSING MODS — read-only" : "";
         TxtDoc.Text = name + star + incomplete;
         Title = $"Ostraplan v{AppVersion} — {name}{star}{incomplete}";
+        SyncDocumentKindChrome();
+    }
+
+    /// <summary>
+    /// Point the vessel-only chrome at what the document actually is. A residence has no drive and no nav
+    /// (GAME-INTERNALS §19), so the nav-console checklist has nothing to check and would report a near-total
+    /// failure on a design where nothing is wrong; it is disabled with the reason on its tooltip rather than
+    /// left to produce that. The Ship Rating button stays live because its report is also the rooms,
+    /// certification and airtightness report, all of which apply unchanged — it re-headlines instead (see
+    /// <see cref="RatingReportWindow"/>). Flight Dynamics is gated where its menu is built.
+    /// </summary>
+    private void SyncDocumentKindChrome()
+    {
+        var residence = _doc?.IsResidence == true;
+
+        BtnRating.Content = residence ? "Residence Report" : "Ship Rating";
+        BtnRating.ToolTip = residence
+            ? "Analyse rooms, airtightness and certification for this residence"
+            : "Analyse rooms, airtightness, certification and the Ship Rating for the current design";
+
+        // Never re-enable mid-analysis: ShowRatingReport/ShowDiagnosticsReport own the button state while a run
+        // is in flight, and this method is reached from OnDocChanged, which a completing run can race.
+        if (!_analysing) BtnDiagnostics.IsEnabled = !residence;
+        BtnDiagnostics.ToolTip = residence
+            ? "Not applicable to a residence: the checklist reads a nav console, a drive and a transponder, none "
+              + "of which a residence has"
+            : "The game's own nav-console checklist: transponder, antenna, reactor, thrusters, power and life support";
     }
 
     private bool ConfirmDiscardChanges()
@@ -3237,17 +3267,23 @@ public partial class MainWindow : Window
     /// and writes a mod folder — never <c>loading_order.json</c> (registration stays with
     /// Ostrasort/ModTools; the dialog and confirmation both say so).
     /// </summary>
-    /// <summary>Edit the ship's in-game identity (name/make/model/year/designation/description). The values live
-    /// on <see cref="_meta"/>, so they persist in the .oplan and pre-fill the export dialog.</summary>
+    /// <summary>Edit the ship's in-game identity (name/make/model/year/designation/description) and its
+    /// <see cref="DocumentKind"/>. The identity values live on <see cref="_meta"/> and the kind on the document;
+    /// both persist in the .oplan, and the identity pre-fills the export dialog.</summary>
     private void OnShipInfoClick(object sender, RoutedEventArgs e)
     {
         if (_doc is null) return;
-        var dlg = new ShipInfoDialog(_meta) { Owner = this };
+        var dlg = new ShipInfoDialog(_meta, _doc.Kind) { Owner = this };
         if (dlg.ShowDialog() != true) return;
         if (dlg.PublicName == _meta.PublicName && dlg.Make == _meta.Make && dlg.Model == _meta.Model
-            && dlg.Year == _meta.Year && dlg.Designation == _meta.Designation && dlg.Description == _meta.Description)
+            && dlg.Year == _meta.Year && dlg.Designation == _meta.Designation && dlg.Description == _meta.Description
+            && dlg.Kind == _doc.Kind)
             return;   // nothing changed — don't dirty the document
         dlg.ApplyTo(_meta);
+        // A kind switch retires whichever analysis no longer applies, so any open report is describing the design
+        // under the old reading of it. Close rather than mark stale: a re-run would rebuild the same window with
+        // the wrong headline (the window is told which it is at construction).
+        if (dlg.Kind != _doc.Kind) { _doc.Kind = dlg.Kind; CloseReports(); }
         _stateDirty = true;
         RefreshChrome();
     }
@@ -3543,10 +3579,16 @@ public partial class MainWindow : Window
         m.Items.Add(new Separator());
         // A whole operation rather than a variant of import or export, and it chains both, so it sits beside them
         // rather than inside either. Being findable is the entire point of it existing.
-        m.Items.Add(MenuAction("Transfer Ship to Another Save…", TransferShip, enabled: _env is not null));
+        m.Items.Add(MenuAction("Transfer Ship to Another Save…",
+            () => TransferShip(DocumentKind.Ship), enabled: _env is not null));
+        m.Items.Add(MenuAction("Transfer Apartment to Another Save…",
+            () => TransferShip(DocumentKind.Residence), enabled: _env is not null));
         // A design imported from a save goes back to the ship it came from; any other design is asked which ship
-        // in which save it should replace, so it needs only a save to exist.
-        m.Items.Add(MenuAction("Update Ship in Save…", () => OnUpdateSaveClick(this, e),
+        // in which save it should replace, so it needs only a save to exist. One item rather than two, unlike
+        // Import and Transfer above: this one acts on the open design, so it already knows which it is and there
+        // is nothing for the user to choose between.
+        m.Items.Add(MenuAction(_doc?.IsResidence == true ? "Update Apartment in Save…" : "Update Ship in Save…",
+            () => OnUpdateSaveClick(this, e),
             enabled: _doc is not null && _env is not null));
         OpenMenuUnder(m, BtnFileMenu);
     }
@@ -3555,10 +3597,17 @@ public partial class MainWindow : Window
     private MenuItem BuildImportSubmenu()
     {
         var import = new MenuItem { Header = "Import" };
-        import.Items.Add(MenuAction("From ship template…", ImportTemplate));
+        import.Items.Add(MenuAction("From ship template…", () => ImportTemplate(DocumentKind.Ship)));
+        import.Items.Add(MenuAction("From apartment template…", () => ImportTemplate(DocumentKind.Residence)));
         import.Items.Add(MenuAction("From save game (layout only)…", ImportSave));
         import.Items.Add(new Separator());
-        import.Items.Add(MenuAction("Your ship, for editing (write back to the save)…", ImportSaveForEditing));
+        // Two entries rather than one picker with both in it. A ship and an apartment are edited the same way but
+        // they are not the same errand, and the ship list is the one people are looking down when they mean the
+        // other. Each action lists only its own kind, so neither can be picked by accident.
+        import.Items.Add(MenuAction("Your ship, for editing (write back to the save)…",
+            () => ImportSaveForEditing(DocumentKind.Ship)));
+        import.Items.Add(MenuAction("Your apartment, for editing (write back to the save)…",
+            () => ImportSaveForEditing(DocumentKind.Residence)));
         return import;
     }
 
@@ -3576,7 +3625,9 @@ public partial class MainWindow : Window
         m.Items.Add(new Separator());
         m.Items.Add(MenuAction("Snapshot…", () => OnSnapshotClick(this, e)));
         m.Items.Add(MenuAction("Bill of Materials…", () => OnMaterialsClick(this, e), gesture: "Ctrl+B"));
-        m.Items.Add(MenuAction("Flight Dynamics…", () => OnFlightClick(this, e)));
+        // Atmospheric flight on a design with no drive and no rotors is not a report, it is a column of zeroes.
+        m.Items.Add(MenuAction("Flight Dynamics…", () => OnFlightClick(this, e),
+            enabled: _doc is not null && !_doc.IsResidence));
         OpenMenuUnder(m, BtnDesignMenu);
     }
 
@@ -3679,24 +3730,34 @@ public partial class MainWindow : Window
 
     /// <summary>Import the player's ship FOR EDITING: keeps each part's save identity plus a full context, so
     /// the edited layout can be written back into a copy of the save with crew and cargo preserved.</summary>
-    private async void ImportSaveForEditing()
+    private async void ImportSaveForEditing(DocumentKind kind)
     {
+        var residence = kind == DocumentKind.Residence;
+        var noun = residence ? "apartment" : "ship";
+
         var edit = await PickAndImportForEditing(
-            "Import your ship for editing",
-            "Imports your live ship with its identity, crew, cargo and wear intact, so the redesign can be written back into the save it came from.",
+            $"Import your {noun} for editing",
+            $"Imports your live {noun} with its identity, crew, cargo and wear intact, so the redesign can be "
+            + "written back into the save it came from.",
             "Choose save",
             (save, chosen) =>
             Dlg.Confirm(this, DlgKind.Info, $"Import \"{chosen.Name}\" for editing?",
-                $"Ship {chosen.RegId} from save \"{save.Name}\".\n\n" +
-                "You'll redesign the ship's structure out of game.\n" +
+                $"{(residence ? "Apartment" : "Ship")} {chosen.RegId} from save \"{save.Name}\".\n\n" +
+                $"You'll redesign the {noun}'s structure out of game.\n" +
                 "When you choose the Update Ship in Save action, Ostraplan writes the result back into the save, either as a new copy (the default) or the original in place, keeping crew, cargo, world position, and ship identity.\n\n" +
+                (residence
+                    ? "It keeps its registration, its place at the station and the transit route that reaches it: only the layout changes.\n\n"
+                    : "") +
                 "The .oplan you save stays linked to this save.\n" +
-                "It references the ship's live state (crew, cargo, wear) rather than embedding it, so keep the save if you want to write back later.\n\n" +
-                "For a standalone, shareable ship instead, use Export, which makes a spawnable mod.",
-                "Import for editing"));
+                $"It references the {noun}'s live state (crew, cargo, wear) rather than embedding it, so keep the save if you want to write back later.\n\n" +
+                (residence
+                    ? "There is no mod export for an apartment: the game sells one through a Real Estate broker, which a ship mod cannot stock."
+                    : "For a standalone, shareable ship instead, use Export, which makes a spawnable mod."),
+                "Import for editing"),
+            kind);
         if (edit is null) return;
 
-        AuditLog.Add($"Imported ship {Describe(edit)} for editing.");
+        AuditLog.Add($"Imported {noun} {Describe(edit)} for editing.");
     }
 
     /// <summary>
@@ -3709,22 +3770,31 @@ public partial class MainWindow : Window
     /// <para>The ship still arrives on the canvas as a design rather than moving behind the user's back. It is what
     /// they are about to copy into another save, and it is the last chance to look at it.</para>
     /// </summary>
-    private async void TransferShip()
+    private async void TransferShip(DocumentKind kind)
     {
+        var residence = kind == DocumentKind.Residence;
+        var noun = residence ? "apartment" : "ship";
+
         var edit = await PickAndImportForEditing(
-            "Transfer a ship: which save is it in?",
-            "Step 1 of 2. Choose the save the ship is in now. You'll pick the save it goes to next.",
+            $"Transfer {(residence ? "an apartment" : "a ship")}: which save is it in?",
+            $"Step 1 of 2. Choose the save the {noun} is in now. You'll pick the save it goes to next.",
             "Choose source",
             (save, chosen) =>
             Dlg.Confirm(this, DlgKind.Info, $"Transfer \"{chosen.Name}\" to another save?",
-                $"Ship {chosen.RegId} from save \"{save.Name}\".\n\n" +
-                "Ostraplan reads the ship in, then asks which save to add it to. It arrives there as a brand-new ship you own, parked a few kilometres out, in a copy of that save. Both saves keep working: this copies the ship rather than moving it, and neither original is modified.\n\n" +
+                $"{(residence ? "Apartment" : "Ship")} {chosen.RegId} from save \"{save.Name}\".\n\n" +
+                (residence
+                    ? "Ostraplan reads the apartment in, then asks which save to add it to and which station in that save it belongs at. It arrives there as a residence you own, registered at that station, in a copy of that save. Both saves keep working: this copies the apartment rather than moving it, and neither original is modified.\n\n"
+                    : "Ostraplan reads the ship in, then asks which save to add it to. It arrives there as a brand-new ship you own, parked a few kilometres out, in a copy of that save. Both saves keep working: this copies the ship rather than moving it, and neither original is modified.\n\n") +
                 "Layout, cargo, loose items, zones and device wiring all make the trip, and each part keeps the condition it really has.\n\n" +
-                "Crew do not come along. They belong to the save they are in, not to the ship.",
-                "Read the ship in"));
+                (residence
+                    ? "The station is chosen fresh in the destination save, so the apartment does not have to land at the same one it came from. You become a homeowner there.\n\n"
+                    : "") +
+                $"Crew do not come along. They belong to the save they are in, not to the {noun}.",
+                $"Read the {noun} in"),
+            kind);
         if (edit is null) return;
 
-        AuditLog.Add($"Read ship {Describe(edit)} in to transfer to another save.");
+        AuditLog.Add($"Read {noun} {Describe(edit)} in to transfer to another save.");
 
         // Straight on to the second half, with the destination preselected: the save picker there is the one that
         // asks where it goes, so the user never returns to a menu to finish what they started.
@@ -3737,7 +3807,8 @@ public partial class MainWindow : Window
     /// what happens next. Null when the user backed out anywhere along it, or the import failed (already reported).
     /// </summary>
     private async Task<SaveEditImportResult?> PickAndImportForEditing(
-        string title, string pickerNote, string pickerVerb, Func<SaveEntry, SaveShipChoice, bool> confirm)
+        string title, string pickerNote, string pickerVerb, Func<SaveEntry, SaveShipChoice, bool> confirm,
+        DocumentKind kind = DocumentKind.Ship)
     {
         if (_catalog is null || _env is null || !ConfirmDiscardChanges()) return null;
 
@@ -3752,18 +3823,29 @@ public partial class MainWindow : Window
         var picker = new SavePickerDialog(saves, title, pickerNote, pickerVerb) { Owner = this };
         if (picker.ShowDialog() != true || picker.Selected is not { } save) return null;
 
-        // choose WHICH ship: the game imports the ship you're standing on, which may be a station. List the
-        // player's actually-owned ships (from aMyShips) instead, plus the current ship as an unsupported option.
-        var ships = SaveImport.ListPlayerShips(save.ZipPath);
+        // choose WHICH ship: the game imports the ship you're standing on, which may be a station. List what the
+        // player actually owns instead (aMyShips for vessels, the ship-owner registry for apartments, which never
+        // reach aMyShips), plus the current ship as an unsupported option.
+        var residence = kind == DocumentKind.Residence;
+        var all = SaveImport.ListPlayerShips(save.ZipPath);
+        var ships = all.Where(s => s.IsResidence == residence).ToList();
         if (ships.Count == 0)
         {
+            // Say which of the two things went wrong. "No apartments" on a save that has three ships in it is a
+            // different problem from a save Ostraplan could read nothing out of at all.
             Dlg.Show(this,
-                "Couldn't find a ship in that save (no owned ships and no current ship on record).",
+                residence
+                    ? all.Count > 0
+                        ? $"No apartments in that save. Ostraplan found {all.Count} ship(s) there, so the save read "
+                          + "fine — you just don't own a residence in it yet. Buy one from a station's Real Estate "
+                          + "kiosk, or use \"From apartment template\" to design one from scratch."
+                        : "Couldn't find anything you own in that save."
+                    : "Couldn't find a ship in that save (no owned ships and no current ship on record).",
                 title, MessageBoxButton.OK, MessageBoxImage.Warning);
             return null;
         }
 
-        var shipDlg = new ShipChoiceDialog(save.Name, ships) { Owner = this };
+        var shipDlg = new ShipChoiceDialog(save.Name, ships, kind) { Owner = this };
         if (shipDlg.ShowDialog() != true || shipDlg.Selected is not { } chosen) return null;
 
         // editing a ship you don't own (a station, another vessel) is unsupported — gate it behind a stern warning
@@ -3856,7 +3938,7 @@ public partial class MainWindow : Window
         SaveSourceRef? target = null;
         if (_doc?.SourceSave is null)
         {
-            if (UpdateDriver.PickTarget(this, saves) is not { } picked) return;
+            if (UpdateDriver.PickTarget(this, saves, _doc?.Kind ?? DocumentKind.Ship) is not { } picked) return;
             target = new SaveSourceRef(picked.Save.Name, picked.RegId);
         }
 
@@ -3872,24 +3954,30 @@ public partial class MainWindow : Window
             "Edit it anyway");
 
     /// <summary>Browse core+mod ship templates and import the chosen one as a fresh design.</summary>
-    private async void ImportTemplate()
+    private async void ImportTemplate(DocumentKind kind)
     {
         if (_catalog is null || _index is null || !ConfirmDiscardChanges()) return;
 
-        var ships = TemplateImport.ListShipFiles(_index);
+        var residence = kind == DocumentKind.Residence;
+        var noun = residence ? "apartment" : "ship";
+        var ships = TemplateImport.ListShipFiles(_index, kind);
         if (ships.Count == 0)
         {
-            Dlg.Show(this, "No ship templates found in the game data or your mods.", "Import",
+            Dlg.Show(this, $"No {noun} templates found in the game data or your mods.", "Import",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
 
-        var browser = new TemplateBrowserDialog(ships) { Owner = this };
+        var browser = new TemplateBrowserDialog(ships, kind) { Owner = this };
         if (browser.ShowDialog() != true || browser.Selected is not { } entry) return;
 
-        if (AskImportOptions($"Import the ship template “{entry.Name}”?",
-                "A template is a stock or modded ship. It arrives as a pristine editable design with no in-game "
-                + "identity, wear or damage.") is not { } options)
+        if (AskImportOptions($"Import the {noun} template “{entry.Name}”?",
+                residence
+                    ? "A template is one of the station residences a Real Estate broker sells. It arrives as a "
+                      + "pristine editable design with no in-game identity, wear or damage, and is not tied to any "
+                      + "station until you deliver it into a save."
+                    : "A template is a stock or modded ship. It arrives as a pristine editable design with no "
+                      + "in-game identity, wear or damage.") is not { } options)
             return;
 
         var (catalog, path) = (_catalog, entry.Path);
@@ -3910,7 +3998,7 @@ public partial class MainWindow : Window
         }
 
         InstallImportedDocument(result, options: options);
-        AuditLog.Add($"Imported ship template \"{result.ShipName}\".");
+        AuditLog.Add($"Imported {noun} template \"{result.ShipName}\".");
     }
 
     /// <summary>Swap an imported ship in as the active document (no file path — Save prompts Save As). The

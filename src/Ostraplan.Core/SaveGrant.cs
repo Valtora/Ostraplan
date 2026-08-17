@@ -18,13 +18,26 @@ namespace Ostraplan.Core;
 public sealed record GrantAnchor(
     double PosX, double PosY, double VelX, double VelY, string? BoPorShip, bool BoLocked, int SizeMetres)
 {
+    /// <summary>The anchor's own displacement from its reference body (<c>objSS.vBOOffsetx/y</c>). A granted
+    /// <b>ship</b> is drawn to a fresh point and zeroes these; a <see cref="ResidenceGrant"/> shares its
+    /// station's absolute position and so must share the station's offset too, or the two would separate as
+    /// soon as the body moved.</summary>
+    public double BoOffsetX { get; init; }
+
+    /// <inheritdoc cref="BoOffsetX"/>
+    public double BoOffsetY { get; init; }
+
     /// <summary>Read the anchor out of a save's ship record (<c>ships/&lt;RegID&gt;.json</c>'s <c>objSS</c>).</summary>
     public static GrantAnchor FromShipRecord(JsonNode shipRecord)
     {
         var ss = (shipRecord as JsonObject)?["objSS"] as JsonObject;
         return new GrantAnchor(
             Dbl(ss, "vPosx"), Dbl(ss, "vPosy"), Dbl(ss, "vVelX"), Dbl(ss, "vVelY"),
-            Str(ss, "boPORShip"), Bool(ss, "bBOLocked"), (int)Math.Round(Dbl(ss, "size")));
+            Str(ss, "boPORShip"), Bool(ss, "bBOLocked"), (int)Math.Round(Dbl(ss, "size")))
+        {
+            BoOffsetX = Dbl(ss, "vBOOffsetx"),
+            BoOffsetY = Dbl(ss, "vBOOffsety"),
+        };
     }
 
     private static double Dbl(JsonNode? n, string p) =>
@@ -47,7 +60,14 @@ public sealed record GrantAnchor(
 /// be the ship, not a re-rolled copy of it. Null for an ordinary grant of a design that came from nowhere.</para></summary>
 public sealed record GrantOptions(
     string DesignName, ExportMetadata? Meta = null, WearOptions? Wear = null, int? PlacementSeed = null,
-    IReadOnlyDictionary<string, JsonNode>? SourceCos = null);
+    IReadOnlyDictionary<string, JsonNode>? SourceCos = null)
+{
+    /// <summary>Set to grant a <b>station residence</b> instead of a vessel: the station it attaches to. The
+    /// record is built by the same builder, but it is placed on the station rather than near the player, hidden
+    /// from the system map, and owned through one registry instead of two. See <see cref="ResidenceGrant"/>.
+    /// Null for an ordinary ship, which is every existing caller.</summary>
+    public ResidenceStation? Residence { get; init; }
+}
 
 /// <summary>What a grant produced: the minted identity, the size of the ship, its baked rating, and how far off
 /// the anchor it landed (in km, which is the figure worth showing the user — it is the walk home).</summary>
@@ -245,7 +265,11 @@ public static class SaveGrant
         // Resolve the display name BEFORE building, through the same policy the mod export uses. ShipExport.Build
         // falls back to the strName it is handed when the metadata carries no public name, and a granted ship's
         // strName is its registration — so leaving the fallback to Build would name the ship "H-1234" in game.
-        var publicName = ShipExport.ResolvePublicName(opts.Meta?.PublicName, opts.DesignName, isReplace: false);
+        // A residence is named the way the broker names one — "<station> | <designation>" — unless the user has
+        // pinned a name of their own, which stays theirs. A vessel keeps the usual fallback to the design name.
+        var publicName = opts.Residence is { } home && (opts.Meta?.PublicName ?? "").Trim().Length == 0
+            ? ResidenceGrant.PublicName(home, opts.Meta?.Designation, opts.DesignName)
+            : ShipExport.ResolvePublicName(opts.Meta?.PublicName, opts.DesignName, isReplace: false);
         var meta = (opts.Meta ?? new ExportMetadata()) with { PublicName = publicName };
 
         // Only a transfer needs the id map back; an ordinary grant has nothing to trace a part to.
@@ -267,8 +291,22 @@ public static class SaveGrant
 
         ship["publicName"] = publicName;
 
-        var (x, y, distanceKm) = DrawSpawnPoint(anchor, opts.PlacementSeed is { } seed ? new Random(seed) : new Random());
-        ship["objSS"] = BuildSitu(anchor, x, y, epoch);
+        // A residence does not get a spawn draw: the broker copies the station's coordinates exactly and locks
+        // the record to the station's body orbit, so there is no separation to report and nothing to place.
+        // bShipHidden matches what the broker sets; Ship.InitShip would set it anyway from the piped RegID, and
+        // writing it keeps the record identical to one the game itself saved.
+        double distanceKm = 0;
+        if (opts.Residence is { } station)
+        {
+            ship["objSS"] = ResidenceGrant.BuildSitu(station, epoch);
+            ship["bShipHidden"] = true;
+        }
+        else
+        {
+            var (x, y, drawnKm) = DrawSpawnPoint(anchor, opts.PlacementSeed is { } seed ? new Random(seed) : new Random());
+            ship["objSS"] = BuildSitu(anchor, x, y, epoch);
+            distanceKm = drawnKm;
+        }
 
         // Every item needs a CO on a save load. ShipExport already emitted them for contained cargo, so this
         // covers the top-level parts, and does it by "which ids are missing" rather than "which items look
@@ -587,9 +625,11 @@ public static class SaveGrant
         GrantOptions opts, double price = 0, string? outputSaveDir = null, bool overwrite = false)
     {
         CheckPrice(ctx, price);   // refuse before the build, not after it
-        var regId = MintRegId(ctx.ExistingRegIds, ctx.PlayerShipRegId);
+        var regId = opts.Residence is { } home
+            ? ResidenceGrant.MintRegId(ctx.ExistingRegIds, home.RegId)
+            : MintRegId(ctx.ExistingRegIds, ctx.PlayerShipRegId);
         var (ship, report) = BuildShip(doc, catalog, specs, regId, ctx.Anchor, opts, ctx.Epoch);
-        return WriteGrant(ctx, regId, ship, report, price, outputSaveDir, overwrite);
+        return WriteGrant(ctx, regId, ship, report, price, outputSaveDir, overwrite, opts.Residence);
     }
 
     /// <summary>
@@ -606,7 +646,8 @@ public static class SaveGrant
     /// </summary>
     public static (string OutputDir, GrantReport Report) WriteGrant(
         GrantContext ctx, string regId, JsonObject ship, GrantReport report,
-        double price = 0, string? outputSaveDir = null, bool overwrite = false)
+        double price = 0, string? outputSaveDir = null, bool overwrite = false,
+        ResidenceStation? residence = null)
     {
         CheckPrice(ctx, price);
 
@@ -615,7 +656,20 @@ public static class SaveGrant
         // interactions and fast-forward. A ship with only the first is reachable but your crew won't work on it.
         var playerCo = FindCo(ctx.PlayerShipRecord, ctx.PlayerCoId)
             ?? throw new InvalidDataException("The player's character owner disappeared from the record — grant aborted.");
-        ClaimShip(playerCo, regId);
+
+        if (residence is { } home)
+        {
+            // A residence is registered in dictShipOwners ONLY. CondOwner.ClaimShip early-returns for an IsPlayer
+            // CO when the ship is a station, so the game's own purchase leaves aMyShips untouched; adding it here
+            // would put the save into a state the game never produces. What the buyer does gain is the homeowner
+            // cond, which is what the transit connection's ctUserOptional gate reads — without it the apartment
+            // is owned and unreachable. See ResidenceGrant.
+            ResidenceGrant.GrantHomeownerCond(playerCo, home.RegId);
+        }
+        else
+        {
+            ClaimShip(playerCo, regId);
+        }
 
         double? newBalance = null;
         if (price > 0)

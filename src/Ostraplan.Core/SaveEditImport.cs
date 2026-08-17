@@ -70,6 +70,7 @@ public static class SaveEditImport
         var import = TemplateImport.Build(tmpl, catalog, retainOrigin: true, ImportOptions.Everything);
         var source = new SaveSourceRef(saveName, regId);
         import.Doc.SourceSave = source;
+        import.Doc.Kind = DocumentKindGuess.From(regId, tmpl.Designation);
 
         // One read of the session record, not three: it is the biggest thing in a save (tens of MB), and this
         // needs the player CO, the epoch, and — for the cost deduction — which ship the player is standing on.

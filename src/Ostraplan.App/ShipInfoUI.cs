@@ -10,6 +10,11 @@ namespace Ostraplan.App;
 /// listings (in-game name, make, model, year, designation, description). These live on the design's
 /// <see cref="OplanMeta"/>, so they persist in the <c>.oplan</c> and pre-fill the export dialog rather than being
 /// re-typed every export. Nothing here changes the layout, rooms or rating; it is pure metadata.
+///
+/// <para>It also carries the design's <see cref="DocumentKind"/>, which is not metadata: it decides which
+/// analyses apply and how the design reaches the game. It lives here because "what is this thing" is the
+/// question this dialog already answers, and because the import-time guess it overrules is made from the
+/// designation field two rows above it.</para>
 /// </summary>
 public sealed class ShipInfoDialog : Window
 {
@@ -18,6 +23,7 @@ public sealed class ShipInfoDialog : Window
     private static Brush FieldBg => ThemeManager.FieldBg;
 
     private readonly TextBox _publicName, _make, _model, _year, _designation, _description;
+    private readonly ComboBox _kind;
 
     public string PublicName => _publicName.Text.Trim();
     public string Make => _make.Text.Trim();
@@ -26,7 +32,10 @@ public sealed class ShipInfoDialog : Window
     public string Designation => _designation.Text.Trim();
     public string Description => _description.Text.Trim();
 
-    public ShipInfoDialog(OplanMeta meta)
+    /// <summary>The kind chosen in the dropdown — what the design is, not what it is called.</summary>
+    public DocumentKind Kind => _kind.SelectedIndex == 1 ? DocumentKind.Residence : DocumentKind.Ship;
+
+    public ShipInfoDialog(OplanMeta meta, DocumentKind kind)
     {
         Title = "Ship Info";
         Width = 480;
@@ -62,6 +71,27 @@ public sealed class ShipInfoDialog : Window
         _year = Field(body, "Year", meta.Year);
         _designation = Field(body, "Designation (class/role, e.g. \"Salvage Tug\")", meta.Designation);
         _description = Field(body, "Description (optional)", meta.Description, multiline: true);
+
+        body.Children.Add(new TextBlock
+        {
+            Text = "DESIGN KIND", Foreground = Dim, FontWeight = FontWeights.Bold, FontSize = 11,
+            Margin = new Thickness(0, 14, 0, 3),
+        });
+        _kind = new ComboBox
+        {
+            ItemsSource = new[] { "Ship", "Station residence" },
+            SelectedIndex = kind == DocumentKind.Residence ? 1 : 0,
+        };
+        body.Children.Add(_kind);
+        body.Children.Add(new TextBlock
+        {
+            Text = "A residence is built and validated exactly like a ship — same grid, same placement rules, "
+                 + "same rooms. It has no drive and no nav, so the Ship Rating, the diagnostic checklist, "
+                 + "propulsion and flight dynamics do not apply to one, and it is delivered into a save as a "
+                 + "station sub-module rather than as a vessel. Set on import from the designation; change it "
+                 + "here if that was wrong.",
+            Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0),
+        });
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
         var ok = new Button { Content = "OK", Padding = new Thickness(20, 4, 20, 4), Margin = new Thickness(0, 0, 8, 0), IsDefault = true };

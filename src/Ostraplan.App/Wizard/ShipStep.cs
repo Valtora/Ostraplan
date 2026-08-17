@@ -22,18 +22,21 @@ public sealed class ShipStep : WizardStep
     private WearControl _wear;
     private ExportDestination _builtFor = ExportDestination.Mod;
     private bool _builtWithSourceCondition;
+    private bool _builtForResidence;
 
-    public override string Title => "The ship";
+    /// <summary>Kind-free on purpose. The rail is built before the session is attached, and "The design" is
+    /// correct for a ship and a residence alike, so the step needs no per-kind title to stay accurate.</summary>
+    public override string Title => "The design";
 
     public ShipStep()
     {
         var body = Body();
 
-        _name = Field(body, "Ship name", "");
+        _name = Field(body, "Design name", "");
         _nameProblem = Problem(body);
         _name.TextChanged += (_, _) => OnChanged();
 
-        Header(body, "SHIP IDENTITY (IN-GAME)");
+        _identityHeader = Header(body, "IN-GAME IDENTITY");
         var identity = Add(body, new StackPanel());
         _publicName = Field(identity, "In-game name (optional)", "");
         _make = Field(identity, "Make", "");
@@ -42,10 +45,11 @@ public sealed class ShipStep : WizardStep
         _designation = Field(identity, "Designation (class/role, e.g. \"Salvage Tug\")", "");
         _description = Field(identity, "Description (optional)", "", multiline: true);
 
-        _identityNote = Note(body, NoteFor(ExportDestination.Mod));
+        _identityNote = Note(body, NoteFor(ExportDestination.Mod, "ship"));   // retitled per kind on Enter
 
         _wearHost = Add(body, new Border { Margin = new Thickness(0, 4, 0, 0) });
         _wear = NewWearControl(ExportDestination.Mod, offerSourceCondition: false);
+        // rebuilt per destination (and per kind) on Enter
         _wearHost.Child = _wear;
 
         Content = body;
@@ -59,7 +63,7 @@ public sealed class ShipStep : WizardStep
     /// <para><paramref name="offerSourceCondition"/> turns the keep option into the carry-the-real-condition choice.
     /// Only the grant destination offers that, and only for a design that came from a save: a mod export has no save
     /// to read a condition out of.</para></summary>
-    private WearControl NewWearControl(ExportDestination destination, bool offerSourceCondition)
+    private WearControl NewWearControl(ExportDestination destination, bool offerSourceCondition, string noun = "ship")
     {
         var update = destination == ExportDestination.UpdateShipInSave;
         var control = new WearControl(
@@ -67,18 +71,18 @@ public sealed class ShipStep : WizardStep
                 : update ? "Keep each part's existing condition"
                 : null,
             keepNote: offerSourceCondition
-                ? "The ship arrives in the state it is really in, part by part, rather than at a fresh average. " +
-                  "This is what you want when you are moving a ship between saves. Parts you added since importing " +
+                ? $"The {noun} arrives in the state it is really in, part by part, rather than at a fresh average. " +
+                  $"This is what you want when you are moving a {noun} between saves. Parts you added since importing " +
                   "it were never on the original, so they arrive undamaged."
                 : update
-                    ? "The ship keeps the wear it has now. Parts you added arrive undamaged, as newly built parts do."
+                    ? $"The {noun} keeps the wear it has now. Parts you added arrive undamaged, as newly built parts do."
                     : null,
             keepIsSourceCondition: offerSourceCondition,
             fullLabel: update
                 ? "Repair everything — every installed part back to 100% condition"
                 : "Pristine — every installed part at 100% condition",
             fullNote: update
-                ? "Clears the damage every installed part on the ship has accumulated, not just the parts you " +
+                ? $"Clears the damage every installed part on the {noun} has accumulated, not just the parts you " +
                   "edited. Parts that are broken as a part in their own right (a damaged wall, a wrecked alarm) are " +
                   "repaired in the editor instead, with Design ▸ Repair All."
                 : null);
@@ -93,6 +97,8 @@ public sealed class ShipStep : WizardStep
 
     private bool _wearTouched;
 
+    private readonly TextBlock _identityHeader;
+
     public override void Enter(WizardSession session)
     {
         var plan = session.Plan;
@@ -104,19 +110,23 @@ public sealed class ShipStep : WizardStep
         _designation.Text = plan.Identity.Designation;
         _description.Text = plan.Identity.Description;
 
+        _identityHeader.Text = session.ByKind("SHIP IDENTITY (IN-GAME)", "RESIDENCE IDENTITY (IN-GAME)");
+
         var offerSource = OffersSourceCondition(session);
-        if (_builtFor != plan.Destination || _builtWithSourceCondition != offerSource)
+        if (_builtFor != plan.Destination || _builtWithSourceCondition != offerSource
+            || _builtForResidence != session.IsResidence)
         {
             var current = _wear.Wear;
-            _wear = NewWearControl(plan.Destination, offerSource);
+            _wear = NewWearControl(plan.Destination, offerSource, session.Noun);
             _wearHost.Child = _wear;
             _wear.SetWear(current);
-            (_builtFor, _builtWithSourceCondition) = (plan.Destination, offerSource);
+            (_builtFor, _builtWithSourceCondition, _builtForResidence) =
+                (plan.Destination, offerSource, session.IsResidence);
         }
         _wear.SetWear(plan.Wear);
         _wear.SetKeepSourceCondition(offerSource && plan.NewShip.KeepSourceCondition);
 
-        _identityNote.Text = NoteFor(plan.Destination);
+        _identityNote.Text = NoteFor(plan.Destination, session.Noun);
     }
 
     /// <summary>
@@ -132,18 +142,18 @@ public sealed class ShipStep : WizardStep
     /// <summary>The identity note. An update writes onto a ship that already has an identity, so a blank in-game
     /// name there keeps the one it has rather than falling back to the ship name (the game re-rolls a random name
     /// for a ship whose stored one is blank, so there is nothing else blank could usefully mean).</summary>
-    private static string NoteFor(ExportDestination destination) =>
+    private static string NoteFor(ExportDestination destination, string noun) =>
         destination == ExportDestination.UpdateShipInSave
-            ? "These are the ship's own in-game details, read out of your save. Change one and the write-back " +
-              "changes it on the ship. Leave the in-game name blank to keep the name it already has. The rest is " +
+            ? $"These are the {noun}'s own in-game details, read out of your save. Change one and the write-back " +
+              $"changes it on the {noun}. Leave the in-game name blank to keep the name it already has. The rest is " +
               "flavor text. Edit these anytime from \"Ship Info\" — they are saved with the design."
-            : "Leave the in-game name blank to use the ship name (or, when replacing a ship, the game's usual varied " +
-              "names). Type a name to pin it: it shows at the transponder, comms, and broker listings. The rest is " +
-              "flavor text. Edit these anytime from \"Ship Info\" — they are saved with the design.";
+            : $"Leave the in-game name blank to use the design name (or, when replacing a {noun}, the game's usual " +
+              "varied names). Type a name to pin it: it shows at the transponder, comms, and broker listings. The " +
+              "rest is flavor text. Edit these anytime from \"Ship Info\" — they are saved with the design.";
 
     public override string? Validate() =>
         _name.Text.Trim().Length == 0
-            ? ShowProblem(_nameProblem, "Give the ship a name.")
+            ? ShowProblem(_nameProblem, "Give the design a name.")
             : ShowProblem(_nameProblem, null);
 
     public override void Leave(WizardSession session)

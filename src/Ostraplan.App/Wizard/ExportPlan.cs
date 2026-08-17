@@ -77,6 +77,11 @@ public sealed class NewShipPlan
     /// a transfer that quietly re-rolled the ship's condition would be wrong in a way nobody would think to check.
     /// Ignored, and never written back, when the run has no source ship to read a condition from.</summary>
     public bool KeepSourceCondition { get; set; } = true;
+
+    /// <summary>For a residence design (<see cref="DocumentKind.Residence"/>), the registration of the station it
+    /// attaches to — the half of <c>&lt;STATION&gt;|RES_&lt;n&gt;</c> before the pipe. Null until a station has
+    /// been picked, and unused for a vessel, which is placed relative to the player instead.</summary>
+    public string? StationRegId { get; set; }
 }
 
 /// <summary>The update-a-ship destination's settings: where to write, and what the edit costs.</summary>

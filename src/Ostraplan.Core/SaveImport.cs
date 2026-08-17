@@ -23,9 +23,15 @@ public sealed record SaveEntry(
     double PlayTimeSeconds = 0, string GameVersion = "", string LastSavedVersion = "");
 
 /// <summary>A ship in a save the player might edit: its RegID, a friendly display name and subtitle, whether the
-/// player <see cref="Owned">owns</see> it (it's in the player CO's <c>aMyShips</c>), and whether it's the ship the
-/// player is currently standing on. A non-owned ship is a station or another vessel — editable, but unsupported.</summary>
-public sealed record SaveShipChoice(string RegId, string Name, string Sub, bool Owned, bool Current);
+/// player <see cref="Owned">owns</see> it, and whether it's the ship the player is currently standing on. A
+/// non-owned ship is a station or another vessel — editable, but unsupported.</summary>
+public sealed record SaveShipChoice(string RegId, string Name, string Sub, bool Owned, bool Current)
+{
+    /// <summary>True when this is a station residence rather than a vessel — a pipe in the RegID, which is what
+    /// the game itself keys sub-station behaviour off (GAME-INTERNALS §19). Lets the picker label it and the
+    /// wizard open it as a <see cref="DocumentKind.Residence"/>.</summary>
+    public bool IsResidence => SaveZip.IsSubStation(RegId);
+}
 
 /// <summary>The save's session (character) record in summary: which ship the player is standing on
 /// (<c>strShip</c>), their character CO id (<c>strPlayerCO</c>, the CO carrying the money balance and the owned-
@@ -84,7 +90,9 @@ public static class SaveImport
 
         var text = ReadText(shipEntry);
         var tmpl = ParseShip(text, shipEntry.FullName, regId).OrderByDescending(s => s.Items.Count).First();
-        return TemplateImport.Build(tmpl, catalog, retainOrigin: false, options, ShipNode(text, options));
+        var result = TemplateImport.Build(tmpl, catalog, retainOrigin: false, options, ShipNode(text, options));
+        result.Doc.Kind = DocumentKindGuess.From(regId, tmpl.Designation);
+        return result;
     }
 
     /// <summary>Import a <b>named</b> ship's layout from a save's data zip — the same pristine, layout-only read as
@@ -101,7 +109,9 @@ public static class SaveImport
 
         var text = ReadText(shipEntry);
         var tmpl = ParseShip(text, shipEntry.FullName, regId).OrderByDescending(s => s.Items.Count).First();
-        return TemplateImport.Build(tmpl, catalog, retainOrigin: false, options, ShipNode(text, options));
+        var result = TemplateImport.Build(tmpl, catalog, retainOrigin: false, options, ShipNode(text, options));
+        result.Doc.Kind = DocumentKindGuess.From(regId, tmpl.Designation);
+        return result;
     }
 
     /// <summary>The raw ship JSON when container contents are wanted, else null — the parse only feeds the cargo
@@ -218,8 +228,9 @@ public static class SaveImport
         try
         {
             using var zip = ZipFile.OpenRead(zipPath);
-            var current = PlayerShipRegId(zip);
-            var owned = ReadMyShips(zip, current, PlayerCoId(zip));
+            var session = ReadSession(zip);
+            var current = session?.ShipRegId;
+            var owned = ReadOwnedShips(zip, session, current);
 
             var order = new List<string>();
             foreach (var r in owned) if (!order.Contains(r)) order.Add(r);
@@ -236,8 +247,58 @@ public static class SaveImport
         catch { return []; }
     }
 
-    /// <summary>The player CO's <c>aMyShips</c> (owned ship RegIDs), read from the player CO on the ship they're
-    /// currently on. Empty if the record/CO can't be found.</summary>
+    /// <summary>
+    /// Everything the player owns, from the game's <b>two</b> ownership registries unioned, because neither one
+    /// alone is complete.
+    ///
+    /// <para><c>aMyShips</c> on the player CO is what <c>CondOwner.OwnsShip</c> reads, and it holds every vessel.
+    /// It never holds an apartment: <c>CondOwner.ClaimShip</c> early-returns for an <c>IsPlayer</c> CO when the
+    /// ship is a station, and an apartment is one, so the broker's claim on purchase is refused and the
+    /// registration only ever lands in <c>objSystem.dictShipOwners</c> on the session record (GAME-INTERNALS
+    /// §19). Reading <c>aMyShips</c> alone is why an owned apartment was invisible here.</para>
+    ///
+    /// <para><c>dictShipOwners</c> is a flat alternating <c>[regID, ownerCOID, …]</c> array covering every ship
+    /// in the system, most of them somebody else's, so it is filtered to the player's CO id rather than taken
+    /// wholesale. Order is <c>aMyShips</c> first, then anything only the registry knows about, so the vessel
+    /// list a user already recognises does not reshuffle when their apartment joins it.</para>
+    /// </summary>
+    private static IReadOnlyList<string> ReadOwnedShips(ZipArchive zip, SessionRecord? session, string? currentShipReg)
+    {
+        var owned = new List<string>(ReadMyShips(zip, currentShipReg, session?.PlayerCoId));
+        foreach (var reg in ReadShipOwnerRegistry(zip, session))
+            if (!owned.Contains(reg, StringComparer.Ordinal)) owned.Add(reg);
+        return owned;
+    }
+
+    /// <summary>The RegIDs <c>objSystem.dictShipOwners</c> credits to the player CO. Empty when the registry or
+    /// the CO id is missing, which just means nothing extra to add to <c>aMyShips</c>.</summary>
+    private static IReadOnlyList<string> ReadShipOwnerRegistry(ZipArchive zip, SessionRecord? session)
+    {
+        if (session?.PlayerCoId is not { Length: > 0 } coId) return [];
+        if (zip.GetEntry(session.EntryName) is not { } entry) return [];
+        try
+        {
+            using var doc = JsonDocument.Parse(ReadText(entry));
+            var el = Root(doc);
+            if (!el.TryGetProperty("objSystem", out var sys)
+                || !sys.TryGetProperty("dictShipOwners", out var reg) || reg.ValueKind != JsonValueKind.Array)
+                return [];
+
+            // Flat pairs: even index is the RegID, odd is the owner CO id. A trailing odd element (a truncated
+            // registry) is ignored rather than read as a RegID with no owner.
+            var flat = reg.EnumerateArray().Select(x => x.GetString()).ToList();
+            var mine = new List<string>();
+            for (var i = 0; i + 1 < flat.Count; i += 2)
+                if (string.Equals(flat[i + 1], coId, StringComparison.Ordinal) && flat[i] is { Length: > 0 } r)
+                    mine.Add(r);
+            return mine;
+        }
+        catch { /* unreadable session record -> nothing beyond aMyShips */ }
+        return [];
+    }
+
+    /// <summary>The player CO's <c>aMyShips</c> (owned <b>vessel</b> RegIDs), read from the player CO on the ship
+    /// they're currently on. Empty if the record/CO can't be found.</summary>
     private static IReadOnlyList<string> ReadMyShips(ZipArchive zip, string? currentShipReg, string? playerCoId)
     {
         if (currentShipReg is null || playerCoId is null) return [];

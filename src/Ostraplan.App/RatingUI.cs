@@ -127,14 +127,16 @@ public sealed class RatingReportWindow : ReportWindow
 
     private readonly Action<IReadOnlyList<(int X, int Y)>> _highlightLeak;
     private readonly Action<double>? _onExtraMassChanged;
+    private readonly bool _residence;
 
     public RatingReportWindow(Action<IReadOnlyList<(int X, int Y)>> highlightLeak,
-        Action<double>? onExtraMassChanged = null)
+        Action<double>? onExtraMassChanged = null, bool residence = false)
     {
         _highlightLeak = highlightLeak;
         _onExtraMassChanged = onExtraMassChanged;
+        _residence = residence;
 
-        Title = "Ship Rating";
+        Title = residence ? "Residence Report" : "Ship Rating";
         // roomy default (the report grew sections), clamped so it still fits smaller screens
         Width = Math.Min(640, SystemParameters.WorkArea.Width - 40);
         Height = Math.Min(1000, SystemParameters.WorkArea.Height - 40);
@@ -154,54 +156,8 @@ public sealed class RatingReportWindow : ReportWindow
 
         var body = new StackPanel { Margin = new Thickness(18) };
 
-        // headline rating
-        body.Children.Add(new TextBlock { Text = "SHIP RATING", Foreground = Dim, FontWeight = FontWeights.Bold, FontSize = 11 });
-        body.Children.Add(new TextBlock
-        {
-            Text = string.IsNullOrEmpty(report.Rating.Display) ? "None" : report.Rating.Display,
-            Foreground = Accent, FontSize = 30, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 2, 0, 10),
-        });
-
-        // The game's four displayed rating slots in their canonical order (they read out as the rating
-        // string), then the ship's total mass — not a rating slot, but the raw figure behind Maneuver and
-        // the one number people want off this report.
-        var slots = new UniformGrid { Columns = 5, Margin = new Thickness(0, 0, 0, 4) };
-        slots.Children.Add(Slot("Condition", report.Rating.Condition));
-        slots.Children.Add(Slot("Rooms", report.Rating.RoomCount));
-        slots.Children.Add(Slot("Maneuver", report.Rating.Maneuver));
-        slots.Children.Add(Slot("Size", report.Rating.Size));
-        slots.Children.Add(Slot("Mass", $"{report.Rating.Mass:#,0} kg"));
-        body.Children.Add(slots);
-        var rating = report.Rating;
-        var maneuverDetail = rating.RcsThrust > 0
-            ? $"Maneuver is mass ÷ RCS thrust: {rating.Mass:#,0} kg ÷ {rating.RcsThrust:#,0.#} = " +
-              $"{rating.Mass / rating.RcsThrust:#,0.#} (lower is better: <300 A, <500 B, <750 C, <1500 D, else E). " +
-              $"Thrust-to-mass ratio: {rating.RcsThrust / rating.Mass:0.####} per kg " +
-              $"({rating.RcsThrust * 1000 / rating.Mass:#,0.##} per tonne)."
-            : "Maneuver is O: no RCS thrusters installed.";   // mass has its own slot above
-        body.Children.Add(new TextBlock
-        {
-            Text = "Condition assumes a pristine build (A). Room count is your certified compartments. " +
-                   "Mass sums the installed structure. In game the ship also carries its cargo, so a loaded one " +
-                   "reads heavier there. " + maneuverDetail,
-            Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 12),
-        });
-
-        AddPropulsion(body, report.Propulsion, onExtraMassChanged);
-
-        // kiosk prices: the game's room-based ship value at the core kiosk rates
-        body.Children.Add(Header("KIOSK PRICES"));
-        var value2 = new UniformGrid { Columns = 3, Margin = new Thickness(0, 0, 0, 4) };
-        value2.Children.Add(Slot("Sell to kiosk", Money(value.SellEstimate)));
-        value2.Children.Add(Slot("Buy from kiosk", Money(value.BuyEstimate)));
-        value2.Children.Add(Slot("Build cost", Money(value.BuildCost)));
-        body.Children.Add(value2);
-        body.Children.Add(new TextBlock
-        {
-            Text = "Estimates from the game's room maths at the standard kiosk rates. Expect roughly ±15% variation " +
-                   "in the final in-game price.",
-            Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 12),
-        });
+        if (_residence) AddResidenceHeadline(body, report);
+        else AddRatingHeadline(body, report, value, onExtraMassChanged);
 
         // room-annotated snapshot — opened in its own window so it has room to breathe
         if (snapshot is not null)
@@ -361,6 +317,93 @@ public sealed class RatingReportWindow : ReportWindow
     }
 
     private static string Money(double v) => "$" + v.ToString("#,##0", CultureInfo.InvariantCulture);
+
+    /// <summary>The vessel headline: the six-slot rating, the propulsion block, and the ship broker's prices.</summary>
+    private static void AddRatingHeadline(Panel body, AnalysisReport report, ShipValueEstimate value,
+        Action<double>? onExtraMassChanged)
+    {
+        body.Children.Add(new TextBlock { Text = "SHIP RATING", Foreground = Dim, FontWeight = FontWeights.Bold, FontSize = 11 });
+        body.Children.Add(new TextBlock
+        {
+            Text = string.IsNullOrEmpty(report.Rating.Display) ? "None" : report.Rating.Display,
+            Foreground = Accent, FontSize = 30, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 2, 0, 10),
+        });
+
+        // The game's four displayed rating slots in their canonical order (they read out as the rating
+        // string), then the ship's total mass — not a rating slot, but the raw figure behind Maneuver and
+        // the one number people want off this report.
+        var slots = new UniformGrid { Columns = 5, Margin = new Thickness(0, 0, 0, 4) };
+        slots.Children.Add(Slot("Condition", report.Rating.Condition));
+        slots.Children.Add(Slot("Rooms", report.Rating.RoomCount));
+        slots.Children.Add(Slot("Maneuver", report.Rating.Maneuver));
+        slots.Children.Add(Slot("Size", report.Rating.Size));
+        slots.Children.Add(Slot("Mass", $"{report.Rating.Mass:#,0} kg"));
+        body.Children.Add(slots);
+        var rating = report.Rating;
+        var maneuverDetail = rating.RcsThrust > 0
+            ? $"Maneuver is mass ÷ RCS thrust: {rating.Mass:#,0} kg ÷ {rating.RcsThrust:#,0.#} = " +
+              $"{rating.Mass / rating.RcsThrust:#,0.#} (lower is better: <300 A, <500 B, <750 C, <1500 D, else E). " +
+              $"Thrust-to-mass ratio: {rating.RcsThrust / rating.Mass:0.####} per kg " +
+              $"({rating.RcsThrust * 1000 / rating.Mass:#,0.##} per tonne)."
+            : "Maneuver is O: no RCS thrusters installed.";   // mass has its own slot above
+        body.Children.Add(new TextBlock
+        {
+            Text = "Condition assumes a pristine build (A). Room count is your certified compartments. " +
+                   "Mass sums the installed structure. In game the ship also carries its cargo, so a loaded one " +
+                   "reads heavier there. " + maneuverDetail,
+            Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 12),
+        });
+
+        AddPropulsion(body, report.Propulsion, onExtraMassChanged);
+
+        // kiosk prices: the game's room-based ship value at the core kiosk rates
+        body.Children.Add(Header("KIOSK PRICES"));
+        var value2 = new UniformGrid { Columns = 3, Margin = new Thickness(0, 0, 0, 4) };
+        value2.Children.Add(Slot("Sell to kiosk", Money(value.SellEstimate)));
+        value2.Children.Add(Slot("Buy from kiosk", Money(value.BuyEstimate)));
+        value2.Children.Add(Slot("Build cost", Money(value.BuildCost)));
+        body.Children.Add(value2);
+        body.Children.Add(new TextBlock
+        {
+            Text = "Estimates from the game's room maths at the standard kiosk rates. Expect roughly ±15% variation " +
+                   "in the final in-game price.",
+            Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 12),
+        });
+    }
+
+    /// <summary>
+    /// The residence headline, and the one place this report says what it is <b>not</b> showing.
+    ///
+    /// <para>The Ship Rating's six slots, the propulsion block and the kiosk prices are all vessel-only: a
+    /// residence has no drive and no nav, and the game does not price one through the ship broker at all (a Real
+    /// Estate broker charges the sum of the room values ×10 — see GAME-INTERNALS §19). Every one of those would
+    /// read as a catastrophic failure on a design where nothing is wrong, so they are dropped rather than
+    /// annotated. Everything the report exists for — certified compartments, near misses, airtightness,
+    /// the snapshot — is unchanged, because none of it is vessel-specific.</para>
+    /// </summary>
+    private static void AddResidenceHeadline(Panel body, AnalysisReport report)
+    {
+        body.Children.Add(new TextBlock { Text = "STATION RESIDENCE", Foreground = Dim, FontWeight = FontWeights.Bold, FontSize = 11 });
+        body.Children.Add(new TextBlock
+        {
+            Text = report.Rating.RoomCount == "0" ? "No certified rooms" : $"{report.Rating.RoomCount} certified rooms",
+            Foreground = Accent, FontSize = 30, FontWeight = FontWeights.Bold, Margin = new Thickness(0, 2, 0, 10),
+        });
+
+        var slots = new UniformGrid { Columns = 3, Margin = new Thickness(0, 0, 0, 4) };
+        slots.Children.Add(Slot("Rooms", report.Rating.RoomCount));
+        slots.Children.Add(Slot("Size", report.Rating.Size));
+        slots.Children.Add(Slot("Mass", $"{report.Rating.Mass:#,0} kg"));
+        body.Children.Add(slots);
+        body.Children.Add(new TextBlock
+        {
+            Text = "Room count is your certified compartments; mass sums the installed structure. "
+                 + "The Ship Rating, propulsion figures and kiosk prices are not shown: a residence has no drive "
+                 + "and no nav, and the game prices one through a Real Estate broker rather than the ship broker. "
+                 + "Rooms, airtightness and certification below all apply exactly as they do to a ship.",
+            Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 12),
+        });
+    }
 
     /// <summary>Save the room map as a PNG or, when an SVG rendering is available, an SVG (scalable). The chosen
     /// format follows the save dialog's file type / extension.</summary>

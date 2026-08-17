@@ -38,6 +38,7 @@ A complete file, with every section populated:
 {
   "formatVersion": 1,
   "viewRot": 0,
+  "kind": "Residence",
   "game": {
     "versionAtSave": "1.0.0.7",
     "versionVerified": "1.0.0.7"
@@ -253,6 +254,23 @@ skipped, so a stale index can never wire the wrong parts.
 - **Everything else is rebuilt.** Zones, loose items, links, dismissed alerts, and
   any edited-container cargo snapshots are restored; rooms, rating, and materials
   are recomputed.
+
+## `kind` — ship or residence
+
+```json
+{ "kind": "Residence" }
+```
+
+Optional, top level, and **omitted entirely for a ship**, which is the default and what
+every design written before the field existed round-trips as. An unrecognised value also
+reads back as a ship, so a file from some future build with a third kind still opens.
+
+It is a document property, not part of the in-game identity in `meta`: it decides which
+analyses apply (a residence has no drive and no nav, so the Ship Rating, the diagnostic
+checklist, propulsion and flight dynamics are hidden) and which delivery routes the export
+wizard offers. Set on import — conclusively from a `|` in the save RegID, otherwise from a
+`designation` ending in "Residence" — and changed in Ship Info. Additive at format v1, so
+no version bump. See [GAME-INTERNALS §19](GAME-INTERNALS.md#apartments-are-ships-sold-as-station-sub-modules).
 
 ## Save-edit designs
 

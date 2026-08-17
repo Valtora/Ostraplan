@@ -21,9 +21,10 @@ public class ExportWizardTests
     private static WizardSession Session((GameEnv Env, DataIndex Index, Catalog Catalog) g,
         ExportDestination destination = ExportDestination.Mod, string shipName = "Test Ship",
         IReadOnlyList<SaveEntry>? saves = null, SaveSourceRef? sourceSave = null,
-        AppSettings? settings = null, bool ostrasortKnown = false, SaveSourceRef? updateTarget = null)
+        AppSettings? settings = null, bool ostrasortKnown = false, SaveSourceRef? updateTarget = null,
+        DocumentKind kind = DocumentKind.Ship)
     {
-        var doc = new ShipDocument(g.Catalog) { SourceSave = sourceSave };
+        var doc = new ShipDocument(g.Catalog) { SourceSave = sourceSave, Kind = kind };
         new PlaceCommand(new Placement { DefName = "ItmWall1x1", X = 0, Y = 0 }).Do(doc);
 
         // built the way MainWindow builds it, so a test that supplies settings exercises the real restore path
@@ -62,7 +63,7 @@ public class ExportWizardTests
 
             var rail = Rail(wizard);
             Assert.Equal(
-                ["Destination", "The ship", "Mod details", "Obtainable in game", "Where to write", "Review", "Done"],
+                ["Destination", "The design", "Mod details", "Obtainable in game", "Where to write", "Review", "Done"],
                 rail);
             Assert.IsType<DestinationStep>(Pane(wizard));
         });
@@ -93,7 +94,7 @@ public class ExportWizardTests
             // the point of choosing the destination first: later steps suit one path instead of all three
             var wizard = new ExportWizard(Session(g, ExportDestination.NewShipInSave));
 
-            Assert.Equal(["Destination", "The ship", "Save & price", "Review", "Done"], Rail(wizard));
+            Assert.Equal(["Destination", "The design", "Save & price", "Review", "Done"], Rail(wizard));
         });
     }
 
@@ -730,7 +731,7 @@ public class ExportWizardTests
             var wizard = new ExportWizard(session, ExportDestination.UpdateShipInSave);
 
             Assert.Equal(
-                ["Destination", "The ship", "Write target & cost", "Review", "Done"],
+                ["Destination", "The design", "Write target & cost", "Review", "Done"],
                 Rail(wizard));
         });
     }
@@ -995,5 +996,67 @@ public class ExportWizardTests
         thread.Start();
         thread.Join();
         if (failure is not null) throw new Xunit.Sdk.XunitException(failure.ToString());
+    }
+
+    // ---- one wizard, two vocabularies ----
+
+    [SkippableFact]
+    public void A_residence_reads_as_one_on_every_destination_tile()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var ship = Session(g, saves: [FakeSave("A")]);
+            var flat = Session(g, saves: [FakeSave("A")], kind: DocumentKind.Residence);
+
+            var update = new UpdateDriver();
+            Assert.Equal("Update a ship in a save", update.NameFor(ship));
+            Assert.Equal("Update an apartment in a save", update.NameFor(flat));
+
+            // The blurb is where the ship wording is not merely imprecise but wrong: a residence is not parked
+            // a few kilometres out and does not take the ferry.
+            var grant = new NewShipDriver();
+            Assert.Contains("P.A.S.S. ferry", grant.BlurbFor(ship), StringComparison.Ordinal);
+            Assert.DoesNotContain("ferry", grant.BlurbFor(flat), StringComparison.OrdinalIgnoreCase);
+            Assert.DoesNotContain("parked", grant.BlurbFor(flat), StringComparison.OrdinalIgnoreCase);
+            Assert.Contains("transit kiosk", grant.BlurbFor(flat), StringComparison.Ordinal);
+        });
+    }
+
+    [SkippableFact]
+    public void The_rail_is_the_same_shape_for_both_kinds()
+    {
+        // The whole point of the kind-agnostic wording: one flow, not two. A residence must not gain, lose or
+        // reorder a step, because the mechanics it walks through are identical.
+        //
+        // updateTarget is supplied for the same reason the other update tests supply it: without a target the
+        // driver would open a modal picker on prepare and block the run forever. The save it names is not on
+        // disk, so preparing fails, which is fine — the rail is built either way and the rail is the assertion.
+        var g = TestData.RequireGame();
+        var target = new SaveSourceRef("Elsewhere", "H-ABC");
+        RunSta(() =>
+        {
+            foreach (var destination in new[] { ExportDestination.NewShipInSave, ExportDestination.UpdateShipInSave })
+            {
+                var ship = Rail(new ExportWizard(Session(g, destination,
+                    saves: [FakeSave("Elsewhere")], updateTarget: target)));
+                var flat = Rail(new ExportWizard(Session(g, destination,
+                    saves: [FakeSave("Elsewhere")], updateTarget: target, kind: DocumentKind.Residence)));
+                Assert.Equal(ship, flat);
+            }
+        });
+    }
+
+    [SkippableFact]
+    public void A_residence_cannot_be_exported_as_a_ship_mod()
+    {
+        // Every route the mod destination offers puts the design in front of a SHIP broker, and the game buys a
+        // residence through a Real Estate broker instead — a different loot shape entirely.
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            Assert.Null(new ModDriver().Unavailable(Session(g)));
+            Assert.NotNull(new ModDriver().Unavailable(Session(g, kind: DocumentKind.Residence)));
+        });
     }
 }

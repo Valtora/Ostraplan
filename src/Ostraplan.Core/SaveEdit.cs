@@ -730,6 +730,43 @@ public static class SaveEdit
         foreach (var id in ctx.Origins.Keys)   // every surviving structural part must keep its condition owner
             if (!dropSet.Contains(id) && !coIds.Contains(id))
                 throw new InvalidDataException($"Structural part '{id}' lost its condition owner — inject aborted.");
+
+        ValidateSubStation(ship, ctx);
+    }
+
+    /// <summary>
+    /// What makes an apartment an apartment has to survive the rebuild untouched.
+    ///
+    /// <para>It does, and by construction: the assemble step clones every original field verbatim and overwrites
+    /// only the structural ones, so <c>strRegID</c>, <c>bShipHidden</c> and the whole of <c>objSS</c> (the
+    /// body-orbit lock that pins the residence to its station) come through as they were. <c>objSS.vPosx/vPosy</c>
+    /// are absolute system coordinates in AU, not offsets into the tile frame, so even a grid reframe cannot
+    /// disturb them.</para>
+    ///
+    /// <para>This asserts it anyway, because the guarantee rests entirely on that skip-list a few lines up. Adding
+    /// <c>objSS</c> to it — for a plausible-sounding reason, by someone who has never opened GAME-INTERNALS §19 —
+    /// would unpin every edited apartment from its station and lose the player's home, with nothing failing until
+    /// the save was loaded. A residence is recognised the way the game recognises one: a pipe in the RegID
+    /// (<c>Ship.InitShip</c>).</para>
+    /// </summary>
+    private static void ValidateSubStation(JsonObject ship, SaveShipContext ctx)
+    {
+        if (!SaveZip.IsSubStation(ctx.Source.RegId)) return;
+
+        if (Str(ship, "strRegID") != ctx.Source.RegId)
+            throw new InvalidDataException(
+                $"The residence's registration changed from '{ctx.Source.RegId}' to '{Str(ship, "strRegID")}' — "
+                + "the save references it by that ID, so the edit was aborted.");
+
+        if (ship["objSS"] is not JsonObject situ)
+            throw new InvalidDataException(
+                "The residence lost its situation block (objSS), which is what locks it to its station — "
+                + "inject aborted.");
+
+        if (situ["bIsBO"]?.GetValue<bool>() != true || situ["bBOLocked"]?.GetValue<bool>() != true)
+            throw new InvalidDataException(
+                "The residence is no longer locked to its station's body orbit (objSS.bIsBO/bBOLocked) — "
+                + "it would come adrift in the save. Inject aborted.");
     }
 
     /// <summary>

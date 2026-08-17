@@ -1,3 +1,4 @@
+using System.IO;
 using System.Text.Json.Nodes;
 using Ostraplan.Core;
 using Xunit;
@@ -64,6 +65,43 @@ public class SaveEditInjectSyntheticTests
             CosById = cosById,
             Epoch = 0,
         };
+    }
+
+    /// <summary>The same fixture as <see cref="Context"/>, but a station residence: a piped RegID (which is what
+    /// the game keys sub-station behaviour off) and the body-orbit lock that pins it to its station.</summary>
+    private static SaveShipContext ResidenceContext(JsonArray items, JsonArray cos,
+        Dictionary<string, OriginPart> origins, Action<JsonObject>? mangle = null)
+    {
+        var ctx = Context(items, cos, origins);
+        var ship = ctx.ShipRecord.AsObject();
+        ship["strRegID"] = "BCRS|RES_1";
+        ship["bShipHidden"] = true;
+        ship["objSS"] = new JsonObject
+        {
+            ["bIsBO"] = true, ["bBOLocked"] = true, ["boPORShip"] = "Ceres",
+            ["vPosx"] = 2.6, ["vPosy"] = -1.4, ["vBOOffsetx"] = 0.0, ["vBOOffsety"] = 0.0,
+        };
+        mangle?.Invoke(ship);
+        return new SaveShipContext
+        {
+            Source = new SaveSourceRef("TestSave", "BCRS|RES_1"),
+            ZipPath = ctx.ZipPath, ShipRecord = ship, Origins = ctx.Origins,
+            ItemsById = ctx.ItemsById, CosById = ctx.CosById, Epoch = 0,
+        };
+    }
+
+    private static (Catalog Cat, JsonArray Items, JsonArray Cos, Dictionary<string, OriginPart> Origins, ShipDocument Doc)
+        ResidenceFixture()
+    {
+        var cat = new Fixtures().Floor("Floor").Build();
+        var doc = Fixtures.Doc(cat,
+            new Placement { DefName = "Floor", X = 1, Y = 1, OriginStrID = "a" },
+            new Placement { DefName = "Floor", X = 2, Y = 1, OriginStrID = "b" });
+        return (cat,
+            new JsonArray(Item("a", "Floor", 101, 199), Item("b", "Floor", 102, 199)),
+            new JsonArray(Co("a", "Floor"), Co("b", "Floor")),
+            new() { ["a"] = new OriginPart(1, 1, 0, []), ["b"] = new OriginPart(2, 1, 0, []) },
+            doc);
     }
 
     private static IEnumerable<JsonObject> Items(JsonObject ship) => ((JsonArray)ship["aItems"]!).Select(n => n!.AsObject());
@@ -495,5 +533,80 @@ public class SaveEditInjectSyntheticTests
 
         var flat = ((JsonArray)((JsonArray)item["aGPMSettings"]!)[0]!["dictGUIPropMap"]!).Select(n => (string?)n).ToList();
         Assert.Equal(["NavModMap", "0.25|0.00|0.65|0.80"], flat);   // a console with no history to protect
+    }
+
+    // ---- residences: what pins an apartment to its station must survive the rebuild ----
+
+    [Fact]
+    public void Editing_a_residence_keeps_its_registration_and_its_station_lock()
+    {
+        // The whole of the residence delivery story rests on this: the rebuild clones every original field
+        // verbatim except the structural ones, so objSS (the body-orbit lock) and strRegID come through
+        // untouched. A grid reframe must not disturb them — objSS is absolute AU, not tile space.
+        var (cat, items, cos, origins, doc) = ResidenceFixture();
+        var ctx = ResidenceContext(items, cos, origins);
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
+
+        Assert.Equal("BCRS|RES_1", (string)ship["strRegID"]!);
+        Assert.True((bool)ship["bShipHidden"]!);
+        var situ = ship["objSS"]!.AsObject();
+        Assert.True((bool)situ["bIsBO"]!);
+        Assert.True((bool)situ["bBOLocked"]!);
+        Assert.Equal("Ceres", (string)situ["boPORShip"]!);
+        Assert.Equal(2.6, (double)situ["vPosx"]!);
+    }
+
+    [Fact]
+    public void Adding_a_part_to_a_residence_still_leaves_the_station_lock_alone()
+    {
+        var (cat, items, cos, origins, _) = ResidenceFixture();
+        var ctx = ResidenceContext(items, cos, origins);
+        var doc = Fixtures.Doc(cat,
+            new Placement { DefName = "Floor", X = 1, Y = 1, OriginStrID = "a" },
+            new Placement { DefName = "Floor", X = 2, Y = 1, OriginStrID = "b" },
+            new Placement { DefName = "Floor", X = 8, Y = 6 });   // forces a reframe
+
+        var (ship, report) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
+
+        Assert.True(report.GridReframed);
+        Assert.Equal("BCRS|RES_1", (string)ship["strRegID"]!);
+        Assert.True((bool)ship["objSS"]!["bIsBO"]!);
+        Assert.Equal(2.6, (double)ship["objSS"]!["vPosx"]!);
+    }
+
+    [Fact]
+    public void A_residence_that_lost_its_situation_block_aborts_rather_than_writing()
+    {
+        // The failure this guards is silent otherwise: an unpinned apartment writes fine and only comes apart
+        // when the save is loaded, by which point the player's home is adrift.
+        var (cat, items, cos, origins, doc) = ResidenceFixture();
+        var ctx = ResidenceContext(items, cos, origins, ship => ship.Remove("objSS"));
+
+        var ex = Assert.Throws<InvalidDataException>(() => SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs));
+        Assert.Contains("objSS", ex.Message);
+    }
+
+    [Fact]
+    public void A_residence_that_came_unlocked_from_its_body_orbit_aborts()
+    {
+        var (cat, items, cos, origins, doc) = ResidenceFixture();
+        var ctx = ResidenceContext(items, cos, origins, ship => ship["objSS"]!["bBOLocked"] = false);
+
+        var ex = Assert.Throws<InvalidDataException>(() => SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs));
+        Assert.Contains("body orbit", ex.Message);
+    }
+
+    [Fact]
+    public void An_ordinary_ship_is_not_held_to_the_residence_rules()
+    {
+        // A vessel has no objSS in this fixture at all and must still write: the guard keys on the piped RegID.
+        var (cat, items, cos, origins, doc) = ResidenceFixture();
+        var ctx = Context(items, cos, origins);
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
+
+        Assert.Equal("H-ABC", (string)ship["strRegID"]!);
+        Assert.Null(ship["objSS"]);
     }
 }

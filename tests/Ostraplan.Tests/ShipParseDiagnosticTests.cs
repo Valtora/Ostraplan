@@ -134,7 +134,7 @@ public class ShipParseDiagnosticTests
     // ---- the save import path, end to end over a synthetic zip ----
 
     /// <summary>A save zip with the given entries, written to a temp file the caller deletes.</summary>
-    private static string SaveZip(params (string Name, string Text)[] entries)
+    private static string MakeSaveZip(params (string Name, string Text)[] entries)
     {
         var path = Path.Combine(Path.GetTempPath(), $"ostraplan-parse-{Guid.NewGuid():N}.zip");
         using (var zip = ZipFile.Open(path, ZipArchiveMode.Create))
@@ -158,7 +158,7 @@ public class ShipParseDiagnosticTests
     [Fact]
     public void A_ship_record_that_wont_parse_names_the_entry_and_the_reason()
     {
-        var zip = SaveZip(
+        var zip = MakeSaveZip(
             ("Pilot.json", """{"strShip":"H-ABC","strPlayerCO":"Pilot"}"""),
             ("ships/H-ABC.json", Ship[..^12]));
         try
@@ -179,7 +179,7 @@ public class ShipParseDiagnosticTests
     [Fact]
     public void A_damaged_character_record_is_reported_rather_than_passed_over()
     {
-        var zip = SaveZip(
+        var zip = MakeSaveZip(
             ("Pilot.json", """{"strShip":"H-ABC","""),
             ("ships/H-ABC.json", Ship));
         try
@@ -196,7 +196,7 @@ public class ShipParseDiagnosticTests
     [Fact]
     public void A_readable_record_that_names_no_ship_is_reported_as_such()
     {
-        var zip = SaveZip(("Pilot.json", """{"strPlayerCO":"Pilot"}"""));
+        var zip = MakeSaveZip(("Pilot.json", """{"strPlayerCO":"Pilot"}"""));
         try
         {
             var ex = Assert.Throws<InvalidDataException>(() => SaveImport.ImportPlayerShip(zip, EmptyCat()));
@@ -209,7 +209,7 @@ public class ShipParseDiagnosticTests
     [Fact]
     public void A_save_zip_with_no_top_level_record_says_so()
     {
-        var zip = SaveZip(("ships/H-ABC.json", Ship));
+        var zip = MakeSaveZip(("ships/H-ABC.json", Ship));
         try
         {
             var ex = Assert.Throws<InvalidDataException>(() => SaveImport.ImportPlayerShip(zip, EmptyCat()));
@@ -234,8 +234,8 @@ public class ShipParseDiagnosticTests
         {
             var save = Directory.CreateDirectory(Path.Combine(root, "my save")).FullName;
             // "a-backup.zip" sorts first, so this fails whenever the folder is read in enumeration order
-            File.Move(SaveZip(("ships/H-ABC.json", Ship)), Path.Combine(save, "a-backup.zip"));
-            File.Move(SaveZip(("ships/H-ABC.json", Ship)), Path.Combine(save, "my save.zip"));
+            File.Move(MakeSaveZip(("ships/H-ABC.json", Ship)), Path.Combine(save, "a-backup.zip"));
+            File.Move(MakeSaveZip(("ships/H-ABC.json", Ship)), Path.Combine(save, "my save.zip"));
 
             var entry = Assert.Single(SaveImport.ListSaves(new GameEnv
             {

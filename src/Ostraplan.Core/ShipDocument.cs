@@ -1,5 +1,48 @@
 namespace Ostraplan.Core;
 
+/// <summary>
+/// What a design is. Structurally the two are the same thing (the game stores an apartment as an ordinary ship
+/// record and applies the same placement, room and airtightness rules to it), so this decides only two things:
+/// which analyses are shown, and which delivery routes the export wizard offers.
+/// </summary>
+public enum DocumentKind
+{
+    /// <summary>A vessel. The default, and what every design was before residences were supported.</summary>
+    Ship,
+
+    /// <summary>A station residence: no drive, no nav, reached through a transit kiosk rather than flown.
+    /// Delivered into a save as a station sub-module under a <c>&lt;STATION&gt;|RES_&lt;n&gt;</c> RegID.</summary>
+    Residence,
+}
+
+/// <summary>
+/// The <see cref="DocumentKind"/> an import starts a design at. A default the user can overrule, never a
+/// verdict: the shell exposes the kind alongside the rest of the ship identity.
+/// </summary>
+public static class DocumentKindGuess
+{
+    /// <summary>The suffix every stock residence's <c>designation</c> ends in ("Station Residence", "Aerostat
+    /// Residence", "Basic Residence", …). Eleven templates on stock 1.0.0.11, all of them.</summary>
+    private const string ResidenceDesignationSuffix = "Residence";
+
+    /// <summary>
+    /// The kind a design imported from a save should open at. A pipe in the RegID is conclusive rather than a
+    /// guess: the game's <c>Ship.InitShip</c> makes any such ship a hidden sub-station, and the only one of
+    /// those a player owns is an apartment (GAME-INTERNALS §19). Falls back to the designation otherwise, since
+    /// a save's ship carries the designation of the template it spawned from.
+    /// </summary>
+    public static DocumentKind From(string? regId, string? designation) =>
+        SaveZip.IsSubStation(regId) ? DocumentKind.Residence : FromDesignation(designation);
+
+    /// <summary>The kind a design should open at knowing only its <c>designation</c> — the template-import case,
+    /// where there is no registration to read.</summary>
+    public static DocumentKind FromDesignation(string? designation) =>
+        designation is not null
+        && designation.TrimEnd().EndsWith(ResidenceDesignationSuffix, StringComparison.OrdinalIgnoreCase)
+            ? DocumentKind.Residence
+            : DocumentKind.Ship;
+}
+
 /// <summary>One placed part. X/Y = top-left tile of the ROTATED footprint; Rot in {0,90,180,270}.</summary>
 public sealed class Placement
 {
@@ -192,6 +235,25 @@ public sealed class ShipDocument
     /// per-item <see cref="SaveShipContext"/> is held alongside in-session and rebuilt from this on reopen.
     /// </summary>
     public SaveSourceRef? SourceSave { get; set; }
+
+    /// <summary>
+    /// What this design <b>is</b>, which decides how it is analysed and how it reaches the game. A residence is
+    /// the same tile grid, the same placement law and the same rooms as a ship (GAME-INTERNALS §19); what differs
+    /// is that it has no drive and no nav, so the four vessel-only readouts are meaningless on it, and that it is
+    /// delivered as a station sub-module rather than as a vessel.
+    ///
+    /// <para>Explicit and persisted rather than inferred, because the two available inferences each fail on a
+    /// case that matters: a pipe in <see cref="SourceSave"/>'s RegID is conclusive but only exists for a design
+    /// imported from a save, and a fitting-based guess would misfire on an unusual ship with no way to overrule
+    /// it. <see cref="DocumentKindGuess"/> supplies the import default; the user owns it after that.</para>
+    /// </summary>
+    public DocumentKind Kind { get; set; } = DocumentKind.Ship;
+
+    /// <summary>True when the vessel-only analyses (Ship Rating, the nav diagnostic, propulsion, flight
+    /// dynamics) do not apply to this design. Read by the shell to hide them; the export path still bakes
+    /// <c>aRooms</c>/<c>aRating</c> either way, because the game re-derives both on a full load and a
+    /// residence's room values are what its price is computed from.</summary>
+    public bool IsResidence => Kind == DocumentKind.Residence;
 
     /// <summary>
     /// Extra mass in kilograms the design is expected to haul: a ship under tow, a hold of salvage, anything

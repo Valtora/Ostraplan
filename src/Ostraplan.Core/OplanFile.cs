@@ -44,6 +44,13 @@ public sealed class OplanFile
     /// <see cref="ShipDocument.ExtraMassKg"/>). Additive at format v1, like <see cref="Zones"/>: an older build
     /// ignores it and round-trips it via <see cref="Extra"/>, so no version bump. Omitted when zero.</summary>
     [JsonPropertyName("extraMassKg")] public double? ExtraMassKg { get; set; }
+    /// <summary>What the design is — <c>"Ship"</c> or <c>"Residence"</c> (see <see cref="DocumentKind"/>). A
+    /// document property like <see cref="ViewRot"/>, not part of the in-game identity in <see cref="Meta"/>.
+    /// Additive at format v1, like <see cref="Zones"/>: an older build ignores it and round-trips it via
+    /// <see cref="Extra"/>. Written as a name rather than a number so the file stays readable, and
+    /// <b>omitted for a ship</b> so every existing design round-trips byte-identically. An unrecognised value
+    /// reads back as a ship.</summary>
+    [JsonPropertyName("kind")] public string? Kind { get; set; }
     /// <summary>Set <b>only</b> by the auto-save snapshot writer (see <see cref="AutoSaveStore.Write"/>): the path of
     /// the design's own file at the moment the snapshot was taken, so recovering it puts the design back on that file
     /// rather than leaving an orphan. Null in a snapshot of a design that had never been saved, and null in every file
@@ -98,6 +105,7 @@ public sealed class OplanFile
                               })
                               .ToList(),
             ExtraMassKg = doc.ExtraMassKg > 0 ? doc.ExtraMassKg : null,
+            Kind = doc.Kind == DocumentKind.Ship ? null : doc.Kind.ToString(),
         };
         // Device links as (source, target) index pairs into the parts array (= doc.Placements order); only links
         // whose both endpoints still exist are written (a dangling one, left by an un-undone delete, is pruned here).
@@ -130,6 +138,7 @@ public sealed class OplanFile
         {
             SourceSave = Source is { } s ? new SaveSourceRef(s.SaveName, s.RegId) : null,
             ExtraMassKg = ExtraMassKg ?? 0,
+            Kind = Enum.TryParse<DocumentKind>(Kind, ignoreCase: true, out var kind) ? kind : DocumentKind.Ship,
         };
         var missing = new List<OplanPart>();
         var byIndex = new Placement?[Parts.Count];   // original part index → placement (null where dropped), for links

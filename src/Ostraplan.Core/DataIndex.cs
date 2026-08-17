@@ -18,7 +18,7 @@ public sealed class DataIndex
     // stored in a container at all - CondOwner.AddCondAmount returns early on it - so the list has to come
     // from the data rather than a constant, or a mod that adds a gas would be invisible.
     private static readonly string[] WantedTypes =
-        ["items", "condowners", "installables", "cooverlays", "loot", "condtrigs", "rooms", "guipropmaps", "tickers", "slots", "powerinfos", "lights", "colors", "parallax", "interactions", "star_systems", "conditions"];
+        ["items", "condowners", "installables", "cooverlays", "loot", "condtrigs", "rooms", "guipropmaps", "tickers", "slots", "powerinfos", "lights", "colors", "parallax", "interactions", "star_systems", "conditions", "transit"];
 
     public required GameEnv Env { get; init; }
     public required IReadOnlyList<ModSource> Sources { get; init; }

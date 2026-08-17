@@ -37,19 +37,28 @@ public sealed class UpdateDriver : ExportDriver
     private CompositeCommand? _standIns;
 
     public override ExportDestination Destination => ExportDestination.UpdateShipInSave;
-    public override string Name => "Update a ship in a save";
+    public override string Name => "Update something in a save";
     public override string Blurb =>
-        "Rewrites a ship in a save to this design, keeping its crew, cargo, world position and identity. Uses the " +
-        "ship the design came from, or asks which one to replace. Writes a copy by default; can edit the original " +
-        "in place.";
+        "Rewrites what is in a save to this design, keeping everything about it except the layout.";
     public override string CommitVerb => "Write";
+
+    public override string NameFor(WizardSession session) =>
+        session.ByKind("Update a ship in a save", "Update an apartment in a save");
+
+    public override string BlurbFor(WizardSession session) => session.ByKind(
+        "Rewrites a ship in a save to this design, keeping its crew, cargo, world position and identity. Uses the "
+        + "ship the design came from, or asks which one to replace. Writes a copy by default; can edit the original "
+        + "in place.",
+        "Rewrites an apartment in a save to this design, keeping its crew, cargo, identity, its place at the "
+        + "station and the transit route that reaches it. Uses the apartment the design came from, or asks which "
+        + "one to replace. Writes a copy by default; can edit the original in place.");
 
     public override string? Unavailable(WizardSession session) =>
         session.Saves.Count == 0 ? "No save games found." : null;
 
     /// <summary>Shown when the user backs out of the target picker. Not an error, but Next stays blocked: there is
     /// no ship to write to until they answer.</summary>
-    private const string NoTarget = "Pick the save and the ship this design should replace.";
+    private const string NoTarget = "Pick the save and the ship or apartment this design should replace.";
 
     /// <summary>The located ship in its save, or null until this destination is selected.</summary>
     public SaveShipContext? Context => _ctx;
@@ -100,7 +109,7 @@ public sealed class UpdateDriver : ExportDriver
             {
                 return "No save games found.";
             }
-            else if (PickTarget(PickerOwner(session), session.Saves) is { } picked)
+            else if (PickTarget(PickerOwner(session), session.Saves, session.Doc.Kind) is { } picked)
             {
                 (save, regId) = picked;
             }
@@ -115,7 +124,7 @@ public sealed class UpdateDriver : ExportDriver
             }
             catch (Exception ex)
             {
-                return "Couldn't re-locate the ship in that save:\n" + ex.Message;
+                return $"Couldn't re-locate the {session.Noun} in that save:\n" + ex.Message;
             }
             session.SaveContext = _ctx;   // cache for the rest of the session, as the menu action always did
         }
@@ -140,32 +149,47 @@ public sealed class UpdateDriver : ExportDriver
     /// wrong over a dialog waiting on the user. It is dropped for the duration and put back, rather than removed
     /// from the shell, because everything else the prepare does really is work.</para>
     /// </summary>
-    internal static (SaveEntry Save, string RegId)? PickTarget(Window? owner, IReadOnlyList<SaveEntry> saves)
+    internal static (SaveEntry Save, string RegId)? PickTarget(
+        Window? owner, IReadOnlyList<SaveEntry> saves, DocumentKind kind = DocumentKind.Ship)
     {
         var busy = Mouse.OverrideCursor;
         Mouse.OverrideCursor = null;
-        try { return Ask(owner, saves); }
+        try { return Ask(owner, saves, kind); }
         finally { Mouse.OverrideCursor = busy; }
     }
 
-    private static (SaveEntry Save, string RegId)? Ask(Window? owner, IReadOnlyList<SaveEntry> saves)
+    private static (SaveEntry Save, string RegId)? Ask(
+        Window? owner, IReadOnlyList<SaveEntry> saves, DocumentKind kind)
     {
-        var picker = new SavePickerDialog(saves, "Which ship should this design replace?",
-            "The design is written over a ship in this save, keeping its crew, cargo, position and identity.",
+        // A residence design replaces a residence. Offering it the ship list would be offering the one operation
+        // that is nearly always a mistake, and the layout it would write is an apartment's.
+        var residence = kind == DocumentKind.Residence;
+        var noun = residence ? "apartment" : "ship";
+
+        var picker = new SavePickerDialog(saves, $"Which {noun} should this design replace?",
+            $"The design is written over {(residence ? "an apartment" : "a ship")} in this save, keeping its crew, "
+            + $"cargo, {(residence ? "place at the station" : "position")} and identity.",
             "Choose save") { Owner = owner };
         if (picker.ShowDialog() != true || picker.Selected is not { } save) return null;
 
-        // the ship the player is standing on may be a station, so offer their owned ships first, as the import does
-        var ships = SaveImport.ListPlayerShips(save.ZipPath);
+        // the ship the player is standing on may be a station, so offer what they own first, as the import does
+        var all = SaveImport.ListPlayerShips(save.ZipPath);
+        var ships = all.Where(s => s.IsResidence == residence).ToList();
         if (ships.Count == 0)
         {
             Dlg.Show(owner,
-                $"Couldn't find a ship to write to in \"{save.Name}\" (no owned ships and no current ship on record).",
-                "Update ship in save", MessageBoxButton.OK, MessageBoxImage.Warning);
+                residence
+                    ? all.Count > 0
+                        ? $"No apartments in \"{save.Name}\". Ostraplan found {all.Count} ship(s) there, so the save "
+                          + "read fine — you just don't own a residence in it. Use \"Into a save game\" to add this "
+                          + "design as a new apartment instead."
+                        : $"Couldn't find anything you own in \"{save.Name}\"."
+                    : $"Couldn't find a ship to write to in \"{save.Name}\" (no owned ships and no current ship on record).",
+                $"Update {noun} in save", MessageBoxButton.OK, MessageBoxImage.Warning);
             return null;
         }
 
-        var shipDlg = new ShipChoiceDialog(save.Name, ships) { Owner = owner };
+        var shipDlg = new ShipChoiceDialog(save.Name, ships, kind) { Owner = owner };
         if (shipDlg.ShowDialog() != true || shipDlg.Selected is not { } chosen) return null;
 
         if (!chosen.Owned && !ConfirmUnsupportedShip(owner, chosen)) return null;
@@ -200,16 +224,21 @@ public sealed class UpdateDriver : ExportDriver
     /// anything. The Review step restates the counts and lists any cargo that would be destroyed, but by then the
     /// user has walked three steps on the assumption that this was an edit rather than a replacement.
     /// </summary>
-    private static bool ConfirmReplacement(Window? owner, SaveEntry save, SaveShipChoice ship) =>
-        Dlg.Confirm(owner, DlgKind.Warning, $"Replace {ship.Name}'s layout with this design?",
-            $"Ship {ship.RegId} in save \"{save.Name}\".\n\n" +
-            "This design didn't come from that ship, so nothing on it is recognised as already built: every part " +
-            "currently on the ship is torn out and this design is built in its place.\n\n" +
-            "The ship stays the same ship. Its crew, cargo, world position, registration and identity are kept, and " +
+    private static bool ConfirmReplacement(Window? owner, SaveEntry save, SaveShipChoice ship)
+    {
+        var residence = ship.IsResidence;
+        var noun = residence ? "apartment" : "ship";
+        return Dlg.Confirm(owner, DlgKind.Warning, $"Replace {ship.Name}'s layout with this design?",
+            $"{(residence ? "Apartment" : "Ship")} {ship.RegId} in save \"{save.Name}\".\n\n" +
+            $"This design didn't come from that {noun}, so nothing on it is recognised as already built: every part " +
+            $"currently on the {noun} is torn out and this design is built in its place.\n\n" +
+            $"The {noun} stays the same {noun}. Its crew, cargo, registration, identity and " +
+            (residence ? "its place at the station" : "world position") + " are kept, and " +
             "cargo is carried over wherever the container it sits in survives the swap. Cargo in a container the " +
             "design does not have is destroyed, and Review lists that before anything is written.\n\n" +
             "The write goes to a copy of the save by default, leaving the original untouched.",
-            "Choose this ship");
+            $"Choose this {noun}");
+    }
 
     /// <summary>
     /// Fill a blank identity from the ship's own record. An import seeds this already, so this is for a design
@@ -287,7 +316,7 @@ public sealed class UpdateDriver : ExportDriver
 
     public override async Task<BuildOutcome> BuildAsync(WizardSession session)
     {
-        if (_ctx is not { } ctx) throw new InvalidDataException("The ship hasn't been located in its save.");
+        if (_ctx is not { } ctx) throw new InvalidDataException("The target hasn't been located in its save.");
 
         var plan = session.Plan;
         _pinnedWear = PinSeed(plan.Wear);
@@ -304,7 +333,7 @@ public sealed class UpdateDriver : ExportDriver
 
         var facts = new List<ReviewFact>
         {
-            new("Ship", $"{ctx.Source.RegId} in \"{ctx.Source.SaveName}\""),
+            new(session.NounCap, $"{ctx.Source.RegId} in \"{ctx.Source.SaveName}\""),
             new("Identity", IdentitySummary(ctx, plan.Identity)),
             new("Changes", ChangeSummary(_report)),
             new("Grid", _report.GridReframed
@@ -342,11 +371,24 @@ public sealed class UpdateDriver : ExportDriver
         {
             var items = unresolved.Sum(d => d.Count);
             acks.Add($"{items} item(s) still use parts that aren't in your loaded data. Ostraplan works out the " +
-                     "ship's rooms and grid as if they weren't there, so writing back now can leave the ship with " +
+                     $"{session.Noun}'s rooms and grid as if they weren't there, so writing back now can leave it with " +
                      "ghost rooms and shifted zones in game.");
         }
 
-        return new BuildOutcome(facts, _report.Warnings, acks);
+        // A residence design going over a vessel, or a vessel design over an apartment. Neither corrupts the
+        // save — the target keeps its own registration, its objSS and its station lock, so only the layout
+        // changes — but it is nearly always a mistake, and after the write the target reads as whatever it was
+        // before regardless of what the design thought it was. Worth saying, not worth blocking.
+        var warnings = new List<string>(_report.Warnings);
+        var targetIsResidence = SaveZip.IsSubStation(ctx.Source.RegId);
+        if (session.Doc.IsResidence != targetIsResidence)
+            warnings.Add(targetIsResidence
+                ? $"This design is a ship, but {ctx.Source.RegId} is a station residence. The apartment keeps its "
+                  + "registration, its place at the station and its transit route; only the layout is replaced."
+                : $"This design is a residence, but {ctx.Source.RegId} is a ship. The ship keeps its registration "
+                  + "and its position; only the layout is replaced, so it will be a vessel laid out as an apartment.");
+
+        return new BuildOutcome(facts, warnings, acks);
     }
 
     private static Task<(JsonObject Ship, InjectReport Report)> BuildOffThread(

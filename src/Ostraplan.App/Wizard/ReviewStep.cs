@@ -97,7 +97,7 @@ public sealed class ReviewStep : WizardStep
         {
             _warnings.Children.Add(new TextBlock
             {
-                Text = $"{outcome.Warnings.Count} warning(s). The ship is still written, so load it and check.",
+                Text = $"{outcome.Warnings.Count} warning(s). It is still written, so load the save and check.",
                 Foreground = ThemeManager.Warn, FontSize = 12, FontWeight = FontWeights.SemiBold,
                 TextWrapping = TextWrapping.Wrap,
             });

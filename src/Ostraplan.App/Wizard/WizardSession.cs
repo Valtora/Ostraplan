@@ -75,4 +75,24 @@ public sealed class WizardSession
     /// every test that builds a session by hand.</para>
     /// </summary>
     public Func<ShipPreview?>? RenderPreview { get; init; }
+
+    // ---- what to call the thing being exported ----
+    //
+    // The wizard is one flow, not two. A residence goes through the same steps as a ship because the mechanics
+    // are the same: build the record, write it into a copy of a save. Only the words differ, and only in the
+    // places where "ship" would be actively wrong (a residence is not parked, does not take the ferry, and is
+    // registered at a station). Deciding the noun once, here, is what keeps a second modal from appearing.
+
+    /// <summary>True when the design being exported is a station residence rather than a vessel.</summary>
+    public bool IsResidence => Doc.IsResidence;
+
+    /// <summary>"apartment" or "ship", for mid-sentence use.</summary>
+    public string Noun => IsResidence ? "apartment" : "ship";
+
+    /// <summary>"Apartment" or "Ship", for the start of a sentence or a Review label.</summary>
+    public string NounCap => IsResidence ? "Apartment" : "Ship";
+
+    /// <summary>Pick between two phrasings by kind. Reads better at a call site than a ternary on
+    /// <see cref="IsResidence"/> repeated a dozen times, and makes the residence variant impossible to forget.</summary>
+    public string ByKind(string ship, string residence) => IsResidence ? residence : ship;
 }
