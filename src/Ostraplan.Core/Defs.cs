@@ -307,6 +307,13 @@ public sealed record CondOwnerDef(
     /// this the input to device reachability (see <see cref="WalkNetwork"/>). Empty for inert structure.</summary>
     public string[] Interactions { get; init; } = [];
 
+    /// <summary>The default loot this def spawns with (<c>strLoot</c>), or null. For most items this is stock (a
+    /// weapon's starting ammo), but for a garment it is the item's own ANATOMY: a pair of coveralls declares no
+    /// container grid at all and gets its pockets from here (<c>OutfitSuit02</c> -&gt; <c>ItmPocketsCoverallsx2</c>
+    /// -&gt; 2x <c>PocketHip01</c>). See <see cref="Catalog.IntrinsicContents"/>, which keeps only the container
+    /// children so pockets are modelled and ammo is left to the user to author.</summary>
+    public string? Loot { get; init; }
+
     public static CondOwnerDef Parse(JsonElement e)
     {
         var conds = Json.StrArray(e, "aStartingConds");
@@ -332,6 +339,7 @@ public sealed record CondOwnerDef(
             SlotKeys = DictKeys(Json.StrArray(e, "mapSlotEffects")),
             Jpi = Json.Str(e, "jsonPI"),
             Interactions = Json.StrArray(e, "aInteractions"),
+            Loot = Json.Str(e, "strLoot"),
         };
     }
 
@@ -469,10 +477,36 @@ public sealed record InstallableDef(
 /// </summary>
 public sealed record LootDef(string Name, string[] Conds, string[] Loots)
 {
-    public static LootDef Parse(JsonElement e) => new(
-        Json.Str(e, "strName") ?? "",
-        Json.StrArray(e, "aCOs").Select(CondName).Where(s => s.Length > 0).ToArray(),
-        Json.StrArray(e, "aLoots").Where(s => s.Length > 0).ToArray());
+    /// <summary>The loot's <c>strType</c>. "item" means its <c>aCOs</c> name ITEMS to spawn rather than conditions
+    /// to apply, which is how a garment's pockets are declared (see <see cref="Items"/>).</summary>
+    public string Type { get; init; } = "";
+
+    /// <summary>For an <see cref="IsItemLoot"/> loot, the defs it spawns with their counts: "PocketHip01=1x2"
+    /// -&gt; ("PocketHip01", 2). The number after the 'x' is the count, exactly as in <see cref="CondAmount"/>;
+    /// empty for a condition loot, whose <c>aCOs</c> are condition names.</summary>
+    public IReadOnlyList<(string DefName, int Count)> Items { get; init; } = [];
+
+    /// <summary>True when this loot spawns items rather than applying conditions.</summary>
+    public bool IsItemLoot => string.Equals(Type, "item", StringComparison.OrdinalIgnoreCase);
+
+    public static LootDef Parse(JsonElement e)
+    {
+        var cos = Json.StrArray(e, "aCOs");
+        var type = Json.Str(e, "strType") ?? "";
+        var isItem = string.Equals(type, "item", StringComparison.OrdinalIgnoreCase);
+        return new(
+            Json.Str(e, "strName") ?? "",
+            cos.Select(CondName).Where(s => s.Length > 0).ToArray(),
+            Json.StrArray(e, "aLoots").Where(s => s.Length > 0).ToArray())
+        {
+            Type = type,
+            Items = isItem
+                ? cos.Select(c => (Def: CondName(c), Count: (int)Math.Round(CondAmount(c))))
+                     .Where(c => c.Def.Length > 0 && c.Count > 0)
+                     .ToArray()
+                : [],
+        };
+    }
 
     /// <summary>"IsWall=1.0x1" -> "IsWall".</summary>
     public static string CondName(string entry)

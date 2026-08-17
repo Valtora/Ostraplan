@@ -98,7 +98,10 @@ public static class EditCost
     /// nested authored items included); original save items are free — they already exist.</summary>
     private static void AddAuthoredCargo(CargoItem node, Catalog catalog, ref double value, ref int count)
     {
-        if (node.Authored)
+        // Intrinsic containers (a garment's pockets, a backpack's pouches) are authored so they reach the save,
+        // but they are part of the parent object and are not bought separately — pricing them would inflate the
+        // cost of every garment against what the game charges. See CargoItem.Intrinsic.
+        if (node.Authored && !node.Intrinsic)
         {
             value += catalog.Lookup(node.DefName)?.BasePrice ?? 0;
             count++;

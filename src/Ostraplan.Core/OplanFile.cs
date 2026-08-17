@@ -222,6 +222,7 @@ public sealed class OplanFile
         Def = c.DefName,
         StrID = c.StrID,
         Authored = c.Authored,
+        Intrinsic = c.Intrinsic,
         Slotted = c.Slotted,
         SlotName = c.SlotName,
         X = c.GridX,
@@ -249,6 +250,7 @@ public sealed class OplanFile
             IsStack = o.IsStack,
             SlotName = o.SlotName,
             Authored = o.Authored,
+            Intrinsic = o.Intrinsic,
         };
     }
 }
@@ -340,6 +342,10 @@ public sealed class OplanCargo
     [JsonPropertyName("def")] public string Def { get; set; } = "";
     [JsonPropertyName("strId")] public string StrID { get; set; } = "";
     [JsonPropertyName("authored")] public bool Authored { get; set; }
+
+    /// <summary>Part of the parent object rather than cargo put into it (a garment's pockets); see
+    /// <see cref="CargoItem.Intrinsic"/>. Omitted when false.</summary>
+    [JsonPropertyName("intrinsic")] public bool Intrinsic { get; set; }
     [JsonPropertyName("slotted")] public bool Slotted { get; set; }
     [JsonPropertyName("slot")] public string? SlotName { get; set; }
     [JsonPropertyName("x")] public int X { get; set; }

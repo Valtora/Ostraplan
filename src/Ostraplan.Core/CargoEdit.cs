@@ -23,7 +23,8 @@ public static class CargoEdit
     /// not fit the container's <paramref name="grid"/> (capacity — the caller blocks the add and says so).
     /// </summary>
     public static IReadOnlyList<CargoItem>? Add(
-        IReadOnlyList<CargoItem> rootCargo, string? containerId, (int W, int H) grid, PartDef itemDef, int quantity)
+        IReadOnlyList<CargoItem> rootCargo, string? containerId, (int W, int H) grid, PartDef itemDef, int quantity,
+        Catalog? catalog = null)
     {
         if (quantity <= 0) return rootCargo;
         var kids = ChildrenOf(rootCargo, containerId);
@@ -32,7 +33,7 @@ public static class CargoEdit
         // paper-doll place and must not consume grid cells. Pack the loose items, leave the slotted ones untouched.
         var loose = kids.Where(k => !k.Slotted).ToList();
         var slotted = kids.Where(k => k.Slotted).ToList();
-        var placed = PlaceInto(loose, grid, itemDef, quantity);
+        var placed = PlaceInto(loose, grid, itemDef, quantity, catalog);
         return placed is null ? null : ReplaceChildren(rootCargo, containerId, [.. placed, .. slotted]);
     }
 
@@ -54,7 +55,7 @@ public static class CargoEdit
         while (lo < hi)
         {
             var mid = (lo + hi + 1) / 2;
-            if (PlaceInto(loose, grid, itemDef, mid) is not null) lo = mid; else hi = mid - 1;
+            if (PlaceInto(loose, grid, itemDef, mid, null) is not null) lo = mid; else hi = mid - 1;
         }
         return lo;
     }
@@ -168,9 +169,14 @@ public static class CargoEdit
 
     // ---- placement / stacking ----
 
-    private static IReadOnlyList<CargoItem>? PlaceInto(IReadOnlyList<CargoItem> kids, (int W, int H) grid, PartDef def, int quantity)
+    private static IReadOnlyList<CargoItem>? PlaceInto(
+        IReadOnlyList<CargoItem> kids, (int W, int H) grid, PartDef def, int quantity, Catalog? catalog)
     {
-        var limit = def.StackLimit > 1 ? def.StackLimit : 1;
+        // A def that carries its own containers (a garment's pockets, a backpack's pouches) never stacks: each
+        // physical item owns its pockets, and a stack keeps its members in Children, which is the same slot the
+        // pockets need. Nothing that declares intrinsic contents is stackable in core data anyway.
+        var intrinsic = catalog?.IntrinsicContents(def) ?? [];
+        var limit = intrinsic.Count > 0 ? 1 : def.StackLimit > 1 ? def.StackLimit : 1;
         var result = kids.ToList();
         var remaining = quantity;
 
@@ -196,7 +202,7 @@ public static class CargoEdit
             var take = Math.Min(limit, remaining);
             if (InventoryGrid.FirstFreeCell(grid.W, grid.H, result, def.InvSize.W, def.InvSize.H) is not { } cell)
                 return null;   // won't fit the declared grid — capacity reached
-            result.Add(Stack(def, cell.X, cell.Y, take));
+            result.Add(Stack(def, cell.X, cell.Y, take, catalog));
             remaining -= take;
         }
         return result;
@@ -204,10 +210,12 @@ public static class CargoEdit
 
     /// <summary>An authored stack (or single, when <paramref name="count"/> is 1) of <paramref name="def"/> at a
     /// grid cell — a lead item plus <paramref name="count"/>−1 same-def members, mirroring the game's storage.</summary>
-    private static CargoItem Stack(PartDef def, int gx, int gy, int count)
+    private static CargoItem Stack(PartDef def, int gx, int gy, int count, Catalog? catalog = null)
     {
         var members = new List<CargoItem>();
         for (var i = 1; i < count; i++) members.Add(Member(def));
+        // A single (never a stack — see PlaceInto) also gets the containers its def spawns with.
+        if (count == 1 && catalog is not null) members.AddRange(IntrinsicChildren(def, catalog, depth: 0));
         return new CargoItem(Guid.NewGuid().ToString(), def.DefName, def.Friendly, Slotted: false, members)
         {
             Authored = true,
@@ -218,6 +226,42 @@ public static class CargoEdit
             Stack = count,
             IsStack = count > 1,
         };
+    }
+
+    /// <summary>
+    /// The containers a def spawns with as part of itself, as authored cargo nodes laid out in the parent's grid
+    /// (see <see cref="Catalog.IntrinsicContents"/>). Recurses, since a pocket could in principle declare its own,
+    /// with a depth cap so a cyclic loot graph cannot spin.
+    /// </summary>
+    private static List<CargoItem> IntrinsicChildren(PartDef def, Catalog catalog, int depth)
+    {
+        var kids = new List<CargoItem>();
+        if (depth >= 4) return kids;
+        foreach (var (childDef, count) in catalog.IntrinsicContents(def))
+        {
+            if (catalog.Lookup(childDef) is not { } childPart) continue;
+            var grid = childPart.ContainerGrid ?? (6, 6);
+            for (var i = 0; i < count; i++)
+            {
+                // pockets are laid out in the parent's own grid, one per free cell, like any other loose item
+                var cell = InventoryGrid.FirstFreeCell(
+                    Math.Max(grid.W, 8), Math.Max(grid.H, 8), kids, childPart.InvSize.W, childPart.InvSize.H)
+                    ?? (X: 0, Y: 0);
+                kids.Add(new CargoItem(
+                    Guid.NewGuid().ToString(), childDef, childPart.Friendly, Slotted: false,
+                    IntrinsicChildren(childPart, catalog, depth + 1))
+                {
+                    Authored = true,
+                    Intrinsic = true,
+                    GridX = cell.X,
+                    GridY = cell.Y,
+                    GridW = childPart.InvSize.W,
+                    GridH = childPart.InvSize.H,
+                    Stack = 1,
+                });
+            }
+        }
+        return kids;
     }
 
     /// <summary>One authored stack member (a same-def copy of the lead; carries no grid position of its own).</summary>

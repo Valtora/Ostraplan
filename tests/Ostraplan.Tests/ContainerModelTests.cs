@@ -112,4 +112,71 @@ public class ContainerModelTests(ITestOutputHelper output)
             foreach (var c in Flatten(i.Children)) yield return c;
         }
     }
+
+    // ---- intrinsic contents: the containers a def spawns with as part of itself ----
+
+    /// <summary>
+    /// Regression (Discord, tezzy4899): a pair of coveralls declares no container grid at all — its pockets come
+    /// from strLoot — so Ostraplan modelled it as holding nothing, and wrote it into the save as a bare item.
+    /// It spawned "with no pockets" and could never hold anything again.
+    /// </summary>
+    [SkippableFact]
+    public void A_garment_carries_the_pockets_its_def_spawns_with()
+    {
+        var g = TestData.RequireGame();
+        Skip.If(g.Catalog.Lookup("OutfitSuit03") is null, "OutfitSuit03 not in this install");
+
+        var suit = g.Catalog.Lookup("OutfitSuit03")!;
+        Assert.False(suit.IsContainer, "the garment itself declares no grid — the pockets are the capacity");
+
+        var intrinsic = g.Catalog.IntrinsicContents(suit);
+        Assert.Equal(4, intrinsic.Sum(c => c.Count));
+        Assert.All(intrinsic, c => Assert.True(g.Catalog.Lookup(c.DefName)?.IsContainer == true));
+    }
+
+    [SkippableFact]
+    public void Adding_a_garment_materialises_its_pockets_and_they_can_be_filled()
+    {
+        var g = TestData.RequireGame();
+        Skip.If(g.Catalog.Lookup("OutfitSuit03") is null || g.Catalog.Lookup("ItmBackpack01") is null,
+            "clothing / backpack not in this install");
+
+        var pack = g.Catalog.Lookup("ItmBackpack01")!;
+        IReadOnlyList<CargoItem> cargo = [];
+        cargo = CargoEdit.Add(cargo, null, (6, 6), pack, 1, g.Catalog)!;
+
+        // the backpack's own four pouches come with it
+        var bag = Assert.Single(cargo);
+        Assert.Equal(4, bag.Children.Count(c => c.Intrinsic));
+
+        cargo = CargoEdit.Add(cargo, bag.StrID, pack.ContainerGrid!.Value, g.Catalog.Lookup("OutfitSuit03")!, 1, g.Catalog)!;
+        var suit = Flatten(cargo).Single(c => c.DefName == "OutfitSuit03");
+        Assert.False(suit.Intrinsic, "the garment is cargo the user added, not part of the backpack");
+        Assert.Equal(4, suit.Children.Count);
+        Assert.All(suit.Children, c => Assert.True(c.Intrinsic));
+
+        // and the thing that could not be done before: put something in a pocket
+        var pocket = suit.Children[0];
+        var pocketGrid = g.Catalog.Lookup(pocket.DefName)!.ContainerGrid!.Value;
+        var food = g.Catalog.Lookup("ItmTrencherNachoFiesta");
+        Skip.If(food is null, "trencher not in this install");
+        var filled = CargoEdit.Add(cargo, pocket.StrID, pocketGrid, food!, 1, g.Catalog);
+        Assert.NotNull(filled);
+        Assert.Contains(Flatten(filled!), c => c.DefName == "ItmTrencherNachoFiesta");
+    }
+
+    [SkippableFact]
+    public void Default_loot_that_is_not_a_container_is_left_to_the_user_to_author()
+    {
+        // The same strLoot field carries genuine STOCK — a Coilgun's 15 rounds, a body part's wounds. Only the
+        // container children are the object's own anatomy, so only those are materialised; otherwise every
+        // weapon would arrive pre-loaded with ammo nobody authored and the edit cost would move.
+        var g = TestData.RequireGame();
+        foreach (var def in new[] { "ItmShipWeaponMassThrower01", "BodyarmUpperLA" })
+            if (g.Catalog.Lookup(def) is { } p)
+            {
+                Assert.NotNull(p.DefaultLoot);           // it does declare loot...
+                Assert.Empty(g.Catalog.IntrinsicContents(p));   // ...none of which is a container
+            }
+    }
 }

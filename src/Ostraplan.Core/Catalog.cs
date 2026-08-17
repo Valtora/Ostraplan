@@ -68,6 +68,10 @@ public sealed record PartDef(
     /// <summary>The item filter a container applies to what may be dropped in (<c>strContainerCT</c>), or null.</summary>
     public string? ContainerCT { get; init; }
 
+    /// <summary>The def's default loot (<c>strLoot</c>), or null. Resolved into the parts of it Ostraplan models
+    /// by <see cref="Catalog.IntrinsicContents"/>.</summary>
+    public string? DefaultLoot { get; init; }
+
     /// <summary>Max stack size (<c>nStackLimit</c>); ≤1 = not stackable.</summary>
     public int StackLimit { get; init; }
 
@@ -437,6 +441,44 @@ public sealed class Catalog
             Triggers.TryGetValue("TIsVessel", out var ct)
                 ? CondEval.Triggered(ct, part.StartingConds, this)
                 : part.StartingConds.Any(VesselConds.Contains));
+    }
+
+    private readonly ConcurrentDictionary<string, IReadOnlyList<(string DefName, int Count)>> _intrinsic =
+        new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The containers a def spawns with as part of ITSELF: its <c>strLoot</c> expanded through nested loots,
+    /// keeping only children that are containers in their own right. These are the object's anatomy, not its
+    /// stock — a pair of coveralls declares no container grid and gets its capacity entirely from here
+    /// (<c>OutfitSuit02</c> → <c>ItmPocketsCoverallsx2</c> → 2× <c>PocketHip01</c>), and a backpack's four
+    /// <c>PocketPouchSmall01</c> pouches work the same way.
+    ///
+    /// <para><b>Why only the container children.</b> The same <c>strLoot</c> field also carries genuine stock: a
+    /// Coilgun declares 15× <c>ItmAmmo150mm</c>, and a body part declares its wounds. Materialising those would
+    /// hand the user ammo they never authored and move the bill of materials, so the container test draws the
+    /// line without needing a def-name list. Pockets are containers; ammo and wounds are not.</para>
+    ///
+    /// <para>Without this a garment written into a save arrived with no pockets at all and was permanently
+    /// useless: Ostraplan synthesises a contained item straight from its def, and a save-loaded item is restored
+    /// as recorded rather than respawned, so nothing ever ran the loot.</para>
+    /// </summary>
+    public IReadOnlyList<(string DefName, int Count)> IntrinsicContents(PartDef? part)
+    {
+        if (part?.DefaultLoot is not { Length: > 0 } root) return [];
+        return _intrinsic.GetOrAdd(part.DefName, _ =>
+        {
+            var found = new List<(string, int)>();
+            Walk(root, new HashSet<string>(StringComparer.Ordinal), found);
+            return found;
+        });
+
+        void Walk(string lootName, HashSet<string> seen, List<(string, int)> into)
+        {
+            if (!seen.Add(lootName) || !Loots.TryGetValue(lootName, out var loot)) return;   // loot graphs can nest
+            foreach (var (def, count) in loot.Items)
+                if (Lookup(def) is { IsContainer: true }) into.Add((def, count));
+            foreach (var child in loot.Loots) Walk(child, seen, into);
+        }
     }
 
     private readonly ConcurrentDictionary<string, bool> _isPrimaryPort = new(StringComparer.Ordinal);
@@ -1082,6 +1124,7 @@ public sealed class Catalog
             InvSize = invSize,
             ContainerGrid = containerGrid,
             ContainerCT = co?.ContainerCT,
+            DefaultLoot = co?.Loot,
             StackLimit = co?.StackLimit ?? 0,
             SlotsWeHave = co?.SlotsWeHave ?? [],
             SlotLayout = co?.SlotLayout ?? new Dictionary<string, (double X, double Y)>(),

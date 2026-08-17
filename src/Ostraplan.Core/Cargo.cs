@@ -72,6 +72,16 @@ public sealed record CargoItem(
     /// reopen (see <see cref="OplanCargo"/>).</summary>
     public bool Authored { get; init; }
 
+    /// <summary>
+    /// True when this item is part of its parent rather than cargo put into it: a garment's pockets, a backpack's
+    /// pouches, a PDA's data store. The game spawns these from the parent def's <c>strLoot</c> (see
+    /// <see cref="Catalog.IntrinsicContents"/>), so they come and go with the parent and are never separately
+    /// bought. They are written to the save like any other authored item — without them a garment arrives with no
+    /// pockets and cannot hold anything — but they are excluded from the bill of materials and the edit cost,
+    /// because you do not buy pockets separately from the coveralls.
+    /// </summary>
+    public bool Intrinsic { get; init; }
+
     /// <summary>This item's <see cref="StrID"/> plus every descendant's, depth-first — the whole subtree.</summary>
     public IEnumerable<string> SubtreeIds()
     {

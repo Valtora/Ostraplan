@@ -203,6 +203,35 @@ public class EditCostTests
 
         // and the moved-parts multiplier doesn't touch it
         Assert.Equal(60, EditCost.Compute(diff, cat, 2.0, 5.0).Total, 3);
+    }
+
+    [Fact]
+    public void Intrinsic_pockets_are_not_billed()
+    {
+        // A garment's pockets are authored so they reach the save (without them it spawns unusable), but they are
+        // part of the parent object: you do not buy pockets separately from the coveralls. Billing them would
+        // inflate the cost of every garment and backpack against what the game charges. See CargoItem.Intrinsic.
+        var cat = CatOf(Priced("Crate", 0), Priced("Coveralls", 40), Priced("Pocket", 7));
+        var doc = new ShipDocument(cat);
+        var crate = new Placement { DefName = "Crate", X = 0, Y = 0, OriginStrID = "c" };
+        new PlaceCommand(crate).Do(doc);
+
+        var pockets = new List<CargoItem>
+        {
+            new(Guid.NewGuid().ToString(), "Pocket", "Pocket", Slotted: false, []) { Authored = true, Intrinsic = true },
+            new(Guid.NewGuid().ToString(), "Pocket", "Pocket", Slotted: false, []) { Authored = true, Intrinsic = true },
+        };
+        var suit = new CargoItem(Guid.NewGuid().ToString(), "Coveralls", "Coveralls", Slotted: false, pockets)
+        {
+            Authored = true,
+        };
+        new SetCargoCommand(crate, crate.Cargo, [suit]).Do(doc);
+
+        var diff = ShipDiff.Compute(doc, new Dictionary<string, OriginPart> { ["c"] = new(0, 0, 0, []) });
+        var b = EditCost.Compute(diff, cat, 1.0, 1.0);
+
+        Assert.Equal(1, b.NewCargo);          // the garment only — its two pockets are part of it
+        Assert.Equal(40, b.CargoValue, 3);    // not 40 + 7 + 7
 
         // removing the cargo again makes it free, and originals never count
         new SetCargoCommand(crate, crate.Cargo, []).Do(doc);

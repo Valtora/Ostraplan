@@ -242,6 +242,34 @@ tiles, and conditions are produced by **loots**.
 
 > **Ported in Ostraplan:** `Catalog.LootConds`.
 
+#### A loot can spawn ITEMS, and that is where a garment's pockets come from
+
+`strType` decides how `aCOs` reads. For the socket-mask loots above it is a
+condition table. For `strType: "item"` the same entries name **items to spawn**,
+with the number after the `x` as the count: `ItmPocketsCoverallsx2` is
+`["PocketHip01=1x2"]`, i.e. two `PocketHip01`. A def points at one through its
+condowner's `strLoot`.
+
+This is not just stock. For **17 garments** it is the object's own anatomy: a pair
+of coveralls (`OutfitSuit02`) declares **no** `nContainerWidth` at all, is not a
+container, and gets its entire capacity from `strLoot`. Backpacks (4×
+`PocketPouchSmall01`), EVA lockers, the wrist PDA (`DataStore`) are the same. The
+field also carries genuine stock, though — a Coilgun's 15× `ItmAmmo150mm`, a body
+part's wounds — so the two cannot be treated alike.
+
+> **Ported in Ostraplan:** `LootDef.Items` / `Catalog.IntrinsicContents`, which
+> expands `strLoot` and keeps **only the children that are themselves containers**.
+> That single test separates anatomy from stock without a def-name list: pockets are
+> containers, ammo and wounds are not. Those children are materialised as
+> `CargoItem.Intrinsic` nodes when the item is added, so they show up in the
+> inventory, can be filled, and reach the save. Excluded from the edit cost, since
+> you do not buy pockets separately from the coveralls.
+>
+> Without this a garment written into a save arrived **with no pockets** and was
+> permanently useless. Ostraplan synthesises a contained item straight from its def,
+> and a save-loaded item is restored as recorded rather than respawned from the def,
+> so nothing ever ran the loot.
+
 ### Tile-condition accumulation (`Ship.UpdateTiles`)
 
 Each tile holds a condition multiset (`Tile.coProps`). On place or remove,

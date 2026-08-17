@@ -1660,7 +1660,7 @@ public sealed class ShipCanvas : FrameworkElement
         if (LoosePlacement.AcceptingContainerAt(Doc, Doc.Catalog, cell.X, cell.Y, item) is { } container)
         {
             var grid = Doc.Part(container)?.ContainerGrid ?? (6, 6);
-            var after = CargoEdit.Add(container.Cargo, null, grid, item, 1);
+            var after = CargoEdit.Add(container.Cargo, null, grid, item, 1, Doc.Catalog);
             if (after is null) { RaiseGhostReason("Container is full"); return; }
             var cmd = new SetCargoCommand(container, container.Cargo, after);
             cmd.Do(Doc);

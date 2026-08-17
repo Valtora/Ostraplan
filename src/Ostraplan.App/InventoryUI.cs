@@ -550,7 +550,7 @@ public sealed class InventoryWindow : Window
             _path.Count > 0 ? _path[^1].Title : null) { Owner = this };
         if (dlg.ShowDialog() != true || dlg.Chosen is not { } pick) return;
 
-        var updated = CargoEdit.Add(_root!.Cargo, containerId, grid, pick.Def, pick.Quantity);
+        var updated = CargoEdit.Add(_root!.Cargo, containerId, grid, pick.Def, pick.Quantity, _catalog);
         if (updated is null)
         {
             MessageBox.Show(this,

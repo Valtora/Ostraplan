@@ -23,6 +23,18 @@ each release was verified against is recorded in
   its airlock. Dismissible, for the case where the port is a deliberate internal bay.
 
 ### Fixed
+- **Clothing arrived in game with no pockets, and could not be filled in Ostraplan either.** Put a
+  pair of coveralls in a backpack and there was nowhere to put anything, and the pair that reached
+  your save came back as coveralls with no pockets at all: useless, permanently. Coveralls have no
+  pockets of their own. The game gives them out when the garment is created, as separate little
+  containers, and the same is true of the pouches in a backpack, the rows in an EVA locker and the
+  data store in a wrist PDA. Ostraplan only understood capacity a def declares outright, so it saw
+  a garment as holding nothing and wrote it into the save as a bare item, and nothing ever handed it
+  its pockets. Those pockets are now part of the item from the moment you add it: they show up in the
+  inventory, you can drill into them and fill them, and they travel to your save with whatever you
+  put in. They are not charged for, since you do not buy pockets separately from the coveralls.
+  Genuine starting stock is untouched: a railgun still arrives with exactly the ammunition you
+  authored and no more.
 - **A ship whose airlock was pried open came back from the save shifted, and could not dock.**
   If you had forced your primary airlock open in game (running out of power will do it), the save
   holds it as a different object to the closed one, and Ostraplan only recognised the closed
