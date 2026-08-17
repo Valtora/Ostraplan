@@ -18,11 +18,14 @@
             <Setter Property="TextWrapping" Value="Wrap"/>
         </Style>
         <!-- Uniform small buttons for the Zones panel (Add / Properties / delete) -->
-        <Style x:Key="ZoneBtn" TargetType="Button">
-            <Setter Property="Padding" Value="10,2"/>
+        <!-- Compact: it sits on a header row in a narrow panel, so it sizes to its label rather than to the row. -->
+        <Style x:Key="ZoneBtn" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Padding" Value="8,1"/>
             <Setter Property="Margin" Value="4,0,0,0"/>
-            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="MinWidth" Value="0"/>
             <Setter Property="VerticalAlignment" Value="Center"/>
+            <Setter Property="HorizontalAlignment" Value="Right"/>
         </Style>
         <!-- Toolbar group separator -->
         <Style x:Key="ToolSep" TargetType="Border">
@@ -186,10 +189,14 @@
                 <TextBlock Text="PROBLEMS" Style="{StaticResource SideHeader}" Margin="0,0,0,4"/>
                 <StackPanel x:Name="ProblemsPanel"/>
                 <Separator Margin="0,10,0,0" Background="{DynamicResource PanelBorder}"/>
-                <DockPanel Margin="0,10,0,0">
-                    <TextBlock Text="ZONES" Style="{StaticResource SideHeader}" Margin="0" VerticalAlignment="Center"/>
+                <!-- LastChildFill MUST stay False. It defaults to True, and the button is the last child, so with
+                     the default it ignores its Dock and stretches across the whole row: a "+ Add" the width of the
+                     panel, jammed against the ZONES caption. -->
+                <DockPanel Margin="0,10,0,2" LastChildFill="False">
+                    <TextBlock Text="ZONES" DockPanel.Dock="Left" Style="{StaticResource SideHeader}"
+                               Margin="0,0,10,0" VerticalAlignment="Center"/>
                     <Button x:Name="BtnAddZone" Content="+ Add" DockPanel.Dock="Right" Style="{StaticResource ZoneBtn}"
-                            Margin="0" Click="OnAddZoneClick" ToolTip="Create a zone and start painting its tiles"/>
+                            Click="OnAddZoneClick" ToolTip="Create a zone and start painting its tiles"/>
                 </DockPanel>
                 <StackPanel x:Name="ZonesPanel"/>
                 <Separator Margin="0,10,0,0" Background="{DynamicResource PanelBorder}"/>

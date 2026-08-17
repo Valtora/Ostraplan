@@ -1154,50 +1154,55 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>One problem as an expandable row: a coloured title, action buttons (Show/View, and Dismiss for a
-    /// dismissible warning), and the detail revealed on expand.</summary>
+    /// <summary>
+    /// One problem as an expandable row: a coloured title, action buttons (Show/View, and Dismiss for a
+    /// dismissible warning), and the detail revealed on expand.
+    ///
+    /// <para>The title and the buttons are <b>stacked</b>, not side by side. They used to share a DockPanel with
+    /// the buttons docked right, which works until the title is long: the inspector is a narrow column, the two
+    /// fixed-width buttons take their share of it first, and the title wraps into whatever is left — three or
+    /// four characters per line for "1 sealed-off compartment". Giving the title the full width and putting the
+    /// buttons under it costs one row of height and makes every problem legible at any panel width.</para>
+    /// </summary>
     private FrameworkElement ProblemRow(Problem problem)
     {
         var color = problem.Severity == ProblemSeverity.Blocking ? ThemeManager.Bad : ThemeManager.Warn;
 
-        var header = new DockPanel { LastChildFill = true };
-
-        // Buttons dock right, in reverse visual order (Dismiss rightmost, then Show/View).
-        if (problem.DismissKey is { } key)
+        var header = new StackPanel { Margin = new Thickness(0, 1, 0, 2) };
+        header.Children.Add(new TextBlock
         {
-            var dismiss = new Button
-            {
-                Content = "Dismiss", Padding = new Thickness(8, 1, 8, 1), Margin = new Thickness(4, 0, 0, 0),
-                VerticalAlignment = VerticalAlignment.Center, ToolTip = "Hide this warning (restore it later with Restore Alerts).",
-            };
-            dismiss.Click += (_, e) => { e.Handled = true; DismissAlert(key); };
-            DockPanel.SetDock(dismiss, Dock.Right);
-            header.Children.Add(dismiss);
-        }
+            Text = "● " + problem.Title, Foreground = color, TextWrapping = TextWrapping.Wrap,
+        });
+
+        // One row under the title, left-aligned and in reading order (Show/View first, then Dismiss).
+        var actions = new StackPanel
+        {
+            Orientation = Orientation.Horizontal, Margin = new Thickness(11, 4, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+
         if (problem.Cells is { Count: > 0 } cells)
         {
             // A leak/airtightness warning (dismissible) highlights its leak points AND focuses; a plain illegal
             // problem (already hazard-tinted) just pans/zooms into view.
             var isLeak = problem.DismissKey is not null;
-            var btn = new Button
-            {
-                Content = isLeak ? "Show" : "View", Padding = new Thickness(8, 1, 8, 1), Margin = new Thickness(4, 0, 0, 0),
-                VerticalAlignment = VerticalAlignment.Center,
-                ToolTip = isLeak ? "Highlight the leak points and bring them into view" : "Pan and zoom the view to this problem",
-            };
+            var btn = ActionButton(isLeak ? "Show" : "View",
+                isLeak ? "Highlight the leak points and bring them into view" : "Pan and zoom the view to this problem");
             btn.Click += (_, e) =>
             {
                 e.Handled = true;
                 if (isLeak) Board.SetLeakCells(cells);
                 Board.FocusTiles(cells);
             };
-            DockPanel.SetDock(btn, Dock.Right);
-            header.Children.Add(btn);
+            actions.Children.Add(btn);
         }
-        header.Children.Add(new TextBlock
+        if (problem.DismissKey is { } key)
         {
-            Text = "● " + problem.Title, Foreground = color, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center,
-        });
+            var dismiss = ActionButton("Dismiss", "Hide this warning (restore it later with Restore Alerts).");
+            dismiss.Click += (_, e) => { e.Handled = true; DismissAlert(key); };
+            actions.Children.Add(dismiss);
+        }
+        if (actions.Children.Count > 0) header.Children.Add(actions);
 
         return new Expander
         {
@@ -1207,8 +1212,17 @@ public partial class MainWindow : Window
             Content = new TextBlock
             {
                 Text = problem.Detail, Foreground = ThemeManager.Dim, FontSize = 12, TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(4, 4, 2, 2),
+                Margin = new Thickness(11, 2, 2, 4),
             },
+        };
+
+        // MinWidth 0 because the Fluent default is wide enough that two of them would not fit side by side in a
+        // narrow inspector, which is the shape this layout exists to fix.
+        static Button ActionButton(string content, string tip) => new()
+        {
+            Content = content, ToolTip = tip, FontSize = 11, MinWidth = 0,
+            Padding = new Thickness(8, 1, 8, 1), Margin = new Thickness(0, 0, 6, 0),
+            Cursor = System.Windows.Input.Cursors.Hand,
         };
     }
 

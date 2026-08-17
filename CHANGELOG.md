@@ -55,6 +55,13 @@ each release was verified against is recorded in
   its airlock. Dismissible, for the case where the port is a deliberate internal bay.
 
 ### Fixed
+- **The PROBLEMS list was unreadable when a warning had buttons on it.** The title and the Show/Dismiss
+  buttons shared one row, and the buttons took their width first, so in a narrow inspector a title like
+  "1 sealed-off compartment" wrapped to three or four characters a line. The buttons now sit under the
+  title, which gets the full width.
+- **"+ Add" beside ZONES stretched across the whole panel.** It was the last child of a DockPanel that
+  fills its last child by default, so it ignored its own right-alignment. It now sizes to its label, and
+  the caption beside it has room to breathe.
 - **A ship whose registration contains a `|` was written to the wrong file inside a save.** The game
   substitutes two characters it cannot put in a Windows filename (`|` becomes `%`, `*` becomes `§`),
   so a sub-station stored as `ships/VORB%Aux.json` was being looked for under its raw registration.
