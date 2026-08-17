@@ -23,6 +23,7 @@ public class ReactorTests
     private const string CoreOn = "ItmFusionReactorCore01On";     // the glow-state ITEM with no condowner
     private const string Coils = "ItmFusionFieldCoils01";         // operational form the palette builds
     private const string Laser = "ItmFusionLaserArray01";         // operational form
+    private const string Regulator = "ItmFusionFuelRegulator01";  // 3×5 component, forbids TILFixture (no IsObstruction net)
     private const string Floor = "ItmFloorGrate01";               // 1×1 sealed floor (socket-adds TILFloor)
 
     [SkippableFact]
@@ -186,5 +187,79 @@ public class ReactorTests
             .ToList();
         Assert.True(blocking.Count == 0,
             "a valid reactor authored dependent-first should not block: " + string.Join(" | ", blocking.Select(p => p.Title)));
+    }
+
+    /// <summary>
+    /// Regression (DeathStar): reactor components must not be buildable on top of one another. Every fusion
+    /// component forbids <c>TILFixture</c>, which expands to IsFixture + IsFloorFlex and — unlike the common
+    /// <c>TILObstruction</c> mask — carries no IsObstruction backstop. IsFixture is therefore the *only*
+    /// occupancy guard those parts have, so the sealed-floor waiver CheckFit used to apply removed it outright
+    /// and let the whole chain stack without limit on any floored tile: a design shipped with two Fuel
+    /// Regulators sharing six tiles, a Core Pump and a Pellet Feeder swallowed whole by one of them, and a
+    /// Capacitor over the top, all reported clean.
+    /// </summary>
+    [SkippableFact]
+    public void Reactor_components_cannot_be_built_on_top_of_each_other()
+    {
+        var g = TestData.RequireGame();
+        var cat = g.Catalog;
+        Skip.IfNot(new[] { CoreOff, Coils, Regulator, Floor }.All(cat.ByDefName.ContainsKey),
+            "reactor parts / floor not in this install");
+
+        ShipDocument Pad()
+        {
+            var d = new ShipDocument(cat);
+            for (var x = 6; x <= 18; x++)
+                for (var y = 4; y <= 18; y++)
+                    if (!(x == 12 && y == 12))   // the coils' centre stays open to space
+                        new PlaceCommand(new Placement { DefName = Floor, X = x, Y = y }).Do(d);
+            new PlaceCommand(new Placement { DefName = Coils, X = 10, Y = 10 }).Do(d);
+            new PlaceCommand(new Placement { DefName = CoreOff, X = 10, Y = 10 }).Do(d);
+            return d;
+        }
+
+        var reg = cat.ByDefName[Regulator];
+
+        // The tiles a pose actually claims: the cells its socket ADDS write to. A footprint rectangle overstates
+        // this (a regulator's grid has blank corners), and it is the claimed cells, not the bounding box, that
+        // one part and the next contend over.
+        HashSet<(int, int)> Claimed(int x, int y, int rot)
+        {
+            var (w, h, adds) = GridMath.Rotate(reg.Item.SocketAdds, reg.Item.Width, reg.Item.Height, rot);
+            return (from r in Enumerable.Range(0, h)
+                    from c in Enumerable.Range(0, w)
+                    let i = r * w + c
+                    where i < adds.Length && adds[i] is not (null or "" or "Blank")
+                    select (x + c, y + r)).ToHashSet();
+        }
+
+        // every pose at which a regulator legally attaches to this core
+        var poses = (from rot in new[] { 0, 90, 180, 270 }
+                     from y in Enumerable.Range(5, 13)
+                     from x in Enumerable.Range(5, 13)
+                     where CheckFit.Check(Pad(), reg, x, y, rot, includeEnvelope: false).Ok
+                     select (X: x, Y: y, Rot: rot)).ToList();
+        Assert.True(poses.Count > 1, "expected several legal regulator poses around a core");
+
+        // with one down, a second is legal exactly where it does not contend for the first's tiles
+        var first = poses[0];
+        var doc = Pad();
+        new PlaceCommand(new Placement { DefName = Regulator, X = first.X, Y = first.Y, Rot = first.Rot }).Do(doc);
+        var taken = Claimed(first.X, first.Y, first.Rot);
+        var refused = 0;
+
+        foreach (var p in poses)
+        {
+            var overlaps = Claimed(p.X, p.Y, p.Rot).Overlaps(taken);
+            var fit = CheckFit.Check(doc, reg, p.X, p.Y, p.Rot, includeEnvelope: false);
+            Assert.True(overlaps != fit.Ok,
+                $"regulator at ({p.X},{p.Y}) r{p.Rot} overlaps={overlaps} but CheckFit says Ok={fit.Ok} ({fit.Reason})");
+            if (overlaps) refused++;
+        }
+        Assert.True(refused > 1, "expected several overlapping poses to be refused, not just the identical one");
+
+        // and a component may never cover the coils' vacuum centre, whatever else is there
+        Assert.False(CheckFit.Check(Pad(), reg, 11, 10, 0, includeEnvelope: false).Ok,
+            "a component covering the field coils' centre tile must be refused");
     }
 }

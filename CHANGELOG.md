@@ -23,6 +23,21 @@ each release was verified against is recorded in
   its airlock. Dismissible, for the case where the port is a deliberate internal bay.
 
 ### Fixed
+- **Reactor parts could be built on top of one another, and Ostraplan said nothing.** A design could
+  stack two Reactor Fuel Regulators across six shared tiles, bury a Fusion Core Pump and a Pellet
+  Feeder inside one of them, drop a Laser Capacitor over the top, and pave the Field Coils' centre
+  tile (the one that has to stay open to space) — and the problem scan reported it clean. The same
+  hole applied to air pumps and vents. The cause was a rule added in 0.8.0, which said a sealed floor
+  stops `IsFixture` blocking a placement. Most parts also test `IsObstruction`, so for them nothing
+  changed and the hole stayed hidden. But ten parts — the entire fusion chain, the air pumps and the
+  vents — are guarded by `IsFixture` alone, and for those the rule removed the only occupancy check
+  they had, on every floored tile in the ship. That rule is gone. **The 0.8.0 entry below is wrong**:
+  it claimed the game lets you build a fixture on an under-floor storage bin, and the game refuses
+  that. Nothing goes on top of a sub-floor bin except ceiling-level items, and conduits and overhead
+  lights were never affected either way, because neither one tests `IsFixture` in the first place.
+  Reaching *across* a bin to work an adjacent fixture is a separate question, handled by the crew
+  walkability rules, and is unchanged. A design that scanned clean before may now report blocking
+  problems: those placements were always illegal in game, and would have failed on spawn.
 - **Ammo stacks survive the trip into your save.** A hundred rounds loaded into a PDC arrived
   in game as a hundred separate bullets rather than five stacks of twenty, and rounds added to
   ammo the ship already carried did not arrive at all. Ostranauts stores a stack as one item

@@ -4,43 +4,88 @@ using Xunit;
 namespace Ostraplan.Tests;
 
 /// <summary>
-/// Building on / reaching over a FLOOR FIXTURE. Under-floor storage bins and racks (ItmRackUnder01,
+/// What may sit on a FLOOR FIXTURE. Under-floor storage bins and racks (ItmRackUnder01,
 /// ItmStorageBinFloor…) provide a walkable sealed-floor surface that tags its tiles IsFloorSealed + IsFixture
-/// (never IsObstruction). The common TILObstruction forbid mask lists IsFixture, so a fixture placed on — or
-/// whose access tile falls on — such a floor used to false-flag as "already occupied", even though the game
-/// allows it. CheckFit now treats a sealed floor as a valid base (IsFixture doesn't block there; a real
-/// IsObstruction still does).
+/// (never IsObstruction). The game refuses to build on one: nothing goes on top of a sub-floor bin except
+/// CEILING-LEVEL parts (conduits, overhead lights).
+///
+/// <para>That rule needs no special case, because the game data already draws the line — a conduit forbids only
+/// TILPowerConduitOff and an overhead light only TILLight, so neither tests IsFixture, while a rack's
+/// TILObstruction does. 0.8.0 through 0.44.x carried an exemption that let a sealed floor waive the IsFixture
+/// forbid, which allowed the rack and (far worse) unroofed every part guarded by IsFixture alone. These tests
+/// pin both halves so it cannot come back. See CheckFit's sub-floor-bin note.</para>
 /// </summary>
 public class FloorFixtureTests
 {
+    private const string Bin = "ItmRackUnder01";       // the under-floor rack: sealed floor + IsFixture, no obstruction
+    private const string Rack = "ItmRack1x201";        // an ordinary fixture (forbids TILObstruction)
+    private const string Conduit = "ItmConduit01";     // ceiling level (forbids TILPowerConduitOff)
+    private const string CeilingLight = "ItmLitCeiling1x1";
+
+    /// <summary>The premise the whole rule rests on: a sub-floor bin's surface is sealed floor carrying
+    /// IsFixture but no IsObstruction. If the game data ever stops doing this, every test below is vacuous.</summary>
     [SkippableFact]
-    public void A_fixture_fits_on_a_floor_fixtures_sealed_floor()
+    public void A_subfloor_bin_surface_is_sealed_floor_carrying_a_fixture_but_no_obstruction()
     {
         var g = TestData.RequireGame();
-        Skip.IfNot(g.Catalog.ByDefName.ContainsKey("ItmRackUnder01") && g.Catalog.ByDefName.ContainsKey("ItmRack1x201"),
-            "ItmRackUnder01 / ItmRack1x201 not in this install");
+        Skip.IfNot(g.Catalog.Lookup(Bin) is not null, $"{Bin} not in this install");
 
         var doc = new ShipDocument(g.Catalog);
-        new PlaceCommand(new Placement { DefName = "ItmRackUnder01", X = 0, Y = 0 }).Do(doc);
+        new PlaceCommand(new Placement { DefName = Bin, X = 0, Y = 0 }).Do(doc);
 
-        // The under-rack's central 2×3 (cols 1–2, rows 1–3) is IsFloorSealed + IsFixture; the outer ring is
-        // IsSubTile. A 1×2 rack whose body+right-access (a 2×2 block) lands on that central floor must fit.
-        Assert.True(doc.Conds.At(1, 1)?.ContainsKey("IsFloorSealed") == true, "central tile should be sealed floor");
-        Assert.True(doc.Conds.At(1, 1)?.ContainsKey("IsFixture") == true, "central tile should be a floor fixture");
+        // the bin's central 2×3 (cols 1–2, rows 1–3) is the walkable surface; the outer ring is IsSubTile
+        var at = doc.Conds.At(1, 1);
+        Assert.True(at?.ContainsKey("IsFloorSealed") == true, "central tile should be sealed floor");
+        Assert.True(at?.ContainsKey("IsFixture") == true, "central tile should be a floor fixture");
+        Assert.False(at?.ContainsKey("IsObstruction") == true, "a floor fixture must not be an obstruction");
+    }
 
-        var rack = g.Catalog.Lookup("ItmRack1x201")!;
-        var fit = CheckFit.Check(doc, rack, 1, 1, 0);
-        Assert.True(fit.Ok, "a rack should fit on the under-rack's sealed floor; reason=" + fit.Reason);
+    /// <summary>The regression this file exists for: the game refuses a fixture built on a sub-floor bin, and
+    /// so must the Law. Passing this by waiving IsFixture on a sealed floor is what broke everything else.</summary>
+    [SkippableFact]
+    public void A_fixture_is_refused_on_a_subfloor_bins_sealed_floor()
+    {
+        var g = TestData.RequireGame();
+        Skip.IfNot(g.Catalog.Lookup(Bin) is not null && g.Catalog.Lookup(Rack) is not null,
+            $"{Bin} / {Rack} not in this install");
+
+        var doc = new ShipDocument(g.Catalog);
+        new PlaceCommand(new Placement { DefName = Bin, X = 0, Y = 0 }).Do(doc);
+
+        var fit = CheckFit.Check(doc, g.Catalog.Lookup(Rack)!, 1, 1, 0);
+        Assert.False(fit.Ok, "a rack must not build on a sub-floor bin — the game refuses it");
+    }
+
+    /// <summary>The other half of the rule: ceiling-level parts DO go over a bin. They need no exemption to do
+    /// it, because their forbid masks never test IsFixture — which is exactly why deleting the waiver was safe.</summary>
+    [SkippableTheory]
+    [InlineData(Conduit)]
+    [InlineData(CeilingLight)]
+    public void A_ceiling_level_part_still_fits_over_a_subfloor_bin(string def)
+    {
+        var g = TestData.RequireGame();
+        Skip.IfNot(g.Catalog.Lookup(Bin) is not null && g.Catalog.Lookup(def) is not null,
+            $"{Bin} / {def} not in this install");
+
+        var part = g.Catalog.Lookup(def)!;
+        Assert.DoesNotContain(
+            part.Item.SocketForbids.Where(l => l is not (null or "" or "Blank")).SelectMany(g.Catalog.LootConds),
+            c => c == "IsFixture");
+
+        var doc = new ShipDocument(g.Catalog);
+        new PlaceCommand(new Placement { DefName = Bin, X = 0, Y = 0 }).Do(doc);
+
+        var fit = CheckFit.Check(doc, part, 1, 1, 0);
+        Assert.True(fit.Ok, $"{def} is ceiling level and must still fit over a bin; reason=" + fit.Reason);
     }
 
     [SkippableFact]
     public void A_real_obstruction_still_blocks()
     {
-        // guard the relaxation: an IsObstruction fixture (a normal appliance/wall) must still refuse placement,
-        // even though it is also IsFixture. Only sealed FLOOR fixtures are exempt.
+        // an IsObstruction fixture (a normal appliance/wall) refuses placement, as it always did
         var g = TestData.RequireGame();
-        Skip.IfNot(g.Catalog.ByDefName.ContainsKey("ItmWall1x1") && g.Catalog.ByDefName.ContainsKey("ItmRack1x201"),
-            "ItmWall1x1 / ItmRack1x201 not in this install");
+        Skip.IfNot(g.Catalog.Lookup("ItmWall1x1") is not null && g.Catalog.Lookup(Rack) is not null,
+            $"ItmWall1x1 / {Rack} not in this install");
 
         var doc = new ShipDocument(g.Catalog);
         for (var y = 0; y < 4; y++)
@@ -48,8 +93,7 @@ public class FloorFixtureTests
                 new PlaceCommand(new Placement { DefName = "ItmFloorGrate01", X = x, Y = y }).Do(doc);
         new PlaceCommand(new Placement { DefName = "ItmWall1x1", X = 1, Y = 1 }).Do(doc);   // an obstruction on the floor
 
-        var rack = g.Catalog.Lookup("ItmRack1x201")!;
-        var fit = CheckFit.Check(doc, rack, 1, 1, 0);
-        Assert.False(fit.Ok, "a rack must not fit on top of a wall (IsObstruction), sealed floor or not");
+        var fit = CheckFit.Check(doc, g.Catalog.Lookup(Rack)!, 1, 1, 0);
+        Assert.False(fit.Ok, "a rack must not fit on top of a wall (IsObstruction)");
     }
 }

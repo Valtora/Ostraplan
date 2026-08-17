@@ -21,6 +21,8 @@ public class CheckFitTests
         new("WallAdds", ["IsWall", "IsObstruction"], []),      // like TILWallAdds: seals the tile as obstruction
         new("FixtureAdds", ["IsFixture", "IsObstruction"], []),
         new("Conduit", ["IsPowerConduit"], []),                // a SOFT req/add: what an overhead light wants adjacent
+        new("FloorFixture", ["IsFloor", "IsFloorSealed", "IsFixture"], []),   // TILFloorFixture: a sub-floor bin's walkable top
+        new("FixtureOnly", ["IsFixture"], []),                 // TILFixture: a forbid mask with NO IsObstruction backstop
     ];
 
     // 1x1 sealed floor: no requirements, no forbids -> lays anywhere. Adds sealed floor.
@@ -39,10 +41,24 @@ public class CheckFitTests
         [B, B, B, B, "Floor", "Wall", B, B, B],
         [B, B, B, B, "Obstruction", B, B, B, B]);
 
-    // 1x1 conduit: free-standing, adds a power conduit to its own tile (like ItmConduit00).
+    // 1x1 conduit: free-standing, adds a power conduit to its own tile (like ItmConduit00). Its forbid mask
+    // tests no occupancy at all, which is what lets a real conduit run over a sub-floor bin.
     private static readonly PartDef Conduit = Part("Conduit", 1, ["Conduit"],
         [B, B, B, B, B, B, B, B, B],
         [B, B, B, B, B, B, B, B, B]);
+
+    // 1x1 sub-floor bin (ItmRackUnder01 shape): a walkable sealed floor that is ALSO a fixture, and is
+    // deliberately not an obstruction.
+    private static readonly PartDef SubfloorBin = Part("SubfloorBin", 1, ["FloorFixture"],
+        [B, B, B, B, B, B, B, B, B],
+        [B, B, B, B, B, B, B, B, B]);
+
+    // 1x1 fixture guarded by IsFixture ALONE (the ItmFusionFuelRegulator01 / air-pump / vent shape): needs a
+    // sealed floor beneath, and refuses a tile that already holds a fixture. With no IsObstruction in its mask,
+    // IsFixture is the only thing standing between it and unlimited stacking.
+    private static readonly PartDef ThinFixture = Part("ThinFixture", 1, ["FixtureAdds"],
+        [B, B, B, B, "Floor", B, B, B, B],
+        [B, B, B, B, "FixtureOnly", B, B, B, B]);
 
     // 1x1 overhead light: SOFT-requires a power conduit to the NORTH (idx 1) — the ItmLitCeiling1x1 shape.
     // A soft req records an advisory when unmet but never blocks the pose (CheckFit.SoftReqs / issue #11).
@@ -96,6 +112,37 @@ public class CheckFitTests
         Assert.False(res.Ok);
         Assert.Equal("tile is already occupied", res.Reason);
         Assert.Contains((0, 0), res.FailedCells);
+    }
+
+    [Fact]
+    public void A_sealed_floor_does_not_excuse_an_occupied_tile()
+    {
+        // Regression (DeathStar): a sub-floor bin's top is sealed floor AND a fixture. CheckFit used to waive
+        // the IsFixture forbid wherever IsFloorSealed was present, which for a part guarded by IsFixture alone
+        // left the cell unconstrained — so the fusion chain stacked on itself and scanned clean. A floor you
+        // can build on is not a licence to build on what is standing on it.
+        var cat = Cat(SubfloorBin, ThinFixture, Conduit);
+        var doc = Doc(cat, new Placement { DefName = "SubfloorBin", X = 0, Y = 0 });
+
+        var at = doc.Conds.At(0, 0)!;
+        Assert.True(at.ContainsKey("IsFloorSealed") && at.ContainsKey("IsFixture"));
+        Assert.False(at.ContainsKey("IsObstruction"));   // the bin is walkable, not solid
+
+        var res = CheckFit.Check(doc, ThinFixture, 0, 0, 0, includeEnvelope: false);
+        Assert.False(res.Ok, "a fixture must not build on top of a floor fixture");
+        Assert.Equal("tile is already occupied", res.Reason);
+        Assert.Contains((0, 0), res.FailedCells);
+    }
+
+    [Fact]
+    public void A_ceiling_level_part_still_runs_over_a_floor_fixture()
+    {
+        // The other half: a conduit's mask tests no occupancy, so it crosses the bin under the plain rule.
+        // This is why the waiver was unnecessary as well as harmful.
+        var cat = Cat(SubfloorBin, ThinFixture, Conduit);
+        var doc = Doc(cat, new Placement { DefName = "SubfloorBin", X = 0, Y = 0 });
+
+        Assert.True(CheckFit.Check(doc, Conduit, 0, 0, 0, includeEnvelope: false).Ok);
     }
 
     [Fact]

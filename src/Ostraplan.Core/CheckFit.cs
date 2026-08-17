@@ -46,6 +46,18 @@ public sealed record FitResult(
 /// proximity/LOS (GUIInventory selection), docked-ship WouldConnectShips, and
 /// station-zone (JsonZone) restrictions.</para>
 ///
+/// <para><b>Sub-floor bins take no exemption.</b> An under-floor storage bin or rack
+/// (<c>ItmRackUnder01</c>, <c>ItmStorageBinFloor…</c>) tags its walkable tiles <c>IsFloorSealed</c> +
+/// <c>IsFixture</c> without <c>IsObstruction</c>, and 0.8.0–0.44.x let that <c>IsFloorSealed</c> waive the
+/// <c>IsFixture</c> forbid so a fixture could be built on one. <b>The game refuses that.</b> Nothing may sit on a
+/// sub-floor bin except ceiling-level parts, and those need no help: conduits forbid only
+/// <c>TILPowerConduitOff</c> and overhead lights only <c>TILLight</c>, so neither tests <c>IsFixture</c> and both
+/// place over a bin under the plain rule. The waiver was load-bearing for nothing and silently unroofed every part
+/// whose forbid mask is <c>TILFixture</c> rather than <c>TILObstruction</c> (the fusion chain, air pumps, vents),
+/// because for those <c>IsFixture</c> is the only occupancy guard there is — so they stacked without limit on any
+/// floored tile. Do not reintroduce it. <b>Reachability is a separate system</b>: whether a crew can operate a bin
+/// is <see cref="WalkNetwork"/>'s two-tier destination search, not a socket forbid.</para>
+///
 /// <para>The proximity/LOS gate is <b>not</b> a rule the build menu applies. It runs only when
 /// <c>GUIInventory.instance.Selected != null</c>, which is the hand-drop-from-inventory path;
 /// <c>CrewSim.PaintInstall</c> / <c>PaintPos</c> call CheckFit only when <c>Selected == null</c>, so the two are
@@ -178,25 +190,15 @@ public static class CheckFit
             why = ReasonForReq(missingReq);
             return false;
         }
+        // No exemption here, deliberately — see the sub-floor-bin note on CheckFit. A forbid condition present on
+        // the tile fails the cell, whatever put it there.
         if (at is not null)
-        {
-            // A SEALED-FLOOR surface is a valid base to build on and stand on — even when that floor is a FLOOR
-            // FIXTURE, e.g. an under-floor storage bin / rack (ItmRackUnder01, ItmStorageBinFloor…). Those tag
-            // their walkable tiles IsFloorSealed + IsFixture but never IsObstruction, and the game lets you build
-            // on them (and reach adjacent fixtures across them). The common TILObstruction forbid mask lists
-            // IsFixture, so without this a fixture placed on — or reaching over — such a floor false-flags as
-            // "already occupied". So IsFixture doesn't block on a sealed floor; a genuine IsObstruction still does.
-            var floorFixtureOk = at.ContainsKey("IsFloorSealed");
             foreach (var fc in forbidConds)
-            {
-                if (floorFixtureOk && fc == "IsFixture") continue;
                 if (at.ContainsKey(fc))
                 {
                     why = ReasonForForbid(fc);
                     return false;
                 }
-            }
-        }
         return true;
     }
 

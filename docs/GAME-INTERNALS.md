@@ -407,13 +407,30 @@ For a candidate `(part, anchor, rotation)`:
    permission (whether a tile may be built on when it belongs to a station). This
    is distinct from ship **zones as data**, which are modelled (§17).
 
-> **Floor fixtures are buildable surfaces.** The common `TILObstruction` forbid
-> mask expands to include `IsFixture`. But an under-floor storage bin or rack
-> (`ItmRackUnder01`, `ItmStorageBinFloor…`) tags its walkable tiles `IsFloorSealed`
-> + `IsFixture` (via `TILFloorFixture`) and **never** `IsObstruction`, and the game
-> lets you build on — and reach an adjacent fixture across — that floor. So the cell
-> test does **not** let `IsFixture` trip the forbid on a tile that also carries
-> `IsFloorSealed`; a genuine `IsObstruction` still blocks.
+> **Sub-floor bins are not buildable surfaces, and take no exemption.** An
+> under-floor storage bin or rack (`ItmRackUnder01`, `ItmStorageBinFloor…`) tags its
+> walkable tiles `IsFloorSealed` + `IsFixture` (via `TILFloorFixture`) and **never**
+> `IsObstruction`. It is walkable, but you cannot build on it: the game refuses
+> everything on top of a sub-floor bin **except ceiling-level parts**. That rule needs
+> no special case in the cell test, because the data already draws the line — a conduit
+> forbids only `TILPowerConduitOff` and an overhead light only `TILLight`, so neither
+> expands to `IsFixture` and both cross a bin under the plain rule, while a rack's
+> `TILObstruction` does and is refused.
+>
+> **This was wrong from 0.8.0 to 0.44.x** and is worth stating plainly, because the old
+> text asserted the opposite as verified fact. The waiver ("`IsFixture` does not trip the
+> forbid on a tile that also carries `IsFloorSealed`") let a rack build on a bin, which
+> the game does not allow, and it cost far more than it bought: it also disarmed every
+> part whose forbid mask is `TILFixture` (→ `IsFixture`, `IsFloorFlex`) rather than
+> `TILObstruction` (→ … + `IsObstruction`). Ten palette parts sit in that class — the
+> whole fusion chain, the air pumps and the vents — and for them `IsFixture` is the only
+> occupancy guard there is, so on any floored tile they stacked without limit and scanned
+> clean. Do not reintroduce it.
+>
+> The other half of the old claim, reaching an adjacent fixture *across* such a floor, is
+> a **reachability** question and is not a socket forbid at all. It belongs to the
+> two-tier destination search in §21, whose tier-2 fallback already walks onto a rack when
+> no clean tile is in range.
 
 > **Soft requirement — the overhead-light conduit (deliberate deviation, issue #11).**
 > `IsPowerConduit` is the one req condition Ostraplan does **not** hard-enforce. Among all
