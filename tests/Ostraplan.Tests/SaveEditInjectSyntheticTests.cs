@@ -609,4 +609,54 @@ public class SaveEditInjectSyntheticTests
         Assert.Equal("H-ABC", (string)ship["strRegID"]!);
         Assert.Null(ship["objSS"]);
     }
+
+    // ---- condowners that live in the session record ----
+
+    [Fact]
+    public void A_ship_whose_condowners_live_in_the_session_record_still_injects()
+    {
+        // The game keeps one global CO registry and splits it across records on save: the ship the player is
+        // standing on gets its own COs, every other ship's go to the session record. So an owned ship the player
+        // is away from — which is every apartment, and any second ship — reads back as items with no COs at all,
+        // and the inject used to abort on its own CO-per-item invariant before writing anything.
+        var (cat, items, cos, origins, doc) = ResidenceFixture();
+        var ctx = AwayContext(items, cos, origins);
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
+
+        // the adopted COs are written into the ship record, so the edited ship stands on its own
+        Assert.Equal(["a", "b"], CoIds(ship).OrderBy(x => x, StringComparer.Ordinal));
+        Assert.Equal(["a", "b"], ItemIds(ship).OrderBy(x => x, StringComparer.Ordinal));
+    }
+
+    [Fact]
+    public void An_adopted_condowner_is_kept_verbatim_and_a_deleted_one_is_not_written_back()
+    {
+        var (cat, items, cos, origins, _) = ResidenceFixture();
+        cos[0]!["fFuel"] = 41.5;                       // live state that only exists on the session-record CO
+        var doc = Fixtures.Doc(cat, new Placement { DefName = "Floor", X = 1, Y = 1, OriginStrID = "a" });   // b gone
+        var ctx = AwayContext(items, cos, origins);
+
+        var (ship, report) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
+
+        Assert.Equal(1, report.Deleted);
+        Assert.Equal(["a"], CoIds(ship));
+        Assert.Equal(41.5, (double)((JsonArray)ship["aCOs"]!)[0]!["fFuel"]!);
+    }
+
+    /// <summary>The same fixture as <see cref="Context"/>, but with the ship record's <c>aCOs</c> empty and the COs
+    /// reached the way the import reaches them when the player is elsewhere: through <c>CosById</c>, named by
+    /// <c>RelocatedCoIds</c>.</summary>
+    private static SaveShipContext AwayContext(JsonArray items, JsonArray cos, Dictionary<string, OriginPart> origins)
+    {
+        var ctx = Context(items, new JsonArray(), origins);
+        return new SaveShipContext
+        {
+            Source = ctx.Source, ZipPath = ctx.ZipPath, ShipRecord = ctx.ShipRecord, Origins = ctx.Origins,
+            ItemsById = ctx.ItemsById, Epoch = 0,
+            CosById = cos.Select(n => n!.AsObject()).ToDictionary(o => (string)o["strID"]!, o => (JsonNode)o),
+            SessionEntryName = "Ada.json",
+            RelocatedCoIds = [.. cos.Select(n => (string)n!["strID"]!)],
+        };
+    }
 }

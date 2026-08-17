@@ -185,7 +185,7 @@ public static class SaveEdit
         var outCOs = new JsonArray();
         var outCosById = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
         var powerFixed = 0;
-        foreach (var co in Arr(ctx.ShipRecord, "aCOs"))
+        foreach (var co in SourceCos(ctx))
         {
             var id = Str(co, "strID");
             if (id is not null && (dropSet.Contains(id) || roomCoIds.Contains(id))) continue;
@@ -592,6 +592,7 @@ public static class SaveEdit
         }
         var targetZip = MaterializeCopy(SourceDir(ctx), Path.GetFileName(ctx.ZipPath), outputSaveDir, newMoney);
         SpliceShipInZip(targetZip, ctx.Source.RegId, ship);
+        PruneRelocatedCos(ctx, targetZip);              // no-op unless the ship's COs were in the session record
         PatchPlayerBalance(ctx, targetZip, newMoney);   // no-op unless the player's money lives in another record
     }
 
@@ -614,6 +615,7 @@ public static class SaveEdit
         }
 
         SpliceShipInZip(ctx.ZipPath, ctx.Source.RegId, ship);
+        PruneRelocatedCos(ctx, ctx.ZipPath);             // no-op unless the ship's COs were in the session record
         PatchPlayerBalance(ctx, ctx.ZipPath, newMoney);   // no-op unless the player's money lives in another record
         var saveInfoPath = Path.Combine(SourceDir(ctx), "saveInfo.json");
         if (newMoney is not null && File.Exists(saveInfoPath)) UpdateSaveInfo(saveInfoPath, null, newMoney);
@@ -783,6 +785,16 @@ public static class SaveEdit
     /// to any CO whose def or conds mark it a room, so a Compartment orphaned by an earlier ghost-room episode
     /// is swept up too rather than being preserved forever.</para>
     /// </summary>
+    /// <summary>
+    /// Every condowner the rebuild may keep: this ship record's own, then the ones adopted out of the session
+    /// record for items the record does not cover (see <see cref="SaveShipContext.RelocatedCoIds"/>). Writing the
+    /// adopted ones into the ship record is what makes the edited ship self-contained; the writer then takes them
+    /// out of the session record so no <c>strID</c> is defined twice.
+    /// </summary>
+    private static IEnumerable<JsonNode> SourceCos(SaveShipContext ctx) =>
+        Arr(ctx.ShipRecord, "aCOs")
+            .Concat(ctx.RelocatedCoIds.Select(id => ctx.CosById.GetValueOrDefault(id)).OfType<JsonNode>());
+
     private static HashSet<string> RoomCoIds(SaveShipContext ctx)
     {
         var ids = new HashSet<string>(StringComparer.Ordinal);
@@ -1251,6 +1263,33 @@ public static class SaveEdit
         foreach (var co in Arr(ship, "aCOs"))
             if (co is JsonObject o && Str(o, "strID") == coId) return o;
         return null;
+    }
+
+    /// <summary>
+    /// Take this ship's condowners out of the session record, now that the spliced ship record carries them.
+    ///
+    /// <para>A no-op in the usual case: when the player was standing on the ship being edited, its COs were already
+    /// in its own record and nothing was adopted. Otherwise the same <c>strID</c> would be defined in two records
+    /// and <c>DataHandler.dictCOSaves</c> would keep whichever loaded last — which for an edited CO (re-rolled
+    /// wear, a healed power ticker, a recomputed <c>nDestTile</c>) decides whether the edit took effect at all. The
+    /// room condowners go too: <c>aRooms</c> is regenerated with fresh ids, so the old ones are left referring to
+    /// compartments that no longer exist.</para>
+    /// </summary>
+    private static void PruneRelocatedCos(SaveShipContext ctx, string zipPath)
+    {
+        if (ctx.RelocatedCoIds.Count == 0 || ctx.SessionEntryName is not { Length: > 0 } entryName) return;
+
+        var remove = new HashSet<string>(ctx.RelocatedCoIds, StringComparer.Ordinal);
+        remove.UnionWith(RoomCoIds(ctx));
+
+        using var za = ZipFile.Open(zipPath, ZipArchiveMode.Update);
+        var buffer = new MemoryStream();
+        SessionCos.RemoveInto(za, entryName, remove, buffer);
+
+        za.GetEntry(entryName)!.Delete();
+        buffer.Position = 0;
+        using var dest = za.CreateEntry(entryName).Open();
+        buffer.CopyTo(dest);
     }
 
     /// <summary>

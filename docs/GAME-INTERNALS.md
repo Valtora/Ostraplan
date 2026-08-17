@@ -1430,7 +1430,29 @@ matches no ship's `strName`.
 > Addressing an entry as `ships/<RegID>.json` when the RegID contains a pipe misses the
 > real entry and, on a create-if-absent path, leaves two records claiming one RegID.
 
-> **Ported in Ostraplan:** `SaveImport` (player-ship identification + layout strip).
+> **A ship's condowners are not necessarily in its own record.** *Verified against game
+> `1.0.0.11`.* An item's live state — wear, gas, inventory, power, door position — lives on
+> its condowner, paired to the item by `strID`, but that pairing runs through **one global
+> registry** and not through the record. `Ship.InitShip` copies whatever `json.aCOs` it
+> finds into `DataHandler.dictCOSaves` and then nulls the field, and `Ship.SpawnItems`
+> resolves every item against that dictionary, wherever the entry came from. The writer
+> exploits this: the COs of the ship the player is standing on go into that ship's record,
+> and **every other ship's go into the session record**. In a real save the player's own
+> ship read back as 7686 items against 2 COs, with all 7686 in the character record, while
+> the station they were standing on carried its own 921.
+>
+> So "every `aItems` entry has an `aCOs` entry beside it" holds only for the ship the player
+> is aboard. Anything that reads a ship's live state, or that rebuilds a record and checks
+> the pairing, has to look in the session record too. The exception is a ship that has never
+> been visited (`fLastVisit == 0`, `Ship.IsTemplateShip`): it loads through the
+> `bTemplateOnly` path, which builds condowners from the defs and needs no save entries at
+> all.
+
+> **Ported in Ostraplan:** `SaveImport` (player-ship identification + layout strip);
+> `SessionCos` reads condowners out of the session record and cuts them back out of it, on
+> the bytes rather than through a parser, and `SaveEditImport` adopts the ones an edited
+> ship's own record is missing. **Re-verify per patch:** that the writer still partitions
+> the registry by which ship the player is on.
 
 ### Non-buildable and unresolvable defs
 

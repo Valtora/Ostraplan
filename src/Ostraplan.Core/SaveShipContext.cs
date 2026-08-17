@@ -23,12 +23,19 @@ public sealed record OriginPart(int X, int Y, int Rot, IReadOnlyList<string> Car
 /// on the grid as <see cref="Placement"/>s tagged with <see cref="Placement.OriginStrID"/>; this context is
 /// what those tags resolve to.
 ///
-/// <para>The model (verified against a real save, 2952 items ↔ 2957 COs): every <c>aItems</c> entry is 1:1
-/// with an <c>aCOs</c> entry by <c>strID</c> — that CO carries the item's live state (wear, power, gas,
-/// inventory, door state). Cargo and equipment are sub-objects parented onto items or crew by
-/// <c>strParentID</c>/<c>strSlotParentID</c>. Preserving a part = keeping its item entry, its CO entry, and
-/// its cargo subtree; a newly-added part needs no CO at all (the game builds a default one from the def on
-/// load). Nothing here is written in Phase 1 — the diff only reads <see cref="Origins"/>.</para>
+/// <para>The model: every <c>aItems</c> entry is 1:1 with an <c>aCOs</c> entry by <c>strID</c> — that CO carries
+/// the item's live state (wear, power, gas, inventory, door state). Cargo and equipment are sub-objects parented
+/// onto items or crew by <c>strParentID</c>/<c>strSlotParentID</c>. Preserving a part = keeping its item entry,
+/// its CO entry, and its cargo subtree; a newly-added part needs no CO at all (the game builds a default one from
+/// the def on load). Nothing here is written in Phase 1 — the diff only reads <see cref="Origins"/>.</para>
+///
+/// <para><b>The CO is not necessarily in this record.</b> The pairing is by <c>strID</c> through the game's one
+/// global registry, <c>DataHandler.dictCOSaves</c>, and the save writer partitions it: the COs of the ship the
+/// player is standing on go into that ship's record, and every other ship's go into the session record. So a ship
+/// the player is away from reads back as items with no COs at all. <see cref="CosById"/> is therefore the union of
+/// both, and <see cref="RelocatedCoIds"/> names the ones that came from the session record — the inject writes
+/// them into the ship record and the writer takes them out of the session record, which is the shape the game
+/// itself produces for a ship the player is aboard. See <see cref="SessionCos"/>.</para>
 /// </summary>
 public sealed class SaveShipContext
 {
@@ -80,8 +87,20 @@ public sealed class SaveShipContext
     public required IReadOnlyDictionary<string, JsonNode> ItemsById { get; init; }
 
     /// <summary>Every <c>aCOs</c> entry by <c>strID</c> — the 1:1 live state for each item, plus the handful of
-    /// crew and loot-spawner COs that have no item — for Phase 2's CO filtering.</summary>
+    /// crew and loot-spawner COs that have no item — for Phase 2's CO filtering. The union of this ship's record
+    /// and, for the items it does not cover, the session record (see <see cref="RelocatedCoIds"/>).</summary>
     public required IReadOnlyDictionary<string, JsonNode> CosById { get; init; }
+
+    /// <summary>The session record's entry name, so the writer can edit it. Null when the session record could not
+    /// be read, which also means <see cref="RelocatedCoIds"/> is empty.</summary>
+    public string? SessionEntryName { get; init; }
+
+    /// <summary>The <c>strID</c>s whose CO was found in the session record rather than in this ship's, in the
+    /// order the session record holds them. The inject writes these into the ship record, so the writer must
+    /// delete them from the session record or the same <c>strID</c> would be defined twice and
+    /// <c>dictCOSaves</c> would take whichever record loaded last. Empty in the usual case — the player standing
+    /// on the ship being edited — and then nothing touches the session record at all.</summary>
+    public IReadOnlyList<string> RelocatedCoIds { get; init; } = [];
 
     /// <summary>Each structural part's contained-cargo tree, keyed by its origin <c>strID</c> (the same keys as
     /// <see cref="Origins"/>). A fresh import attaches these to the placements directly; on <c>.oplan</c> reopen

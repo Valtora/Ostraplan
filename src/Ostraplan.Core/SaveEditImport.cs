@@ -104,6 +104,7 @@ public static class SaveEditImport
     private static SaveShipContext BuildContext(SaveSourceRef source, string zipPath, JsonNode shipNode, ShipDocument doc, Catalog catalog, SessionRecord? session, ZipArchive zip, string regId)
     {
         var (itemsById, cosById, children) = ShipJson.Index(shipNode);
+        var relocated = AdoptSessionCos(itemsById, cosById, session, zip);
 
         // one origin per structural (grid-placed) part, keyed by the strID the import tagged it with
         var origins = new Dictionary<string, OriginPart>(StringComparer.Ordinal);
@@ -137,7 +138,36 @@ public static class SaveEditImport
             ItemsById = itemsById,
             CosById = cosById,
             CargoByOrigin = cargoByOrigin,
+            SessionEntryName = session?.EntryName,
+            RelocatedCoIds = relocated,
         };
+    }
+
+    /// <summary>
+    /// Pull in the COs for this ship's items that its own record does not carry, from the session record.
+    ///
+    /// <para>The game keeps one global CO registry and splits it across records on save: the ship the player is
+    /// standing on gets its own COs, every other ship's go to the session record. A ship imported for editing while
+    /// the player is elsewhere therefore arrives as items with no live state at all — no wear, no gas, no
+    /// inventory, no door positions — and an inject built from that would refuse itself for the missing COs. See
+    /// <see cref="SessionCos"/> for why the record is handled as bytes.</para>
+    ///
+    /// <para>Only ids that are items of <b>this</b> ship are taken, so the player's own CO and other ships' crew
+    /// are never touched. Returns the ids adopted and leaves <paramref name="cosById"/> holding the union. The
+    /// usual case — the player aboard — matches every item off the ship record and never opens the session record
+    /// at all.</para>
+    /// </summary>
+    private static IReadOnlyList<string> AdoptSessionCos(
+        IReadOnlyDictionary<string, JsonNode> itemsById, Dictionary<string, JsonNode> cosById,
+        SessionRecord? session, ZipArchive zip)
+    {
+        if (session is null) return [];
+        var missing = new HashSet<string>(itemsById.Keys.Where(id => !cosById.ContainsKey(id)), StringComparer.Ordinal);
+        if (missing.Count == 0) return [];
+
+        var adopted = SessionCos.Read(zip, session.EntryName, missing);
+        foreach (var (id, co) in adopted) cosById[id] = co;
+        return [.. adopted.Keys];
     }
 
     /// <summary>
