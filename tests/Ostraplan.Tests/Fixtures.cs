@@ -43,6 +43,15 @@ public sealed class Fixtures
         return this;
     }
 
+    /// <summary>Register an ITEM loot (<c>strType: "item"</c>): the defs a holder spawns with, and how many of
+    /// each. This is where a garment's pockets and a backpack's pouches come from — see
+    /// <see cref="Catalog.IntrinsicContents"/>.</summary>
+    public Fixtures ItemLoot(string name, params (string DefName, int Count)[] items)
+    {
+        _loots[name] = new LootDef(name, [], []) { Type = "item", Items = items };
+        return this;
+    }
+
     /// <summary>Register a presence-only condtrigger: every req present, no forbid present. Pass
     /// <paramref name="bAnd"/> false for the game's OR form (any one req present is enough), which is what the
     /// vessel and container filters use.</summary>
@@ -80,7 +89,10 @@ public sealed class Fixtures
     /// as a loot named "<c>&lt;name&gt;Adds</c>"), so the part contributes real conditions to the grid.
     /// <paramref name="reqs"/>/<paramref name="forbids"/> are the socket ring the placement law tests
     /// (3×3 flattened for a 1×1). CO-level metadata (container grid, stack limit, base price, map points) via
-    /// the optional args.
+    /// the optional args. <paramref name="slotsWeHave"/> are the paper-doll slots this part offers,
+    /// <paramref name="slotKeys"/> the ones it can be slotted into (its <c>mapSlotEffects</c> keys), and
+    /// <paramref name="defaultLoot"/> the <c>strLoot</c> it spawns with — pair it with <see cref="ItemLoot"/> to
+    /// give a garment its pockets.
     /// <para><paramref name="apron"/> wraps the <c>w×h</c> body in that many rings of under-floor-only
     /// reservation (IsSubTile, no solid body), exactly as the big cryogenic canisters do: the item's socket grid
     /// grows to <c>(w+2a)×(h+2a)</c> while the body it draws and can be swapped for stays <c>w×h</c>. See
@@ -95,7 +107,8 @@ public sealed class Fixtures
         IReadOnlyList<(double X, double Y)>? powerInputs = null, (double X, double Y)? powerOutput = null,
         string[]? lights = null, ShadowBox[]? shadowBoxes = null, bool lightWall = false,
         string[]? interactions = null, IReadOnlyList<(string Instance, string Template)>? gpm = null,
-        int apron = 0, double zScale = 1.0)
+        int apron = 0, double zScale = 1.0,
+        string[]? slotsWeHave = null, string[]? slotKeys = null, string? defaultLoot = null)
     {
         var body = "Blank";
         if (tileConds is { Length: > 0 })
@@ -138,6 +151,9 @@ public sealed class Fixtures
             PowerOutputPoint = powerOutput,
             InteractionNames = interactions ?? [],
             Gpm = gpm ?? [],
+            SlotsWeHave = slotsWeHave ?? [],
+            SlotKeys = slotKeys ?? [],
+            DefaultLoot = defaultLoot,
         };
         _parts.Add(part);
         _byName[name] = part;

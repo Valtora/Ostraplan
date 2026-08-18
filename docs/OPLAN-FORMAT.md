@@ -186,8 +186,9 @@ The design itself, in draw order (array order is preserved). Each entry:
 | `def` | string | The contained item's `strName`. |
 | `strId` | string | The item's save/local id. |
 | `authored` | bool | Whether the item was authored in Ostraplan (vs read from the save). |
+| `intrinsic` | bool | Part of the parent object rather than cargo put into it: a garment's pockets, a backpack's pouches, a PDA's data store. Written out like any other item (the game restores an item as recorded rather than respawning it), but never billed. |
 | `slotted` | bool | In a named slot rather than the free inventory grid. |
-| `slot` | string / absent | The slot name when `slotted`. |
+| `slot` | string / absent | The slot name when `slotted`. Load-bearing: the game re-slots by this name and refuses a null one, so a slotted item without it never attaches to its host. |
 | `x`, `y`, `rot` | int | Grid cell + rotation within the container. |
 | `stack` | int | Stacked count (≥ 1). |
 | `isStack` | bool | Whether this node is a stack head. |

@@ -290,30 +290,52 @@ public static class CargoEdit
     }
 
     /// <summary>
-    /// The containers a def spawns with as part of itself, as authored cargo nodes laid out in the parent's grid
+    /// The containers <paramref name="def"/> spawns with as part of itself, as authored cargo nodes ready to be
+    /// written out — a garment's pockets, a backpack's pouches, a PDA's data store. This is what an item added to
+    /// a container gets automatically; the save writers need it too, for an item that has no cargo tree of its own
+    /// (see <see cref="SaveEdit.EmitIntrinsicContents"/>).
+    /// </summary>
+    public static IReadOnlyList<CargoItem> IntrinsicContentsOf(PartDef def, Catalog catalog) =>
+        IntrinsicChildren(def, catalog, depth: 0);
+
+    /// <summary>
+    /// The containers a def spawns with as part of itself, as authored cargo nodes
     /// (see <see cref="Catalog.IntrinsicContents"/>). Recurses, since a pocket could in principle declare its own,
     /// with a depth cap so a cyclic loot graph cannot spin.
+    ///
+    /// <para>A pocket is <b>slotted</b> onto its host's paper-doll, not dropped into its grid: the game's own
+    /// spawn walks each loot child's <c>mapSlotEffects</c> keys and slots it into the first one the host declares
+    /// (<c>CondOwner.SetData</c>), and the save records that as <c>strSlotParentID</c> plus the CO's
+    /// <c>strSlotName</c>. Written as loose cargo instead, an EVA suit's four compartments have nowhere to go —
+    /// the suit declares no container grid at all, so <c>Ship.SpawnItems</c> finds no <c>objContainer</c> to add
+    /// them to and the suit arrives in game with no slots. Only a child the host has no slot for falls back to the
+    /// grid.</para>
     /// </summary>
     private static List<CargoItem> IntrinsicChildren(PartDef def, Catalog catalog, int depth)
     {
         var kids = new List<CargoItem>();
         if (depth >= 4) return kids;
+        var grid = def.ContainerGrid ?? (6, 6);
+        var taken = new HashSet<string>(StringComparer.Ordinal);   // one slot holds one pocket
         foreach (var (childDef, count) in catalog.IntrinsicContents(def))
         {
             if (catalog.Lookup(childDef) is not { } childPart) continue;
-            var grid = childPart.ContainerGrid ?? (6, 6);
             for (var i = 0; i < count; i++)
             {
-                // pockets are laid out in the parent's own grid, one per free cell, like any other loose item
-                var cell = InventoryGrid.FirstFreeCell(
-                    Math.Max(grid.W, 8), Math.Max(grid.H, 8), kids, childPart.InvSize.W, childPart.InvSize.H)
-                    ?? (X: 0, Y: 0);
+                var slot = Cargo.FreeSlotFor(def, childPart, taken);
+                if (slot is not null) taken.Add(slot);
+                var cell = slot is not null
+                    ? (X: 0, Y: 0)
+                    : InventoryGrid.FirstFreeCell(
+                        grid.W, grid.H, kids.Where(k => !k.Slotted).ToList(),
+                        childPart.InvSize.W, childPart.InvSize.H) ?? (X: 0, Y: 0);
                 kids.Add(new CargoItem(
-                    Guid.NewGuid().ToString(), childDef, childPart.Friendly, Slotted: false,
+                    Guid.NewGuid().ToString(), childDef, childPart.Friendly, Slotted: slot is not null,
                     IntrinsicChildren(childPart, catalog, depth + 1))
                 {
                     Authored = true,
                     Intrinsic = true,
+                    SlotName = slot,
                     GridX = cell.X,
                     GridY = cell.Y,
                     GridW = childPart.InvSize.W,

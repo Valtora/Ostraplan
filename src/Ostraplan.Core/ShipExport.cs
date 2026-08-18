@@ -223,6 +223,9 @@ public static class ShipExport
                 StrCondID = c.DefName + cid,
                 InventoryX = c.GridX,
                 InventoryY = c.GridY,
+                // What the game re-slots a slotted item by on load: Ship.SpawnItems passes this to
+                // compSlots.SlotItem, which returns false on a null name and leaves the item unattached.
+                StrSlotName = c.Slotted ? c.SlotName : null,
                 // A stack head lists its members; a real (drillable) container does not — its children are separate
                 // items positioned by their own inventory cells, not stack members of the container.
                 AStack = c.IsStack && childIds.Count > 0 ? childIds.ToArray() : null,
@@ -1105,6 +1108,11 @@ public sealed class ExportedCondOwnerSave
     /// <summary>On a stack head only: the member <c>strID</c>s the game re-collects into the stack. Null — and
     /// omitted — for a single item or a real container.</summary>
     [JsonPropertyName("aStack")] public string[]? AStack { get; set; }
+
+    /// <summary>On a slotted item only (a garment's pockets, a console's data chip): the paper-doll slot it sits
+    /// in. <c>Ship.SpawnItems</c> re-slots by this name, and <c>Slots.SlotItem</c> refuses a null one, so a
+    /// slotted item without it never attaches to its host. Null — and omitted — for loose grid cargo.</summary>
+    [JsonPropertyName("strSlotName")] public string? StrSlotName { get; set; }
 }
 
 /// <summary>A baked room: tile indices (row-major into nCols×nRows), certified spec, void flag.</summary>

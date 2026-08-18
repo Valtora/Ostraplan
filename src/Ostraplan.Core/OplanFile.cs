@@ -167,7 +167,7 @@ public sealed class OplanFile
             // save re-attach on open leaves it alone (its snapshot is authoritative) and a re-save re-persists it.
             if (part.Cargo is { Count: > 0 } snap)
             {
-                placement.Cargo = snap.Select(c => FromOplanCargo(c, catalog)).ToList();
+                placement.Cargo = FromOplanCargoList(snap, catalog.Lookup(placement.DefName), catalog);
                 doc.MarkCargoEdited(placement);
             }
         }
@@ -242,22 +242,44 @@ public sealed class OplanFile
         Children = c.Children.Count > 0 ? c.Children.Select(ToOplanCargo).ToList() : null,
     };
 
+    /// <summary>
+    /// Rebuild one level of a cargo snapshot, healing pockets an older Ostraplan wrote as loose cargo. An
+    /// intrinsic child (a garment's pocket, a backpack's pouch) belongs in one of its host's named slots, and a
+    /// design saved before that was known holds them unslotted — which is what made an EVA suit reach the game
+    /// with no compartments. Re-slot them here, by the same rule the game uses, so reopening a design is enough
+    /// to correct it; anything the user genuinely put in a container is left where they put it.
+    /// </summary>
+    private static List<CargoItem> FromOplanCargoList(IReadOnlyList<OplanCargo> nodes, PartDef? host, Catalog catalog)
+    {
+        var taken = new HashSet<string>(
+            nodes.Where(n => n.Slotted && n.SlotName is { Length: > 0 }).Select(n => n.SlotName!),
+            StringComparer.Ordinal);
+        return nodes.Select(n => FromOplanCargo(n, host, catalog, taken)).ToList();
+    }
+
     /// <summary>Rebuild a cargo node from its snapshot, re-resolving footprint + friendly name from the catalog.</summary>
-    private static CargoItem FromOplanCargo(OplanCargo o, Catalog catalog)
+    private static CargoItem FromOplanCargo(OplanCargo o, PartDef? host, Catalog catalog, HashSet<string> taken)
     {
         var def = catalog.Lookup(o.Def);
         var (gw, gh) = def?.InvSize ?? (1, 1);
-        var children = (o.Children ?? []).Select(c => FromOplanCargo(c, catalog)).ToList();
-        return new CargoItem(o.StrID, o.Def, def?.Friendly, o.Slotted, children)
+        var children = FromOplanCargoList(o.Children ?? [], def, catalog);
+        var slotted = o.Slotted;
+        var slotName = o.SlotName;
+        if (o.Intrinsic && !slotted && Cargo.FreeSlotFor(host, def, taken) is { } healed)
         {
-            GridX = o.X,
-            GridY = o.Y,
+            taken.Add(healed);
+            (slotted, slotName) = (true, healed);
+        }
+        return new CargoItem(o.StrID, o.Def, def?.Friendly, slotted, children)
+        {
+            GridX = slotted ? 0 : o.X,
+            GridY = slotted ? 0 : o.Y,
             GridRot = GridMath.Norm(o.Rot),
             GridW = gw,
             GridH = gh,
             Stack = o.Stack <= 0 ? 1 : o.Stack,
             IsStack = o.IsStack,
-            SlotName = o.SlotName,
+            SlotName = slotName,
             Authored = o.Authored,
             Intrinsic = o.Intrinsic,
         };

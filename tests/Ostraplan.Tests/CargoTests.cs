@@ -180,4 +180,67 @@ public class CargoTests
     {
         Assert.Empty(Cargo.CloneForest([]));
     }
+
+    /// <summary>The save's own <c>strSlotName</c> is authoritative, and four identical pouches take four
+    /// different slots rather than all resolving to the first one their def names.</summary>
+    [Fact]
+    public void BuildForest_takes_the_slot_the_save_recorded_and_spreads_identical_pockets()
+    {
+        var cat = new Fixtures()
+            .Part("Pouch", container: (1, 1), slotKeys: ["pA", "pB", "pC"])
+            .Part("Pack", container: (2, 2), slotsWeHave: ["pA", "pB", "pC"])
+            .Build();
+        var children = new Dictionary<string, List<string>> { ["bag"] = ["p1", "p2", "p3"] };
+        var itemsById = new Dictionary<string, JsonNode>
+        {
+            ["bag"] = new JsonObject { ["strID"] = "bag", ["strName"] = "Pack" },
+            ["p1"] = new JsonObject { ["strID"] = "p1", ["strName"] = "Pouch", ["strSlotParentID"] = "bag" },
+            ["p2"] = new JsonObject { ["strID"] = "p2", ["strName"] = "Pouch", ["strSlotParentID"] = "bag" },
+            ["p3"] = new JsonObject { ["strID"] = "p3", ["strName"] = "Pouch", ["strSlotParentID"] = "bag" },
+        };
+        var cosById = new Dictionary<string, JsonNode>
+        {
+            ["p2"] = new JsonObject { ["strID"] = "p2", ["strSlotName"] = "pC" },   // the save says otherwise
+        };
+
+        var forest = Cargo.BuildForest("bag", children, itemsById, cosById, cat);
+
+        Assert.Equal("pC", forest.Single(c => c.StrID == "p2").SlotName);
+        Assert.Equal(3, forest.Select(c => c.SlotName).Distinct().Count());
+        Assert.All(forest, c => Assert.True(c.Slotted));
+    }
+
+    /// <summary>
+    /// Regression (Discord, ergo46): a save an older Ostraplan wrote holds a garment's pockets as ordinary
+    /// cargo. Re-importing and writing it back out would keep them that way, so the suit would come up with no
+    /// compartments again. A pocket that is one of its host's own intrinsic contents is re-slotted on import.
+    /// </summary>
+    [Fact]
+    public void BuildForest_reslots_a_pocket_an_older_writer_parented_as_cargo()
+    {
+        var cat = new Fixtures()
+            .ItemLoot("PocketLoot", ("Pocket", 2))
+            .Part("Pocket", container: (1, 2), slotKeys: ["hipL", "hipR"])
+            .Part("Coveralls", defaultLoot: "PocketLoot", slotsWeHave: ["hipL", "hipR"])
+            .Part("Tin", container: (1, 1))
+            .Build();
+        var children = new Dictionary<string, List<string>> { ["suit"] = ["k1", "k2", "tin"] };
+        JsonNode Kid(string id, string def) =>
+            new JsonObject { ["strID"] = id, ["strName"] = def, ["strParentID"] = "suit" };
+        var itemsById = new Dictionary<string, JsonNode>
+        {
+            ["suit"] = new JsonObject { ["strID"] = "suit", ["strName"] = "Coveralls" },
+            ["k1"] = Kid("k1", "Pocket"), ["k2"] = Kid("k2", "Pocket"), ["tin"] = Kid("tin", "Tin"),
+        };
+
+        var forest = Cargo.BuildForest("suit", children, itemsById, NoCos, cat);
+
+        var pockets = forest.Where(c => c.DefName == "Pocket").ToList();
+        Assert.All(pockets, c => Assert.True(c.Slotted));
+        Assert.Equal(new[] { "hipL", "hipR" }, pockets.Select(c => c.SlotName!).Order().ToArray());
+        // anything that is not one of the garment's own pockets is left exactly where it was
+        var tin = Assert.Single(forest, c => c.DefName == "Tin");
+        Assert.False(tin.Slotted);
+        Assert.Null(tin.SlotName);
+    }
 }

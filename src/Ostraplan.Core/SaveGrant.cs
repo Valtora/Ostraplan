@@ -320,6 +320,13 @@ public static class SaveGrant
             if (Str(co, "strID") is { } id) haveCo.Add(id);
 
         var synthesized = new List<(JsonObject Co, PartDef Part)>();
+        // Synthesizing a CO is also what stops the game spawning an item's own pockets, so anything that carries
+        // intrinsic contents has to have them written out here (see SaveEdit.EmitIntrinsicContents). A top-level
+        // item only: contained cargo already came through ShipExport carrying its pockets, and a loose STACK is
+        // never reached because its head CO already exists (so the loop above skips it) — which is right either
+        // way, since nothing carrying intrinsic contents is stackable. Collected first and appended after, since
+        // these add to the very array being walked.
+        var needIntrinsics = new List<(string Id, PartDef Part, double FX, double FY)>();
         foreach (var item in items)
         {
             if (item is not JsonObject obj || Str(obj, "strID") is not { Length: > 0 } id || haveCo.Contains(id)) continue;
@@ -327,9 +334,17 @@ public static class SaveGrant
             var co = SaveEdit.SynthesizeCo(defName, id, catalog, regId, epoch);
             cos.Add(co);
             haveCo.Add(id);
-            if (catalog.Lookup(defName) is { } part) synthesized.Add((co, part));
+            if (catalog.Lookup(defName) is { } part)
+            {
+                synthesized.Add((co, part));
+                if (obj["strParentID"] is null && obj["strSlotParentID"] is null
+                    && CargoEdit.IntrinsicContentsOf(part, catalog).Count > 0)
+                    needIntrinsics.Add((id, part, Dbl(obj, "fX"), Dbl(obj, "fY")));
+            }
             MergeGpm(obj, catalog, defName);
         }
+        foreach (var (id, part, fx, fy) in needIntrinsics)
+            SaveEdit.EmitIntrinsicContents(items, cos, id, part, catalog, regId, epoch, fx, fy);
 
         var wornGrade = opts.SourceCos is { } sourceCos
             ? CarryCondition(doc, sourceCos, itemIdByPlacementId!, synthesized)
@@ -548,6 +563,9 @@ public static class SaveGrant
                 throw new InvalidDataException($"Item '{id}' is parented to missing '{parent}' — grant aborted.");
         }
     }
+
+    private static double Dbl(JsonNode? n, string prop) =>
+        (n as JsonObject)?[prop] is JsonValue v && v.TryGetValue<double>(out var d) ? d : 0.0;
 
     private static string? Str(JsonNode? n, string prop) =>
         (n as JsonObject)?[prop] is JsonValue v && v.TryGetValue<string>(out var s) ? s : null;

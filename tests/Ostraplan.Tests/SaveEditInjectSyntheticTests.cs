@@ -290,6 +290,104 @@ public class SaveEditInjectSyntheticTests
         Assert.Contains((string)widget["strID"]!, CoIds(ship));      // has a CO (or a save load skips it)
     }
 
+    /// <summary>
+    /// Regression (Discord, ergo46): an EVA suit reached the game with no slots. A slotted item needs BOTH
+    /// <c>strSlotParentID</c> on the item AND <c>strSlotName</c> on its condition owner — <c>Ship.SpawnItems</c>
+    /// re-slots by calling <c>compSlots.SlotItem(co.jCOS.strSlotName, co)</c>, and <c>Slots.SlotItem</c> returns
+    /// false outright on a null name, so the pocket never attaches to the garment holding it.
+    /// </summary>
+    [Fact]
+    public void A_garments_pockets_are_injected_slotted_and_named()
+    {
+        var cat = new Fixtures()
+            .Floor("Floor")
+            .Container("Box")
+            .ItemLoot("PocketLoot", ("Pocket", 2))
+            .Part("Pocket", container: (1, 2), slotKeys: ["hipL", "hipR"])
+            .Part("Coveralls", defaultLoot: "PocketLoot", slotsWeHave: ["hipL", "hipR"])
+            .Build();
+        var ctx = Context(
+            new JsonArray(Item("a", "Floor", 100, 200)),
+            new JsonArray(Co("a", "Floor")),
+            new() { ["a"] = new OriginPart(0, 0, 0, []) });
+        var box = new Placement { DefName = "Box", X = 1, Y = 0 };
+        var doc = Fixtures.Doc(cat, new Placement { DefName = "Floor", X = 0, Y = 0, OriginStrID = "a" }, box);
+        var added = CargoEdit.Add(box.Cargo, null, cat.Lookup("Box")!.ContainerGrid!.Value, cat.Lookup("Coveralls")!, 1, cat);
+        new SetCargoCommand(box, box.Cargo, added!).Do(doc);
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
+
+        var garment = Assert.Single(Items(ship), i => (string)i["strName"]! == "Coveralls");
+        var pockets = Items(ship).Where(i => (string)i["strName"]! == "Pocket").ToList();
+        Assert.Equal(2, pockets.Count);
+        Assert.All(pockets, p =>
+        {
+            Assert.Equal((string)garment["strID"]!, (string?)p["strSlotParentID"]);
+            Assert.Null(p["strParentID"]);   // slotted onto the garment, not stored inside it
+        });
+
+        var cos = ((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()).ToList();
+        var names = pockets
+            .Select(p => (string?)cos.Single(c => (string)c["strID"]! == (string)p["strID"]!)["strSlotName"])
+            .ToList();
+        Assert.Equal(new[] { "hipL", "hipR" }, names.Order().ToArray());
+    }
+
+    /// <summary>
+    /// The other half of the pocket problem: a garment dropped straight on the deck has no cargo tree, and the CO
+    /// every loose item must have is exactly what stops the game spawning its pockets itself
+    /// (<c>GetCondOwner</c> runs the loot only when there is no save data). So they are written out here, or the
+    /// garment reaches the save bare and stays useless.
+    /// </summary>
+    [Fact]
+    public void A_garment_dropped_on_the_deck_is_injected_with_its_pockets()
+    {
+        var cat = new Fixtures()
+            .Floor("Floor")
+            .ItemLoot("PocketLoot", ("Pocket", 2))
+            .Part("Pocket", container: (1, 2), slotKeys: ["hipL", "hipR"])
+            .Part("Coveralls", defaultLoot: "PocketLoot", slotsWeHave: ["hipL", "hipR"])
+            .Build();
+        var ctx = Context(
+            new JsonArray(Item("a", "Floor", 100, 200)),
+            new JsonArray(Co("a", "Floor")),
+            new() { ["a"] = new OriginPart(0, 0, 0, []) });
+        var doc = Fixtures.Doc(cat, new Placement { DefName = "Floor", X = 0, Y = 0, OriginStrID = "a" });
+        new PlaceLooseCommand(new LooseObject { DefName = "Coveralls", X = 0, Y = 0 }).Do(doc);
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
+
+        var garment = Assert.Single(Items(ship), i => (string)i["strName"]! == "Coveralls");
+        Assert.Null(garment["strParentID"]);   // still a free-standing item on the deck
+        var pockets = Items(ship).Where(i => (string)i["strName"]! == "Pocket").ToList();
+        Assert.Equal(2, pockets.Count);
+        Assert.All(pockets, p => Assert.Equal((string)garment["strID"]!, (string?)p["strSlotParentID"]));
+        Assert.All(pockets, p => Assert.Equal((double)garment["fX"]!, (double)p["fX"]!));   // rides at its holder
+        var cos = ((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()).ToList();
+        Assert.Equal(
+            new[] { "hipL", "hipR" },
+            pockets.Select(p => (string?)cos.Single(c => (string)c["strID"]! == (string)p["strID"]!)["strSlotName"])
+                .Order().ToArray());
+    }
+
+    [Fact]
+    public void A_loose_item_with_no_pockets_gains_nothing()
+    {
+        // the guard on the above: only a def that actually declares intrinsic containers gets extra items, so a
+        // plain loose item is still exactly one entry.
+        var cat = new Fixtures().Floor("Floor").Part("Widget").Build();
+        var ctx = Context(
+            new JsonArray(Item("a", "Floor", 100, 200)),
+            new JsonArray(Co("a", "Floor")),
+            new() { ["a"] = new OriginPart(0, 0, 0, []) });
+        var doc = Fixtures.Doc(cat, new Placement { DefName = "Floor", X = 0, Y = 0, OriginStrID = "a" });
+        new PlaceLooseCommand(new LooseObject { DefName = "Widget", X = 0, Y = 0 }).Do(doc);
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
+
+        Assert.Equal(2, Items(ship).Count());   // the floor and the widget, nothing else
+    }
+
     [Fact]
     public void A_loose_stack_is_injected_as_a_head_plus_members_with_astack()
     {

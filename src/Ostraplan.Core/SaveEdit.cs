@@ -243,6 +243,10 @@ public static class SaveEdit
                     outItemsById[cid] = citem;
                     var cco = SynthesizeCo(c.DefName, cid, catalog, ctx.Source.RegId, ctx.Epoch);
                     if (c.GridX != 0 || c.GridY != 0) { cco["inventoryX"] = c.GridX; cco["inventoryY"] = c.GridY; }
+                    // A slotted item is re-slotted on load by the NAME its own CO carries — Ship.SpawnItems calls
+                    // compSlots.SlotItem(co.jCOS.strSlotName, co), and SlotItem returns false outright on a null
+                    // name. strSlotParentID alone is not enough: without this the item never attaches to its host.
+                    if (c.Slotted && c.SlotName is { Length: > 0 } cslot) cco["strSlotName"] = cslot;
                     outCOs.Add(cco);
                     SetStackMembers(cco, c, EmitCargo(c.Children, cid, px, py));   // stack members / nested authored contents
                     emitted.Add(cid);
@@ -393,6 +397,12 @@ public static class SaveEdit
                 headCo["aStack"] = memberIds;
             }
             outCOs.Add(headCo);
+            // A garment or backpack dropped straight on the deck needs its pockets written out too: the CO above
+            // is what stops the game spawning them itself. Only for a single — nothing that carries intrinsic
+            // contents stacks (CargoEdit.PlaceInto pins it to 1), and a stack keeps its members where the pockets
+            // would have to go.
+            if (qtyL == 1)
+                EmitIntrinsicContents(outItems, outCOs, headId, lpart, catalog, ctx.Source.RegId, ctx.Epoch, lfx, lfy);
         }
 
         // Grid frame: the part bounding box plus a ONE-TILE MARGIN, which is exactly what the game rebuilds on
@@ -1008,6 +1018,45 @@ public static class SaveEdit
                 ["Amount"] = amount,
                 ["NegativeValue"] = false,
             });
+    }
+
+    /// <summary>
+    /// Emit the containers <paramref name="part"/> spawns with as part of ITSELF — a garment's pockets, a
+    /// backpack's pouches, a PDA's data store — as slotted children of <paramref name="parentId"/>, each with its
+    /// own condition owner naming the slot it occupies.
+    ///
+    /// <para>This is needed wherever a top-level item is given a synthesized CO, because giving it one is exactly
+    /// what stops the game filling the item in for itself. <c>DataHandler.GetCondOwner</c> runs a def's
+    /// <c>strLoot</c> only <c>if (bLoot &amp;&amp; jCOSIn == null)</c>, and an item that has save data takes the
+    /// <c>dictCOSaves</c> branch instead, which recurses with <c>bLoot: false</c>. A save load also skips any item
+    /// with no CO at all (<c>Ship.SpawnItems</c>), so for a save there is no version of this where the loot gets
+    /// to run: the pockets are either written out here or the item never has any. A pure template export is the
+    /// opposite case and needs none of this — a top-level item there carries no CO, so the game spawns it with
+    /// <c>bLoot: true</c> and hands it its own pockets.</para>
+    ///
+    /// <para>Contained cargo does not come through here: it has a real cargo tree, and
+    /// <c>EmitCargo</c> already writes its intrinsic children with the rest of it.</para>
+    /// </summary>
+    internal static void EmitIntrinsicContents(
+        JsonArray outItems, JsonArray outCOs, string parentId, PartDef part, Catalog catalog,
+        string regId, double epoch, double fx, double fy)
+    {
+        foreach (var child in CargoEdit.IntrinsicContentsOf(part, catalog)) Emit(child, parentId);
+
+        void Emit(CargoItem c, string pid)
+        {
+            var id = Guid.NewGuid().ToString();
+            outItems.Add(new JsonObject
+            {
+                ["strName"] = c.DefName, ["fX"] = fx, ["fY"] = fy, ["fRotation"] = 0.0, ["strID"] = id,
+                [c.Slotted ? "strSlotParentID" : "strParentID"] = pid,
+            });
+            var co = SynthesizeCo(c.DefName, id, catalog, regId, epoch);
+            if (c.GridX != 0 || c.GridY != 0) { co["inventoryX"] = c.GridX; co["inventoryY"] = c.GridY; }
+            if (c.Slotted && c.SlotName is { Length: > 0 } slot) co["strSlotName"] = slot;
+            outCOs.Add(co);
+            foreach (var grandchild in c.Children) Emit(grandchild, id);   // a pocket could carry its own
+        }
     }
 
     /// <summary>

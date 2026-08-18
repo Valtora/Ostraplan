@@ -203,6 +203,117 @@ public class ContainerModelTests(ITestOutputHelper output)
         Assert.Contains(Flatten(filled!), c => c.DefName == "ItmTrencherNachoFiesta");
     }
 
+    /// <summary>
+    /// Regression (Discord, ergo46): an EVA suit reached the game "with no slots". Its four compartments are
+    /// SLOTTED onto its paper-doll, not stored in a grid — the suit declares no container grid at all — so
+    /// writing them as loose cargo left <c>Ship.SpawnItems</c> with no <c>objContainer</c> to put them in and
+    /// they never attached. A backpack hid the same fault, because its own 4×4 grid works either way.
+    /// </summary>
+    [SkippableFact]
+    public void An_EVA_suits_compartments_are_slotted_onto_it_not_stored_in_it()
+    {
+        var g = TestData.RequireGame();
+        var suit = g.Catalog.Lookup("OutfitEVA01");
+        Skip.If(suit is null, "OutfitEVA01 not in this install");
+        Assert.False(suit!.IsContainer, "the suit has no grid — the compartments are the whole capacity");
+
+        var cargo = CargoEdit.Add([], null, (6, 6), suit, 1, g.Catalog);
+        var worn = Assert.Single(cargo!);
+        Assert.Equal(4, worn.Children.Count);
+        Assert.All(worn.Children, c => Assert.True(c.Slotted, $"{c.DefName} must be slotted, not loose"));
+        // each compartment lands in the slot the suit declares for it, the way CondOwner.SetData's loot pass does
+        Assert.Equal(
+            new[] { "pocket_clip01", "pocket_EVABatt", "pocket_EVAO2", "pocket_EVACO2" }.Order(),
+            worn.Children.Select(c => c.SlotName!).Order());
+        Assert.All(worn.Children, c => Assert.Contains(c.SlotName!, suit.SlotsWeHave));
+    }
+
+    [SkippableFact]
+    public void A_backpacks_four_identical_pouches_take_four_different_slots()
+    {
+        // All four are the same def, whose mapSlotEffects names all four slots. The game walks those keys and
+        // takes the first slot with room (Slots.SlotItem refuses a full one), so they spread; resolving each one
+        // independently put all four in pouch 1 and lost three of them.
+        var g = TestData.RequireGame();
+        var pack = g.Catalog.Lookup("ItmBackpack01");
+        Skip.If(pack is null, "ItmBackpack01 not in this install");
+
+        var bag = Assert.Single(CargoEdit.Add([], null, (6, 6), pack!, 1, g.Catalog)!);
+        Assert.Equal(4, bag.Children.Count);
+        Assert.All(bag.Children, c => Assert.True(c.Slotted));
+        Assert.Equal(4, bag.Children.Select(c => c.SlotName).Distinct().Count());
+        Assert.DoesNotContain(bag.Children, c => !c.Slotted);   // and none of them eats a cell of the 4×4 grid
+    }
+
+    /// <summary>The slot rule itself, without an install: first key the host declares that is still free.</summary>
+    [Fact]
+    public void A_pocket_takes_the_first_slot_its_host_declares_that_is_still_free()
+    {
+        var cat = new Fixtures()
+            .ItemLoot("PouchLoot", ("Pouch", 3))
+            .Part("Pouch", container: (1, 1), slotKeys: ["pouchA", "pouchB"])
+            .Part("Pack", container: (2, 2), defaultLoot: "PouchLoot", slotsWeHave: ["pouchA", "pouchB"])
+            .Build();
+
+        var bag = Assert.Single(CargoEdit.Add([], null, (6, 6), cat.Lookup("Pack")!, 1, cat)!);
+        Assert.Equal(3, bag.Children.Count);
+        Assert.Equal(["pouchA", "pouchB"], bag.Children.Where(c => c.Slotted).Select(c => c.SlotName!));
+        // the third has no slot left, so it falls back to the host's grid rather than vanishing
+        var spare = Assert.Single(bag.Children, c => !c.Slotted);
+        Assert.Null(spare.SlotName);
+    }
+
+    /// <summary>
+    /// Regression (Discord, ergo46): a design saved before pockets were understood as slotted holds them as loose
+    /// cargo, and would write an EVA suit back into the save with no compartments again. Reopening the design
+    /// re-slots them.
+    /// </summary>
+    [Fact]
+    public void Reopening_a_design_reslots_pockets_an_older_version_stored_as_cargo()
+    {
+        var cat = new Fixtures()
+            .Container("Box")
+            .ItemLoot("PocketLoot", ("Pocket", 2))
+            .Part("Pocket", container: (1, 2), slotKeys: ["hipL", "hipR"])
+            .Part("Coveralls", defaultLoot: "PocketLoot", slotsWeHave: ["hipL", "hipR"])
+            .Build();
+        var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ostraplan-test-{System.Guid.NewGuid():N}.oplan");
+        try
+        {
+            // exactly what the old writer produced: intrinsic pockets, unslotted, sitting in grid cells
+            new OplanFile
+            {
+                Parts =
+                [
+                    new OplanPart
+                    {
+                        Def = "Box", X = 0, Y = 0,
+                        Cargo =
+                        [
+                            new OplanCargo
+                            {
+                                Def = "Coveralls", StrID = "suit", Authored = true,
+                                Children =
+                                [
+                                    new OplanCargo { Def = "Pocket", StrID = "p1", Authored = true, Intrinsic = true, X = 0, Y = 0 },
+                                    new OplanCargo { Def = "Pocket", StrID = "p2", Authored = true, Intrinsic = true, X = 1, Y = 0 },
+                                ],
+                            },
+                        ],
+                    },
+                ],
+            }.Save(tmp);
+
+            var (doc, missing) = OplanFile.Load(tmp).ToDocument(cat);
+
+            Assert.Empty(missing);
+            var suit = Assert.Single(doc.Placements[0].Cargo);
+            Assert.All(suit.Children, c => Assert.True(c.Slotted, "an old design's pockets are re-slotted on open"));
+            Assert.Equal(["hipL", "hipR"], suit.Children.Select(c => c.SlotName!).Order());
+        }
+        finally { System.IO.File.Delete(tmp); }
+    }
+
     [SkippableFact]
     public void Default_loot_that_is_not_a_container_is_left_to_the_user_to_author()
     {

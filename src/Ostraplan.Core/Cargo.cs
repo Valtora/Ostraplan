@@ -118,6 +118,7 @@ public static class Cargo
             if (!children.TryGetValue(parentId, out var kids)) return [];
             var parentDef = catalog.Lookup(Str(itemsById.GetValueOrDefault(parentId), "strName"));
             var result = new List<CargoItem>();
+            var takenSlots = new HashSet<string>(StringComparer.Ordinal);   // one slot holds one item
             foreach (var id in kids)
             {
                 if (!seen.Add(id)) continue;                             // cycle / already placed under another parent
@@ -133,16 +134,24 @@ public static class Cargo
                 // ×N and doesn't offer to drill into a box of itself. Guard on "not a container" so a real container
                 // that happens to hold same-def items (a crate of crates) isn't mistaken for a stack.
                 var isStack = sub.Count > 0 && def?.IsContainer != true && sub.All(k => k.DefName == defName);
-                result.Add(new CargoItem(id, defName, def?.Friendly, slotted, sub)
+                // Heal a pocket an older Ostraplan wrote as ordinary cargo. Only this exact shape is touched: a
+                // child that is one of the host's OWN intrinsic contents, parented rather than slotted, with a
+                // free slot on the host waiting for it. The game cannot produce that (it slots them on spawn) and
+                // neither can the user, so it is always the old writer's doing — and left alone it would be
+                // written straight back out and the suit would come up empty again.
+                var heal = !slotted && IsIntrinsicOf(catalog, parentDef, defName)
+                    && FreeSlotFor(parentDef, def, takenSlots) is not null;
+                var isSlotted = slotted || heal;
+                result.Add(new CargoItem(id, defName, def?.Friendly, isSlotted, sub)
                 {
-                    GridX = Int(co, "inventoryX"),
-                    GridY = Int(co, "inventoryY"),
+                    GridX = isSlotted ? 0 : Int(co, "inventoryX"),
+                    GridY = isSlotted ? 0 : Int(co, "inventoryY"),
                     GridRot = GridMath.Norm((int)Math.Round(Dbl(item, "fRotation"))),   // inventory rotation rides on the item's fRotation
                     GridW = gw,
                     GridH = gh,
                     Stack = isStack ? sub.Count + 1 : 1,
                     IsStack = isStack,
-                    SlotName = slotted ? ResolveSlot(def, parentDef) : null,
+                    SlotName = isSlotted ? ResolveSlot(heal ? null : co, def, parentDef, takenSlots) : null,
                 });
             }
             return result;
@@ -181,16 +190,37 @@ public static class Cargo
             Authored = true,
         };
 
-    /// <summary>The slot an equipped item occupies: its <c>mapSlotEffects</c> key that its parent actually has,
-    /// else its first declared key.</summary>
-    private static string? ResolveSlot(PartDef? childDef, PartDef? parentDef)
+    /// <summary>
+    /// The slot on <paramref name="host"/> that <paramref name="child"/> takes, mirroring how the game itself
+    /// assigns one (<c>CondOwner.SetData</c>'s loot pass): it walks the child's <c>mapSlotEffects</c> keys in
+    /// declaration order and takes the first slot the host declares that still has room, since
+    /// <c>Slots.SlotItem</c> refuses a full slot. <paramref name="taken"/> is the slots the child's siblings
+    /// already hold, which is what puts a backpack's four identical <c>PocketPouchSmall01</c> pouches in four
+    /// different slots rather than all four in the first one. Null when the host has no free slot it fits.
+    /// </summary>
+    public static string? FreeSlotFor(PartDef? host, PartDef? child, IReadOnlySet<string> taken)
     {
-        if (childDef is null || childDef.SlotKeys.Length == 0) return null;
-        if (parentDef is not null)
-            foreach (var key in childDef.SlotKeys)
-                if (Array.IndexOf(parentDef.SlotsWeHave, key) >= 0)
-                    return key;
-        return childDef.SlotKeys[0];
+        if (host is null || child is null) return null;
+        foreach (var key in child.SlotKeys)
+            if (Array.IndexOf(host.SlotsWeHave, key) >= 0 && !taken.Contains(key))
+                return key;
+        return null;
+    }
+
+    /// <summary>True when <paramref name="defName"/> is one of the containers <paramref name="host"/> spawns with
+    /// as part of itself (see <see cref="Catalog.IntrinsicContents"/>) — a pocket, a pouch, a data store.</summary>
+    private static bool IsIntrinsicOf(Catalog catalog, PartDef? host, string defName) =>
+        host is not null && catalog.IntrinsicContents(host).Any(c => c.DefName == defName);
+
+    /// <summary>The slot an equipped item occupies. The save records it outright on the item's condition owner
+    /// (<c>strSlotName</c>, written from <c>slotNow</c>) and that is what the game re-slots by on load, so it wins;
+    /// a template carries no COs, so fall back to the same assignment the game would make, then to the item's first
+    /// declared key so nothing is left unaccounted for.</summary>
+    private static string? ResolveSlot(JsonNode? co, PartDef? childDef, PartDef? parentDef, HashSet<string> taken)
+    {
+        if (Str(co, "strSlotName") is { Length: > 0 } saved) { taken.Add(saved); return saved; }
+        if (FreeSlotFor(parentDef, childDef, taken) is { } free) { taken.Add(free); return free; }
+        return childDef is { SlotKeys.Length: > 0 } ? childDef.SlotKeys[0] : null;
     }
 
     private static string? Str(JsonNode? n, string prop) =>

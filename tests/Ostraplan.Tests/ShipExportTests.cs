@@ -370,6 +370,71 @@ public class ShipExportTests
         Assert.DoesNotContain(ship.ACOs!, c => c.StrID == container.StrID);   // the top-level container needs none
     }
 
+    /// <summary>
+    /// Regression (Discord, ergo46): a garment's pockets are SLOTTED, and the game re-slots them by the name on
+    /// their own CO — <c>Ship.SpawnItems</c> calls <c>compSlots.SlotItem(co.jCOS.strSlotName, co)</c> and
+    /// <c>Slots.SlotItem</c> refuses a null name. Without <c>strSlotName</c> baked alongside
+    /// <c>strSlotParentID</c>, an EVA suit spawns with no compartments at all.
+    /// </summary>
+    [SkippableFact]
+    public void Export_names_the_slot_a_slotted_item_sits_in()
+    {
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
+        var suitDef = g.Catalog.Lookup("OutfitEVA01");
+        Skip.If(suitDef is null, "OutfitEVA01 not in this install");
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        var containerDef = g.Catalog.Parts.FirstOrDefault(p => p.ContainerGrid is not null);
+        if (containerDef is null) return;
+
+        var doc = new ShipDocument(g.Catalog);
+        var p = new Placement { DefName = containerDef.DefName, X = 4, Y = 4 };
+        new PlaceCommand(p).Do(doc);
+        if (CargoEdit.Add(p.Cargo, null, containerDef.ContainerGrid!.Value, suitDef!, 1, g.Catalog) is not { } added) return;
+        new SetCargoCommand(p, p.Cargo, added).Do(doc);
+
+        var (ship, _, _) = ShipExport.Build(doc, g.Catalog, specs, "Suit Ship");
+
+        var suit = Assert.Single(ship.AItems, i => i.StrName == suitDef!.DefName);
+        var pockets = ship.AItems.Where(i => i.StrSlotParentID == suit.StrID).ToList();
+        Assert.Equal(4, pockets.Count);                       // the suit's four compartments
+        Assert.All(pockets, i => Assert.Null(i.StrParentID)); // slotted onto it, not stored in it
+        var names = pockets
+            .Select(i => Assert.Single(ship.ACOs!, c => c.StrID == i.StrID).StrSlotName)
+            .ToList();
+        Assert.All(names, n => Assert.False(string.IsNullOrEmpty(n)));
+        Assert.Equal(4, names.Distinct().Count());            // one slot each, never all four in the first
+        Assert.All(names, n => Assert.Contains(n!, suitDef!.SlotsWeHave));
+    }
+
+    /// <summary>
+    /// The asymmetry that decides where the pocket fix belongs. A template's TOP-LEVEL item carries no CO, so
+    /// <c>Ship.SpawnItems</c> spawns it with <c>bLoot: true</c> and the game hands it its own pockets. Writing
+    /// them explicitly here would suppress nothing and merely race the loot for the same four slots, so a loose
+    /// garment stays a single bare item. The save writers are the opposite case: there every item must have a CO,
+    /// which is what kills the loot, so they write the pockets themselves.
+    /// </summary>
+    [SkippableFact]
+    public void A_loose_garment_in_a_template_is_left_for_the_game_to_fill()
+    {
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
+        var suitDef = g.Catalog.Lookup("OutfitEVA01");
+        Skip.If(suitDef is null, "OutfitEVA01 not in this install");
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+
+        var doc = BuildDooredHull(g.Catalog);
+        new PlaceLooseCommand(new LooseObject { DefName = "OutfitEVA01", X = 2, Y = 2 }).Do(doc);
+
+        var (ship, _, _) = ShipExport.Build(doc, g.Catalog, specs, "Suit On Deck");
+
+        var suit = Assert.Single(ship.AItems, i => i.StrName == suitDef!.DefName);
+        Assert.Null(suit.StrParentID);
+        Assert.Null(suit.StrSlotParentID);
+        Assert.DoesNotContain(ship.AItems, i => i.StrSlotParentID == suit.StrID);   // no pockets written
+        Assert.DoesNotContain(ship.ACOs ?? [], c => c.StrID == suit.StrID);          // and no CO to kill the loot
+    }
+
     [SkippableFact]
     public void Export_carries_a_stack_as_a_lead_plus_members()
     {

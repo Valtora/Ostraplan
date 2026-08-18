@@ -423,8 +423,10 @@ public sealed class InventoryWindow : Window
 
     private bool IsContainerItem(CargoItem item) => _catalog.Lookup(item.DefName)?.IsContainer == true;
 
+    // A slotted container drills too: an EVA suit's compartments and a backpack's pouches are slotted, and an
+    // empty one still has to be openable or there is nowhere to put the battery. Slotted only bars dragging.
     private bool IsDrillable(CargoItem item) =>
-        !item.IsStack && (item.Children.Count > 0 || (Editing && !item.Slotted && IsContainerItem(item)));
+        !item.IsStack && (item.Children.Count > 0 || (Editing && IsContainerItem(item)));
 
     private Border ItemTile(CargoItem item, double w, double h, int count)
     {

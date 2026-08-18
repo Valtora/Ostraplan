@@ -271,6 +271,64 @@ part's wounds — so the two cannot be treated alike.
 > and a save-loaded item is restored as recorded rather than respawned from the def,
 > so nothing ever ran the loot.
 
+#### A pocket is SLOTTED, and the slot is named on its own condition owner
+
+Those pockets are not cargo sitting in a grid. Each is slotted onto its host's
+paper-doll, and a save records that in **two** places:
+
+- on the **item**, `strSlotParentID` instead of `strParentID`;
+- on the item's **condition owner**, `strSlotName` — the slot it occupies
+  (`CondOwner.GetJSON` writes it from `slotNow`).
+
+Both are load-bearing. `Ship.SpawnItems` branches on `strSlotParentID` and re-slots
+by calling `value.compSlots.SlotItem(condOwner.jCOS.strSlotName, condOwner)`, and
+`Slots.SlotItem` returns **false immediately on a null slot name**, which drops the
+item on the floor of the load with an "unprocessed sub items" warning. The other
+branch is worse for a garment: an item written with `strParentID` needs the host to
+have an `objContainer`, and a garment has none at all, so nothing attaches it and
+the host comes up empty.
+
+Which slot each pocket gets is decided the way `CondOwner.SetData` decides it when
+the game runs the loot itself: walk the child's `mapSlotEffects` keys **in
+declaration order** and take the first slot the host declares that still has room
+(`SlotItem` refuses a full slot). That order matters because the four pouches in a
+backpack are all one def, `PocketPouchSmall01`, whose `mapSlotEffects` names all
+four slots — resolving each pouch independently puts all four in `pocket_pouchSm01`
+and loses three of them. An EVA suit is the opposite shape: four different pocket
+defs, one slot key each.
+
+`GetCondOwner` also explains why the loot cannot be relied on to fill this in. It
+runs only `if (bLoot && jCOSIn == null)`, and any item with a baked CO — which every
+piece of authored cargo needs, since a save load skips an item that has none — takes
+the `dictCOSaves` branch that recurses with `bLoot: false`.
+
+**This cuts both ways, and the split is worth stating plainly, because it decides
+which writer owns the pockets.**
+
+| Case | Has a CO? | Loot runs? | Who writes the pockets |
+| --- | --- | --- | --- |
+| Contained cargo, template or save | yes (always required) | no | Ostraplan |
+| Top-level item in a **template** | no | **yes** | the game |
+| Top-level item in a **save** | yes (a save load skips an item without one) | no | Ostraplan |
+
+So a garment lying on the deck of an exported mod ship is left alone, and the same
+garment written into a save — by the write-back or by a grant — needs its pockets
+emitted explicitly. Writing them in the template case would not even suppress the
+loot: the pre-pass that clears `bLoot` keys off `aCondOverrides` on an item with a
+non-empty **`strParentID`**, and a pocket is slotted, so it never joins that set. The
+loot would run anyway and the two sets would race for the same four slots.
+
+> **Ported in Ostraplan:** `Cargo.FreeSlotFor` (the assignment rule, shared by the
+> importer and by `CargoEdit`'s intrinsic materialisation), `CargoItem.SlotName`, and
+> the two writers: `SaveEdit` (`strSlotName` on the synthesized CO) and
+> `ShipExport.ExportedCondOwnerSave.StrSlotName`. On import the save's own
+> `strSlotName` wins, since it is authoritative; a template carries no COs, so the
+> rule above stands in.
+>
+> Without it an EVA suit reached the game **with no slots at all** — the suit is not
+> a container, so its four compartments, written as loose cargo, had nothing to
+> attach to. A backpack hid the same fault behind its own 4×4 grid.
+
 ### Tile-condition accumulation (`Ship.UpdateTiles`)
 
 Each tile holds a condition multiset (`Tile.coProps`). On place or remove,

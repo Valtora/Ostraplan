@@ -33,6 +33,26 @@ apartment, save-record and inventory-grid work).
   quietly doing nothing.
 
 ### Fixed
+- **An EVA suit arrived in game with no slots.** Put one in a container, write the design to your
+  save, and the suit came back with no battery, O2 or filter compartment at all: nowhere to put
+  anything, and no way to power it. A suit's four compartments are *slotted* onto it, the way a
+  helmet slots onto a head, and Ostraplan was writing them as ordinary cargo sitting inside it. A
+  suit is not a container in the first place, so there was nothing for them to sit in and the game
+  attached none of them. The same was true of a backpack's four pouches, a coverall's two hip
+  pockets and a wrist PDA's data store; a backpack looked fine only because its own 4×4 grid works
+  either way. Pockets now go into their slots, one each, and reach your save that way. A design you
+  already saved is corrected when you open it, and so is a ship imported back out of a save that an
+  earlier version wrote, so writing it out again repairs it.
+- **Clothing dropped on the deck reached your save with no pockets.** The same fault by a different
+  route: a garment or backpack laid straight on the floor rather than put in a container arrived
+  bare and stayed useless. Anything written into a save has to carry its own record, and carrying
+  one is exactly what stops the game handing the item its pockets, so they are now written out with
+  it. This covers writing a design back into your save and adding a ship to one. A ship exported as
+  a mod was never affected: the game fills those in itself.
+- Four identical pouches in a backpack imported from a save are shown in four slots rather than
+  three of them being hidden behind the first.
+- An empty pocket can be opened and filled. It was drawn but not openable once slotted, which left
+  an EVA suit's battery compartment visible and unusable.
 - An item wider than the container's grid is no longer narrowed to fit. It was being clamped
   to the grid width, which drew it inside a space it cannot occupy and let the capacity rule
   report it as fitting; the grid now grows to show it whole, as it already did for an item

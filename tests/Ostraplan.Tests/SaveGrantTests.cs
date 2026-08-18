@@ -44,6 +44,41 @@ public class SaveGrantTests
 
     // ---- save shape ----
 
+    /// <summary>
+    /// A grant turns a template into a save record by giving every item a CO, and that is exactly what stops the
+    /// game spawning a garment's pockets for itself. So the grant has to write them, or a suit added to a save
+    /// this way arrives with no compartments — the same fault as writing them as loose cargo did.
+    /// </summary>
+    [Fact]
+    public void A_garment_granted_into_a_save_keeps_its_pockets()
+    {
+        var cat = new Fixtures()
+            .Floor().Wall()
+            .ItemLoot("PocketLoot", ("Pocket", 2))
+            .Part("Pocket", container: (1, 2), slotKeys: ["hipL", "hipR"])
+            .Part("Coveralls", defaultLoot: "PocketLoot", slotsWeHave: ["hipL", "hipR"])
+            .Build();
+        var doc = new ShipDocument(cat);
+        for (var x = 0; x < 4; x++)
+            for (var y = 0; y < 4; y++)
+                Fixtures.Place(doc, x is 0 or 3 || y is 0 or 3 ? "Wall" : "Floor", x, y);
+        new PlaceLooseCommand(new LooseObject { DefName = "Coveralls", X = 1, Y = 1 }).Do(doc);
+
+        var (ship, _) = SaveGrant.BuildShip(doc, cat, NoSpecs, "H-1234", Anchor(), Opts(), epoch: 500);
+
+        var garment = Assert.Single(Items(ship), i => (string?)i["strName"] == "Coveralls");
+        var pockets = Items(ship).Where(i => (string?)i["strName"] == "Pocket").ToList();
+        Assert.Equal(2, pockets.Count);
+        Assert.All(pockets, p => Assert.Equal((string)garment["strID"]!, (string?)p["strSlotParentID"]));
+        // and each names the slot it sits in, or the game refuses to slot it
+        var cos = Cos(ship).ToList();
+        Assert.Equal(
+            new[] { "hipL", "hipR" },
+            pockets.Select(p => (string?)cos.Single(c => (string)c["strID"]! == (string)p["strID"]!)["strSlotName"])
+                .Order().ToArray());
+        Assert.All(Items(ship), i => Assert.Contains((string)i["strID"]!, cos.Select(c => (string)c["strID"]!)));
+    }
+
     [Fact]
     public void Every_item_gets_a_condition_owner()
     {
