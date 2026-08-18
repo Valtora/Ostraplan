@@ -273,6 +273,8 @@ part's wounds — so the two cannot be treated alike.
 
 #### A pocket is SLOTTED, and the slot is named on its own condition owner
 
+*Verified against game `1.0.0.11`.*
+
 Those pockets are not cargo sitting in a grid. Each is slotted onto its host's
 paper-doll, and a save records that in **two** places:
 

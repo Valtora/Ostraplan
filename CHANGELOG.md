@@ -10,7 +10,7 @@ each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.7**, and **1.0.0.11** for the
 apartment, save-record and inventory-grid work).
 
-## [Unreleased]
+## [0.90.0] 2026-08-18, deck inventories, rotation in hand, and pockets that work
 
 ### Added
 - **"View contents" now opens an item, not just a container.** Anything on the deck that can hold something
