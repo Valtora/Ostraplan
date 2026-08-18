@@ -60,6 +60,12 @@ public sealed record PartDef(
     /// block it occupies in a container's grid (the game's <c>GUIInventoryItem.GetWidthHeightForCO</c>).</summary>
     public (int W, int H) InvSize { get; init; } = (1, 1);
 
+    /// <summary>Whether this item may be turned on an inventory grid. Sheet items (walls, floors) never rotate:
+    /// the game's <c>Item.RotateCW</c> returns immediately for <c>bHasSpriteSheet</c> and the <c>fLastRotation</c>
+    /// setter is guarded the same way, so a rotation authored for one would not survive a load. A square footprint
+    /// has no second orientation to offer either.</summary>
+    public bool CanRotateInInventory => !Item.HasSpriteSheet && InvSize.W != InvSize.H;
+
     /// <summary>If this part is a container, its inventory grid dimensions in tiles (the def's
     /// <c>nContainerWidth</c>×<c>nContainerHeight</c>, defaulting to 6×6 when it is a container but declares no
     /// grid — matching the game's <c>Container</c> default). Null when the part isn't a container.</summary>

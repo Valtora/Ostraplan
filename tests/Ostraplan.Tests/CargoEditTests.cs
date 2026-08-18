@@ -9,9 +9,9 @@ namespace Ostraplan.Tests;
 /// the capacity block ("the Law" for cargo), and removal (one, whole, cascade).</summary>
 public class CargoEditTests
 {
-    private static PartDef Item(string name, int stackLimit = 1, int w = 1, int h = 1) =>
+    private static PartDef Item(string name, int stackLimit = 1, int w = 1, int h = 1, bool sheet = false) =>
         new(name, name + " (friendly)", "MISC", "test",
-            new ItemDef(name, "", false, null, 0, 1, [], [], []),
+            new ItemDef(name, "", sheet, null, 0, 1, [], [], []),
             "sprite.png", [], [], [], new Dictionary<string, double>(), new Dictionary<string, (double, double)>())
         { StackLimit = stackLimit, InvSize = (w, h) };
 
@@ -189,5 +189,100 @@ public class CargoEditTests
     {
         // a 3×1 in a 3×1 grid: rotating to 1×3 exceeds the one-tall grid -> reject
         Assert.Null(CargoEdit.Rotate([Cargo("a", w: 3, h: 1)], "a", null, (3, 1)));
+    }
+
+    [Fact]
+    public void Rotate_moves_the_item_when_its_own_cell_cannot_take_the_swap()
+    {
+        // a 1×3 in the LAST column of a 3-wide grid: swapped to 3×1 it would run off the right edge, so anchoring
+        // the top-left would refuse a turn there is plainly room for. It slides to a cell that takes it instead.
+        var result = CargoEdit.Rotate([Cargo("a", x: 2, y: 0, w: 1, h: 3)], "a", null, (3, 5));
+        var rot = Assert.Single(result!);
+        Assert.Equal(90, rot.GridRot);
+        Assert.Equal((3, 1), (rot.EffW, rot.EffH));
+        Assert.True(rot.GridX + rot.EffW <= 3 && rot.GridY + rot.EffH <= 5);
+    }
+
+    [Fact]
+    public void Rotate_keeps_the_footprint_centred_where_it_was()
+    {
+        // a 1×3 at (1,1) spans rows 1-3 about a centre at row 2; flat, that centre puts it at (0,2)
+        var result = CargoEdit.Rotate([Cargo("a", x: 1, y: 1, w: 1, h: 3)], "a", null, (3, 5));
+        var rot = Assert.Single(result!);
+        Assert.Equal((0, 2), (rot.GridX, rot.GridY));
+    }
+
+    [Fact]
+    public void Rotate_refuses_a_sheet_item()
+    {
+        // walls and floors never turn: the game's Item.RotateCW returns immediately for bHasSpriteSheet, so a
+        // rotation authored for one would not survive a load
+        var wallDef = Item("ItmWall", w: 2, h: 1, sheet: true);
+        var catalog = new Catalog
+        {
+            Parts = [wallDef],
+            ByDefName = new Dictionary<string, PartDef> { ["ItmWall"] = wallDef },
+            Loots = new Dictionary<string, LootDef>(),
+            Triggers = new Dictionary<string, CondTriggerDef>(),
+            Warnings = [],
+        };
+        var wall = new CargoItem("a", "ItmWall", "Wall", Slotted: false, []) { GridW = 2, GridH = 1 };
+        Assert.Null(CargoEdit.Rotate([wall], "a", null, (6, 6), catalog));
+        Assert.NotNull(CargoEdit.Rotate([wall], "a", null, (6, 6)));   // geometry alone still allows it
+    }
+
+    [Fact]
+    public void Move_can_set_the_rotation_the_item_lands_in()
+    {
+        // a drag turned in hand commits pose and rotation together: a 1×3 laid flat fits a 3-wide grid at row 4
+        var result = CargoEdit.Move([Cargo("a", w: 1, h: 3)], "a", null, (3, 5), 0, 4, rot: 90);
+        var moved = Assert.Single(result!);
+        Assert.Equal(90, moved.GridRot);
+        Assert.Equal((0, 4), (moved.GridX, moved.GridY));
+    }
+
+    [Fact]
+    public void Move_checks_the_fit_against_the_rotation_it_would_land_in()
+    {
+        // upright, the same 1×3 would need rows 4-6 of a 5-tall grid
+        Assert.Null(CargoEdit.Move([Cargo("a", w: 1, h: 3)], "a", null, (3, 5), 0, 4));
+    }
+
+    // ---- rotation-aware capacity ----
+
+    [Fact]
+    public void Add_lays_an_item_on_its_side_once_it_no_longer_fits_upright()
+    {
+        // the reported case: a 3×5 Polaris decoy launcher takes five 1×3 decoy missiles, three upright and two
+        // flat across the band left over, not the three an upright-only packer would allow.
+        var missile = Item("ItmAmmoDecoyMissile01", w: 1, h: 3);
+        var result = CargoEdit.Add([], null, (3, 5), missile, 5);
+        Assert.NotNull(result);
+        Assert.Equal(5, result!.Count);
+        Assert.Equal(3, result.Count(c => c.GridRot == 0));
+        Assert.Equal(2, result.Count(c => c.GridRot == 90));
+    }
+
+    [Fact]
+    public void MaxAddable_counts_the_rotated_orientation()
+    {
+        Assert.Equal(5, CargoEdit.MaxAddable([], null, (3, 5), Item("ItmAmmoDecoyMissile01", w: 1, h: 3)));
+    }
+
+    [Fact]
+    public void MaxAddable_stops_at_the_upright_count_for_an_item_that_cannot_turn()
+    {
+        // a sheet item never rotates, so the same grid holds only the three that fit upright
+        Assert.Equal(3, CargoEdit.MaxAddable([], null, (3, 5), Item("ItmWallPanel", w: 1, h: 3, sheet: true)));
+    }
+
+    [Fact]
+    public void Add_tops_up_a_rotated_container_to_capacity_from_a_partial_fill()
+    {
+        var missile = Item("ItmAmmoDecoyMissile01", w: 1, h: 3);
+        var three = CargoEdit.Add([], null, (3, 5), missile, 3)!;
+        Assert.Equal(2, CargoEdit.MaxAddable(three, null, (3, 5), missile));
+        Assert.NotNull(CargoEdit.Add(three, null, (3, 5), missile, 2));
+        Assert.Null(CargoEdit.Add(three, null, (3, 5), missile, 3));   // and no more than that
     }
 }

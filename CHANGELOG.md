@@ -8,7 +8,38 @@ release tags.
 Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.7**, and **1.0.0.11** for the
-apartment and save-record work).
+apartment, save-record and inventory-grid work).
+
+## [Unreleased]
+
+### Changed
+- **A container holds what it can actually hold.** Adding cargo now lays an item on its side
+  once it no longer fits upright, instead of counting only the standing orientation and
+  calling the container full. A 3×5 Polaris decoy launcher takes **five** 1×3 decoy missiles,
+  three upright and two flat across the band left over, where it used to take three. The
+  quantity the Add item picker offers counts both orientations, so it stops at the real
+  capacity. Dropping an item into another container follows the same rule. Walls and floors
+  are excluded, because the game refuses to turn them at all.
+- **Rotating an item works from wherever it is.** **R** during a drag now turns the item in
+  hand and the drop commits its position and rotation together, which is how the game does
+  it. **R** on a selected item turns it where it sits, pivoting about its own centre and
+  sliding to the nearest cell that takes the turned footprint. Previously it pinned the
+  item's top-left corner and refused outright, so a tall item in the last column of a grid
+  could never be laid flat however much room there was one column over.
+- **Dragging shows you where the item is going.** The dragged item rides centred on the
+  cursor (the game's own drop anchor) rather than landing with its corner where the pointer
+  was, its ghost is drawn at the footprint it will occupy, and the landing cell is marked on
+  the grid in green or red as you move. A drop into a full container says so instead of
+  quietly doing nothing.
+
+### Fixed
+- An item wider than the container's grid is no longer narrowed to fit. It was being clamped
+  to the grid width, which drew it inside a space it cannot occupy and let the capacity rule
+  report it as fitting; the grid now grows to show it whole, as it already did for an item
+  too tall.
+- Two same-def items stored at one cell in different orientations are drawn as two items
+  rather than merged into a stack of two under one of their footprints. Real saves park
+  everything at (0,0), so this was reachable.
 
 ## [0.88.0] 2026-08-17, apartments
 

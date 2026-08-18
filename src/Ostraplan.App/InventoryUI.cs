@@ -17,10 +17,18 @@ namespace Ostraplan.App;
 ///
 /// <para>When opened with an edit context (a <see cref="ShipDocument"/> + <see cref="CommandStack"/> + the root
 /// <see cref="Placement"/>) it also <b>edits</b> loose cargo, undoably: "Add item" offers only what the container
-/// accepts (<see cref="ContainerFilter"/>) into the first free cell (blocked when full — "the Law"); right-click
-/// removes one or the whole stack; and items can be <b>dragged</b> to a new cell, onto a container tile (to move
-/// inside), or onto the breadcrumb (to move out), <b>rotated</b> with R, and moved out via a right-click menu.
-/// Every edit rebuilds the container's <see cref="Placement.Cargo"/>. Equipped-gear slots stay read-only.</para>
+/// accepts (<see cref="ContainerFilter"/>) into the first free cell, turning an item on its side when it no longer
+/// fits upright and blocking only when neither orientation does ("the Law"); right-click removes one or the whole
+/// stack; and items can be <b>dragged</b> to a new cell, onto a container tile (to move inside), or onto the
+/// breadcrumb (to move out), and moved out via a right-click menu. Every edit rebuilds the container's
+/// <see cref="Placement.Cargo"/>. Equipped-gear slots stay read-only.</para>
+///
+/// <para><b>R rotates.</b> During a drag it turns the item in hand: the ghost re-draws at the new footprint and
+/// nothing is committed until the drop, which is the game's own model (<c>GUIInventory.RotateCWSelected</c> swaps
+/// the footprint with no fit check and leaves validity to the drop). With nothing in hand it turns the selected
+/// item where it sits, about its centre. A drag also draws its landing footprint on the grid, green when the drop
+/// is legal and red when it is not, so a refusal is visible before the button comes up rather than as a snap-back
+/// with no explanation.</para>
 /// </summary>
 public sealed class InventoryWindow : Window
 {
@@ -53,11 +61,15 @@ public sealed class InventoryWindow : Window
     private (int W, int H) _currentGrid = (6, 6);
     private readonly List<(FrameworkElement El, string? ContainerId)> _crumbTargets = [];
 
-    // drag state
+    // drag state. A drag carries its own rotation so R turns the item in hand and the drop commits pose and
+    // rotation as one edit — the game's model, where rotation is done to a picked-up item and the drop is what
+    // validates it (GUIInventory.RotateCWSelected has no fit check of its own).
     private CargoItem? _dragItem;
     private bool _dragging;
     private Point _dragStart;
+    private int _dragRot;
     private Image? _ghost;
+    private Border? _dropHint;   // the landing footprint drawn on the grid, green when it fits and red when it doesn't
 
     private sealed record Crumb(string Title, string? ContainerId);
 
@@ -106,6 +118,7 @@ public sealed class InventoryWindow : Window
             PreviewKeyDown += OnKeyDown;
             PreviewMouseMove += OnDragMove;
             PreviewMouseLeftButtonUp += OnDragUp;
+            LostMouseCapture += (_, _) => EndDrag();   // capture stolen (an alt-tab, a menu): abandon the drag
         }
         Render();
     }
@@ -189,7 +202,7 @@ public sealed class InventoryWindow : Window
             if (Editing)
                 _body.Children.Add(new TextBlock
                 {
-                    Text = "Drag to move · onto a box to nest · onto the trail to move out · R rotates · right-click to remove",
+                    Text = "Drag to move, R turns it in hand · onto a box to nest · onto the trail to move out · right-click to remove",
                     Foreground = Dim, FontSize = 11, Margin = new Thickness(0, 0, 0, 6), TextWrapping = TextWrapping.Wrap,
                 });
         }
@@ -417,20 +430,7 @@ public sealed class InventoryWindow : Window
     {
         var drillable = IsDrillable(item);   // a stack's "children" are copies, not cargo — never drillable
 
-        // The stored sprite is authored upright; when a grid item is rotated its footprint (EffW/EffH) is swapped
-        // but the sprite must turn with it, or a rotated item is squashed into the swapped cell (a tall missile
-        // laid flat renders as a stretched sliver). Rotate the BITMAP itself (a rigid 90° pixel turn, dimensions
-        // swapped) then let Stretch.Uniform fit it into the cell as usual — so no aspect distortion and no layout
-        // overflow from an over-tall holder. Slot cells never rotate.
-        var bmp = Bmp(item.DefName);
-        var rot = item.Slotted ? 0 : GridMath.Norm(item.GridRot);
-        if (rot != 0)
-        {
-            var turned = new TransformedBitmap(bmp, new RotateTransform(rot));
-            turned.Freeze();
-            bmp = turned;
-        }
-        var img = PixelImage(bmp);
+        var img = PixelImage(Bmp(item.DefName, item.Slotted ? 0 : item.GridRot));   // slot cells never rotate
 
         var overlay = new Grid();
         overlay.Children.Add(img);   // badges (below) stay upright in the cell corners
@@ -452,7 +452,7 @@ public sealed class InventoryWindow : Window
             ToolTip = (item.Friendly ?? item.DefName)
                 + (count > 1 ? $"  ×{count}" : "")
                 + (drillable ? $"  ({item.SubtreeCount - 1} inside — click to open)" : "")
-                + (Editing && !item.Slotted ? "  · drag to move · R to rotate · right-click to remove" : ""),
+                + (Editing && !item.Slotted ? "  · drag to move (R turns it) · right-click to remove" : ""),
         };
         if (Editing && !item.Slotted)
         {
@@ -573,6 +573,7 @@ public sealed class InventoryWindow : Window
     private void StartDrag(CargoItem item, MouseButtonEventArgs e)
     {
         _dragItem = item;
+        _dragRot = GridMath.Norm(item.GridRot);
         _dragStart = e.GetPosition(_overlay);
         _dragging = false;
     }
@@ -585,18 +586,131 @@ public sealed class InventoryWindow : Window
         {
             if (Math.Abs(p.X - _dragStart.X) < 4 && Math.Abs(p.Y - _dragStart.Y) < 4) return;   // a click, not a drag yet
             _dragging = true;
-            _ghost = new Image { Source = Bmp(_dragItem.DefName), Width = 40, Height = 40, Opacity = 0.7, IsHitTestVisible = false };
-            RenderOptions.SetBitmapScalingMode(_ghost, BitmapScalingMode.NearestNeighbor);
-            if (GridMath.Norm(_dragItem.GridRot) is var gr and not 0)
-            {
-                _ghost.RenderTransformOrigin = new Point(0.5, 0.5);
-                _ghost.RenderTransform = new RotateTransform(gr);
-            }
-            _overlay.Children.Add(_ghost);
+            // Capture once the drag is real (not on mouse-down, so a plain click is untouched). Without it a
+            // release outside the window never reaches OnDragUp and the drag stays live into the next click.
+            CaptureMouse();
+            BuildGhost();
         }
+        PositionGhost(p);
+        UpdateDropHint();
+    }
+
+    /// <summary>(Re)build the drag ghost at the footprint the item would occupy at its pending rotation, so what
+    /// follows the cursor is the size and orientation that will actually land.</summary>
+    private void BuildGhost()
+    {
+        if (_dragItem is not { } item) return;
+        if (_ghost is not null) _overlay.Children.Remove(_ghost);
+        var (w, h) = Footprint(item, _dragRot);
+        _ghost = new Image
+        {
+            Source = Bmp(item.DefName, _dragRot),
+            Width = w * CellPx,
+            Height = h * CellPx,
+            Stretch = Stretch.Uniform,
+            Opacity = 0.7,
+            IsHitTestVisible = false,
+        };
+        RenderOptions.SetBitmapScalingMode(_ghost, BitmapScalingMode.NearestNeighbor);
+        _overlay.Children.Add(_ghost);
+    }
+
+    /// <summary>Centre the ghost on the cursor, matching the game's own drop anchor (see <see cref="DropCell"/>).</summary>
+    private void PositionGhost(Point p)
+    {
         if (_ghost is null) return;
-        Canvas.SetLeft(_ghost, p.X - 20);
-        Canvas.SetTop(_ghost, p.Y - 20);
+        Canvas.SetLeft(_ghost, p.X - _ghost.Width / 2);
+        Canvas.SetTop(_ghost, p.Y - _ghost.Height / 2);
+    }
+
+    /// <summary>The footprint an item occupies at <paramref name="rot"/>, in tiles — <see cref="CargoItem.EffW"/>/
+    /// <see cref="CargoItem.EffH"/> for a rotation the item does not carry yet.</summary>
+    private static (int W, int H) Footprint(CargoItem item, int rot) =>
+        GridMath.Norm(rot) % 180 == 0 ? (item.GridW, item.GridH) : (item.GridH, item.GridW);
+
+    /// <summary>
+    /// The top-left cell a drop at <paramref name="gp"/> (grid-canvas coordinates) lands on, for a
+    /// <paramref name="w"/>×<paramref name="h"/> footprint. The item is centred on the cursor rather than
+    /// anchored by its top-left corner, which is the game's rule: <c>GUIInventoryWindow.PairXYFromLocalPoint</c>
+    /// subtracts half the item's extent (its pixel size less one cell, swapped when the rotation is vertical)
+    /// before dividing by the cell size. Grabbing a 1×3 missile by its middle and dropping it therefore leaves it
+    /// where the cursor is, instead of shunting it a tile down.
+    /// <para>Truncation toward zero is the game's too, and is what makes a drop just past the top or left edge
+    /// settle into row or column 0 rather than miss the grid.</para>
+    /// </summary>
+    private static (int X, int Y) DropCell(Point gp, int w, int h) => (
+        (int)((gp.X - (w - 1) * CellPx / 2.0) / CellPx),
+        (int)((gp.Y - (h - 1) * CellPx / 2.0) / CellPx));
+
+    /// <summary>Draw where the drop would land: the container tile it would nest into, or the footprint it would
+    /// occupy, green when that is legal and red when it is not. Removed when the pointer is off the grid.</summary>
+    private void UpdateDropHint()
+    {
+        ClearDropHint();
+        if (!_dragging || _dragItem is not { } item || _gridCanvas is not { } canvas || _lastLayout is not { } layout) return;
+
+        var gp = Mouse.GetPosition(canvas);
+        if (gp.X < 0 || gp.Y < 0 || gp.X >= canvas.ActualWidth || gp.Y >= canvas.ActualHeight) return;
+
+        Rect rect;
+        Brush stroke;
+        if (NestTarget(layout, item, gp) is { } onto)
+        {
+            rect = new Rect(onto.X * CellPx, onto.Y * CellPx, onto.W * CellPx, onto.H * CellPx);
+            stroke = Accent;   // drop-to-nest, the same colour the drillable badge uses
+        }
+        else
+        {
+            var (w, h) = Footprint(item, _dragRot);
+            var (cx, cy) = DropCell(gp, w, h);
+            rect = new Rect(cx * CellPx, cy * CellPx, w * CellPx, h * CellPx);
+            // Ask the model rather than re-deriving the rule: this is exactly the edit the drop will attempt.
+            var fits = CargoEdit.Move(_root!.Cargo, item.StrID, _path[^1].ContainerId, _currentGrid, cx, cy, _dragRot) is not null;
+            stroke = fits ? ThemeManager.Good : ThemeManager.Bad;
+        }
+
+        _dropHint = new Border
+        {
+            Width = rect.Width,
+            Height = rect.Height,
+            BorderBrush = stroke,
+            BorderThickness = new Thickness(2),
+            // A wash of the same colour, so the footprint reads as a block and not just an outline. The theme
+            // brushes are frozen, hence a fresh brush rather than an Opacity set on the shared one.
+            Background = stroke is SolidColorBrush solid ? new SolidColorBrush(solid.Color) { Opacity = 0.18 } : null,
+            IsHitTestVisible = false,
+        };
+        Canvas.SetLeft(_dropHint, rect.X);
+        Canvas.SetTop(_dropHint, rect.Y);
+        canvas.Children.Add(_dropHint);
+    }
+
+    /// <summary>Tear down the drag visuals and state, leaving the tree untouched. The caller decides what (if
+    /// anything) the drag commits.</summary>
+    private void EndDrag()
+    {
+        if (_ghost is not null) { _overlay.Children.Remove(_ghost); _ghost = null; }
+        ClearDropHint();
+        _dragItem = null;      // cleared before the release, so the LostMouseCapture handler it raises is a no-op
+        _dragging = false;
+        if (IsMouseCaptured) ReleaseMouseCapture();
+    }
+
+    private void ClearDropHint()
+    {
+        if (_dropHint is null) return;
+        (_dropHint.Parent as Canvas)?.Children.Remove(_dropHint);
+        _dropHint = null;
+    }
+
+    /// <summary>The container tile under <paramref name="gp"/> that <paramref name="item"/> would nest into, or
+    /// null when the pointer is not over one.</summary>
+    private PackedItem? NestTarget(GridLayoutResult layout, CargoItem item, Point gp)
+    {
+        int cx = (int)(gp.X / CellPx), cy = (int)(gp.Y / CellPx);
+        return layout.Items.FirstOrDefault(pi => pi.Item.StrID != item.StrID
+            && cx >= pi.X && cx < pi.X + pi.W && cy >= pi.Y && cy < pi.Y + pi.H
+            && !pi.Item.IsStack && IsContainerItem(pi.Item));
     }
 
     private void OnDragUp(object sender, MouseButtonEventArgs e)
@@ -604,9 +718,8 @@ public sealed class InventoryWindow : Window
         if (_dragItem is null) return;
         var item = _dragItem;
         var dragged = _dragging;
-        if (_ghost is not null) { _overlay.Children.Remove(_ghost); _ghost = null; }
-        _dragItem = null;
-        _dragging = false;
+        var rot = _dragRot;
+        EndDrag();
 
         if (!dragged)   // a plain click: drill a container, else select
         {
@@ -626,12 +739,13 @@ public sealed class InventoryWindow : Window
             var gp = e.GetPosition(canvas);
             if (gp.X >= 0 && gp.Y >= 0 && gp.X < canvas.ActualWidth && gp.Y < canvas.ActualHeight)
             {
-                int cx = (int)(gp.X / CellPx), cy = (int)(gp.Y / CellPx);
-                var onto = layout.Items.FirstOrDefault(pi => pi.Item.StrID != item.StrID
-                    && cx >= pi.X && cx < pi.X + pi.W && cy >= pi.Y && cy < pi.Y + pi.H
-                    && !pi.Item.IsStack && IsContainerItem(pi.Item));
-                if (onto is not null) MoveToTarget(item, onto.Item.StrID);
-                else MoveWithin(item, cx, cy);
+                if (NestTarget(layout, item, gp) is { } onto) MoveToTarget(item, onto.Item.StrID);
+                else
+                {
+                    var (w, h) = Footprint(item, rot);
+                    var (cx, cy) = DropCell(gp, w, h);
+                    MoveWithin(item, cx, cy, rot);
+                }
             }
         }
         // dropped nowhere useful → snap back (no change)
@@ -641,15 +755,17 @@ public sealed class InventoryWindow : Window
     private Rect BoundsIn(FrameworkElement el) =>
         el.TransformToVisual(_overlay).TransformBounds(new Rect(new Point(0, 0), el.RenderSize));
 
-    /// <summary>Move an item to a cell of the CURRENT container (a rearrange).</summary>
-    private void MoveWithin(CargoItem item, int x, int y)
+    /// <summary>Move an item to a cell of the CURRENT container (a rearrange), landing in <paramref name="rot"/>
+    /// when the drag turned it in hand.</summary>
+    private void MoveWithin(CargoItem item, int x, int y, int? rot = null)
     {
-        if (CargoEdit.Move(_root!.Cargo, item.StrID, _path[^1].ContainerId, _currentGrid, x, y) is { } result)
+        if (CargoEdit.Move(_root!.Cargo, item.StrID, _path[^1].ContainerId, _currentGrid, x, y, rot) is { } result)
         {
             _selectedId = item.StrID;
             Commit(result);
         }
-        // else: doesn't fit → snap back (leave unchanged)
+        // else: doesn't fit → snap back (leave unchanged). The drop hint was already showing red, so the refusal
+        // is not news and a dialog here would only be in the way.
     }
 
     /// <summary>Move an item into another container (a nested box, or an ancestor on the breadcrumb) — into its
@@ -669,19 +785,43 @@ public sealed class InventoryWindow : Window
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
-        if (InventoryGrid.FirstFreeCell(grid.W, grid.H, loose, item.EffW, item.EffH) is not { } cell) return;   // full
-        if (CargoEdit.Move(_root!.Cargo, item.StrID, containerId, grid, cell.X, cell.Y) is { } result)
+        // The item lands in whatever orientation the target has room for, turning it on its side when it no
+        // longer fits upright — the same rule the add picker uses.
+        var canRotate = _catalog.Lookup(item.DefName)?.CanRotateInInventory == true;
+        if (InventoryGrid.FirstFreeCellRotated(grid.W, grid.H, loose, item.GridW, item.GridH, canRotate) is not { } cell)
+        {
+            MessageBox.Show(this, $"No room left in “{def.Friendly}” for {item.Friendly ?? item.DefName}.",
+                "Won't fit", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+        if (CargoEdit.Move(_root!.Cargo, item.StrID, containerId, grid, cell.X, cell.Y, cell.Rot) is { } result)
         {
             _selectedId = item.StrID;
             Commit(result);
         }
     }
 
+    /// <summary>Turn the selected item 90° where it sits (see <see cref="CargoEdit.Rotate"/>, which pivots about
+    /// its centre and takes the nearest cell that fits). Rotating an item held in a drag goes through
+    /// <see cref="RotateDrag"/> instead.</summary>
     private void RotateSelected()
     {
         if (_selectedId is not { } id) return;
-        if (CargoEdit.Rotate(_root!.Cargo, id, _path[^1].ContainerId, _currentGrid) is { } result)
-            Commit(result);   // else: rotated footprint doesn't fit → leave as is
+        if (CargoEdit.Rotate(_root!.Cargo, id, _path[^1].ContainerId, _currentGrid, _catalog) is { } result)
+            Commit(result);   // else: nothing in the grid takes the swapped footprint → leave as is
+    }
+
+    /// <summary>Turn the item currently held in a drag, in hand: the ghost and the drop hint re-draw at the new
+    /// orientation and nothing is committed until the drop. Sheet items (walls, floors) refuse, as they do
+    /// everywhere else.</summary>
+    private void RotateDrag()
+    {
+        if (_dragItem is not { } item || !_dragging) return;
+        if (_catalog.Lookup(item.DefName) is { Item.HasSpriteSheet: true }) return;
+        _dragRot = GridMath.Norm(_dragRot + 90);
+        BuildGhost();
+        PositionGhost(Mouse.GetPosition(_overlay));
+        UpdateDropHint();
     }
 
     /// <summary>Apply a rebuilt cargo tree for the root placement through the command stack (undoable), then
@@ -699,6 +839,14 @@ public sealed class InventoryWindow : Window
         {
             case Key.Delete when _selectedId is { } id:
                 Remove(CargoEdit.RemoveOne(_root!.Cargo, id));
+                e.Handled = true;
+                break;
+            case Key.Escape when _dragging:
+                EndDrag();   // abandon the drag, leaving the item where it was
+                e.Handled = true;
+                break;
+            case Key.R when _dragging:
+                RotateDrag();   // turn the item in hand; the drop commits it
                 e.Handled = true;
                 break;
             case Key.R:
@@ -720,6 +868,21 @@ public sealed class InventoryWindow : Window
 
     private BitmapSource Bmp(string defName) =>
         _catalog.Lookup(defName) is { } part ? _sprites.Thumb(part) : _sprites.Missing;
+
+    /// <summary>The item's sprite turned to <paramref name="rot"/>. The stored sprite is authored upright; when a
+    /// grid item is rotated its footprint (EffW/EffH) is swapped but the sprite must turn with it, or a rotated
+    /// item is squashed into the swapped cell (a tall missile laid flat renders as a stretched sliver). Rotating
+    /// the BITMAP itself (a rigid 90° pixel turn, dimensions swapped) then letting Stretch.Uniform fit it into the
+    /// cell gives no aspect distortion and no layout overflow from an over-tall holder.</summary>
+    private BitmapSource Bmp(string defName, int rot)
+    {
+        var bmp = Bmp(defName);
+        var r = GridMath.Norm(rot);
+        if (r == 0) return bmp;
+        var turned = new TransformedBitmap(bmp, new RotateTransform(r));
+        turned.Freeze();
+        return turned;
+    }
 
     private static Image PixelImage(BitmapSource bmp)
     {

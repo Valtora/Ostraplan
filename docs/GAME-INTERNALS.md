@@ -43,6 +43,7 @@ run one**. See [When a sweep is warranted](#when-a-sweep-is-warranted) in sectio
 - [22. The ship diagnostic (`ShipStatus.PrintStatus`)](#22-the-ship-diagnostic-shipstatusprintstatus)
 - [23. Atmospheric flight (lift, drag and rotors)](#23-atmospheric-flight-lift-drag-and-rotors)
 - [24. What a canister holds (`GasContainer`)](#24-what-a-canister-holds-gascontainer)
+- [25. The inventory grid (`GridLayout`, `GUIInventoryItem`)](#25-the-inventory-grid-gridlayout-guiinventoryitem)
 - [Appendix A — Quick reference](#appendix-a--quick-reference)
 - [Appendix B — Ported / deferred / excluded](#appendix-b--ported--deferred--excluded)
 
@@ -2367,6 +2368,96 @@ from the amounts, so only the amounts need writing.
 > the `R`/`StatGasTemp` capacity formula, the `+150` kPa burst margin, and whether the data
 > has started declaring H2 / H2O / He2. `ContainerFillTests` pins the capacity against the
 > real defs and asserts those three are still undeclared, so drift surfaces there.
+
+---
+
+## 25. The inventory grid (`GridLayout`, `GUIInventoryItem`)
+
+*Verified against **1.0.0.11**.*
+
+A container's contents are laid out on a `GridLayout`, a `nContainerWidth` ×
+`nContainerHeight` array of condowner ids. Every cell an item covers holds that item's id,
+so occupancy and identity are the same table.
+
+### Where an item lands
+
+`GUIInventoryItem.AddToWindow`, which runs once per item as a window opens:
+
+1. Start from the item's persisted cell, `CondOwner.pairInventoryXY` (the save's
+   `inventoryX` / `inventoryY`).
+2. `GridLayout.FindNearestUnoccupiedTile` — the free rect nearest that cell by **squared
+   distance**, scanned row-major so ties resolve top-left-most.
+3. Failing that, `FindFirstUnoccupiedTile` — the first free rect, row-major.
+4. Failing that, `Debug.Log("Could not fit inventory item on grid - panic!")` and the item
+   is **not drawn**. It stays in the container (containment is `strParentID`, not the
+   window), it just has nowhere to appear.
+
+Most saved items sit at (0,0) because a container never opened in-game never materialised a
+layout, so step 2 is what produces the arrangement a player actually sees.
+
+### The footprint, and how rotation rides on it
+
+`GetWidthHeightForCO` resolves an item's tile footprint, in this precedence:
+
+```
+w, h = item.nWidthInTiles, item.nHeightInTiles      the live Item component's geometry
+if def.inventoryWidth  != 0:  w = def.inventoryWidth        overrides, NOT rotation-aware
+if def.inventoryHeight != 0:  h = def.inventoryHeight
+```
+
+**Rotation survives a save round trip through the first line, not the second.** Loading sets
+`Item.fLastRotation`, whose setter spins `Item.RotateCW` until the angle matches, and
+`RotateCW` ends with `Swap(ref nWidthInTiles, ref nHeightInTiles)`. So the geometry read
+back on the next load is already turned, and a rotated item reserves the same cells it
+reserved before the save.
+
+> The `inventoryWidth` / `inventoryHeight` override is the hole in that: it is applied after
+> the swap and is never itself swapped, so an item whose def declares one would reload
+> holding its un-rotated footprint while still drawing turned. **No core condowner declares
+> either field** (0 of 1,120 on a stock 1.0.0.9 install), so nothing in the vanilla game
+> reaches it, but a mod could.
+
+`RotateCW` returns immediately for `bHasSpriteSheet`, and the `fLastRotation` setter is
+guarded the same way, so **sheet items (walls, floors) never rotate** — in a container just
+as on the ship grid (§5).
+
+### Rotation happens in hand, and the drop is what validates it
+
+There is **no rotate-in-place operation.** `CommandRotateItem` does nothing unless
+`GUIInventory.instance.Selected` is set, meaning an item is picked up and following the
+cursor. `RotateCWSelected` then turns the transform −90°, updates `fRotLast`, and swaps
+`itemWidthOnGrid` / `itemHeightOnGrid` — **with no fit check at all.** Legality is settled
+later, by `PlaceAtScreenPosition` → `IsGoodPlacement`, when the item is dropped.
+
+The drop cell is **centred on the cursor**, not anchored by the item's top-left.
+`GUIInventoryWindow.PairXYFromLocalPoint`:
+
+```
+cell = (int)(localPoint - (pixelExtent - oneCell) / 2) / oneCell
+```
+
+where `pixelExtent` is the item's drawn size with width and height swapped when the rotation
+is vertical. In tile terms that is `cursorCell − (footprint − 1) / 2`, the same centring
+`ShipCanvas.TryPlacePose` uses for the armed brush. The cast truncates toward zero, which is
+what lets a drop just past the top or left edge settle into row or column 0.
+
+### What the game never does
+
+The search never turns an item to make it fit: `FindNearestUnoccupiedTile` and
+`FindFirstUnoccupiedTile` read the footprint as it stands. Nor does the game have an
+add-item-to-container operation at all, so there is nothing to be faithful to when Ostraplan
+places one. Trying the transpose is therefore Ostraplan's own rule rather than a divergence,
+and what it writes is a state the game reproduces exactly on load, per the round trip above.
+
+> **Ported in Ostraplan:** `InventoryGrid.Pack` (the nearest-then-first fill),
+> `InventoryGrid.FirstFreeCellRotated` (the capacity rule, with the transpose Ostraplan adds),
+> `CargoItem.EffW`/`EffH` (the swapped footprint), `CargoEdit.Move`/`Rotate`, and
+> `InventoryWindow`'s drag (cursor-centred drop, R turning the item in hand). Ostraplan grows
+> the grid rather than hiding an item that will not fit, where the game panics and draws
+> nothing.
+> **Re-verify on a major game version:** `GetWidthHeightForCO`'s precedence,
+> `Item.RotateCW`'s swap, and whether any shipped def has started declaring
+> `inventoryWidth` / `inventoryHeight`.
 
 ---
 

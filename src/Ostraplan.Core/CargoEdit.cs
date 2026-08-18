@@ -12,6 +12,11 @@ namespace Ostraplan.Core;
 /// <c>nStackLimit</c> — so several of one thing occupy one tile with an ×N count. <b>Removing</b>
 /// (<see cref="RemoveOne"/>/<see cref="RemoveWhole"/>) takes one from a stack or the whole node; removing a
 /// container removes its contents with it (they leave the tree, so the write-back drops them).</para>
+///
+/// <para><b>Rotation</b> is a real part of the footprint here, not decoration: an item that will not fit upright
+/// is laid on its side rather than refused (<see cref="InventoryGrid.FirstFreeCellRotated"/>), which is what lets
+/// a 3×5 decoy launcher take five 1×3 missiles instead of three. Sheet items (walls, floors) are excluded, as they
+/// are on the ship grid, because the game refuses to rotate them at all.</para>
 /// </summary>
 public static class CargoEdit
 {
@@ -40,7 +45,9 @@ public static class CargoEdit
     /// <summary>The largest quantity of <paramref name="itemDef"/> that would still fit the container identified by
     /// <paramref name="containerId"/> (<c>null</c> = the root placement) given its current contents — the cap the
     /// add-picker clamps its quantity to. Exact: it reuses the same packing/stacking <see cref="Add"/> performs
-    /// (topping up partial same-def stacks first, then laying new stacks into free cells), found by binary search.
+    /// (topping up partial same-def stacks first, then laying new stacks into free cells, turning one on its side
+    /// once it no longer fits upright), found by binary search — which is sound because that placement is greedy
+    /// and per-item, so a quantity that fits implies every smaller one does.
     /// Returns 0 if the container is full for this item or isn't in the tree.</summary>
     public static int MaxAddable(IReadOnlyList<CargoItem> rootCargo, string? containerId, (int W, int H) grid, PartDef itemDef)
     {
@@ -91,11 +98,16 @@ public static class CargoEdit
     /// drop is predictable. Returns <c>null</c> (the caller snaps back) if the item's footprint (rotation-adjusted)
     /// doesn't fit at the cell or the target isn't in the tree. The caller enforces the container's item filter
     /// (<see cref="ContainerFilter"/>) for a cross-container move.
+    /// <para><paramref name="rot"/> sets the orientation the item lands in, so a drag that was turned in hand
+    /// commits its position and its rotation as one edit — the game's own model, where rotation happens to a
+    /// picked-up item and the drop is what validates it. Null keeps the item's current rotation.</para>
     /// </summary>
     public static IReadOnlyList<CargoItem>? Move(
-        IReadOnlyList<CargoItem> rootCargo, string itemId, string? targetContainerId, (int W, int H) targetGrid, int x, int y)
+        IReadOnlyList<CargoItem> rootCargo, string itemId, string? targetContainerId, (int W, int H) targetGrid,
+        int x, int y, int? rot = null)
     {
         if (!TryDetach(rootCargo, itemId, out var node, out var without) || node.Slotted) return null;
+        if (rot is { } r) node = node with { GridRot = GridMath.Norm(r) };
         var kids = ChildrenOf(without, targetContainerId);
         if (kids is null) return null;   // target container no longer exists
         var loose = Materialize(kids.Where(k => !k.Slotted).ToList(), targetGrid);
@@ -105,20 +117,42 @@ public static class CargoEdit
         return ReplaceChildren(without, targetContainerId, newKids);
     }
 
-    /// <summary>Rotate the loose item <paramref name="itemId"/> 90° clockwise in place within container
+    /// <summary>
+    /// Rotate the loose item <paramref name="itemId"/> 90° clockwise within container
     /// <paramref name="containerId"/> (<c>null</c> = root), swapping its footprint (the game's inventory rotate).
-    /// Returns <c>null</c> if the rotated footprint no longer fits its cell (the caller leaves it unrotated).</summary>
-    public static IReadOnlyList<CargoItem>? Rotate(IReadOnlyList<CargoItem> rootCargo, string itemId, string? containerId, (int W, int H) grid)
+    /// Returns <c>null</c> when the item cannot be turned at all: it is a sheet item, or no cell in the grid takes
+    /// the swapped footprint (the caller leaves it as it was).
+    ///
+    /// <para>The turn is about the item's <b>centre</b>, not its top-left cell, and falls back to the nearest cell
+    /// that does take it. Pinning the top-left instead makes rotation impossible wherever the swapped footprint
+    /// runs off the far edge — a 1×3 in the last column of a 3-wide grid could never be laid flat, though there
+    /// was room for it one column over. The game never hits this because it has no in-place rotate at all: there,
+    /// rotation happens to an item held in hand and the drop decides where it lands (see
+    /// <see cref="InventoryGrid"/>), which is what the drag path does. This is the keyboard shortcut's analogue of
+    /// the same thing.</para>
+    /// </summary>
+    /// <param name="catalog">Resolves the def to refuse a sheet item. Optional: geometry alone is checked when
+    /// it is absent.</param>
+    public static IReadOnlyList<CargoItem>? Rotate(
+        IReadOnlyList<CargoItem> rootCargo, string itemId, string? containerId, (int W, int H) grid,
+        Catalog? catalog = null)
     {
         var kids = ChildrenOf(rootCargo, containerId);
         if (kids is null) return null;
         var loose = Materialize(kids.Where(k => !k.Slotted).ToList(), grid);
         var idx = loose.FindIndex(i => i.StrID == itemId);
         if (idx < 0) return null;
-        var rotated = loose[idx] with { GridRot = GridMath.Norm(loose[idx].GridRot + 90) };
+        var item = loose[idx];
+        if (catalog?.Lookup(item.DefName) is { Item.HasSpriteSheet: true }) return null;   // walls and floors never turn
+
+        var rotated = item with { GridRot = GridMath.Norm(item.GridRot + 90) };
         var others = loose.Where((_, i) => i != idx).ToList();
-        if (!FitsAt(others, grid, rotated.EffW, rotated.EffH, rotated.GridX, rotated.GridY)) return null;
-        loose[idx] = rotated;
+        // Keep the footprint's centre where it was, then take the nearest cell that fits if that anchor doesn't.
+        var anchorX = item.GridX + (item.EffW - rotated.EffW) / 2;
+        var anchorY = item.GridY + (item.EffH - rotated.EffH) / 2;
+        if (NearestFit(others, grid, rotated.EffW, rotated.EffH, anchorX, anchorY) is not { } cell) return null;
+
+        loose[idx] = rotated with { GridX = cell.X, GridY = cell.Y };
         var newKids = new List<CargoItem>(loose);
         newKids.AddRange(kids.Where(k => k.Slotted));
         return ReplaceChildren(rootCargo, containerId, newKids);
@@ -167,6 +201,28 @@ public static class CargoEdit
         return true;
     }
 
+    /// <summary>The cell nearest (<paramref name="nearX"/>,<paramref name="nearY"/>) that takes a
+    /// <paramref name="w"/>×<paramref name="h"/> rect, by squared distance and row-major on a tie — the same rule
+    /// as the game's <c>GridLayout.FindNearestUnoccupiedTile</c>. Null when nothing in the grid takes it.</summary>
+    private static (int X, int Y)? NearestFit(
+        IReadOnlyList<CargoItem> siblings, (int W, int H) grid, int w, int h, int nearX, int nearY)
+    {
+        var gw = grid.W > 0 ? grid.W : 6;
+        var gh = grid.H > 0 ? grid.H : 6;
+        (int X, int Y)? best = null;
+        var bestD = long.MaxValue;
+        for (var y = 0; y + h <= gh; y++)
+            for (var x = 0; x + w <= gw; x++)
+            {
+                long dx = x - nearX, dy = y - nearY;
+                var d = dx * dx + dy * dy;
+                if (d >= bestD || !FitsAt(siblings, grid, w, h, x, y)) continue;
+                best = (x, y);
+                bestD = d;
+            }
+        return best;
+    }
+
     // ---- placement / stacking ----
 
     private static IReadOnlyList<CargoItem>? PlaceInto(
@@ -196,21 +252,25 @@ public static class CargoEdit
                 remaining -= add;
             }
 
-        // 2. new stacks/singles into free cells (each occupies one cell; the loop re-packs so cells don't collide)
+        // 2. new stacks/singles into free cells (each occupies one block; the loop re-packs so cells don't collide).
+        //    An item that no longer fits upright is laid on its side before the container is called full.
         while (remaining > 0)
         {
             var take = Math.Min(limit, remaining);
-            if (InventoryGrid.FirstFreeCell(grid.W, grid.H, result, def.InvSize.W, def.InvSize.H) is not { } cell)
-                return null;   // won't fit the declared grid — capacity reached
-            result.Add(Stack(def, cell.X, cell.Y, take, catalog));
+            if (InventoryGrid.FirstFreeCellRotated(
+                    grid.W, grid.H, result, def.InvSize.W, def.InvSize.H, def.CanRotateInInventory) is not { } cell)
+                return null;   // won't fit the declared grid in either orientation — capacity reached
+            result.Add(Stack(def, cell.X, cell.Y, take, catalog, cell.Rot));
             remaining -= take;
         }
         return result;
     }
 
     /// <summary>An authored stack (or single, when <paramref name="count"/> is 1) of <paramref name="def"/> at a
-    /// grid cell — a lead item plus <paramref name="count"/>−1 same-def members, mirroring the game's storage.</summary>
-    private static CargoItem Stack(PartDef def, int gx, int gy, int count, Catalog? catalog = null)
+    /// grid cell — a lead item plus <paramref name="count"/>−1 same-def members, mirroring the game's storage.
+    /// <paramref name="rot"/> is the orientation it was placed in; the members carry none of their own, since a
+    /// stack occupies the lead item's block.</summary>
+    private static CargoItem Stack(PartDef def, int gx, int gy, int count, Catalog? catalog = null, int rot = 0)
     {
         var members = new List<CargoItem>();
         for (var i = 1; i < count; i++) members.Add(Member(def));
@@ -223,6 +283,7 @@ public static class CargoEdit
             GridY = gy,
             GridW = def.InvSize.W,
             GridH = def.InvSize.H,
+            GridRot = GridMath.Norm(rot),
             Stack = count,
             IsStack = count > 1,
         };

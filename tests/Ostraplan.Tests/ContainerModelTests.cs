@@ -45,6 +45,44 @@ public class ContainerModelTests(ITestOutputHelper output)
     }
 
     [SkippableFact]
+    public void A_real_decoy_launcher_holds_five_missiles_by_laying_two_flat()
+    {
+        var g = TestData.RequireGame();
+        var launcher = g.Catalog.Lookup("ItmShipWeaponDecoyLauncher01");
+        var missile = g.Catalog.Lookup("ItmAmmoDecoyMissile01");
+        Skip.If(launcher is null || missile is null, "decoy launcher/missile not in this install");
+
+        // Real defs: the launcher declares a 3×5 container grid, the missile is 1 col × 3 socket adds.
+        Assert.Equal((3, 5), launcher!.ContainerGrid!.Value);
+        Assert.Equal((1, 3), missile!.InvSize);
+
+        // Three fit upright across the columns; the 3×2 band left over takes two more laid flat. Counting only
+        // the upright orientation reports 3 and calls the launcher full, which is what it used to do.
+        Assert.Equal(5, CargoEdit.MaxAddable([], null, launcher.ContainerGrid!.Value, missile));
+
+        var filled = CargoEdit.Add([], null, launcher.ContainerGrid!.Value, missile, 5, g.Catalog);
+        Assert.NotNull(filled);
+        Assert.Equal(5, filled!.Count);
+        Assert.Equal(2, filled.Count(c => c.EffW == 3 && c.EffH == 1));
+
+        // and the result is a legal layout: every item inside the declared grid, none overlapping another
+        var layout = InventoryGrid.Pack(3, 5, filled);
+        Assert.Equal((3, 5), (layout.Width, layout.Height));   // no growth — it genuinely fits
+        AssertNoOverlaps(layout);
+    }
+
+    private static void AssertNoOverlaps(GridLayoutResult r)
+    {
+        for (var i = 0; i < r.Items.Count; i++)
+            for (var j = i + 1; j < r.Items.Count; j++)
+            {
+                var (a, b) = (r.Items[i], r.Items[j]);
+                Assert.False(a.X < b.X + b.W && b.X < a.X + a.W && a.Y < b.Y + b.H && b.Y < a.Y + a.H,
+                    $"{a.Item.DefName} at ({a.X},{a.Y}) overlaps {b.Item.DefName} at ({b.X},{b.Y})");
+            }
+    }
+
+    [SkippableFact]
     public void Catalog_resolves_a_real_container_grid_and_slots()
     {
         var g = TestData.RequireGame();

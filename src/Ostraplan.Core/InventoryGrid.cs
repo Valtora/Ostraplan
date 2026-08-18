@@ -5,8 +5,12 @@ namespace Ostraplan.Core;
 public sealed record PackedItem(CargoItem Item, int X, int Y, int W, int H, int Count);
 
 /// <summary>The result of packing a container's loose cargo onto its grid: the final grid size (which may have
-/// grown past the declared height to fit everything) and where each item block landed.</summary>
+/// grown past the declared size to fit everything) and where each item block landed.</summary>
 public sealed record GridLayoutResult(int Width, int Height, IReadOnlyList<PackedItem> Items);
+
+/// <summary>A free cell for an item, and the rotation it has to be in to sit there (0 for the item's declared
+/// footprint, 90 for the transpose).</summary>
+public sealed record FreeCell(int X, int Y, int Rot);
 
 /// <summary>
 /// Lays a container's loose cargo onto its inventory grid the way the game does when the inventory window opens
@@ -18,27 +22,54 @@ public sealed record GridLayoutResult(int Width, int Height, IReadOnlyList<Packe
 /// layout), so this packing is what makes the viewer look like the game rather than a pile at the origin.
 /// Identical items sharing a cell collapse into one stacked block (mirroring the game's stack merge, without its
 /// full stack-limit logic).</para>
+///
+/// <para><b>Rotation is part of the footprint.</b> The game's own search never turns an item to make it fit:
+/// <c>FindNearestUnoccupiedTile</c> reads <c>itemWidthOnGrid</c>/<c>itemHeightOnGrid</c> as they stand, because in
+/// game a rotation is something a player does by hand to an item already picked up
+/// (<c>GUIInventory.RotateCWSelected</c> swaps the pair with no fit check and leaves validity to the drop).
+/// Ostraplan's add is an authoring operation the game has no counterpart for, so it may try the transpose
+/// (<see cref="FirstFreeCellRotated"/>). What that produces is a state the game reproduces exactly, because a
+/// rotated item's swapped footprint survives a save round trip: the reload sets <c>Item.fLastRotation</c>, whose
+/// setter runs <c>Item.RotateCW</c>, which swaps <c>nWidthInTiles</c>/<c>nHeightInTiles</c> — the very fields
+/// <c>GetWidthHeightForCO</c> then reads back. (Verified against 1.0.0.11. The one hole is a def declaring
+/// <c>inventoryWidth</c>/<c>inventoryHeight</c>, which overrides the item geometry and is <b>not</b> swapped on
+/// reload; no core def declares either, and <see cref="PartDef.InvSize"/> mirrors the same precedence.)</para>
 /// </summary>
 public static class InventoryGrid
 {
+    /// <summary>The grid size a container falls back to when it declares none — the game's <c>Container</c>
+    /// default.</summary>
+    private const int DefaultGrid = 6;
+
     /// <summary>Pack the loose (non-slotted) children of a container onto a <paramref name="gridW"/>×
-    /// <paramref name="gridH"/> grid (each ≤0 falls back to 6, the game's default). The grid grows in height if
-    /// the items genuinely don't fit, so a viewer never silently hides cargo.</summary>
+    /// <paramref name="gridH"/> grid (each ≤0 falls back to 6, the game's default). The grid grows if the items
+    /// genuinely don't fit, so a viewer never silently hides cargo.</summary>
     public static GridLayoutResult Pack(int gridW, int gridH, IReadOnlyList<CargoItem> loose)
     {
-        var width = gridW > 0 ? gridW : 6;
-        var height = gridH > 0 ? gridH : 6;
+        var width = gridW > 0 ? gridW : DefaultGrid;
+        var height = gridH > 0 ? gridH : DefaultGrid;
 
         // Collapse same-def items sharing a stored cell into one stacked block, preserving first-seen order.
+        // Rotation is part of the key: two same-def items parked at one cell in different orientations are two
+        // separately placed items rather than a stack, and merging them would draw one under the other's footprint.
         var blocks = new List<Block>();
-        var byKey = new Dictionary<(string, int, int), Block>();
+        var byKey = new Dictionary<(string, int, int, int), Block>();
         foreach (var it in loose)
         {
-            var key = (it.DefName, it.GridX, it.GridY);
+            var key = (it.DefName, it.GridX, it.GridY, GridMath.Norm(it.GridRot));
             if (byKey.TryGetValue(key, out var existing)) { existing.Count += Math.Max(1, it.Stack); continue; }
-            var b = new Block(it, it.GridX, it.GridY, Math.Clamp(it.EffW, 1, width), Math.Max(1, it.EffH), Math.Max(1, it.Stack));
+            var b = new Block(it, it.GridX, it.GridY, Math.Max(1, it.EffW), Math.Max(1, it.EffH), Math.Max(1, it.Stack));
             byKey[key] = b;
             blocks.Add(b);
+        }
+
+        // An item bigger than the declared grid is a data defect, not something to hide: grow to fit it rather
+        // than clamp its footprint, which would draw it inside a space it cannot occupy while the capacity rule
+        // reported it as fitting.
+        foreach (var b in blocks)
+        {
+            width = Math.Max(width, b.W);
+            height = Math.Max(height, b.H);
         }
 
         var occupied = new HashSet<(int, int)>();
@@ -46,9 +77,7 @@ public static class InventoryGrid
         foreach (var b in blocks)
         {
             var (x, y) = Nearest(occupied, width, ref height, b.W, b.H, b.DesiredX, b.DesiredY);
-            for (var r = y; r < y + b.H; r++)
-                for (var c = x; c < x + b.W; c++)
-                    occupied.Add((c, r));
+            Occupy(occupied, x, y, b.W, b.H);
             placed.Add(new PackedItem(b.Item, x, y, b.W, b.H, b.Count));
         }
 
@@ -60,25 +89,50 @@ public static class InventoryGrid
     /// <paramref name="gridW"/>×<paramref name="gridH"/> container already holding <paramref name="loose"/>, or
     /// <c>null</c> when it will not fit within the declared grid — the capacity rule ("the Law" for cargo). The
     /// existing cargo is packed the way the game lays it out on open, so the free cell matches what the player
-    /// would see. Stacks and multi-tile items are honoured. Unlike <see cref="Pack"/> this never grows the grid.
+    /// would see. Stacks and multi-tile items are honoured. Unlike <see cref="Pack"/> this never grows the grid,
+    /// and it never turns the item: see <see cref="FirstFreeCellRotated"/> for that.
     /// </summary>
-    public static (int X, int Y)? FirstFreeCell(int gridW, int gridH, IReadOnlyList<CargoItem> loose, int w, int h)
+    public static (int X, int Y)? FirstFreeCell(int gridW, int gridH, IReadOnlyList<CargoItem> loose, int w, int h) =>
+        FirstFreeCellRotated(gridW, gridH, loose, w, h, canRotate: false) is { } cell ? (cell.X, cell.Y) : null;
+
+    /// <summary>
+    /// The first free cell for a <paramref name="w"/>×<paramref name="h"/> item, trying its declared footprint
+    /// first and its transpose second when <paramref name="canRotate"/> — so a 1×3 missile takes an upright slot
+    /// while any remain and lies flat once none do. <see cref="FreeCell.Rot"/> is the rotation the item has to
+    /// carry to sit there. <c>null</c> when neither orientation fits the declared grid.
+    ///
+    /// <para>Upright-first, one item at a time, is deliberate. It fills a container the way a player would, and it
+    /// keeps the result stable as the quantity grows (adding one more never re-orients the ones already placed),
+    /// which is what keeps <see cref="CargoEdit.MaxAddable"/>'s binary search monotonic.</para>
+    /// </summary>
+    public static FreeCell? FirstFreeCellRotated(
+        int gridW, int gridH, IReadOnlyList<CargoItem> loose, int w, int h, bool canRotate)
     {
-        var width = gridW > 0 ? gridW : 6;
-        var height = gridH > 0 ? gridH : 6;
-        var iw = Math.Clamp(w, 1, width);
+        var width = gridW > 0 ? gridW : DefaultGrid;
+        var height = gridH > 0 ? gridH : DefaultGrid;
+        var iw = Math.Max(1, w);
         var ih = Math.Max(1, h);
 
+        // Pack against the DECLARED grid so the free cells are the ones the player would see. Pack may report a
+        // grown grid when the existing contents overflow it; the search below stays inside the declared bounds,
+        // which is what makes this a capacity rule rather than a layout.
         var layout = Pack(width, height, loose);
         var occ = new HashSet<(int, int)>();
         foreach (var it in layout.Items)
-            for (var r = it.Y; r < it.Y + it.H; r++)
-                for (var c = it.X; c < it.X + it.W; c++)
-                    occ.Add((c, r));
+            Occupy(occ, it.X, it.Y, it.W, it.H);
 
-        for (var y = 0; y + ih <= height; y++)
-            for (var x = 0; x + iw <= width; x++)
-                if (Free(occ, x, y, iw, ih)) return (x, y);
+        if (Scan(occ, width, height, iw, ih) is { } upright) return new FreeCell(upright.X, upright.Y, 0);
+        if (!canRotate || iw == ih) return null;
+        return Scan(occ, width, height, ih, iw) is { } turned ? new FreeCell(turned.X, turned.Y, 90) : null;
+    }
+
+    /// <summary>The first free w×h cell row-major within the declared grid, or null. An item too big for the grid
+    /// simply finds nothing, so it is never reported as fitting.</summary>
+    private static (int X, int Y)? Scan(HashSet<(int, int)> occ, int width, int height, int w, int h)
+    {
+        for (var y = 0; y + h <= height; y++)
+            for (var x = 0; x + w <= width; x++)
+                if (Free(occ, x, y, w, h)) return (x, y);
         return null;
     }
 
@@ -104,6 +158,13 @@ public static class InventoryGrid
             if (bestX >= 0) return (bestX, bestY);
             height += h;   // no room at the current height — add rows and rescan (safety net; real grids fit)
         }
+    }
+
+    private static void Occupy(HashSet<(int, int)> occ, int x, int y, int w, int h)
+    {
+        for (var r = y; r < y + h; r++)
+            for (var c = x; c < x + w; c++)
+                occ.Add((c, r));
     }
 
     private static bool Free(HashSet<(int, int)> occ, int x, int y, int w, int h)

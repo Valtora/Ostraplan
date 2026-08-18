@@ -104,4 +104,81 @@ public class InventoryGridTests
         // a 2x2 grid with a 1x1 at (0,0): a 2x1 can't sit on row 0 (col 0 taken) but fits at (0,1)
         Assert.Equal((0, 1), InventoryGrid.FirstFreeCell(2, 2, [Item("A", 0, 0)], 2, 1));
     }
+
+    [Fact]
+    public void FirstFreeCell_rejects_an_item_wider_than_the_grid()
+    {
+        // a 4-wide item in a 3-wide grid fits nowhere. Clamping it to the grid width instead would report a cell
+        // and let the add place something the container cannot hold.
+        Assert.Null(InventoryGrid.FirstFreeCell(3, 5, [], 4, 1));
+        Assert.Null(InventoryGrid.FirstFreeCell(3, 5, [], 1, 6));
+    }
+
+    [Fact]
+    public void Pack_grows_the_grid_for_an_item_wider_than_it()
+    {
+        // an over-wide item is a data defect; show it whole rather than squash it into a space it cannot occupy
+        var r = InventoryGrid.Pack(2, 2, [Item("Wide", 0, 0, w: 4, h: 1)]);
+        Assert.True(r.Width >= 4);
+        var wide = Assert.Single(r.Items);
+        Assert.Equal(4, wide.W);
+    }
+
+    [Fact]
+    public void Pack_keeps_differently_rotated_items_at_one_cell_apart()
+    {
+        // real saves park everything at (0,0). Two same-def items there in different orientations are two items,
+        // not a stack of two: merging them would draw one under the other's footprint.
+        var upright = Item("Missile", 0, 0, w: 1, h: 3);
+        var flat = Item("Missile", 0, 0, w: 1, h: 3) with { StrID = "flat", GridRot = 90 };
+        var r = InventoryGrid.Pack(3, 5, [upright, flat]);
+        Assert.Equal(2, r.Items.Count);
+        Assert.All(r.Items, p => Assert.Equal(1, p.Count));
+        AssertNoOverlaps(r);
+    }
+
+    // ---- rotation-aware placement ----
+
+    [Fact]
+    public void FirstFreeCellRotated_prefers_the_upright_orientation()
+    {
+        var cell = InventoryGrid.FirstFreeCellRotated(3, 5, [], 1, 3, canRotate: true);
+        Assert.Equal(new FreeCell(0, 0, 0), cell);   // upright while there is room for upright
+    }
+
+    [Fact]
+    public void FirstFreeCellRotated_lays_an_item_on_its_side_when_upright_no_longer_fits()
+    {
+        // the Polaris decoy launcher: a 3x5 grid already holding three upright 1x3 missiles. The 3x2 band left
+        // over takes no upright missile, but takes a flat one.
+        var stored = new List<CargoItem>
+        {
+            Item("M", 0, 0, w: 1, h: 3),
+            Item("M", 1, 0, w: 1, h: 3),
+            Item("M", 2, 0, w: 1, h: 3),
+        };
+        var cell = InventoryGrid.FirstFreeCellRotated(3, 5, stored, 1, 3, canRotate: true);
+        Assert.Equal(new FreeCell(0, 3, 90), cell);
+    }
+
+    [Fact]
+    public void FirstFreeCellRotated_leaves_the_item_upright_when_rotation_is_refused()
+    {
+        var stored = new List<CargoItem>
+        {
+            Item("M", 0, 0, w: 1, h: 3),
+            Item("M", 1, 0, w: 1, h: 3),
+            Item("M", 2, 0, w: 1, h: 3),
+        };
+        // canRotate false is the sheet-item case (walls and floors never turn) — the container is simply full
+        Assert.Null(InventoryGrid.FirstFreeCellRotated(3, 5, stored, 1, 3, canRotate: false));
+        Assert.Null(InventoryGrid.FirstFreeCell(3, 5, stored, 1, 3));
+    }
+
+    [Fact]
+    public void FirstFreeCellRotated_does_not_rotate_a_square_footprint()
+    {
+        var cell = InventoryGrid.FirstFreeCellRotated(2, 2, [], 2, 2, canRotate: true);
+        Assert.Equal(0, cell!.Rot);
+    }
 }

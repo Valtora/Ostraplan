@@ -155,6 +155,16 @@ public partial class App : Application
                 RenderInv("inv-rot0.png", "ItmBackpack01", "Missile rot 0", [Rot("ItmAmmoMissile01", 0)]);
                 RenderInv("inv-rot90.png", "ItmBackpack01", "Missile rot 90", [Rot("ItmAmmoMissile01", 90)]);
 
+                // rotation-aware capacity: the 3×5 Polaris decoy launcher filled to capacity with 1×3 missiles.
+                // Three stand upright and two lie flat across the band left over — an upright-only packer stops
+                // at three and calls it full.
+                if (catalog.Lookup("ItmShipWeaponDecoyLauncher01") is { ContainerGrid: { } dlGrid } dl
+                    && catalog.Lookup("ItmAmmoDecoyMissile01") is { } decoy)
+                {
+                    var full = CargoEdit.Add([], null, dlGrid, decoy, CargoEdit.MaxAddable([], null, dlGrid, decoy), catalog);
+                    RenderInv("inv-decoy-launcher.png", dl.DefName, dl.Friendly, full ?? []);
+                }
+
                 // the first real save container that actually holds cargo
                 foreach (var save in SaveImport.ListSaves(env))
                 {

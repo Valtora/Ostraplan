@@ -756,6 +756,28 @@ drill into nested containers. On an editable design you can also **add, remove a
 rearrange** loose cargo; contents travel with the ship through **Export** and save
 write-back.
 
+### Moving things around the grid
+
+- **Drag** an item to move it. It rides centred on the cursor, and the cell it will land in
+  is drawn on the grid as you go: **green** when the drop is legal, **red** when it is not.
+  A red drop snaps back, so nothing is committed by accident.
+- **R** while dragging turns the item in hand, 90° at a time, and the ghost re-draws at its
+  new footprint. Nothing is written until you let go, so position and rotation land as one
+  undo step. This is how the game does it too.
+- **R** with an item selected but nothing in hand turns it where it sits. It pivots about
+  its own centre and slides to the nearest cell that takes the turned footprint, rather than
+  refusing because the far edge is in the way.
+- Walls and floors never rotate, in a container as on the ship grid. The game refuses to
+  turn them at all, so a rotation authored for one would not survive a load.
+- **Drop onto a box** to put the item inside it, or **onto the trail** at the top to move it
+  out to a container further up. Either way it lands in the first cell that takes it.
+
+An item is turned on its side when it no longer fits upright, both when you add one and when
+you drop one into another container. That is what lets a 3×5 Polaris decoy launcher take
+**five** 1×3 decoy missiles: three standing up across the columns, two lying flat in the band
+left over. The quantity the **Add item** picker offers counts both orientations, so it stops
+at the real capacity rather than at the upright count.
+
 A **nav console** is a container too, and an important one: the console itself is only a
 frame, and every screen on it is a separate module sitting inside. A console that comes in
 with no modules — any ship from before 1.0, where consoles had no inventory at all, and
