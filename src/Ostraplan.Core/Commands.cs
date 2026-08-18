@@ -393,6 +393,20 @@ public sealed class RemoveLooseCommand(LooseObject obj) : IDocCommand, IAuditDes
 
 /// <summary>Change a loose item's stacked quantity (Change Quantity). Set in place, so the object's identity — and
 /// thus the selection pointing at it — survives.</summary>
+/// <summary>
+/// Swap what a loose deck item holds — the inventory editor's result for a backpack or suit lying on the floor.
+/// The mirror of <see cref="SetCargoCommand"/> for a <see cref="LooseObject"/>: the caller hands in both trees, so
+/// Do/Undo are a plain assignment.
+/// </summary>
+public sealed class SetLooseCargoCommand(LooseObject obj, IReadOnlyList<CargoItem> before, IReadOnlyList<CargoItem> after)
+    : IDocCommand, IAuditDescribable
+{
+    public void Do(ShipDocument doc) => doc.SetLooseCargo(obj, after);
+    public void Undo(ShipDocument doc) => doc.SetLooseCargo(obj, before);
+    public string Describe(Func<string, string?> f) =>
+        $"Edit contents of {AuditFmt.Name(f, obj.DefName)} on the deck ({before.Count} → {after.Count} items)";
+}
+
 public sealed class SetLooseQuantityCommand(LooseObject obj, int before, int after) : IDocCommand, IAuditDescribable
 {
     public void Do(ShipDocument doc) => doc.SetLooseQuantity(obj, after);

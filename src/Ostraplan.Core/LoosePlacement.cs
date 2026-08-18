@@ -46,4 +46,22 @@ public static class LoosePlacement
         }
         return null;
     }
+
+    /// <summary>
+    /// The loose item already on (<paramref name="x"/>,<paramref name="y"/>) that would take one more
+    /// <paramref name="item"/> — a crate or a backpack lying on the deck, tested exactly as an installed container
+    /// is. Null when the tile is empty, holds something that cannot store this, or is full, so the caller falls
+    /// back to a floor drop and reports the tile as taken.
+    ///
+    /// <para>Checked <b>after</b> <see cref="AcceptingContainerAt"/>: an installed container wins a tile it shares
+    /// with a deck item, matching the topmost-first rule there.</para>
+    /// </summary>
+    public static LooseObject? AcceptingLooseAt(ShipDocument doc, Catalog catalog, int x, int y, PartDef item)
+    {
+        if (doc.LooseAt(x, y) is not { } lo) return null;
+        if (catalog.Lookup(lo.DefName) is not { IsContainer: true } host) return null;
+        if (!ContainerFilter.Accepts(catalog, host, item)) return null;
+        var grid = host.ContainerGrid ?? (6, 6);
+        return CargoEdit.MaxAddable(lo.Cargo, null, grid, item) > 0 ? lo : null;
+    }
 }

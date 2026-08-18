@@ -48,7 +48,9 @@ public sealed class InventoryWindow : Window
 
     private readonly ShipDocument? _doc;
     private readonly CommandStack? _stack;
+    // The thing being edited: an installed part, or an item lying on the deck. Exactly one is set when editing.
     private readonly Placement? _root;
+    private readonly LooseObject? _rootLoose;
 
     private readonly List<Crumb> _path = [];   // breadcrumb: root → current, by container id (null = root)
     private readonly StackPanel _body;
@@ -73,18 +75,21 @@ public sealed class InventoryWindow : Window
 
     private sealed record Crumb(string Title, string? ContainerId);
 
-    private bool Editing => _doc is not null && _stack is not null && _root is not null;
+    private bool Editing => _doc is not null && _stack is not null && (_root is not null || _rootLoose is not null);
 
-    /// <summary>The container's contents to render — live off the placement when editing (so edits are reflected),
+    /// <summary>The contents being edited, off whichever host this window was opened on.</summary>
+    private IReadOnlyList<CargoItem> HostCargo => _root is not null ? _root.Cargo : _rootLoose!.Cargo;
+
+    /// <summary>The container's contents to render — live off the host when editing (so edits are reflected),
     /// else the static snapshot passed in.</summary>
-    private IReadOnlyList<CargoItem> RootCargo => Editing ? _root!.Cargo : _staticCargo;
+    private IReadOnlyList<CargoItem> RootCargo => Editing ? HostCargo : _staticCargo;
 
     /// <summary>The laid-out content panel, for the offscreen preview render (<c>--invsmoke</c>).</summary>
     internal Panel PreviewContent => _body;
 
     public InventoryWindow(
         Catalog catalog, SpriteCache sprites, string rootDefName, string rootFriendly, IReadOnlyList<CargoItem> rootCargo,
-        ShipDocument? doc = null, CommandStack? stack = null, Placement? root = null)
+        ShipDocument? doc = null, CommandStack? stack = null, Placement? root = null, LooseObject? rootLoose = null)
     {
         _catalog = catalog;
         _sprites = sprites;
@@ -93,6 +98,7 @@ public sealed class InventoryWindow : Window
         _doc = doc;
         _stack = stack;
         _root = root;
+        _rootLoose = rootLoose;
         _path.Add(new Crumb(rootFriendly, null));
 
         Title = "Contents — " + rootFriendly;
@@ -477,13 +483,13 @@ public sealed class InventoryWindow : Window
         var menu = new ContextMenu();
         if (item.IsStack && item.Stack > 1)
         {
-            menu.Items.Add(MenuItem("Remove one", () => Remove(CargoEdit.RemoveOne(_root!.Cargo, item.StrID))));
-            menu.Items.Add(MenuItem($"Remove all ×{item.Stack}", () => Remove(CargoEdit.RemoveWhole(_root!.Cargo, item.StrID))));
+            menu.Items.Add(MenuItem("Remove one", () => Remove(CargoEdit.RemoveOne(HostCargo, item.StrID))));
+            menu.Items.Add(MenuItem($"Remove all ×{item.Stack}", () => Remove(CargoEdit.RemoveWhole(HostCargo, item.StrID))));
         }
         else
         {
             var label = item.Children.Count > 0 ? "Remove (with contents)" : "Remove";
-            menu.Items.Add(MenuItem(label, () => Remove(CargoEdit.RemoveWhole(_root!.Cargo, item.StrID))));
+            menu.Items.Add(MenuItem(label, () => Remove(CargoEdit.RemoveWhole(HostCargo, item.StrID))));
         }
 
         if (_path.Count > 1)   // nested — offer to move the item out to an ancestor container
@@ -547,12 +553,12 @@ public sealed class InventoryWindow : Window
         }
         var grid = container.ContainerGrid ?? (6, 6);
         var dlg = new AddCargoDialog(_catalog, _sprites, container, offered,
-            def => CargoEdit.MaxAddable(_root!.Cargo, containerId, grid, def),
+            def => CargoEdit.MaxAddable(HostCargo, containerId, grid, def),
             // the crumb trail's tail is what the user is actually looking at, custom name and all
             _path.Count > 0 ? _path[^1].Title : null) { Owner = this };
         if (dlg.ShowDialog() != true || dlg.Chosen is not { } pick) return;
 
-        var updated = CargoEdit.Add(_root!.Cargo, containerId, grid, pick.Def, pick.Quantity, _catalog);
+        var updated = CargoEdit.Add(HostCargo, containerId, grid, pick.Def, pick.Quantity, _catalog);
         if (updated is null)
         {
             MessageBox.Show(this,
@@ -667,7 +673,7 @@ public sealed class InventoryWindow : Window
             var (cx, cy) = DropCell(gp, w, h);
             rect = new Rect(cx * CellPx, cy * CellPx, w * CellPx, h * CellPx);
             // Ask the model rather than re-deriving the rule: this is exactly the edit the drop will attempt.
-            var fits = CargoEdit.Move(_root!.Cargo, item.StrID, _path[^1].ContainerId, _currentGrid, cx, cy, _dragRot) is not null;
+            var fits = CargoEdit.Move(HostCargo, item.StrID, _path[^1].ContainerId, _currentGrid, cx, cy, _dragRot) is not null;
             stroke = fits ? ThemeManager.Good : ThemeManager.Bad;
         }
 
@@ -761,7 +767,7 @@ public sealed class InventoryWindow : Window
     /// when the drag turned it in hand.</summary>
     private void MoveWithin(CargoItem item, int x, int y, int? rot = null)
     {
-        if (CargoEdit.Move(_root!.Cargo, item.StrID, _path[^1].ContainerId, _currentGrid, x, y, rot) is { } result)
+        if (CargoEdit.Move(HostCargo, item.StrID, _path[^1].ContainerId, _currentGrid, x, y, rot) is { } result)
         {
             _selectedId = item.StrID;
             Commit(result);
@@ -796,7 +802,7 @@ public sealed class InventoryWindow : Window
                 "Won't fit", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
-        if (CargoEdit.Move(_root!.Cargo, item.StrID, containerId, grid, cell.X, cell.Y, cell.Rot) is { } result)
+        if (CargoEdit.Move(HostCargo, item.StrID, containerId, grid, cell.X, cell.Y, cell.Rot) is { } result)
         {
             _selectedId = item.StrID;
             Commit(result);
@@ -809,7 +815,7 @@ public sealed class InventoryWindow : Window
     private void RotateSelected()
     {
         if (_selectedId is not { } id) return;
-        if (CargoEdit.Rotate(_root!.Cargo, id, _path[^1].ContainerId, _currentGrid, _catalog) is { } result)
+        if (CargoEdit.Rotate(HostCargo, id, _path[^1].ContainerId, _currentGrid, _catalog) is { } result)
             Commit(result);   // else: nothing in the grid takes the swapped footprint → leave as is
     }
 
@@ -830,7 +836,9 @@ public sealed class InventoryWindow : Window
     /// re-render off the now-current tree. Keeps the current selection (its item usually survives the edit).</summary>
     private void Commit(IReadOnlyList<CargoItem> newRootCargo)
     {
-        _stack!.Push(_doc!, new SetCargoCommand(_root!, _root!.Cargo, newRootCargo));
+        _stack!.Push(_doc!, _root is not null
+            ? new SetCargoCommand(_root, _root.Cargo, newRootCargo)
+            : new SetLooseCargoCommand(_rootLoose!, _rootLoose!.Cargo, newRootCargo));
         Render();
     }
 
@@ -840,7 +848,7 @@ public sealed class InventoryWindow : Window
         switch (e.Key)
         {
             case Key.Delete when _selectedId is { } id:
-                Remove(CargoEdit.RemoveOne(_root!.Cargo, id));
+                Remove(CargoEdit.RemoveOne(HostCargo, id));
                 e.Handled = true;
                 break;
             case Key.Escape when _dragging:

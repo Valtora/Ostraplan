@@ -223,16 +223,41 @@ public class ImportOptionsTests
         Assert.Equal(0, r.DeckDropped);
     }
 
+    /// <summary>
+    /// A crate on the deck holds its cargo, the same as an installed one. This used to be a stated limitation:
+    /// a deck item imported as a bare <see cref="LooseObject"/> with nowhere to put contents, so its scrap was
+    /// reported left behind however the options were set. Deck items carry cargo now, so it comes in.
+    /// </summary>
     [SkippableFact]
-    public void Deck_container_contents_are_counted_as_deck_not_as_fetchable()
+    public void A_deck_containers_contents_come_in_with_it()
     {
         var g = TestData.RequireGame();
         Skip.IfNot(Ready(g.Catalog), "this install lacks one of the probe defs");
 
-        // the crate sits on the deck, so its scrap can't come in even with both options on — the report words
-        // that as the limitation it is, not as advice to turn on a checkbox that was already on
         var r = Import(g.Catalog, ImportOptions.Everything);
 
+        var crate = Assert.Single(r.Doc.LooseObjects);
+        var scrap = Assert.Single(crate.Cargo);
+        Assert.Equal(Scrap, scrap.DefName);
+        Assert.Equal((1, 2), (scrap.GridX, scrap.GridY));   // the cell the file recorded, not a repack
+        Assert.True(scrap.Authored, "no save stands behind a template import, so contents are the design's own");
+        Assert.Equal(0, r.ContainedDropped);
+        Assert.Equal(0, r.DeckDropped);
+        Assert.Equal(0, r.CrewDropped);
+        Assert.Equal(1, r.ContainedKept);
+    }
+
+    [SkippableFact]
+    public void A_deck_containers_contents_are_left_behind_when_contents_are_off()
+    {
+        var g = TestData.RequireGame();
+        Skip.IfNot(Ready(g.Catalog), "this install lacks one of the probe defs");
+
+        // the counterpart: with "Container contents" off, the crate still comes in but arrives empty, and the
+        // scrap is reported as what it is — inside a deck container, not something the checkbox left in a locker
+        var r = Import(g.Catalog, new ImportOptions(ContainerContents: false, LooseItems: true));
+
+        Assert.Empty(Assert.Single(r.Doc.LooseObjects).Cargo);
         Assert.Equal(1, r.ContainedDropped);
         Assert.Equal(1, r.DeckDropped);
         Assert.Equal(0, r.CrewDropped);

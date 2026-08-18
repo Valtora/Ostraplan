@@ -102,6 +102,7 @@ public sealed class OplanFile
                               {
                                   Def = lo.DefName, X = lo.X, Y = lo.Y, Rot = lo.Rot, Qty = lo.Quantity,
                                   Z = lo.ZBias == 0 ? null : lo.ZBias,
+                                  Cargo = lo.Cargo.Count > 0 ? lo.Cargo.Select(ToOplanCargo).ToList() : null,
                               })
                               .ToList(),
             ExtraMassKg = doc.ExtraMassKg > 0 ? doc.ExtraMassKg : null,
@@ -187,6 +188,9 @@ public sealed class OplanFile
                 {
                     DefName = lo.Def, X = lo.X, Y = lo.Y, Rot = GridMath.Norm(lo.Rot),
                     Quantity = lo.Qty < 1 ? 1 : lo.Qty, ZBias = lo.Z ?? 0,
+                    // AddLoose tops up the item's own pockets, so a file written before deck items held anything
+                    // still opens with them (and a file that has them is left alone).
+                    Cargo = FromOplanCargoList(lo.Cargo ?? [], catalog.Lookup(lo.Def), catalog),
                 });
         return (doc, missing);
     }
@@ -414,6 +418,10 @@ public sealed class OplanLoose
     [JsonPropertyName("qty")] public int Qty { get; set; } = 1;   // stacked count (>=1); absent/0 in an older file → single
     /// <summary>The manual draw-order bias (see <see cref="OplanPart.Z"/>); null for the automatic order.</summary>
     [JsonPropertyName("z")] public int? Z { get; set; }
+
+    /// <summary>What the item holds (see <see cref="LooseObject.Cargo"/>): a backpack's pouches and whatever was
+    /// put in them. Null — and omitted — for the great majority of deck items, which hold nothing.</summary>
+    [JsonPropertyName("cargo")] public List<OplanCargo>? Cargo { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }
 

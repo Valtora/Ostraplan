@@ -408,6 +408,23 @@ public static class ShipExport
                     StrID = headId, StrCODef = lo.DefName, StrCondID = lo.DefName + headId, AStack = memberIds.ToArray(),
                 });
             }
+            // What a deck item holds. A top-level item in a TEMPLATE normally carries no CO, so the game spawns it
+            // with bLoot: true and fills it from its own def — which is right, and why an untouched backpack is
+            // written as a bare item here. The moment the user has actually put something in it that has to stop,
+            // or the def's loot and the authored contents both arrive and fight over the same slots. Baking the
+            // head's CO is what stops it: GetCondOwner takes the dictCOSaves branch and recurses with bLoot: false.
+            //
+            // The test is deliberately "holds something that is not its own pockets". Pockets alone are exactly
+            // what the loot would have produced, so leaving those to the game keeps the file smaller and the
+            // behaviour identical.
+            else if (lo.Cargo.Any(c => !c.Intrinsic || c.Children.Count > 0))
+            {
+                cos.Add(new ExportedCondOwnerSave
+                {
+                    StrID = headId, StrCODef = lo.DefName, StrCondID = lo.DefName + headId,
+                });
+                EmitCargo(lo.Cargo, headId, fx, fy);
+            }
         }
 
         // The game's roomValue is the room's PARTS value (Room.CalculateRoomValue = Σ GetBasePrice × modifier),

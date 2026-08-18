@@ -18,10 +18,15 @@ It is a sibling tool to [**Ostrasort**](https://github.com/Valtora/Ostrasort), t
 
 ### Design
 
-- **Every buildable part in one palette.** The game's eight build tabs (HULL, HVAC, POWR, SENS, CTRL, FURN, APPS, MISC) plus **All**, searchable by friendly or internal name, drawn with the real 16 px sprites. Modded parts appear inline with an origin badge. A **FAV/REC** tab keeps the parts you pinned and the ones you just placed one click away, an **ITEMS** tab holds loose floor cargo (food, tools, ammo) you can drop onto tiles or into containers, and a **SPECIAL** tab holds the structure the game places but never lets you build: asteroid and ice cores, regolith walls, floor signs and emblems, station kiosks, terminals and transit lifts.
+- **Every buildable part in one palette.** The game's eight build tabs (HULL, HVAC, POWR, SENS, CTRL, FURN, APPS, MISC) plus **All**, searchable by friendly or internal name, drawn with the real 16 px sprites. Modded parts appear inline with an origin badge. A **FAV/REC** tab keeps the parts you pinned and the ones you just placed one click away, an **ITEMS** tab holds loose floor cargo (food, tools, ammo, clothing) you can drop onto tiles or into containers, and a **SPECIAL** tab holds the structure the game places but never lets you build: asteroid and ice cores, regolith walls, floor signs and emblems, station kiosks, terminals and transit lifts.
 - **Build on the real grid.** Drag-and-drop with game-accurate autotiling, `R` to rotate, crisp pixel-art zoom and pan, and `Q`/`E` plan-view rotation that matches the in-game camera.
 - **A full editing suite.** Drag-paint, box and hollow fill, symmetry mirroring, flood-select, "Replace with…", ship-wide re-skin, group rotate and flip (`H` / `Shift+H`), copy/paste, and unbounded undo/redo.
 - **Surfaces mode** (`T`). Treat the deck as a canvas: everything but walls and floors is ghosted and out of the way, and a wall/floor brush re-skins the tile it lands on instead of refusing it. Paint, box and outline an area into a different skin, or set a second brush and lay a checkerboard or stripes. Sprites only, so rooms, airtightness and the rating never move.
+- **What anything holds, wherever it is.** "View contents" opens the inventory of an installed container and of
+  an item lying on the deck alike, so a crate on the floor is as editable as a locker on the wall. It covers the
+  things that store in pockets rather than a grid: an EVA suit's battery, O2 and filter compartments, a backpack's
+  four pouches, a coverall's hip pockets, a wrist PDA's data store. Those come with the item the moment you place
+  it, exactly as the game spawns them, and they travel to your save with whatever you put in them.
 - **Bill of materials.** Install-kit counts for the whole ship or the current selection, ready to copy out. Point it
   at a ship you already have and it costs the **retrofit** instead: kits to obtain, kits recovered.
 - **Zones.** Draw and manage the game's crew and trade zones (Haul, Barter, Forbid, and content-trigger zones) with the same tools as parts. They round-trip faithfully through export and save write-back.

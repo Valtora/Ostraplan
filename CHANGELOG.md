@@ -12,6 +12,17 @@ apartment, save-record and inventory-grid work).
 
 ## [Unreleased]
 
+### Added
+- **"View contents" now opens an item, not just a container.** Anything on the deck that can hold something
+  offers it: a crate or toolbox lying on the floor, and the things that store in pockets rather than a grid, so
+  an EVA suit shows its battery, O2 and filter compartments, a backpack its four pouches, a coverall its hip
+  pockets and a wrist PDA its data store. Drop one from the ITEMS palette and it arrives with those already on
+  it, the way the game spawns it; drill into one and fill it like any other container. Dragging an item onto a
+  crate lying on the deck now puts it inside, as it already did for an installed one. What you put in travels to
+  your save, into an exported mod, and between playthroughs, and it is priced the same as cargo in an installed
+  container. A backpack imported from a template or a save arrives with its contents, which used to be reported
+  as left behind because a deck item had nowhere to hold them.
+
 ### Changed
 - **A container holds what it can actually hold.** Adding cargo now lays an item on its side
   once it no longer fits upright, instead of counting only the standing orientation and

@@ -264,7 +264,7 @@ public sealed class UpdateDriver : ExportDriver
     {
         if (_ctx is not { } ctx) return;
         _diff = ShipDiff.Compute(session.Doc, ctx);
-        _baseCost = EditCost.Compute(_diff, session.Catalog, 1.0, 1.0);
+        _baseCost = EditCost.Compute(_diff, session.Catalog, 1.0, 1.0, session.Doc.LooseObjects);
         _balance = SaveEdit.CurrentBalance(ctx);
     }
 

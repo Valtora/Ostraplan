@@ -370,6 +370,29 @@ public class SaveEditInjectSyntheticTests
                 .Order().ToArray());
     }
 
+    /// <summary>What the user puts into a deck container reaches the save, nested under the item that holds it.</summary>
+    [Fact]
+    public void What_a_deck_container_holds_is_injected_with_it()
+    {
+        var cat = new Fixtures().Floor("Floor").Container("Pack").Part("Widget").Build();
+        var ctx = Context(
+            new JsonArray(Item("a", "Floor", 100, 200)),
+            new JsonArray(Co("a", "Floor")),
+            new() { ["a"] = new OriginPart(0, 0, 0, []) });
+        var doc = Fixtures.Doc(cat, new Placement { DefName = "Floor", X = 0, Y = 0, OriginStrID = "a" });
+        var pack = new LooseObject { DefName = "Pack", X = 0, Y = 0 };
+        new PlaceLooseCommand(pack).Do(doc);
+        pack.Cargo = CargoEdit.Add(pack.Cargo, null, (4, 4), cat.Lookup("Widget")!, 2, cat)!;
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
+
+        var host = Assert.Single(Items(ship), i => (string)i["strName"]! == "Pack");
+        var held = Items(ship).Where(i => (string)i["strName"]! == "Widget").ToList();
+        Assert.Equal(2, held.Count);
+        Assert.All(held, w => Assert.Equal((string)host["strID"]!, (string?)w["strParentID"]));
+        Assert.All(Items(ship), i => Assert.Contains((string)i["strID"]!, CoIds(ship)));   // every item needs a CO
+    }
+
     [Fact]
     public void A_loose_item_with_no_pockets_gains_nothing()
     {

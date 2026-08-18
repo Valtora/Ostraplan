@@ -83,7 +83,10 @@ A complete file, with every section populated:
     }
   ],
   "looseObjects": [
-    { "def": "ItmWrench", "x": 6, "y": 4, "rot": 0, "qty": 1 }
+    { "def": "ItmWrench", "x": 6, "y": 4, "rot": 0, "qty": 1 },
+    { "def": "ItmBackpack01", "x": 7, "y": 4, "rot": 0, "qty": 1,
+      "cargo": [ { "def": "PocketPouchSmall01", "strId": "…", "authored": true,
+                   "intrinsic": true, "slotted": true, "slot": "pocket_pouchSm01" } ] }
   ],
   "links": [
     { "src": 0, "tgt": 1 }
@@ -216,9 +219,9 @@ time.
 
 ### `looseObjects`
 
-Loose floor cargo (items resting on a tile, not installed structure). Only the def
-and pose are stored; sprite, footprint, and friendly name are re-resolved on load.
-One per tile — a later duplicate at the same tile overwrites.
+Loose floor cargo (items resting on a tile, not installed structure). The def, pose and
+whatever the item holds are stored; sprite, footprint, and friendly name are re-resolved
+on load. One per tile — a later duplicate at the same tile overwrites.
 
 | Field | Type | Meaning |
 |---|---|---|
@@ -226,6 +229,10 @@ One per tile — a later duplicate at the same tile overwrites.
 | `x`, `y`, `rot` | int | Tile pose in document coordinates. |
 | `qty` | int | Stacked count (≥ 1). Absent or `0` in an older file means a single item. |
 | `z` | int / absent | The manual draw-order bias, exactly as on a part: loose items share one render order with placed structure. Absent for the automatic order. |
+| `cargo` | array / absent | What the item holds, in the same **cargo snapshot node** shape as a part's (above). A crate on the deck holds what was put in it; a garment, backpack or EVA suit holds its own pockets. Absent for the great majority of deck items, which hold nothing. |
+
+An item's own pockets are re-seeded on load, so a file written before deck items held
+anything still opens with them and a file that has them is left alone.
 
 ### `links`
 

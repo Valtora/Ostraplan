@@ -1,3 +1,6 @@
+using System.Collections.Generic;
+using System.Linq;
+
 namespace Ostraplan.Core;
 
 /// <summary>The credit cost of an edit, broken down for display: how many parts were added / moved, the raw
@@ -58,7 +61,7 @@ public static class EditCost
     /// part from its <see cref="PartDef.BasePrice"/> (0 when a def has no price or can't resolve). Authored cargo
     /// rides the new-parts multiplier, since it is conjured the same way. Pure and deterministic.</summary>
     public static EditCostBreakdown Compute(ShipDiff diff, Catalog catalog,
-        double newMultiplier, double movedMultiplier)
+        double newMultiplier, double movedMultiplier, IEnumerable<LooseObject>? looseObjects = null)
     {
         double newValue = 0, movedValue = 0, reformedValue = 0, cargoValue = 0;
         int newParts = 0, movedParts = 0, reformedParts = 0, newCargo = 0;
@@ -74,6 +77,13 @@ public static class EditCost
             foreach (var node in c.Placement.Cargo)
                 AddAuthoredCargo(node, catalog, ref cargoValue, ref newCargo);
         }
+        // Cargo in a DECK item is charged the same as cargo in an installed one: a backpack filled on the floor
+        // costs what the identical items cost in a locker. Loose items are not in the diff at all (they are a
+        // non-structural overlay), so they are walked separately. Their own pockets are free, as everywhere else.
+        foreach (var lo in looseObjects ?? [])
+            foreach (var node in lo.Cargo)
+                AddAuthoredCargo(node, catalog, ref cargoValue, ref newCargo);
+
         var total = Total(newValue, movedValue + reformedValue, cargoValue, newMultiplier, movedMultiplier);
         return new EditCostBreakdown(newParts, movedParts, newValue, movedValue, newMultiplier, movedMultiplier, total)
         {

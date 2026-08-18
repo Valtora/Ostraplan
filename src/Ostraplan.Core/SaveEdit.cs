@@ -397,12 +397,16 @@ public static class SaveEdit
                 headCo["aStack"] = memberIds;
             }
             outCOs.Add(headCo);
-            // A garment or backpack dropped straight on the deck needs its pockets written out too: the CO above
-            // is what stops the game spawning them itself. Only for a single — nothing that carries intrinsic
-            // contents stacks (CargoEdit.PlaceInto pins it to 1), and a stack keeps its members where the pockets
-            // would have to go.
+            // What the item holds — a backpack's pouches and whatever the user put in them. The CO above is what
+            // stops the game spawning even the pockets for itself, so this is the only chance to write them.
+            // Only for a single: nothing that holds anything stacks (CargoEdit.PlaceInto pins it to 1), and a
+            // stack keeps its members where the contents would have to go. A design older than deck-item
+            // inventories has no tree, so fall back to the def's own intrinsic contents.
             if (qtyL == 1)
-                EmitIntrinsicContents(outItems, outCOs, headId, lpart, catalog, ctx.Source.RegId, ctx.Epoch, lfx, lfy);
+            {
+                if (lo.Cargo.Count > 0) EmitCargo(lo.Cargo, headId, lfx, lfy);
+                else EmitIntrinsicContents(outItems, outCOs, headId, lpart, catalog, ctx.Source.RegId, ctx.Epoch, lfx, lfy);
+            }
         }
 
         // Grid frame: the part bounding box plus a ONE-TILE MARGIN, which is exactly what the game rebuilds on

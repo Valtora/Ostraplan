@@ -329,8 +329,13 @@ public static class SaveGrant
         var needIntrinsics = new List<(string Id, PartDef Part, double FX, double FY)>();
         foreach (var item in items)
         {
-            if (item is not JsonObject obj || Str(obj, "strID") is not { Length: > 0 } id || haveCo.Contains(id)) continue;
+            if (item is not JsonObject obj || Str(obj, "strID") is not { Length: > 0 } id) continue;
             if (Str(obj, "strName") is not { } defName) continue;
+            // A device's GUI prop maps are merged whether or not this pass is the one that gave it a CO. An item
+            // that arrived with a baked CO (a stack head, or a deck container the design filled) still needs its
+            // panel settings, and a save load rebuilds neither from the def.
+            MergeGpm(obj, catalog, defName);
+            if (haveCo.Contains(id)) continue;
             var co = SaveEdit.SynthesizeCo(defName, id, catalog, regId, epoch);
             cos.Add(co);
             haveCo.Add(id);
@@ -341,7 +346,6 @@ public static class SaveGrant
                     && CargoEdit.IntrinsicContentsOf(part, catalog).Count > 0)
                     needIntrinsics.Add((id, part, Dbl(obj, "fX"), Dbl(obj, "fY")));
             }
-            MergeGpm(obj, catalog, defName);
         }
         foreach (var (id, part, fx, fy) in needIntrinsics)
             SaveEdit.EmitIntrinsicContents(items, cos, id, part, catalog, regId, epoch, fx, fy);

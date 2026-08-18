@@ -691,7 +691,15 @@ public sealed class ShipDocument
 
     /// <summary>Drop a loose item onto its tile. One per tile: an existing loose object there is replaced (the
     /// placement law forbids that, so in practice the tile is always empty first).</summary>
-    internal void AddLoose(LooseObject o) { _looseByTile[(o.X, o.Y)] = o; _order[o.Id] = _seq++; RaiseChanged(); }
+    /// <summary>Put a loose item on its tile. Every route in goes through here (a palette drop, an import, an
+    /// <c>.oplan</c> load, a redo), which is why the intrinsic seed lives here rather than at each call site.</summary>
+    internal void AddLoose(LooseObject o)
+    {
+        SeedIntrinsics(o, Catalog);
+        _looseByTile[(o.X, o.Y)] = o;
+        _order[o.Id] = _seq++;
+        RaiseChanged();
+    }
 
     /// <summary>Remove a loose item — only if it is still the one on its tile (guards a stale undo).</summary>
     internal void RemoveLoose(LooseObject o)
@@ -705,6 +713,26 @@ public sealed class ShipDocument
 
     /// <summary>Set the stacked quantity of a loose item in place (keeps its identity for selection).</summary>
     internal void SetLooseQuantity(LooseObject o, int quantity) { o.Quantity = quantity; RaiseChanged(); }
+
+    /// <summary>Replace what a loose deck item holds (see <see cref="LooseObject.Cargo"/>). Contents live inside
+    /// the item, not on the tile grid, so nothing structural is re-analysed; the canvas still repaints, since a
+    /// filled container can draw differently and the inspector shows the count.</summary>
+    internal void SetLooseCargo(LooseObject o, IReadOnlyList<CargoItem> cargo) { o.Cargo = cargo; RaiseChanged(); }
+
+    /// <summary>
+    /// Give a loose item the containers its def spawns with, unless it already carries them. The game creates
+    /// those with the object (a backpack's four pouches, an EVA suit's four compartments), and a save restores an
+    /// item as recorded rather than respawning it, so a deck item that never got them would reach the game empty
+    /// and stay that way. Idempotent, so it is safe on every load and on an item that was imported with contents.
+    /// </summary>
+    internal static void SeedIntrinsics(LooseObject o, Catalog catalog)
+    {
+        if (catalog.Lookup(o.DefName) is not { } part) return;
+        var missing = CargoEdit.IntrinsicContentsOf(part, catalog)
+            .Where(seed => !o.Cargo.Any(c => c.Intrinsic && c.DefName == seed.DefName && c.SlotName == seed.SlotName))
+            .ToList();
+        if (missing.Count > 0) o.Cargo = [.. o.Cargo, .. missing];
+    }
 
     // ---- draw-order mutations (command implementations only) ----
 

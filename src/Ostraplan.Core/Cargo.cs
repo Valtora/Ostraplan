@@ -191,6 +191,18 @@ public static class Cargo
         };
 
     /// <summary>
+    /// True when a def can hold things in its own right: a real container (a crate, a locker, an ammo box), or
+    /// something that spawns carrying its own containers (a garment, a backpack, an EVA suit, a wrist PDA).
+    ///
+    /// <para>This is the test for offering an inventory on a <b>deck item</b>. It deliberately does not accept
+    /// "declares any slot": a severed limb declares wound sockets, and those are anatomy rather than storage.
+    /// The intrinsic-contents test tells the two apart without a def-name list, the same way
+    /// <see cref="Catalog.IntrinsicContents"/> separates a garment's pockets from a rifle's ammunition.</para>
+    /// </summary>
+    public static bool CanHoldCargo(PartDef? part, Catalog catalog) =>
+        part is not null && (part.IsContainer || catalog.IntrinsicContents(part).Count > 0);
+
+    /// <summary>
     /// The slot on <paramref name="host"/> that <paramref name="child"/> takes, mirroring how the game itself
     /// assigns one (<c>CondOwner.SetData</c>'s loot pass): it walks the child's <c>mapSlotEffects</c> keys in
     /// declaration order and takes the first slot the host declares that still has room, since

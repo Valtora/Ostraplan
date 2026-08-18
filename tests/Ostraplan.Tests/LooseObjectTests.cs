@@ -121,6 +121,97 @@ public class LooseObjectTests
         Assert.Equal(1, doc.LooseAt(0, 0)!.Quantity);   // same object, quantity restored
     }
 
+    // ---- deck items that hold things ----
+
+    /// <summary>A deck item that can hold things offers an inventory: a real container, or a garment/suit/backpack
+    /// that stores in its own pockets. A severed limb declares slots too, but they are wound sockets.</summary>
+    [SkippableFact]
+    public void What_can_hold_cargo_takes_containers_and_wearables_but_not_anatomy()
+    {
+        var g = TestData.RequireGame();
+        Skip.If(g.Catalog.Lookup("OutfitEVA01") is null || g.Catalog.Lookup(Container) is null,
+            "this install lacks a probe def");
+
+        bool CanHold(string def) => Ostraplan.Core.Cargo.CanHoldCargo(g.Catalog.Lookup(def), g.Catalog);
+
+        Assert.True(CanHold(Container));            // a backpack: a grid AND pockets
+        Assert.True(CanHold("OutfitEVA01"));        // an EVA suit: no grid at all, four compartments
+        Assert.False(CanHold(Cargo));               // a lump of scrap holds nothing
+        if (g.Catalog.Lookup("BodyarmUpperLA") is not null)
+            Assert.False(CanHold("BodyarmUpperLA"));   // wound sockets are anatomy, not storage
+    }
+
+    /// <summary>
+    /// An EVA suit dropped on the deck arrives with its four compartments, so "View contents" has something to
+    /// show and the save write has something to record. Seeding happens on the way into the document, so every
+    /// route in (a palette drop, an import, an .oplan load, a redo) gets it.
+    /// </summary>
+    [SkippableFact]
+    public void A_suit_dropped_on_the_deck_arrives_with_its_compartments()
+    {
+        var (doc, cat) = FloorAt(1, 1);
+        Skip.If(cat.Lookup("OutfitEVA01") is null, "OutfitEVA01 not in this install");
+
+        var suit = new LooseObject { DefName = "OutfitEVA01", X = 1, Y = 1 };
+        new PlaceLooseCommand(suit).Do(doc);
+
+        Assert.Equal(4, suit.Cargo.Count);
+        Assert.All(suit.Cargo, c => Assert.True(c.Slotted && c.Intrinsic));
+        Assert.Equal(4, suit.Cargo.Select(c => c.SlotName).Distinct().Count());
+
+        // and it is idempotent: a redo re-adds the same object and must not double them
+        new PlaceLooseCommand(suit).Do(doc);
+        Assert.Equal(4, suit.Cargo.Count);
+    }
+
+    [SkippableFact]
+    public void Deck_cargo_is_editable_and_survives_an_oplan_round_trip()
+    {
+        var g = TestData.RequireGame();
+        var (doc, cat) = FloorAt(3, 3);
+        var pack = new LooseObject { DefName = Container, X = 3, Y = 3 };
+        new PlaceLooseCommand(pack).Do(doc);
+        var grid = cat.Lookup(Container)!.ContainerGrid!.Value;
+        var filled = CargoEdit.Add(pack.Cargo, null, grid, cat.Lookup(Cargo)!, 1, cat);
+        Skip.If(filled is null, "the backpack would not take the probe item");
+
+        var stack = new CommandStack();
+        stack.Push(doc, new SetLooseCargoCommand(pack, pack.Cargo, filled!));
+        Assert.Contains(pack.Cargo, c => c.DefName == Cargo);
+
+        stack.Undo(doc);
+        Assert.DoesNotContain(pack.Cargo, c => c.DefName == Cargo);
+        stack.Redo(doc);
+        Assert.Contains(pack.Cargo, c => c.DefName == Cargo);
+
+        var tmp = System.IO.Path.Combine(System.IO.Path.GetTempPath(), $"ostraplan-test-{System.Guid.NewGuid():N}.oplan");
+        try
+        {
+            OplanFile.FromDocument(doc, g.Index, new OplanMeta()).Save(tmp);
+            var (back, _) = OplanFile.Load(tmp).ToDocument(cat);
+            var reopened = Assert.Single(back.LooseObjects);
+            Assert.Contains(reopened.Cargo, c => c.DefName == Cargo);
+            Assert.Equal(pack.Cargo.Count, reopened.Cargo.Count);   // pouches included, and not doubled by the seed
+        }
+        finally { System.IO.File.Delete(tmp); }
+    }
+
+    /// <summary>A crate on the deck takes a dropped item the same way an installed one does.</summary>
+    [SkippableFact]
+    public void A_deck_container_accepts_a_dropped_item()
+    {
+        var (doc, cat) = FloorAt(4, 4);
+        var pack = new LooseObject { DefName = Container, X = 4, Y = 4 };
+        new PlaceLooseCommand(pack).Do(doc);
+        var item = cat.Lookup(Cargo)!;
+
+        Assert.Equal(pack, LoosePlacement.AcceptingLooseAt(doc, cat, 4, 4, item));
+        Assert.Null(LoosePlacement.AcceptingLooseAt(doc, cat, 9, 9, item));   // nothing there
+        // an item that holds nothing never takes a drop
+        new PlaceLooseCommand(new LooseObject { DefName = Cargo, X = 4, Y = 5 }).Do(doc);
+        Assert.Null(LoosePlacement.AcceptingLooseAt(doc, cat, 4, 5, item));
+    }
+
     [SkippableFact]
     public void A_stack_exports_as_a_head_plus_members_with_astack()
     {

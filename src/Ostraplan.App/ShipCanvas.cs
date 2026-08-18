@@ -1668,6 +1668,18 @@ public sealed class ShipCanvas : FrameworkElement
             return;
         }
 
+        // a crate or backpack already on the deck takes it too, exactly as an installed container does
+        if (LoosePlacement.AcceptingLooseAt(Doc, Doc.Catalog, cell.X, cell.Y, item) is { } deckHost)
+        {
+            var grid = Doc.Catalog.Lookup(deckHost.DefName)?.ContainerGrid ?? (6, 6);
+            var after = CargoEdit.Add(deckHost.Cargo, null, grid, item, 1, Doc.Catalog);
+            if (after is null) { RaiseGhostReason("Container is full"); return; }
+            var cmd = new SetLooseCargoCommand(deckHost, deckHost.Cargo, after);
+            cmd.Do(Doc);
+            _stroke.Add(cmd);
+            return;
+        }
+
         if (LoosePlacement.CanRestOnFloor(Doc, cell.X, cell.Y))
         {
             var cmd = new PlaceLooseCommand(new LooseObject { DefName = item.DefName, X = cell.X, Y = cell.Y, Rot = ArmedRot });

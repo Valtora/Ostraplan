@@ -341,4 +341,33 @@ public class EditCostTests
         ItemsById = new Dictionary<string, JsonNode>(),
         CosById = new Dictionary<string, JsonNode>(),
     };
+
+    /// <summary>
+    /// Cargo is charged wherever it sits. A backpack filled on the deck costs what the same items cost in a
+    /// locker; the item's own pockets are free, exactly as they are inside a placed container.
+    /// </summary>
+    [Fact]
+    public void Cargo_in_a_deck_container_is_charged_but_its_pockets_are_not()
+    {
+        var cat = new Fixtures()
+            .Floor("Floor")
+            .ItemLoot("PouchLoot", ("Pouch", 2))
+            .Part("Pouch", container: (1, 1), slotKeys: ["pA", "pB"], basePrice: 99)
+            .Part("Pack", container: (4, 4), defaultLoot: "PouchLoot", slotsWeHave: ["pA", "pB"], basePrice: 250)
+            .Part("Widget", basePrice: 40)
+            .Build();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Floor", 0, 0));
+        var pack = new LooseObject { DefName = "Pack", X = 0, Y = 0 };
+        new PlaceLooseCommand(pack).Do(doc);
+        Assert.Equal(2, pack.Cargo.Count);   // the pouches came with it
+        pack.Cargo = CargoEdit.Add(pack.Cargo, null, (4, 4), cat.Lookup("Widget")!, 3, cat)!;
+
+        var diff = ShipDiff.Compute(doc, new Dictionary<string, OriginPart>());
+        var withDeck = EditCost.Compute(diff, cat, 1.0, 1.0, doc.LooseObjects);
+
+        Assert.Equal(3, withDeck.NewCargo);          // three widgets, not the two pouches
+        Assert.Equal(120, withDeck.CargoValue, 3);   // 3 x 40, with the pouches free
+        // and a caller that passes no deck items is unchanged
+        Assert.Equal(0, EditCost.Compute(diff, cat, 1.0, 1.0).NewCargo);
+    }
 }

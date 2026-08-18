@@ -54,9 +54,9 @@ public sealed record ImportResult(
     /// point the user at the "Container contents" checkbox for them.</summary>
     public int CrewDropped { get; init; }
 
-    /// <summary>Of <see cref="ContainedDropped"/>, how many sit inside a container lying on the deck. A deck item
-    /// imports as a <see cref="LooseObject"/>, which holds no cargo, so these are left behind whatever the options
-    /// say — a limitation, not a choice.</summary>
+    /// <summary>Of <see cref="ContainedDropped"/>, how many sit inside a container lying on the deck that could
+    /// not be brought in. A deck item holds cargo of its own (see <see cref="LooseObject.Cargo"/>), so its
+    /// contents come in with it when "Container contents" is on; this counts what is left when it is off.</summary>
     public int DeckDropped { get; init; }
 
     /// <summary>Items lying loose on the deck that were brought in as loose objects, stack members included.</summary>
@@ -183,6 +183,7 @@ public static class TemplateImport
         ImportOptions? options = null, JsonNode? shipNode = null)
     {
         var opts = options ?? ImportOptions.Everything;
+        var deckTaken = 0;   // contained items hung on a DECK item, counted apart from a placement's cargo
         var doc = new ShipDocument(catalog) { Kind = DocumentKindGuess.FromDesignation(tmpl.Designation) };
         var skipped = new Dictionary<string, int>(StringComparer.Ordinal);
         var systems = 0;
@@ -190,6 +191,10 @@ public static class TemplateImport
 
         // Structural parts by their source strID, so container contents can be hung on the right ones below.
         var placedByStrId = new Dictionary<string, Placement>(StringComparer.Ordinal);
+
+        // The same for deck items: a crate or backpack lying on the floor holds cargo too, so its contents are
+        // hung on the LooseObject rather than left behind (which is what used to happen).
+        var looseByStrId = new Dictionary<string, LooseObject>(StringComparer.Ordinal);
 
         // The item graph, for the two walks below: a deck stack's members (absorbed into a quantity), and the
         // root-holder classification that tells crew-carried gear apart from a rack's contents.
@@ -251,7 +256,9 @@ public static class TemplateImport
                     }
                     var (lcol, lrow, lrot) = ShipGrid.TemplateTile(
                         item.FX, item.FY, item.FRotation, part.Item.Width, part.Item.Height, tmpl.VShipPosX, tmpl.VShipPosY);
-                    doc.AddLoose(new LooseObject { DefName = item.DefName, X = lcol, Y = lrow, Rot = lrot, Quantity = quantity });
+                    var dropped = new LooseObject { DefName = item.DefName, X = lcol, Y = lrow, Rot = lrot, Quantity = quantity };
+                    doc.AddLoose(dropped);
+                    if (item.StrID is { Length: > 0 } lid) looseByStrId[lid] = dropped;
                     looseKept += quantity;
                     absorbed.UnionWith(members);
                     continue;
@@ -276,8 +283,8 @@ public static class TemplateImport
             // Container contents. The save-edit path passes no shipNode: it attaches cargo itself from the full
             // context it keeps, and doing it twice would be wasted work. Everything else gets it here, which is
             // what makes the three import routes agree.
-            if (opts.ContainerContents && shipNode is not null && placedByStrId.Count > 0)
-                taken = AttachCargo(doc, catalog, shipNode, placedByStrId, retainOrigin);
+            if (opts.ContainerContents && shipNode is not null && (placedByStrId.Count > 0 || looseByStrId.Count > 0))
+                (taken, deckTaken) = AttachCargo(doc, catalog, shipNode, placedByStrId, looseByStrId, retainOrigin);
 
             // A nav console that came in empty gets the standard module set, so the planner shows what the export
             // will actually spawn (see NavConsole). Not on the save-edit path: its cargo is attached afterwards
@@ -321,6 +328,8 @@ public static class TemplateImport
             var root = RootOf(item, byStrId);
             if (root is null) { crewDropped++; continue; }
             if (root.StrID is { Length: > 0 } rid && placedByStrId.ContainsKey(rid)) { structureRooted++; continue; }
+            // inside a deck item whose contents we brought in: kept, not left behind
+            if (root.StrID is { Length: > 0 } lid && looseByStrId.ContainsKey(lid) && deckTaken > 0) continue;
             // the root never made the grid: a deck item, or a skipped/system def (whose own notes tell that story)
             if (catalog.Lookup(root.DefName) is { StartingConds.Length: > 0 } rootDef
                 && !rootDef.StartingConds.Contains("IsInstalled") && !rootDef.StartingConds.Contains("IsSystem"))
@@ -340,7 +349,7 @@ public static class TemplateImport
             ShipName(tmpl), doc.Placements.Count)
         {
             // the stocked nav modules are Ostraplan's own addition, not something the ship carried in
-            ContainedKept = doc.Placements.Sum(p => CountCargo(p.Cargo)) - navModules,
+            ContainedKept = doc.Placements.Sum(p => CountCargo(p.Cargo)) - navModules + deckTaken,
             CrewDropped = crewDropped,
             DeckDropped = deckDropped,
             LooseKept = looseKept,
@@ -374,9 +383,9 @@ public static class TemplateImport
     /// marked <b>authored</b>: that is what makes them persist into the <c>.oplan</c> and survive a reopen. The
     /// save-edit path deliberately does not do this — its cargo is re-attached from the save it stays linked to.</para>
     /// </summary>
-    private static int AttachCargo(
+    private static (int Placed, int Deck) AttachCargo(
         ShipDocument doc, Catalog catalog, JsonNode shipNode,
-        Dictionary<string, Placement> placedByStrId, bool retainOrigin)
+        Dictionary<string, Placement> placedByStrId, Dictionary<string, LooseObject> looseByStrId, bool retainOrigin)
     {
         var (itemsById, cosById, children) = ShipJson.Index(shipNode);
         var taken = 0;
@@ -389,7 +398,20 @@ public static class TemplateImport
             if (!retainOrigin) doc.MarkCargoEdited(placement);
             taken += CountCargo(forest);
         }
-        return taken;
+
+        // The same for a container lying on the deck. Its own pockets are re-seeded afterwards, since a file that
+        // left them to the game's loot records none of them and the item would otherwise come in with none.
+        var deckTaken = 0;
+        foreach (var (strId, loose) in looseByStrId)
+        {
+            if (!children.ContainsKey(strId)) continue;
+            var forest = Cargo.BuildForest(strId, children, itemsById, cosById, catalog);
+            if (forest.Count == 0) continue;
+            loose.Cargo = retainOrigin ? forest : Cargo.AsAuthored(forest);
+            ShipDocument.SeedIntrinsics(loose, catalog);
+            deckTaken += CountCargo(forest);
+        }
+        return (taken, deckTaken);
     }
 
     /// <summary>Every node in a cargo forest, nested ones included.</summary>

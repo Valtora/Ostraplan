@@ -435,6 +435,46 @@ public class ShipExportTests
         Assert.DoesNotContain(ship.ACOs ?? [], c => c.StrID == suit.StrID);          // and no CO to kill the loot
     }
 
+    /// <summary>
+    /// The counterpart of the test above. Once the user has actually put something in a deck container, the
+    /// contents must be written AND the def's own loot stopped, or the game spawns its pockets on top of the
+    /// authored ones and the two fight over the same slots. Baking the head's CO is what stops it: GetCondOwner
+    /// takes the dictCOSaves branch and recurses with bLoot: false.
+    /// </summary>
+    [SkippableFact]
+    public void A_filled_deck_container_is_exported_with_its_contents_and_a_head_CO()
+    {
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
+        var pack = g.Catalog.Lookup("ItmBackpack01");
+        var scrap = g.Catalog.Lookup("ItmScrapAluminum");
+        Skip.If(pack is null || scrap is null, "this install lacks a probe def");
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+
+        var doc = BuildDooredHull(g.Catalog);
+        var lo = new LooseObject { DefName = "ItmBackpack01", X = 2, Y = 2 };
+        new PlaceLooseCommand(lo).Do(doc);
+        var filled = CargoEdit.Add(lo.Cargo, null, pack!.ContainerGrid!.Value, scrap!, 1, g.Catalog);
+        Skip.If(filled is null, "the backpack would not take the probe item");
+        lo.Cargo = filled!;
+
+        var (ship, _, _) = ShipExport.Build(doc, g.Catalog, specs, "Filled Pack");
+
+        var head = Assert.Single(ship.AItems, i => i.StrName == "ItmBackpack01");
+        Assert.Null(head.StrParentID);                                        // still a deck item
+        Assert.Contains(ship.ACOs ?? [], c => c.StrID == head.StrID);         // the CO that suppresses the loot
+        var held = Assert.Single(ship.AItems, i => i.StrName == "ItmScrapAluminum");
+        Assert.Equal(head.StrID, held.StrParentID);
+        Assert.True(held.BForceLoad);
+        Assert.NotNull(held.ACondOverrides);
+        // its four pouches travel too, each naming the slot it sits in
+        var pouches = ship.AItems.Where(i => i.StrSlotParentID == head.StrID).ToList();
+        Assert.Equal(4, pouches.Count);
+        Assert.Equal(4, pouches
+            .Select(i => Assert.Single(ship.ACOs!, c => c.StrID == i.StrID).StrSlotName)
+            .Distinct().Count());
+    }
+
     [SkippableFact]
     public void Export_carries_a_stack_as_a_lead_plus_members()
     {

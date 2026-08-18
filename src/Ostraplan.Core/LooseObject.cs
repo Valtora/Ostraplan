@@ -1,3 +1,5 @@
+using System.Collections.Generic;
+
 namespace Ostraplan.Core;
 
 /// <summary>
@@ -27,6 +29,17 @@ public sealed class LooseObject
     /// single. Mutable so "Change Quantity" can retune it in place (keeping the object's identity for selection);
     /// the caller clamps it to the item's <see cref="PartDef.StackLimit"/>.</summary>
     public int Quantity { get; set; } = 1;
+
+    /// <summary>
+    /// What this item holds, exactly as <see cref="Placement.Cargo"/> does for an installed container: a backpack
+    /// on the deck has pouches, an EVA suit has its four compartments, a crate has whatever was put in it. Empty
+    /// for the great majority of loose items, which hold nothing.
+    ///
+    /// <para>Seeded with the item's own intrinsic containers when it is created or loaded (see
+    /// <see cref="CargoEdit.IntrinsicContentsOf"/>), because the game spawns those with the object and a save
+    /// restores an item as recorded rather than respawning it.</para>
+    /// </summary>
+    public IReadOnlyList<CargoItem> Cargo { get; set; } = [];
 
     /// <summary>A manual draw-order bias, exactly as <see cref="Placement.ZBias"/> — loose items share the one
     /// render order with placed parts (see <see cref="ShipDocument.RenderOrder"/>), so a dropped canister can be

@@ -2777,6 +2777,18 @@ public partial class MainWindow : Window
         var stackable = part.StackLimit > 1;
         menu.Items.Add(Item(stackable ? "Change Quantity…" : "Change Quantity (not stackable)", "",
             (_, _) => ChangeLooseQuantity(lo, part), stackable));
+
+        // "View contents…": a deck item that can hold things — a crate or toolbox, or a garment, backpack or EVA
+        // suit, which store in their own pockets rather than a grid. Shown even when empty, like a placed
+        // container, so an item you have not filled yet is not unreachable.
+        if (Cargo.CanHoldCargo(part, _catalog))
+        {
+            var held = lo.Cargo.Sum(c => c.SubtreeCount);
+            menu.Items.Add(new Separator());
+            menu.Items.Add(Item("View contents" + (held > 0 ? $" ({held})" : "") + "…", "",
+                (_, _) => OpenLooseInventory(lo, part)));
+        }
+
         menu.Items.Add(new Separator());
         menu.Items.Add(Item(_settings.IsFavorite(lo.DefName, true) ? "Remove from Favorites" : "Add to Favorites",
             "", (_, _) => ToggleFavoriteByRef(lo.DefName, true)));
@@ -2784,6 +2796,15 @@ public partial class MainWindow : Window
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("Delete", "Del", (_, _) => DeleteSelection()));
         menu.IsOpen = true;
+    }
+
+    /// <summary>Open the inventory viewer/editor on a deck item's contents — the loose-item counterpart of
+    /// <see cref="OpenInventory(Placement)"/>. Edits are undoable through the same command stack.</summary>
+    private void OpenLooseInventory(LooseObject lo, PartDef part)
+    {
+        if (_doc is null || _catalog is null || _sprites is null) return;
+        new InventoryWindow(_catalog, _sprites, lo.DefName, part.Friendly, lo.Cargo, _doc, _stack, rootLoose: lo)
+        { Owner = this }.ShowDialog();
     }
 
     /// <summary>Prompt for a new stacked quantity (1..stack limit) and apply it as one undo step.</summary>

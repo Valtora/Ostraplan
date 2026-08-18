@@ -106,9 +106,10 @@ public partial class App : Application
                 var sprites = new SpriteCache();
 
                 void RenderInv(string file, string def, string friendly, IReadOnlyList<CargoItem> cargo,
-                    ShipDocument? doc = null, CommandStack? stack = null, Placement? root = null)
+                    ShipDocument? doc = null, CommandStack? stack = null, Placement? root = null,
+                    LooseObject? rootLoose = null)
                 {
-                    var win = new InventoryWindow(catalog, sprites, def, friendly, cargo, doc, stack, root);
+                    var win = new InventoryWindow(catalog, sprites, def, friendly, cargo, doc, stack, root, rootLoose);
                     var panel = win.PreviewContent;
                     panel.Background = ThemeManager.WindowBg;
                     const int w = 620;
@@ -144,6 +145,16 @@ public partial class App : Application
                 new PlaceCommand(editBp).Do(editDoc);
                 new SetCargoCommand(editBp, editBp.Cargo, cargo).Do(editDoc);
                 RenderInv("inv-edit.png", "ItmBackpack01", "Backpack (editing)", editBp.Cargo, editDoc, editStack, editBp);
+
+                // a DECK item being edited: an EVA suit lying on the floor, whose whole capacity is the four
+                // compartments on its paper-doll — it declares no grid at all. Confirms the loose-host editor
+                // constructs, and that an item with slots and no grid still draws something usable.
+                var deckDoc = new ShipDocument(catalog);
+                var deckStack = new CommandStack();
+                var suit = new LooseObject { DefName = "OutfitEVA01", X = 0, Y = 0 };
+                new PlaceLooseCommand(suit).Do(deckDoc);
+                RenderInv("inv-deck-suit.png", suit.DefName, catalog.Lookup(suit.DefName)?.Friendly ?? suit.DefName,
+                    suit.Cargo, deckDoc, deckStack, rootLoose: suit);
 
                 // rotation smoke: a tall (1×5) missile unrotated vs rotated 90°, so an aspect/squish regression is
                 // obvious — a faithful rotation is a rigid turn, so the sprite's proportions must not change.
