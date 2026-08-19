@@ -125,7 +125,8 @@ public class DocumentSessionTests
         var a = new ShipDocument(Cat);
         var b = new ShipDocument(Cat);
 
-        // The same copy, pasted at a different spot in each design.
+        // The same copy, pasted at a different spot in each design. A paste anchors on the cursor, so the
+        // anchor is taken verbatim and nothing is added to it — there is no nudge to reason about any more.
         var intoA = MainWindow.ClipboardClones(clip, (10, 5));
         var intoB = MainWindow.ClipboardClones(clip, (-3, 0));
         foreach (var p in intoA) new PlaceCommand(p).Do(a);
@@ -148,26 +149,6 @@ public class DocumentSessionTests
         Assert.Equal(2, a.Placements.Count);
         Assert.Equal(2, b.Placements.Count);
     }
-
-    /// <summary>
-    /// Where a paste with no cursor over the canvas lands. The one-tile nudge exists so a copy does not sit exactly
-    /// on top of the original it was copied from; into another design there is no original, so the nudge would only
-    /// shift the block by a tile and the same grid position is the predictable answer. Both ships are anchored on
-    /// their primary airlock at the origin, which is what makes that position mean the same thing in each.
-    /// </summary>
-    [Theory]
-    [InlineData(true, 13, 8)]     // back into the design it came from: clear of the original
-    [InlineData(false, 12, 7)]    // into another design: exactly where it was in the one it came from
-    public void A_paste_with_no_cursor_anchors_on_where_it_was_copied(bool sameDesign, int x, int y) =>
-        Assert.Equal((x, y), MainWindow.PasteAnchor(hover: null, clipOrigin: (12, 7), sameDesign));
-
-    /// <summary>The cursor wins in either design: a paste goes where you are pointing, and nothing about which tab
-    /// it came from changes that.</summary>
-    [Theory]
-    [InlineData(true)]
-    [InlineData(false)]
-    public void A_paste_under_the_cursor_lands_under_the_cursor(bool sameDesign) =>
-        Assert.Equal((-4, 30), MainWindow.PasteAnchor(hover: (-4, 30), clipOrigin: (12, 7), sameDesign));
 
     /// <summary>A session owns a WPF canvas, and a WPF control can only be constructed on an STA thread.</summary>
     private static void RunSta(Action action)

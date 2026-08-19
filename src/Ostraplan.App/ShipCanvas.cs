@@ -1190,6 +1190,21 @@ public sealed class ShipCanvas : FrameworkElement
         return ((int)Math.Floor((p.X - _pan.X) / Zoom), (int)Math.Floor((p.Y - _pan.Y) / Zoom));
     }
 
+    /// <summary>
+    /// The tile a paste should land on: the one under the cursor, or the middle of the view when the cursor is not
+    /// over this canvas at all. Null only before the canvas has been laid out.
+    ///
+    /// <para>Read live rather than from the last <see cref="HoverChanged"/>, because the cached hover is only as
+    /// fresh as the last mouse <i>move</i>. A canvas the cursor is already resting over when it becomes the visible
+    /// one — switching tabs with Ctrl+Tab, say — has had no move to record, so the cache says "nowhere" while the
+    /// cursor is plainly on a tile. Asking the mouse is always right and costs nothing at the one moment it is
+    /// asked.</para>
+    /// </summary>
+    public (int X, int Y)? PasteCell =>
+        RenderSize.Width < 1
+            ? null
+            : CellAt(IsMouseOver ? Mouse.GetPosition(this) : new Point(RenderSize.Width / 2, RenderSize.Height / 2));
+
     private Rect CellRect(double x, double y, double w, double h) =>
         new(_pan.X + x * Zoom, _pan.Y + y * Zoom, w * Zoom, h * Zoom);
 

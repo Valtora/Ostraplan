@@ -21,9 +21,8 @@ apartment, save-record and inventory-grid work).
   **Ctrl+Tab**; **Ctrl+W** or the tab's ✕ closes one. Each tab is a design in full, with its own undo
   history, its own view and overlays, and its own Ship Rating, Diagnostics and Flight Dynamics
   reports, which close with it. **Copy and paste work between tabs**, which is the quick way to carry
-  a section, or a set of renamed containers, from one version of a ship to the next; pasted into
-  another design with the cursor off the canvas, a selection keeps the grid position it had in the
-  design it came from, so it arrives where it belongs. Auto-save covers
+  a section, or a set of renamed containers, from one version of a ship to the next. A paste lands
+  under the cursor whichever design it came from. Auto-save covers
   every open design rather than only the one on screen, and two designs you have never saved no
   longer rotate each other's snapshots away.
 - **UI scale now goes below 100%, down to 80%.** The slider used to start at 100% and only magnify. It now

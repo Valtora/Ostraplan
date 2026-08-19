@@ -40,17 +40,13 @@ public partial class MainWindow : Window
     private IReadOnlyList<RoomSpecDef>? _roomSpecs;   // lazily loaded once for the Ship Rating / Diagnostics analyses
     private bool _analysing;                          // one gate for both on-demand analyses (each freezes the live doc)
     private FreezeGate _freeze = null!;               // raised while an off-thread read of the LIVE _doc is in flight — see FreezeDoc
-    private (int X, int Y)? _hoverCell;               // last hovered tile — the paste anchor
     // The clipboard is deliberately app-wide rather than per document: copying in one tab and pasting into another
     // is most of the reason for having more than one open (the container renames on discussion #33 are the case
     // that asked for it).
     private List<(string Def, int X, int Y, int Rot, IReadOnlyList<CargoItem> Cargo)> _clip = [];   // copied selection, relative to its top-left (with container contents)
-    private (int X, int Y) _clipOrigin;               // the copied selection's original top-left (paste fallback)
-    // Which design the clipboard was copied from, so a paste can tell "back into the same one" from "into another".
-    // Weak on purpose: the clipboard outlives the tab it was copied from, and holding a closed design's document
-    // strongly would keep every placement in it alive for the rest of the session. A collected target reads as a
-    // different design, which is the right answer anyway. See PasteAnchor.
-    private WeakReference<ShipDocument>? _clipSource;
+    // The copied selection's original top-left. Only a last resort for a paste: the canvas answers where the cursor
+    // is, and this stands in for the one case it cannot, a canvas that has not been laid out yet.
+    private (int X, int Y) _clipOrigin;
     private readonly DispatcherTimer _scanTimer;      // debounces the (now off-thread) problem scan
     private CancellationTokenSource? _scanCts;        // cancels a superseded scan
     private readonly DispatcherTimer _autoSaveTimer;  // opt-in rotating snapshots of the open designs (see RunAutoSave)
@@ -162,7 +158,7 @@ public partial class MainWindow : Window
         board.PosesRequested += OnPosesRequested;
         board.SelectionChanged += UpdateInspector;
         board.LooseSelectionChanged += UpdateInspector;
-        board.HoverChanged += cell => { _hoverCell = cell; TxtCell.Text = cell is { } c ? $"tile {c.X}, {c.Y}" : "—"; };
+        board.HoverChanged += cell => TxtCell.Text = cell is { } c ? $"tile {c.X}, {c.Y}" : "—";
         board.SelectionSizeChanged += size => TxtSel.Text = size is { } s ? $"{s.W} × {s.H} tiles" : "";
         board.ViewChanged += UpdateZoomText;
         board.Disarmed += ClearPaletteSelection;
@@ -221,7 +217,7 @@ public partial class MainWindow : Window
         if (_active is not null) _active.Board.Visibility = Visibility.Hidden;
         _active = session;
         session.Board.Visibility = Visibility.Visible;
-        _hoverCell = null;   // the paste anchor belongs to the canvas the cursor was over, which is no longer this one
+        TxtCell.Text = "—";   // the tile readout belonged to the canvas the cursor was over, which is no longer this one
 
         SyncViewToggles();
         UpdateSurfaceBar();
@@ -2778,7 +2774,6 @@ public partial class MainWindow : Window
         var minX = selected.Min(p => p.X);
         var minY = selected.Min(p => p.Y);
         _clipOrigin = (minX, minY);
-        _clipSource = new WeakReference<ShipDocument>(_doc);
         // snapshot the container contents too (cargo is immutable, so the reference is a valid snapshot) — each
         // paste deep-clones it with fresh ids, so a copied container pastes with its contents
         _clip = selected.Select(p => (p.DefName, p.X - minX, p.Y - minY, p.Rot, p.Cargo)).ToList();
@@ -2802,27 +2797,18 @@ public partial class MainWindow : Window
         }).ToList();
 
     /// <summary>
-    /// Where a paste lands: the tile under the cursor whenever there is one, and otherwise a position derived from
-    /// where the selection was copied.
+    /// Paste the clipboard at the cursor, selecting the copies. Pastes into whichever design is on screen, which
+    /// need not be the one it was copied from, and lands in the same place either way: where you are pointing.
     ///
-    /// <para>That fallback differs by <paramref name="sameDesign"/>, and the difference is the whole point. Pasting
-    /// back into the design it was copied from puts the copy <b>one tile off</b> the original, so it does not land
-    /// exactly on top of it and look like nothing happened. Pasting into a <b>different</b> design there is no
-    /// original to clear, so the nudge would only shift the block by a tile for no reason: it goes at the same grid
-    /// position it held in the design it came from. Every ship is anchored on its primary airlock at the origin, so
-    /// that is a real correspondence between two designs rather than an arbitrary spot — a section carried between
-    /// two versions of a ship arrives where it belongs.</para>
+    /// <para><paramref name="at"/> is the tile a caller already knows the user meant — the right-click menu's Paste,
+    /// where the cursor is over the menu popup by the time it is clicked rather than over the tile it was opened on.
+    /// Left null, the canvas is asked where the cursor is (see <see cref="ShipCanvas.PasteCell"/>), which also
+    /// covers the cursor being off the canvas entirely: over the palette, or another window.</para>
     /// </summary>
-    internal static (int X, int Y) PasteAnchor((int X, int Y)? hover, (int X, int Y) clipOrigin, bool sameDesign) =>
-        hover ?? (sameDesign ? (clipOrigin.X + 1, clipOrigin.Y + 1) : clipOrigin);
-
-    /// <summary>Paste the clipboard (see <see cref="PasteAnchor"/> for where), selecting the copies. Pastes into
-    /// whichever design is on screen, which need not be the one it was copied from.</summary>
-    private void PasteClipboard()
+    private void PasteClipboard((int X, int Y)? at = null)
     {
         if (_doc is null || _clip.Count == 0) return;
-        var sameDesign = _clipSource is not null && _clipSource.TryGetTarget(out var from) && ReferenceEquals(from, _doc);
-        var clones = ClipboardClones(_clip, PasteAnchor(_hoverCell, _clipOrigin, sameDesign));
+        var clones = ClipboardClones(_clip, at ?? Board.PasteCell ?? _clipOrigin);
         _stack.Push(_doc, new CompositeCommand(clones.Select(c => (IDocCommand)new PlaceCommand(c)).ToList()));
         Board.SelectedIds.Clear();
         foreach (var clone in clones) Board.SelectedIds.Add(clone.Id);
@@ -3040,7 +3026,9 @@ public partial class MainWindow : Window
             menu.Items.Add(Item("Find and Replace All…" + (findMatches.Count > 1 ? $" ({findMatches.Count})" : ""), "", (_, _) => FindAndReplace()));
         menu.Items.Add(Item("Duplicate" + suffix, "Ctrl+D", (_, _) => DuplicateSelection(), canAct));
         menu.Items.Add(Item("Copy" + suffix, "Ctrl+C", (_, _) => CopySelection(), canAct));
-        menu.Items.Add(Item("Paste", "Ctrl+V", (_, _) => PasteClipboard(), _clip.Count > 0));
+        // The tile the menu was opened on, not wherever the cursor is by the time the item is clicked — by then it
+        // is over the menu popup, which is a window of its own and not the canvas.
+        menu.Items.Add(Item("Paste", "Ctrl+V", (_, _) => PasteClipboard(cell), _clip.Count > 0));
         menu.Items.Add(Item("Rotate CW" + suffix, "R", (_, _) => RotateSelection(90), canRotate));
         menu.Items.Add(Item("Rotate CCW" + suffix, "Shift+R", (_, _) => RotateSelection(-90), canRotate));
         menu.Items.Add(Item("Flip Horizontal" + suffix, "H", (_, _) => FlipSelection(horizontal: true), canRotate));
