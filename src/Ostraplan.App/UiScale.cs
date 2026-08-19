@@ -26,6 +26,14 @@ namespace Ostraplan.App;
 /// bigger than the screen) and re-centred on whatever it was centred on. Windows that size to their content need
 /// none of that: they follow their content on their own.</para>
 ///
+/// <para><b>Below 100% a window's box does not shrink.</b> The point of setting the scale under 100% is to fit
+/// more into the window you already have, so only the Min constraints come down with it (a window whose content
+/// needed 900px now needs 720, and must be allowed to go there). A declared size and the Max constraints scale by
+/// <c>max(scale, 1)</c> instead: the main window opens at the size it was laid out for and spends the difference
+/// on canvas rather than handing it back to the desktop, and a fixed-size report keeps its box and shows more
+/// rows. The dialogs where a proportionally smaller window <i>is</i> the right answer are almost all
+/// <see cref="SizeToContent"/> ones, which get there on their own.</para>
+///
 /// <para><b>The popup layer.</b> A popup renders in its own top-level window, so whether it picks the scale up
 /// depends on where its content sits in the visual tree. A dropdown declared inside a control's template — a
 /// ComboBox's list, a MenuItem's submenu — is a visual descendant of the element that owns it and inherits the
@@ -109,11 +117,16 @@ public static class UiScale
         var b = Bases.GetValue(w, Metrics.Of);
         var work = SystemParameters.WorkArea;
 
-        // Constraints scale whatever the sizing mode: a size-to-content window is still held by its Max*.
+        // What a window's own box scales by. Never below 1: shrinking the box under 100% would hand the reclaimed
+        // space back to the desktop, which is the opposite of what setting the scale down is for. See the class note.
+        var grow = Math.Max(Scale, UiScaling.Default);
+
+        // Constraints scale whatever the sizing mode: a size-to-content window is still held by its Max*. The floor
+        // follows the content all the way down, so a smaller layout can actually be dragged smaller.
         if (b.MinWidth > 0) w.MinWidth = Math.Min(b.MinWidth * Scale, work.Width);
         if (b.MinHeight > 0) w.MinHeight = Math.Min(b.MinHeight * Scale, work.Height);
-        if (double.IsFinite(b.MaxWidth)) w.MaxWidth = Math.Min(b.MaxWidth * Scale, work.Width);
-        if (double.IsFinite(b.MaxHeight)) w.MaxHeight = Math.Min(b.MaxHeight * Scale, work.Height);
+        if (double.IsFinite(b.MaxWidth)) w.MaxWidth = Math.Min(b.MaxWidth * grow, work.Width);
+        if (double.IsFinite(b.MaxHeight)) w.MaxHeight = Math.Min(b.MaxHeight * grow, work.Height);
 
         // Per dimension, because SizeToContent is per dimension: the common "fixed width, height follows the
         // content" dialog still needs its width scaled or the content is squeezed into the old column. A window
@@ -122,9 +135,9 @@ public static class UiScale
         {
             var stc = w.SizeToContent;
             if (stc is not (SizeToContent.Width or SizeToContent.WidthAndHeight) && double.IsFinite(b.Width))
-                w.Width = Math.Min(b.Width * Scale, work.Width);
+                w.Width = Math.Min(b.Width * grow, work.Width);
             if (stc is not (SizeToContent.Height or SizeToContent.WidthAndHeight) && double.IsFinite(b.Height))
-                w.Height = Math.Min(b.Height * Scale, work.Height);
+                w.Height = Math.Min(b.Height * grow, work.Height);
         }
 
         if (Scale != UiScaling.Default) Recentre(w);

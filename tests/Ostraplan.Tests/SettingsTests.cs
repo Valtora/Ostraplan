@@ -17,9 +17,11 @@ public class SettingsTests
     [InlineData(1.0, 1.0)]
     [InlineData(1.5, 1.5)]
     [InlineData(2.0, 2.0)]
-    [InlineData(0.4, 1.0)]     // below the floor
+    [InlineData(0.8, 0.8)]     // the floor itself
+    [InlineData(0.4, 0.8)]     // below the floor
     [InlineData(6.0, 2.0)]     // above the ceiling
-    [InlineData(0.0, 1.0)]     // a settings file written before the key existed deserializes to 0
+    [InlineData(0.0, 1.0)]     // a settings file written before the key existed deserializes to 0 — unset, NOT the floor
+    [InlineData(-1.0, 1.0)]    // nor is a negative one, which is equally not a scale anybody chose
     [InlineData(double.NaN, 1.0)]                // not a number: treat as unset rather than as a huge scale
     [InlineData(double.PositiveInfinity, 1.0)]
     public void Clamp_brings_any_stored_scale_into_range(double stored, double expected) =>
@@ -29,6 +31,8 @@ public class SettingsTests
     [InlineData(1.23, 1.25)]
     [InlineData(1.21, 1.20)]
     [InlineData(1.08, 1.10)]
+    [InlineData(0.87, 0.85)]   // the step is the same one below 100% as above it
+    [InlineData(0.82, 0.80)]
     public void Clamp_snaps_to_the_slider_step(double typed, double expected) =>
         Assert.Equal(expected, UiScaling.Clamp(typed), 3);
 

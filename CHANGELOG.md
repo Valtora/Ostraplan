@@ -10,6 +10,15 @@ each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.7**, and **1.0.0.11** for the
 apartment, save-record and inventory-grid work).
 
+## [Unreleased]
+
+### Added
+- **UI scale now goes below 100%, down to 80%.** The slider used to start at 100% and only magnify. It now
+  scales down too, for the opposite problem: fitting Ostraplan's toolbar and both sidebars into less of a
+  laptop panel, or standing two windows side by side on one monitor. Below 100% the main window keeps the
+  size you gave it and spends the space it saves on the canvas, rather than shrinking the window and
+  handing it back to the desktop. Dialogs and reports still resize with the scale in both directions.
+
 ## [0.90.0] 2026-08-18, deck inventories, rotation in hand, and pockets that work
 
 ### Added

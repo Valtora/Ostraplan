@@ -52,7 +52,7 @@ than part of a design. Changes apply as you make them.
 | Setting | What it does |
 |---|---|
 | **Theme** | Follow Windows, or force light or dark. Chrome only: the canvas stays dark, because the game's sprites are pixel art drawn for dark space. |
-| **UI scale** | 100% to 200%, magnifying everything Ostraplan draws, right-click menus, dropdowns and tooltips included. For a high-resolution monitor run at 100% Windows scaling, where the app's text would otherwise be tiny. It is a layout scale, not a magnifying glass, so text and vectors stay sharp. Dialogs and reports resize with it; the main window keeps the size you gave it. |
+| **UI scale** | 80% to 200%, scaling everything Ostraplan draws, right-click menus, dropdowns and tooltips included. Above 100% for a high-resolution monitor run at 100% Windows scaling, where the app's text would otherwise be tiny; below it to fit more into the window you have, on a laptop panel or beside a second copy of the app. It is a layout scale, not a magnifying glass, so text and vectors stay sharp. Dialogs and reports resize with it; the main window keeps the size you gave it, and below 100% spends the space it saves on the canvas. |
 | **Mod overrides** | Let a modded part be placed where the core-game rules say it doesn't fit (see [The Law](#the-law--live-validation)). |
 | **Ostranauts install** | Where the game's data and sprites are read from. Found through Steam automatically. Read once at launch, so a change takes effect next time you start Ostraplan. |
 | **Saves** | Where your save games are. Ostraplan follows the game's own save-location setting, so set this only if your saves are somewhere neither the game nor Ostraplan knows about. Applies immediately. |

@@ -66,7 +66,7 @@ Getting a design into the game runs through one **wizard**: pick a destination, 
 
 Ostraplan resolves your `loading_order.json` exactly like the game, so modded parts appear in the palette. A design records the mods it needs; open it without them and it stays **read-only** so nothing is silently lost. Enable the mods and the parts come back, or confirm the drop and carry on. The Law is exact for vanilla parts and best-effort for modded ones, so a modded part flagged illegal is a warning rather than a hard block.
 
-*Plus PNG and SVG snapshots, light/dark theming, **UI scaling from 100% to 200%** for a high-resolution monitor run at 100% Windows scaling, and an optional background update check.*
+*Plus PNG and SVG snapshots, light/dark theming, **UI scaling from 80% to 200%** — up for a high-resolution monitor run at 100% Windows scaling, down to fit more into the window you have — and an optional background update check.*
 
 ## What Ostraplan won't do
 

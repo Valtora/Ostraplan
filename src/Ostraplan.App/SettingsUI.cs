@@ -159,9 +159,10 @@ public sealed class SettingsDialog : Window
         row.Children.Add(reset);
 
         return Row("UI scale", row,
-            "Magnifies everything Ostraplan draws — toolbar, panels, dialogs, reports and the canvas. For a "
-            + "high-resolution monitor run at 100% Windows scaling, where the text would otherwise be tiny. "
-            + "Dialogs and reports resize with it; the main window keeps the size you gave it.");
+            "Scales everything Ostraplan draws — toolbar, panels, dialogs, reports and the canvas. Above 100% for "
+            + "a high-resolution monitor run at 100% Windows scaling, where the text would otherwise be tiny; "
+            + "below it to fit more into the window you have, on a laptop panel or beside a second copy of the "
+            + "app. Dialogs and reports resize with it; the main window keeps the size you gave it.");
     }
 
     // ---- editing ----
