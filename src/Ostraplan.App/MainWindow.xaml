@@ -41,6 +41,14 @@
             <Setter Property="Padding" Value="10,3"/>
             <Setter Property="Margin" Value="0,0,3,0"/>
         </Style>
+        <!-- A document tab. Same reasoning as OverlayToggle above: a ToggleButton on the Fluent chain wearing the
+             theme's own checked accent for the active tab, rather than a hard-set background that Fluent's hover
+             state would then paint over. IsChecked is driven from the active session in MainWindow.RefreshDocTabs. -->
+        <Style x:Key="DocTab" TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
+            <Setter Property="Padding" Value="10,3"/>
+            <Setter Property="Margin" Value="0,0,3,4"/>
+            <Setter Property="MaxWidth" Value="240"/>
+        </Style>
         <DataTemplate x:Key="PartTemplate">
             <Grid Margin="2">
                 <Grid.ColumnDefinitions>
@@ -242,12 +250,30 @@
         </Border>
 
         <Grid>
-            <local:ShipCanvas x:Name="Board"/>
+            <Grid.RowDefinitions>
+                <!-- The document tab strip. Auto, and collapsed while one design is open, so a single-document
+                     session looks exactly as it did before tabs existed. -->
+                <RowDefinition Height="Auto"/>
+                <RowDefinition Height="*"/>
+            </Grid.RowDefinitions>
+
+            <Border x:Name="DocTabBar" Grid.Row="0" Visibility="Collapsed" Padding="6,4,6,0"
+                    Background="{DynamicResource PanelBg}"
+                    BorderBrush="{DynamicResource PanelBorder}" BorderThickness="0,0,0,1">
+                <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
+                    <StackPanel x:Name="DocTabStrip" Orientation="Horizontal"/>
+                </ScrollViewer>
+            </Border>
+
+            <!-- Every open design's canvas lives here at once. The active one is Visible and the rest Hidden, not
+                 Collapsed: Hidden is still measured and arranged, so a background tab keeps a real size and its
+                 zoom, pan and framing stay meaningful, while WPF skips drawing it entirely. -->
+            <Grid x:Name="CanvasHost" Grid.Row="1"/>
 
             <!-- The Surfaces bar: the two brushes a pattern alternates between, and the pattern itself. Shown only
                  while Surfaces mode is on (MainWindow.UpdateSurfaceBar drives every part of it). Slot A is the armed
                  palette brush; slot B is picked by arming the slot, then clicking a palette part. -->
-            <Border x:Name="SurfaceBar" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Top"
+            <Border x:Name="SurfaceBar" Grid.Row="1" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Top"
                     Margin="14,10,0,0" Padding="10,8" CornerRadius="6"
                     Background="{DynamicResource PanelBg}" BorderBrush="{DynamicResource PanelBorder}" BorderThickness="1">
                 <StackPanel>
@@ -309,7 +335,7 @@
                 </StackPanel>
             </Border>
 
-            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,10,14,0">
+            <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,10,14,0">
                 <Border x:Name="BadgeWarning" Background="#F0E0A34E" CornerRadius="14" Height="28" MinWidth="28"
                         Visibility="Collapsed" Margin="8,0,0,0">
                     <TextBlock x:Name="BadgeWarningText" Foreground="#FF23262C" FontWeight="Bold" FontSize="14"
@@ -321,7 +347,8 @@
                                HorizontalAlignment="Center" VerticalAlignment="Center" Margin="9,0"/>
                 </Border>
             </StackPanel>
-            <Border x:Name="LoadingOverlay" Background="#DD1A1C20">
+            <!-- Over the tab strip as well as the canvas: while game data is loading there is nothing to switch to. -->
+            <Border x:Name="LoadingOverlay" Grid.Row="0" Grid.RowSpan="2" Background="#DD1A1C20">
                 <TextBlock x:Name="TxtLoading" Text="Locating Ostranauts…" Foreground="#FFD8DDE4"
                            FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>

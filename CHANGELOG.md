@@ -13,6 +13,17 @@ apartment, save-record and inventory-grid work).
 ## [Unreleased]
 
 ### Added
+- **Several designs open at once, one per tab.** New, Open and every Import now start their design in
+  a tab of its own instead of closing the one you were working on, so the "save your changes first?"
+  prompt is gone from all three: you are asked when you close a design, not when you open another.
+  A tab strip appears above the canvas as soon as there is a second design and hides again when you
+  are back to one, so nothing changes if you only ever work on one ship. Click a tab to switch, or
+  **Ctrl+Tab**; **Ctrl+W** or the tab's ✕ closes one. Each tab is a design in full, with its own undo
+  history, its own view and overlays, and its own Ship Rating, Diagnostics and Flight Dynamics
+  reports, which close with it. **Copy and paste work between tabs**, which is the quick way to carry
+  a section, or a set of renamed containers, from one version of a ship to the next. Auto-save covers
+  every open design rather than only the one on screen, and two designs you have never saved no
+  longer rotate each other's snapshots away.
 - **UI scale now goes below 100%, down to 80%.** The slider used to start at 100% and only magnify. It now
   scales down too, for the opposite problem: fitting Ostraplan's toolbar and both sidebars into less of a
   laptop panel, or standing two windows side by side on one monitor. Below 100% the main window keeps the

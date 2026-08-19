@@ -26,7 +26,6 @@ public partial class MainWindow : Window
     // update is parked in _pendingUpdate until the user clicks Restart (see CheckForUpdateAsync).
     private readonly VeloUpdate? _updater = VeloUpdate.Create();
     private Velopack.UpdateInfo? _pendingUpdate;
-    private readonly CommandStack _stack = new();
     private GameEnv? _env;
     private DataIndex? _index;
     private Catalog? _catalog;
@@ -37,34 +36,51 @@ public partial class MainWindow : Window
     // selection-sync and arming treat them like any other palette list. Headers/empty-state toggle in RefreshQuickLists.
     private ListBox? _favList, _recentList;
     private TextBlock? _favHeader, _recentHeader, _quickEmpty;
-    private ShipDocument? _doc;
-    private SaveShipContext? _saveContext;   // set when a design was imported from a save FOR EDITING — enables writing it back
-    private OplanMeta _meta = new();
-    private bool _stateDirty;   // non-command persisted edits (ship identity, view orientation) — their unsaved state
-    // Parts an opened .oplan referenced whose defs aren't in the current game + mods data. While this is
-    // non-empty the design is INCOMPLETE and held read-only: saving would rewrite the file without them, and
-    // building over — or moving parts into — the space where they belong can produce a ship that's invalid
-    // in-game, so the chrome shows a standing warning. Two ways out, both the user's call: enable the mods
-    // (verify with Ostrasort) and reopen to get the parts back, or confirm the drop on Save to let them go for
-    // good — which clears this and lifts the hold. See OpenFile / GuardIncompleteSave.
-    private IReadOnlyList<OplanPart> _unresolvedParts = [];
     private bool _syncingPalette;
     private IReadOnlyList<RoomSpecDef>? _roomSpecs;   // lazily loaded once for the Ship Rating / Diagnostics analyses
     private bool _analysing;                          // one gate for both on-demand analyses (each freezes the live doc)
-    // The two analysis reports, held open beside the editor rather than over it (discussion #22). One of each at
-    // most: a re-run refreshes the window that is up. See ShowRatingReport / ShowDiagnosticsReport.
-    private RatingReportWindow? _ratingReport;
-    private DiagnosticsWindow? _diagnosticsReport;
-    private FlightWindow? _flightReport;
     private FreezeGate _freeze = null!;               // raised while an off-thread read of the LIVE _doc is in flight — see FreezeDoc
     private (int X, int Y)? _hoverCell;               // last hovered tile — the paste anchor
+    // The clipboard is deliberately app-wide rather than per document: copying in one tab and pasting into another
+    // is most of the reason for having more than one open (the container renames on discussion #33 are the case
+    // that asked for it).
     private List<(string Def, int X, int Y, int Rot, IReadOnlyList<CargoItem> Cargo)> _clip = [];   // copied selection, relative to its top-left (with container contents)
     private (int X, int Y) _clipOrigin;               // the copied selection's original top-left (paste fallback)
     private readonly DispatcherTimer _scanTimer;      // debounces the (now off-thread) problem scan
     private CancellationTokenSource? _scanCts;        // cancels a superseded scan
-    private List<Problem> _lastProblems = [];         // the most recent scan result, re-rendered when an alert is dismissed/restored
-    private readonly DispatcherTimer _autoSaveTimer;  // opt-in rotating snapshots of the open design (see RunAutoSave)
+    private readonly DispatcherTimer _autoSaveTimer;  // opt-in rotating snapshots of the open designs (see RunAutoSave)
     private bool _autoSaveWarned;                     // a failing auto-save says so once, then only logs — see RunAutoSave
+
+    // ---- the open documents ----
+
+    /// <summary>Every open design, in tab order. Never empty once the window is constructed: closing the last tab
+    /// is refused rather than leaving the editor with nothing in it.</summary>
+    private readonly List<DocumentSession> _sessions = [];
+
+    /// <summary>The design the chrome is pointed at. Assigned by <see cref="ActivateSession"/>, whose first call is
+    /// in the constructor, before anything below can be read.</summary>
+    private DocumentSession _active = null!;
+
+    // Read-only views of the two above, and the tab-management methods below, are internal rather than private so
+    // the tab bookkeeping can be tested on the real window (see MainWindowTabsTests). Nothing outside the tests uses
+    // them, and neither exposes anything a caller could set.
+    internal IReadOnlyList<DocumentSession> OpenSessions => _sessions;
+    internal DocumentSession ActiveSession => _active;
+
+    // The per-document state, forwarded to the active session. These were plain fields before tabs, read and
+    // written from several hundred places in this file; keeping their names and shapes is what let a second
+    // document arrive without touching any of those call sites. See DocumentSession for what lives where.
+    private ShipCanvas Board => _active.Board;
+    private CommandStack _stack => _active.Stack;
+    private ShipDocument? _doc { get => _active.Doc; set => _active.Doc = value; }
+    private OplanMeta _meta { get => _active.Meta; set => _active.Meta = value; }
+    private SaveShipContext? _saveContext { get => _active.SaveContext; set => _active.SaveContext = value; }
+    private bool _stateDirty { get => _active.StateDirty; set => _active.StateDirty = value; }
+    private IReadOnlyList<OplanPart> _unresolvedParts { get => _active.UnresolvedParts; set => _active.UnresolvedParts = value; }
+    private List<Problem> _lastProblems { get => _active.LastProblems; set => _active.LastProblems = value; }
+    private RatingReportWindow? _ratingReport { get => _active.RatingReport; set => _active.RatingReport = value; }
+    private DiagnosticsWindow? _diagnosticsReport { get => _active.DiagnosticsReport; set => _active.DiagnosticsReport = value; }
+    private FlightWindow? _flightReport { get => _active.FlightReport; set => _active.FlightReport = value; }
 
 
     public MainWindow()
@@ -73,56 +89,18 @@ public partial class MainWindow : Window
 
         AuditLog.Session(AppVersion);   // open a new section in the on-disk activity trail
 
-        Board.StrokeCommitted += OnStrokeCommitted;
-        Board.MoveRequested += OnMoveRequested;
-        Board.PosesRequested += OnPosesRequested;
-        Board.SelectionChanged += UpdateInspector;
-        Board.LooseSelectionChanged += UpdateInspector;
-        Board.HoverChanged += cell => { _hoverCell = cell; TxtCell.Text = cell is { } c ? $"tile {c.X}, {c.Y}" : "—"; };
-        Board.SelectionSizeChanged += size => TxtSel.Text = size is { } s ? $"{s.W} × {s.H} tiles" : "";
-        Board.ViewChanged += UpdateZoomText;
-        Board.Disarmed += ClearPaletteSelection;
-        Board.ContextMenuRequested += OnContextMenuRequested;
-        Board.BrushPicked += OnArmFromTile;   // Alt+LMB eyedropper
-        Board.ArmedChanged += () => { UpdateBrushText(); UpdateSurfaceBar(); };   // slot A is whatever is in hand, however it got there
-        Board.LooseContextMenuRequested += OnLooseContextMenuRequested;
-        Board.BandFilterRequested += OnBandFilterRequested;
-        Board.GhostReasonChanged += status => TxtGhost.Text =
-            status is { } s ? (s.Advisory ? "⚠ places, but " : s.WillPlace ? "⚠ placing against the rules — " : "⛔ can't place here — ") + s.Reason
-            : Board.AirSelection.Count > 0 ? AirHint(Board.AirSelection.Count)
-            : "";
-        Board.AirSelectionChanged += n => TxtGhost.Text = n > 0 ? AirHint(n) : "";
-        // restore the "allow modded parts to break the law" toggle (default off)
-        Board.AllowModdedOverrides = _settings.AllowModdedOverrides;
-        // Surfaces mode's persisted preferences. All three are visible in the Surfaces bar whenever the mode is on,
-        // so a remembered choice explains itself rather than turning up as a brush that mysteriously won't paint.
-        Board.SurfaceGhostOpacity = _settings.SurfaceGhostOpacity;
-        if (Enum.TryParse<SurfacePaintMode>(_settings.SurfacePaintMode, out var paintMode)) Board.SetPaintMode(paintMode);
-        if (Enum.TryParse<SurfaceFocus>(_settings.SurfaceFocus, out var focus)) Board.SetLayerFocus(focus);
-        Board.ZoneStrokeCommitted += OnZoneStrokeCommitted;
-        Board.ShowZonesChanged += OnShowZonesChanged;   // refresh the toolbar toggle highlight
-        Board.ShowPowerChanged += OnShowPowerChanged;   // (re)compute the overlay off-thread when toggled on
-        Board.ShowRoomsChanged += OnShowRoomsChanged;   // same for the room certification
-        Board.ShowLightChanged += OnShowLightChanged;   // same for the interior-lighting flood
-        Board.ShowWalkChanged += OnShowWalkChanged;     // same for the crew-access analysis
-        Board.WireModeChanged += OnWireModeChanged;     // swap the status hint for the wiring instructions
-        Board.SurfaceModeChanged += OnSurfaceModeChanged;   // show/hide the Surfaces bar and swap the status hint
-        SyncViewToggles();                              // seed the toolbar highlights from the initial overlay state
-        Board.LinkToggleRequested += OnLinkToggleRequested;   // connect/disconnect two devices via the command stack
-        Board.ActiveZoneChanged += UpdateZones;   // reflect which zone (if any) is being painted
-        _stack.StateChanged += RefreshChrome;
-        // Audit every edit/undo/redo, resolving each part's friendly name so the trail records what/where
-        // ("Place Nav Station @(12,7)") rather than a context-free "Place" — the detail a bug report needs.
-        _stack.Applied += (cmd, action) => AuditLog.Command(action, cmd, DefFriendlyName);
-
         // The whole editing surface goes dead while an engine reads the live document off-thread (FreezeDoc). An open
         // report window is an edit route too now that it is modeless — its dead-weight box writes to the live
-        // document — so it goes dead with the rest of them rather than being left as the one way in.
+        // document — so it goes dead with the rest of them rather than being left as the one way in. Every open
+        // design's reports, not just the analysed one's: the freeze disables the chrome for all of them at once.
         _freeze = new FreezeGate(frozen =>
         {
             Chrome.IsEnabled = !frozen;
-            if (_ratingReport is not null) _ratingReport.IsEnabled = !frozen;
-            if (_diagnosticsReport is not null) _diagnosticsReport.IsEnabled = !frozen;
+            foreach (var s in _sessions)
+            {
+                if (s.RatingReport is not null) s.RatingReport.IsEnabled = !frozen;
+                if (s.DiagnosticsReport is not null) s.DiagnosticsReport.IsEnabled = !frozen;
+            }
         });
 
         _scanTimer = new DispatcherTimer { Interval = TimeSpan.FromMilliseconds(120) };
@@ -132,15 +110,240 @@ public partial class MainWindow : Window
         _autoSaveTimer.Tick += (_, _) => RunAutoSave();
         RestartAutoSaveTimer();   // off unless the user has opted in
 
+        // The tab the app opens on, built last because activating it touches the timers and the freeze gate above.
+        // Its document arrives with the game data (LoadDataAsync); the session has to exist before that, because
+        // every piece of per-document state below is read through it. ActivateSession seeds the toolbar highlights.
+        ActivateSession(CreateSession());
+
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewKeyUp += OnPreviewKeyUp;
         Deactivated += (_, _) => Board.ClearPanKeys();   // a KeyUp we never receive must not leave the view drifting
         Loaded += async (_, _) => await LoadDataAsync();
         Closing += (_, e) =>
         {
-            if (!ConfirmDiscardChanges()) e.Cancel = true;
+            if (!ConfirmDiscardEverything()) e.Cancel = true;
             else _settings.Save();
         };
+    }
+
+    // ---- document tabs ----
+
+    /// <summary>
+    /// Build a session and its canvas, and add both to the window. The canvas starts hidden: <see cref="ActivateSession"/>
+    /// is what puts one on screen, and it is the only thing that should.
+    ///
+    /// <para>All of the canvas wiring lives here rather than in the constructor because there is a canvas per open
+    /// design now. Every handler is written against <paramref name="board"/> rather than the <see cref="Board"/>
+    /// shim, which for input events amounts to the same canvas (a hidden one is not hit-testable, so only the
+    /// active one raises them) but says plainly which canvas it means.</para>
+    /// </summary>
+    internal DocumentSession CreateSession()
+    {
+        var board = new ShipCanvas
+        {
+            Visibility = Visibility.Hidden,
+            Sprites = _sprites,   // null until the game data lands; LoadDataAsync fills the startup session's in
+            // restore the "allow modded parts to break the law" toggle (default off)
+            AllowModdedOverrides = _settings.AllowModdedOverrides,
+            // Surfaces mode's persisted preferences. All three are visible in the Surfaces bar whenever the mode is
+            // on, so a remembered choice explains itself rather than turning up as a brush that won't paint.
+            SurfaceGhostOpacity = _settings.SurfaceGhostOpacity,
+        };
+        if (Enum.TryParse<SurfacePaintMode>(_settings.SurfacePaintMode, out var paintMode)) board.SetPaintMode(paintMode);
+        if (Enum.TryParse<SurfaceFocus>(_settings.SurfaceFocus, out var focus)) board.SetLayerFocus(focus);
+
+        board.StrokeCommitted += OnStrokeCommitted;
+        board.MoveRequested += OnMoveRequested;
+        board.PosesRequested += OnPosesRequested;
+        board.SelectionChanged += UpdateInspector;
+        board.LooseSelectionChanged += UpdateInspector;
+        board.HoverChanged += cell => { _hoverCell = cell; TxtCell.Text = cell is { } c ? $"tile {c.X}, {c.Y}" : "—"; };
+        board.SelectionSizeChanged += size => TxtSel.Text = size is { } s ? $"{s.W} × {s.H} tiles" : "";
+        board.ViewChanged += UpdateZoomText;
+        board.Disarmed += ClearPaletteSelection;
+        board.ContextMenuRequested += OnContextMenuRequested;
+        board.BrushPicked += OnArmFromTile;   // Alt+LMB eyedropper
+        board.ArmedChanged += () => { UpdateBrushText(); UpdateSurfaceBar(); };   // slot A is whatever is in hand, however it got there
+        board.LooseContextMenuRequested += OnLooseContextMenuRequested;
+        board.BandFilterRequested += OnBandFilterRequested;
+        board.GhostReasonChanged += status => TxtGhost.Text =
+            status is { } s ? (s.Advisory ? "⚠ places, but " : s.WillPlace ? "⚠ placing against the rules — " : "⛔ can't place here — ") + s.Reason
+            : board.AirSelection.Count > 0 ? AirHint(board.AirSelection.Count)
+            : "";
+        board.AirSelectionChanged += n => TxtGhost.Text = n > 0 ? AirHint(n) : "";
+        board.ZoneStrokeCommitted += OnZoneStrokeCommitted;
+        board.ShowZonesChanged += OnShowZonesChanged;   // refresh the toolbar toggle highlight
+        board.ShowPowerChanged += OnShowPowerChanged;   // (re)compute the overlay off-thread when toggled on
+        board.ShowRoomsChanged += OnShowRoomsChanged;   // same for the room certification
+        board.ShowLightChanged += OnShowLightChanged;   // same for the interior-lighting flood
+        board.ShowWalkChanged += OnShowWalkChanged;     // same for the crew-access analysis
+        board.WireModeChanged += OnWireModeChanged;     // swap the status hint for the wiring instructions
+        board.SurfaceModeChanged += OnSurfaceModeChanged;   // show/hide the Surfaces bar and swap the status hint
+        board.LinkToggleRequested += OnLinkToggleRequested;   // connect/disconnect two devices via the command stack
+        board.ActiveZoneChanged += UpdateZones;   // reflect which zone (if any) is being painted
+
+        var session = new DocumentSession { Board = board, UntitledSlot = FreeUntitledSlot() };
+        session.Stack.StateChanged += RefreshChrome;
+        // Audit every edit/undo/redo, resolving each part's friendly name so the trail records what/where
+        // ("Place Nav Station @(12,7)") rather than a context-free "Place" — the detail a bug report needs.
+        session.Stack.Applied += (cmd, action) => AuditLog.Command(action, cmd, DefFriendlyName);
+
+        _sessions.Add(session);
+        CanvasHost.Children.Add(board);
+        return session;
+    }
+
+    /// <summary>The lowest untitled auto-save bucket no open design is using. See <see cref="AutoSaveStore.KeyFor"/>
+    /// for why an untitled design needs one at all.</summary>
+    private int FreeUntitledSlot()
+    {
+        // A design that has been saved somewhere keys on its path instead, so it is not holding a slot any more.
+        for (var slot = 0; ; slot++)
+            if (_sessions.All(s => s.Doc?.FilePath is not null || s.UntitledSlot != slot)) return slot;
+    }
+
+    /// <summary>
+    /// Point the whole window at <paramref name="session"/>: show its canvas, hide the one that was up, and refill
+    /// every piece of shared chrome from it. Clicking the tab that is already active falls through to a strip
+    /// refresh, which is what puts the toggle back down after WPF's own click toggled it up.
+    /// </summary>
+    internal void ActivateSession(DocumentSession session)
+    {
+        if (ReferenceEquals(_active, session)) { RefreshDocTabs(); return; }
+
+        // Hidden rather than Collapsed: a background tab keeps being measured and arranged, so its zoom and pan stay
+        // meaningful and it is ready to draw the instant it comes back. WPF skips rendering it either way.
+        if (_active is not null) _active.Board.Visibility = Visibility.Hidden;
+        _active = session;
+        session.Board.Visibility = Visibility.Visible;
+        _hoverCell = null;   // the paste anchor belongs to the canvas the cursor was over, which is no longer this one
+
+        SyncViewToggles();
+        UpdateSurfaceBar();
+        UpdateBrushText();
+        RefreshDocTabs();
+        if (_catalog is null) return;   // still loading: LoadDataAsync fills the rest in once there is a document
+
+        UpdateZoomText();
+        UpdateZones();
+        UpdateInspector();
+        UpdateProblems(session.LastProblems);
+        RefreshChrome();
+        ScheduleScan();   // this design's problems, recomputed rather than trusted from whenever it was last up
+        session.Board.Focus();
+    }
+
+    /// <summary>
+    /// Start the next design in a tab of its own, unless the active tab is an untouched blank — the one the app
+    /// opens on, and the one File ▸ New leaves behind. Reusing that is what stops an empty "Untitled ship" tab
+    /// accumulating beside every design the user actually opens.
+    /// </summary>
+    private void BeginDocumentInNewTab()
+    {
+        if (_active is { IsBlank: true, StateDirty: false } blank && !blank.Stack.Dirty) return;
+        ActivateSession(CreateSession());
+    }
+
+    /// <summary>
+    /// Close one design's tab. Refused for the last one: the editor always has a document in it, and with a single
+    /// design open the strip is not even on screen for there to be a ✕ to click.
+    ///
+    /// <para>The tab is activated before it is asked about, so the unsaved-changes prompt is answered while looking
+    /// at the design it names — and so Save writes the right one.</para>
+    /// </summary>
+    internal void CloseSession(DocumentSession session)
+    {
+        if (_sessions.Count <= 1) return;
+        ActivateSession(session);
+        if (!ConfirmDiscardChanges()) return;
+
+        CloseReports(session);
+        session.DetachDoc();
+        var at = _sessions.IndexOf(session);
+        _sessions.Remove(session);
+        CanvasHost.Children.Remove(session.Board);
+        AuditLog.Add($"Closed \"{session.DisplayName}\".");
+
+        _active = null!;
+        ActivateSession(_sessions[Math.Min(at, _sessions.Count - 1)]);
+    }
+
+    /// <summary>Step to the next or previous tab (Ctrl+Tab / Ctrl+Shift+Tab), wrapping at both ends.</summary>
+    internal void CycleSession(int delta)
+    {
+        if (_sessions.Count <= 1) return;
+        var at = _sessions.IndexOf(_active);
+        ActivateSession(_sessions[((at + delta) % _sessions.Count + _sessions.Count) % _sessions.Count]);
+    }
+
+    /// <summary>Every open design gets its unsaved-changes prompt before the window closes. Answering Cancel to any
+    /// of them cancels the close, leaving that design the one on screen.</summary>
+    private bool ConfirmDiscardEverything()
+    {
+        foreach (var session in _sessions.ToList())
+        {
+            if (!session.Dirty) continue;
+            ActivateSession(session);
+            if (!ConfirmDiscardChanges()) return false;
+        }
+        return true;
+    }
+
+    /// <summary>
+    /// Rebuild the tab strip. Hidden entirely while one design is open, so a single-document session looks exactly
+    /// as it did before tabs existed, and rebuilt wholesale on every chrome refresh — it is a handful of buttons,
+    /// and the alternative is keeping a parallel list of them in step with the sessions.
+    /// </summary>
+    private void RefreshDocTabs()
+    {
+        DocTabBar.Visibility = _sessions.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
+        DocTabStrip.Children.Clear();
+        if (_sessions.Count <= 1) return;
+
+        foreach (var session in _sessions) DocTabStrip.Children.Add(BuildDocTab(session));
+
+        var add = new Button
+        {
+            Content = "+", Padding = new Thickness(9, 3, 9, 3), Margin = new Thickness(3, 0, 0, 4),
+            MinWidth = 0, ToolTip = "Start another design in a new tab (Ctrl+N)",
+        };
+        add.Click += (_, _) => NewDesign();
+        DocTabStrip.Children.Add(add);
+    }
+
+    /// <summary>One tab. A ToggleButton on the Fluent chain (see the DocTab style and CONVENTIONS.md): the active
+    /// tab wears the theme's own checked accent rather than a hard-set background that Fluent's hover state would
+    /// paint over.</summary>
+    private ToggleButton BuildDocTab(DocumentSession session)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        row.Children.Add(new TextBlock
+        {
+            Text = session.DisplayName + (session.Dirty ? " *" : ""),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
+
+        var close = new TextBlock
+        {
+            Text = "✕", FontSize = 11, Opacity = 0.55, Cursor = Cursors.Hand,
+            Margin = new Thickness(9, 0, 0, 0), VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = "Close this design (Ctrl+W)",
+        };
+        // PreviewMouseLeftButtonDown, marked handled, so clicking the ✕ closes the tab instead of also selecting it
+        // — the same trick the palette's favourite star uses.
+        close.PreviewMouseLeftButtonDown += (_, e) => { e.Handled = true; CloseSession(session); };
+        row.Children.Add(close);
+
+        var tab = new ToggleButton
+        {
+            Style = (Style)FindResource("DocTab"),
+            Content = row,
+            IsChecked = ReferenceEquals(session, _active),
+            ToolTip = session.Doc?.FilePath ?? "Not saved to a file yet",
+        };
+        tab.Click += (_, _) => ActivateSession(session);
+        return tab;
     }
 
     // ---- startup ----
@@ -217,7 +420,7 @@ public partial class MainWindow : Window
         _catalog = catalog;
         _sprites = sprites;
         _allParts = parts;
-        Board.Sprites = sprites;
+        foreach (var s in _sessions) s.Board.Sprites = sprites;   // the startup tab; every later one takes it at creation
 
         BuildPalette();
         NewDocument();
@@ -573,51 +776,91 @@ public partial class MainWindow : Window
 
     // ---- document lifecycle ----
 
+    /// <summary>Start a blank design in a tab of its own, which is what File ▸ New, Ctrl+N and the strip's + all
+    /// mean. There is nothing to discard first: the design that was open stays open in its own tab.</summary>
+    private void NewDesign()
+    {
+        if (_catalog is null) return;
+        BeginDocumentInNewTab();
+        NewDocument();
+        AuditLog.Add("New design.");
+    }
+
+    /// <summary>Put a blank design into the active tab. The tab is chosen by the caller (see
+    /// <see cref="BeginDocumentInNewTab"/>); at startup it is the one the constructor made.</summary>
     private void NewDocument()
     {
         if (_catalog is null) return;
-        CloseReports();
-        if (_doc is not null) _doc.Changed -= OnDocChanged;
-        _doc = new ShipDocument(_catalog);
+        CloseReports(_active);
+        var doc = new ShipDocument(_catalog);
         // every ship owns exactly one Primary Airlock, fixed at the root - seeded
         // outside the undo stack so it can't be undone into nothing, and locked
-        // against move/rotate/delete like the game's own
+        // against move/rotate/delete like the game's own. Before the document is hung on the session, so seeding it
+        // is not an edit anything hears about.
         if (_catalog.ByDefName.ContainsKey(Catalog.PrimaryDocksysDef))
-            new PlaceCommand(new Placement { DefName = Catalog.PrimaryDocksysDef, X = 0, Y = 0 }).Do(_doc);
-        _doc.Changed += OnDocChanged;
+            new PlaceCommand(new Placement { DefName = Catalog.PrimaryDocksysDef, X = 0, Y = 0 }).Do(doc);
+        AttachDoc(doc);
         _meta = new OplanMeta();
         _stateDirty = false;
         _saveContext = null;
         _unresolvedParts = [];
+        _active.IsBlank = true;   // nothing has been done to it yet, so Open/Import may take this tab over
         _stack.Reset();
-        Board.SetDocument(_doc);
+        Board.SetDocument(_doc!);
         Board.SetViewRot(0);
         OnDocChanged();
         UpdateInspector();
     }
 
-    private void OnDocChanged()
+    /// <summary>
+    /// Hang <paramref name="doc"/> on the active session, moving its <see cref="ShipDocument.Changed"/> subscription
+    /// off whatever was there. The handler is per session rather than one shared method group because it has to know
+    /// which design changed: a report window on a background tab writes to that tab's document, and the chrome that
+    /// must not be refreshed for it is the one on screen.
+    /// </summary>
+    private void AttachDoc(ShipDocument doc)
     {
+        var session = _active;
+        session.DetachDoc();
+        session.Doc = doc;
+        session.DocChanged ??= () => DocumentChanged(session);
+        doc.Changed += session.DocChanged;
+        session.IsBlank = false;
+    }
+
+    /// <summary>The active design changed. Kept as the no-argument form the editor has always called.</summary>
+    private void OnDocChanged() => DocumentChanged(_active);
+
+    /// <summary>
+    /// One design changed. The reports measuring it go stale and its canvas drops any leak highlight whichever tab
+    /// it is on; the shared chrome below only belongs to the design actually on screen, so a background tab stops
+    /// after refreshing the strip (its dirty star is the one thing about it still visible).
+    /// </summary>
+    private void DocumentChanged(DocumentSession session)
+    {
+        session.Board.SetLeakCells([]);   // any Ship Rating leak highlight is stale once the design changes
+        // An open report measured the design as it was a moment ago, so an edit is what makes it out of date. It says
+        // so rather than going on showing figures for a ship that no longer exists (see ReportWindow).
+        session.RatingReport?.MarkStale();
+        session.DiagnosticsReport?.MarkStale();
+        if (!ReferenceEquals(session, _active)) { RefreshDocTabs(); return; }
+
         var bounds = _doc?.Bounds();
         var dims = bounds is { } b ? $" · {b.MaxX - b.MinX + 1}×{b.MaxY - b.MinY + 1} tiles" : "";
         TxtParts.Text = $"{_doc?.Placements.Count ?? 0} parts{dims}";
-        Board.SetLeakCells([]);   // any Ship Rating leak highlight is stale once the design changes
-        // An open report measured the design as it was a moment ago, so an edit is what makes it out of date. It says
-        // so rather than going on showing figures for a ship that no longer exists (see ReportWindow).
-        _ratingReport?.MarkStale();
-        _diagnosticsReport?.MarkStale();
         ScheduleScan();
         UpdateZones();
         RefreshChrome();
     }
 
-    /// <summary>Close the open analysis reports. Their figures, their leak highlight and their dead-weight box all
-    /// belong to the document that produced them, so a document swap takes them with it rather than leaving a report
-    /// describing one ship while writing into another.</summary>
-    private void CloseReports()
+    /// <summary>Close one design's analysis reports. Their figures, their leak highlight and their dead-weight box
+    /// all belong to the document that produced them, so a document swap — or closing its tab — takes them with it
+    /// rather than leaving a report describing one ship while writing into another.</summary>
+    private static void CloseReports(DocumentSession session)
     {
-        _ratingReport?.Close();
-        _diagnosticsReport?.Close();
+        session.RatingReport?.Close();
+        session.DiagnosticsReport?.Close();
+        session.FlightReport?.Close();   // read-only, but a flight profile for a design that is no longer open is noise
     }
 
     /// <summary>
@@ -642,6 +885,7 @@ public partial class MainWindow : Window
         _scanCts?.Cancel();
         var cts = _scanCts = new CancellationTokenSource();
         var token = cts.Token;
+        var session = _active;            // whose design this is: the user may switch tabs while it runs
         var snapshot = _doc.Snapshot();   // UI thread, cheap; immutable while the scan runs
         var catalog = _catalog;
         var showPower = Board.ShowPower;   // only pay for the power flood when PowerViz is on
@@ -687,11 +931,16 @@ public partial class MainWindow : Window
         }
         catch (OperationCanceledException) { return; }
         if (token.IsCancellationRequested || !ReferenceEquals(cts, _scanCts)) return;   // superseded
-        UpdateProblems(problems);
-        Board.SetPowerOverlay(power);
-        Board.SetRoomOverlay(rooms);
-        Board.SetLightScene(light);
-        Board.SetWalkOverlay(walk);
+
+        // The overlays go on the canvas that was scanned, whichever tab that is now on — they are that design's,
+        // and a hidden canvas simply draws them when it comes back. Only the shared PROBLEMS list is guarded on the
+        // scan still describing what is on screen; the tab switched to has its own scan already scheduled.
+        session.Board.SetPowerOverlay(power);
+        session.Board.SetRoomOverlay(rooms);
+        session.Board.SetLightScene(light);
+        session.Board.SetWalkOverlay(walk);
+        if (ReferenceEquals(session, _active)) UpdateProblems(problems);
+        else session.LastProblems = problems;
     }
 
     /// <summary>
@@ -738,6 +987,10 @@ public partial class MainWindow : Window
         BtnRating.IsEnabled = BtnDiagnostics.IsEnabled = false;
         _roomSpecs ??= RoomCertifier.LoadSpecs(_index);
         var (doc, catalog, specs) = (_doc, _catalog, _roomSpecs);
+        // The session, not the shim, for everything the report is bound to. The freeze below rules out a tab switch
+        // mid-analysis, but the window outlives this method: its Closed handler must clear the field on the session
+        // that owns it rather than on whichever one is active whenever the user gets round to closing it.
+        var session = _active;
 
         var progress = new RatingProgressDialog { Owner = this };
         var reporter = new Progress<(string Stage, double Frac)>(p => progress.Update(p.Stage, p.Frac));
@@ -771,28 +1024,28 @@ public partial class MainWindow : Window
         if (report is null) return;
 
         var value = ShipValue.Estimate(doc, catalog, specs);
-        var snapshot = Board.RenderRatingSnapshot(specs);
-        var snapshotSvg = Board.RenderRatingSnapshotSvg(specs);   // scalable variant for the "Save image…" dialog
+        var snapshot = session.Board.RenderRatingSnapshot(specs);
+        var snapshotSvg = session.Board.RenderRatingSnapshotSvg(specs);   // scalable variant for the "Save image…" dialog
 
-        if (_ratingReport is null)
+        if (session.RatingReport is null)
         {
             // The callbacks are bound to the document that produced the report, which is why CloseReports drops the
             // window on a document swap rather than letting a stale one write into the new design.
-            var window = new RatingReportWindow(cells => Board.SetLeakCells(cells), kg => SetExtraMass(doc, kg),
+            var window = new RatingReportWindow(cells => session.Board.SetLeakCells(cells), kg => SetExtraMass(doc, kg),
                 residence: doc.IsResidence)
             {
                 Owner = this,
             };
             window.RerunRequested += async () => await ShowRatingReport();
-            window.Closed += (_, _) => _ratingReport = null;
-            _ratingReport = window;
+            window.Closed += (_, _) => session.RatingReport = null;
+            session.RatingReport = window;
             window.SetReport(report, value, snapshot, snapshotSvg);
             window.Show();
         }
         else
         {
-            _ratingReport.SetReport(report, value, snapshot, snapshotSvg);
-            _ratingReport.Activate();
+            session.RatingReport.SetReport(report, value, snapshot, snapshotSvg);
+            session.RatingReport.Activate();
         }
     }
 
@@ -820,6 +1073,7 @@ public partial class MainWindow : Window
         BtnRating.IsEnabled = BtnDiagnostics.IsEnabled = false;
         _roomSpecs ??= RoomCertifier.LoadSpecs(_index);
         var (doc, catalog, specs) = (_doc, _catalog, _roomSpecs);
+        var session = _active;   // see ShowRatingReport: the window outlives this method, the shim does not
 
         var progress = new DiagnosticsProgressDialog { Owner = this };
         var reporter = new Progress<(string Stage, double Frac)>(p => progress.Update(p.Stage, p.Frac));
@@ -846,19 +1100,19 @@ public partial class MainWindow : Window
 
         if (report is null) return;
 
-        if (_diagnosticsReport is null)
+        if (session.DiagnosticsReport is null)
         {
             var window = new DiagnosticsWindow { Owner = this };
             window.RerunRequested += async () => await ShowDiagnosticsReport();
-            window.Closed += (_, _) => _diagnosticsReport = null;
-            _diagnosticsReport = window;
-            window.SetReport(report, _meta.Name);
+            window.Closed += (_, _) => session.DiagnosticsReport = null;
+            session.DiagnosticsReport = window;
+            window.SetReport(report, session.Meta.Name);
             window.Show();
         }
         else
         {
-            _diagnosticsReport.SetReport(report, _meta.Name);
-            _diagnosticsReport.Activate();
+            session.DiagnosticsReport.SetReport(report, session.Meta.Name);
+            session.DiagnosticsReport.Activate();
         }
     }
 
@@ -885,6 +1139,7 @@ public partial class MainWindow : Window
         // Every value the measurement needs, read HERE on the UI thread, then handed to a static helper. See
         // MeasureFlight for why the Ui.OffThread call cannot live in this method.
         var (doc, catalog, index, designName) = (_doc, _catalog, _index, _meta.Name);
+        var session = _active;   // see ShowRatingReport: the window outlives this method, the shim does not
         FlightReport report;
         Mouse.OverrideCursor = Cursors.Wait;
         using (FreezeDoc())
@@ -900,19 +1155,19 @@ public partial class MainWindow : Window
             }
         }
 
-        if (_flightReport is null)
+        if (session.FlightReport is null)
         {
             var window = new FlightWindow(_settings) { Owner = this };
             window.RerunRequested += async () => await ShowFlightReport();
-            window.Closed += (_, _) => _flightReport = null;
-            _flightReport = window;
+            window.Closed += (_, _) => session.FlightReport = null;
+            session.FlightReport = window;
             window.SetReport(report);
             window.Show();
         }
         else
         {
-            _flightReport.SetReport(report);
-            _flightReport.Activate();
+            session.FlightReport.SetReport(report);
+            session.FlightReport.Activate();
         }
     }
 
@@ -970,7 +1225,7 @@ public partial class MainWindow : Window
     /// <summary>
     /// Read a ship in purely to measure it: a saved design, a ship template, or a ship in a save. Nothing is
     /// imported — the document on the canvas is untouched and the ship read here is dropped as soon as its bill
-    /// is counted, which is why none of this goes through <see cref="ConfirmDiscardChanges"/>.
+    /// is counted, which is why none of this opens a tab of its own.
     ///
     /// <para>Null when the user backed out, or when the read failed and has already been reported.</para>
     /// </summary>
@@ -1256,6 +1511,7 @@ public partial class MainWindow : Window
         TxtDoc.Text = name + star + incomplete;
         Title = $"Ostraplan v{AppVersion} — {name}{star}{incomplete}";
         SyncDocumentKindChrome();
+        RefreshDocTabs();   // the strip carries the same name and the same unsaved star, for every open design
     }
 
     /// <summary>
@@ -1388,18 +1644,27 @@ public partial class MainWindow : Window
     /// </summary>
     private void RunAutoSave()
     {
-        if (_doc is null || _index is null) return;
-        if (!_stack.Dirty && !_stateDirty) return;
-        if (_unresolvedParts.Count > 0) return;
-        if (_freeze.IsFrozen) return;
+        if (_index is null || _freeze.IsFrozen) return;
+        // Every open design, not only the one on screen. A tab left in the background is exactly the work a crash
+        // would be most annoying to lose, and each design keeps its own rotation (see AutoSaveStore).
+        foreach (var session in _sessions) RunAutoSave(session);
+    }
 
-        var name = _doc.FilePath is { } f ? Path.GetFileNameWithoutExtension(f) : _meta.Name;
+    /// <inheritdoc cref="RunAutoSave()"/>
+    private void RunAutoSave(DocumentSession session)
+    {
+        if (session.Doc is not { } doc || _index is null) return;
+        if (!session.Dirty) return;
+        if (session.UnresolvedParts.Count > 0) return;
+
+        var name = doc.FilePath is { } f ? Path.GetFileNameWithoutExtension(f) : session.Meta.Name;
         try
         {
-            var file = OplanFile.FromDocument(_doc, _index, _meta);
-            file.ViewRot = Board.ViewRot;   // a recovered snapshot reopens in the orientation it was taken in
+            var file = OplanFile.FromDocument(doc, _index, session.Meta);
+            file.ViewRot = session.Board.ViewRot;   // a recovered snapshot reopens in the orientation it was taken in
             var written = AutoSaveStore.Default.Write(
-                file, name, _doc.FilePath, AutoSaveStore.ClampKeep(_settings.AutoSaveKeep), DateTime.Now);
+                file, name, doc.FilePath, AutoSaveStore.ClampKeep(_settings.AutoSaveKeep), DateTime.Now,
+                session.UntitledSlot);
             AuditLog.Add($"Auto-saved \"{name}\" to {written}.");
         }
         catch (Exception ex)
@@ -1526,7 +1791,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void RecoverAutoSave(IReadOnlyList<AutoSaveEntry> entries)
     {
-        if (_catalog is null || entries.Count == 0 || !ConfirmDiscardChanges()) return;
+        if (_catalog is null || entries.Count == 0) return;
 
         var picker = new AutoSaveRecoveryDialog(entries, DateTime.Now) { Owner = this };
         if (picker.ShowDialog() != true || picker.Selected is not { } entry) return;
@@ -1578,7 +1843,7 @@ public partial class MainWindow : Window
 
     private void OpenFile()
     {
-        if (_catalog is null || !ConfirmDiscardChanges()) return;
+        if (_catalog is null) return;
         var dlg = new OpenFileDialog { Filter = "Ostraplan ship (*.oplan)|*.oplan|All files (*.*)|*.*" };
         if (dlg.ShowDialog(this) != true) return;
 
@@ -1632,7 +1897,8 @@ public partial class MainWindow : Window
     private void AdoptLoadedDocument(OplanFile file, ShipDocument doc, List<OplanPart> missing, string? filePath, bool dirty)
     {
         if (_catalog is not { } catalog) return;
-        CloseReports();
+        BeginDocumentInNewTab();
+        CloseReports(_active);
 
         // Designs saved before the primary-airlock convention gain one at the origin. IsLocked reads the port's
         // CONDITIONS (Catalog.IsPrimaryDocksys), so a ship whose airlock is pried open, damaged or modded already
@@ -1641,18 +1907,16 @@ public partial class MainWindow : Window
         if (catalog.ByDefName.ContainsKey(Catalog.PrimaryDocksysDef) && !doc.Placements.Any(doc.IsLocked))
             new PlaceCommand(new Placement { DefName = Catalog.PrimaryDocksysDef, X = 0, Y = 0 }).Do(doc);
 
-        if (_doc is not null) _doc.Changed -= OnDocChanged;
-        _doc = doc;
-        _doc.FilePath = filePath;
-        _doc.Changed += OnDocChanged;
+        AttachDoc(doc);
+        doc.FilePath = filePath;
         _meta = file.Meta;
         _stateDirty = dirty;
         _saveContext = null;   // a reopened save-derived design re-locates its context on demand (from SourceSave)
         _unresolvedParts = missing;   // a design missing its mods is incomplete: read-only until they're enabled
         _stack.Reset();
-        Board.SetDocument(_doc);
+        Board.SetDocument(doc);
         Board.SetViewRot(file.ViewRot);   // restore the saved plan-view orientation
-        Board.FitContent();
+        Board.FitContentWhenReady();      // a tab just built has no layout yet; frame it as soon as it has one
         OnDocChanged();
         UpdateInspector();
     }
@@ -1668,6 +1932,7 @@ public partial class MainWindow : Window
     {
         if (_catalog is null || _env is null) return;
         var (env0, catalog0, save0, reg0) = (_env, _catalog, src.SaveName, src.RegId);
+        var session = _active;   // the tab this design is in; the user is free to work in another one meanwhile
         SaveShipContext? ctx;
         try
         {
@@ -1679,12 +1944,14 @@ public partial class MainWindow : Window
         }
         catch { return; }   // unreadable ship: leave cargo unattached rather than nag on open
 
-        if (ctx is null || !ReferenceEquals(_doc, doc)) return;   // save gone, or the user moved to another design
+        // Against the session's own document, not the active one: switching tabs while the save is being re-located
+        // must not cost this design its cargo. What is checked is that the tab still holds the design that asked.
+        if (ctx is null || !ReferenceEquals(session.Doc, doc)) return;   // save gone, or that design was replaced
         foreach (var p in doc.Placements)
             if (p.OriginStrID is { } id && !doc.IsCargoEdited(p) && ctx.CargoByOrigin.TryGetValue(id, out var forest))
                 p.Cargo = forest;   // skip edited containers — their .oplan snapshot is authoritative
-        _saveContext = ctx;
-        UpdateInspector();
+        session.SaveContext = ctx;
+        if (ReferenceEquals(session, _active)) UpdateInspector();
     }
 
     /// <summary>Up to a dozen distinct missing def names, bulleted, with an "… and N more" tail.</summary>
@@ -2511,18 +2778,30 @@ public partial class MainWindow : Window
         _clip = selected.Select(p => (p.DefName, p.X - minX, p.Y - minY, p.Rot, p.Cargo)).ToList();
     }
 
-    /// <summary>Paste the clipboard at the hovered tile (else just off the original), selecting the copies.</summary>
+    /// <summary>
+    /// The clipboard's parts as fresh placements anchored at <paramref name="anchor"/>.
+    ///
+    /// <para>Static, and taking the payload rather than reading the field, because <b>the clipboard is shared by
+    /// every open design</b> — copying in one tab and pasting into another is most of the point of having tabs. This
+    /// is the step that has to carry nothing of the design it was copied from: it builds new
+    /// <see cref="Placement"/>s and deep-clones the cargo with fresh ids, so the same clipboard pasted into two
+    /// designs gives each an entirely independent set rather than two ships sharing item identity.</para>
+    /// </summary>
+    internal static List<Placement> ClipboardClones(
+        IReadOnlyList<(string Def, int X, int Y, int Rot, IReadOnlyList<CargoItem> Cargo)> clip, (int X, int Y) anchor) =>
+        clip.Select(c => new Placement
+        {
+            DefName = c.Def, X = anchor.X + c.X, Y = anchor.Y + c.Y, Rot = c.Rot,
+            Cargo = Cargo.CloneForest(c.Cargo),   // fresh-id copies of the container's contents
+        }).ToList();
+
+    /// <summary>Paste the clipboard at the hovered tile (else just off the original), selecting the copies. Pastes
+    /// into whichever design is on screen, which need not be the one it was copied from.</summary>
     private void PasteClipboard()
     {
         if (_doc is null || _clip.Count == 0) return;
         var anchor = _hoverCell ?? (_clipOrigin.X + 1, _clipOrigin.Y + 1);
-        var clones = _clip
-            .Select(c => new Placement
-            {
-                DefName = c.Def, X = anchor.X + c.X, Y = anchor.Y + c.Y, Rot = c.Rot,
-                Cargo = Cargo.CloneForest(c.Cargo),   // fresh-id copies of the container's contents
-            })
-            .ToList();
+        var clones = ClipboardClones(_clip, anchor);
         _stack.Push(_doc, new CompositeCommand(clones.Select(c => (IDocCommand)new PlaceCommand(c)).ToList()));
         Board.SelectedIds.Clear();
         foreach (var clone in clones) Board.SelectedIds.Add(clone.Id);
@@ -3061,7 +3340,17 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.N when ctrl && !e.IsRepeat:
-                if (ConfirmDiscardChanges()) { NewDocument(); AuditLog.Add("New design."); }
+                NewDesign();
+                e.Handled = true;
+                break;
+            // Tab management. Ctrl+W is free of the pan keys below because those are all guarded on !ctrl, and
+            // taking Ctrl+Tab here stops the palette's own TabControl treating it as a tab-strip gesture.
+            case Key.W when ctrl && !e.IsRepeat:
+                CloseSession(_active);
+                e.Handled = true;
+                break;
+            case Key.Tab when ctrl && !e.IsRepeat:
+                CycleSession(shift ? -1 : 1);
                 e.Handled = true;
                 break;
             case Key.E when ctrl && !e.IsRepeat:   // export as a spawnable mod
@@ -3287,10 +3576,7 @@ public partial class MainWindow : Window
 
     // ---- toolbar ----
 
-    private void OnNewClick(object sender, RoutedEventArgs e)
-    {
-        if (ConfirmDiscardChanges()) { NewDocument(); AuditLog.Add("New design."); }
-    }
+    private void OnNewClick(object sender, RoutedEventArgs e) => NewDesign();
 
     private void OnOpenClick(object sender, RoutedEventArgs e) => OpenFile();
     private void OnSaveClick(object sender, RoutedEventArgs e) => Save();
@@ -3318,7 +3604,7 @@ public partial class MainWindow : Window
         // A kind switch retires whichever analysis no longer applies, so any open report is describing the design
         // under the old reading of it. Close rather than mark stale: a re-run would rebuild the same window with
         // the wrong headline (the window is told which it is at construction).
-        if (dlg.Kind != _doc.Kind) { _doc.Kind = dlg.Kind; CloseReports(); }
+        if (dlg.Kind != _doc.Kind) { _doc.Kind = dlg.Kind; CloseReports(_active); }
         _stateDirty = true;
         RefreshChrome();
     }
@@ -3605,6 +3891,10 @@ public partial class MainWindow : Window
         var m = new ContextMenu();
         m.Items.Add(MenuAction("New", () => OnNewClick(this, e), gesture: "Ctrl+N"));
         m.Items.Add(MenuAction("Open…", () => OnOpenClick(this, e), gesture: "Ctrl+O"));
+        // Only worth an item once there is more than one to close: with a single design open the tab strip is not
+        // shown either, and closing the last one is refused.
+        m.Items.Add(MenuAction("Close Design", () => CloseSession(_active), enabled: _sessions.Count > 1,
+            gesture: "Ctrl+W"));
         m.Items.Add(MenuAction("Save", () => OnSaveClick(this, e), gesture: "Ctrl+S"));
         m.Items.Add(MenuAction("Save As…", () => OnSaveAsClick(this, e), gesture: "Ctrl+Shift+S"));
         m.Items.Add(AutoSaveMenuItem());
@@ -3719,7 +4009,7 @@ public partial class MainWindow : Window
     /// <summary>Pick a save and import the player's ship from it — layout only, behind an explicit confirmation.</summary>
     private async void ImportSave()
     {
-        if (_catalog is null || _env is null || !ConfirmDiscardChanges()) return;
+        if (_catalog is null || _env is null) return;
 
         var saves = SaveImport.ListSaves(_env);
         if (saves.Count == 0)
@@ -3845,7 +4135,7 @@ public partial class MainWindow : Window
         string title, string pickerNote, string pickerVerb, Func<SaveEntry, SaveShipChoice, bool> confirm,
         DocumentKind kind = DocumentKind.Ship)
     {
-        if (_catalog is null || _env is null || !ConfirmDiscardChanges()) return null;
+        if (_catalog is null || _env is null) return null;
 
         var saves = SaveImport.ListSaves(_env);
         if (saves.Count == 0)
@@ -3991,7 +4281,7 @@ public partial class MainWindow : Window
     /// <summary>Browse core+mod ship templates and import the chosen one as a fresh design.</summary>
     private async void ImportTemplate(DocumentKind kind)
     {
-        if (_catalog is null || _index is null || !ConfirmDiscardChanges()) return;
+        if (_catalog is null || _index is null) return;
 
         var residence = kind == DocumentKind.Residence;
         var noun = residence ? "apartment" : "ship";
@@ -4044,20 +4334,19 @@ public partial class MainWindow : Window
     /// with no way to see what it was.</para></summary>
     private void InstallImportedDocument(ImportResult result, SaveShipContext? context = null, ImportOptions? options = null)
     {
-        CloseReports();
-        if (_doc is not null) _doc.Changed -= OnDocChanged;
-        _doc = result.Doc;
-        _doc.FilePath = null;
-        _doc.Changed += OnDocChanged;
+        BeginDocumentInNewTab();
+        CloseReports(_active);
+        AttachDoc(result.Doc);
+        result.Doc.FilePath = null;
         _meta = new OplanMeta { Name = result.ShipName };
         if (context is not null) SetMetaIdentity(SaveEdit.ReadIdentity(context));
         _stateDirty = false;
         _saveContext = context;
         _unresolvedParts = [];   // a fresh import is a complete, saveable design (unlike a reopened .oplan missing its mods)
         _stack.Reset();
-        Board.SetDocument(_doc);
+        Board.SetDocument(result.Doc);
         Board.SetViewRot(0);
-        Board.FitContent();
+        Board.FitContentWhenReady();   // a tab just built has no layout yet; frame it as soon as it has one
         OnDocChanged();
         UpdateInspector();
         ReportImport(result, options, keptContents: context is not null, skippedHandled: context is not null);
@@ -4320,14 +4609,17 @@ public partial class MainWindow : Window
     /// <summary>Resolve a def name to its friendly name for the activity trail (null → the raw def is used).</summary>
     private string? DefFriendlyName(string defName) => _catalog?.Lookup(defName)?.Friendly;
 
-    /// <summary>A one-line, path-free summary of the current design for the bug report's diagnostics.</summary>
+    /// <summary>A one-line, path-free summary of the design on screen for the bug report's diagnostics, with a count
+    /// of the others open beside it: how many tabs were up is often the difference between a report that reproduces
+    /// and one that does not.</summary>
     private string DescribeDocument()
     {
         if (_doc is null) return "none";
         var kind = _doc.SourceSave is not null ? "save-derived" : _doc.FilePath is not null ? ".oplan" : "unsaved";
         var dirty = _stack.Dirty ? ", unsaved changes" : "";
         var incomplete = _unresolvedParts.Count > 0 ? $", {_unresolvedParts.Count} missing-mod part(s)" : "";
-        return $"{_doc.Placements.Count} parts, {kind}{dirty}{incomplete}";
+        var others = _sessions.Count > 1 ? $" (+{_sessions.Count - 1} more open)" : "";
+        return $"{_doc.Placements.Count} parts, {kind}{dirty}{incomplete}{others}";
     }
 
     /// <summary>
@@ -4572,13 +4864,13 @@ public partial class MainWindow : Window
     {
         if (_updater is null || _pendingUpdate is null) return;
         var ver = VeloUpdate.VersionOf(_pendingUpdate);
-        var dirty = _doc is not null && (_stack.Dirty || _stateDirty);
+        var dirty = _sessions.Any(s => s.Dirty);
         if (!Dlg.Confirm(this, DlgKind.Info, "Restart to finish updating",
                 $"Ostraplan v{ver} has been downloaded.\n\nOstraplan will close, apply the update, and reopen." +
                 (dirty ? "\n\nYou'll be asked about your unsaved changes first." : ""),
                 "Restart now", "Later"))
             return;
-        if (!ConfirmDiscardChanges()) return;   // Cancel there cancels the restart, not just the save
+        if (!ConfirmDiscardEverything()) return;   // Cancel there cancels the restart, not just the save
         _settings.Save();
         try
         {
@@ -4636,7 +4928,8 @@ public partial class MainWindow : Window
             ("Zoom", "Mouse wheel / + −", "Wheel zooms at the cursor in fine 0.1× steps (hold Shift for 0.5×); + and − zoom at the view centre."),
             ("Fit to ship", "F", "Fit the view to the whole ship."),
             ("Undo / redo", "Ctrl+Z / Ctrl+Y", "Undo · redo (Ctrl+Shift+Z also redoes)."),
-            ("New / open / save", "Ctrl+N / O / S", "New · open · save (Ctrl+Shift+S = Save As)."),
+            ("New / open / save", "Ctrl+N / O / S", "New · open · save (Ctrl+Shift+S = Save As). New and Open each start their design in a tab of its own, so nothing you have open is closed to make room."),
+            ("Switch / close design", "Ctrl+Tab / Ctrl+W", "Step through the open designs (Ctrl+Shift+Tab goes back) · close the one on screen. The tab strip appears above the canvas as soon as a second design is open; copy and paste work between them."),
             ("Export", "Ctrl+E", "Export the design as a spawnable local data mod."),
             ("Ship Info / Materials", "Ctrl+I / Ctrl+B", "Edit the in-game identity · open the bill of materials."),
             ("Settings", "Ctrl+,", "Theme, UI scale (magnify the whole app for a high-resolution monitor), mod overrides, and the Ostranauts install and Saves folders."),

@@ -14,8 +14,11 @@ namespace Ostraplan.Core;
 /// <param name="SavedAt">Local time the snapshot was taken.</param>
 public sealed record AutoSaveEntry(string Path, string DesignName, string Key, DateTime SavedAt)
 {
-    /// <summary>True for a snapshot of a design that had never been saved to a file.</summary>
-    public bool IsUntitled => Key == AutoSaveStore.UntitledKey;
+    /// <summary>True for a snapshot of a design that had never been saved to a file. A prefix test rather than an
+    /// equality one, because each untitled design open at the same time gets its own numbered bucket
+    /// (see <see cref="AutoSaveStore.KeyFor"/>).</summary>
+    public bool IsUntitled =>
+        Key == AutoSaveStore.UntitledKey || Key.StartsWith(AutoSaveStore.UntitledKey + "-", StringComparison.Ordinal);
 }
 
 /// <summary>
@@ -26,10 +29,12 @@ public sealed record AutoSaveEntry(string Path, string DesignName, string Key, D
 /// set: rotation is keyed on the design's file path, so two ships that happen to both be called <c>Kestrel.oplan</c>
 /// in different folders never evict each other.</para>
 ///
-/// <para>A design that has never been saved has no path to key on, so every such design shares the one
-/// <see cref="UntitledKey"/> bucket. That is only reachable once the user has answered "Don't save" to the discard
-/// prompt that New and Open put up, which is what makes the shared bucket safe: giving each unsaved document its own
-/// would leave orphan groups that nothing ever rotates out.</para>
+/// <para>A design that has never been saved has no path to key on, so it keys on the <b>slot</b> its editor gives
+/// it instead: slot 0 is the bare <see cref="UntitledKey"/> and every other is <c>untitled-N</c>. Slots exist
+/// because the app can hold several untitled designs open at once, one per document tab, and a single shared bucket
+/// would have them rotate each other's snapshots away — the newest three across all of them rather than the newest
+/// three of each. The editor hands out the lowest slot no open design is using and reuses it once that design is
+/// closed or saved to a file, so the numbering stays small and nothing accumulates orphan groups.</para>
 ///
 /// <para>The root is injected rather than fixed so the whole store is testable against a temp directory;
 /// <see cref="Default"/> is the one the app uses.</para>
@@ -64,15 +69,19 @@ public sealed class AutoSaveStore
 
     /// <summary>
     /// The rotation key for a design: 8 hex characters of SHA-256 over its full path (case-folded, since Windows
-    /// paths are case-insensitive), or <see cref="UntitledKey"/> when it has no path yet.
+    /// paths are case-insensitive), or its untitled <paramref name="slot"/> when it has no path yet.
     ///
     /// <para>Hashing the <i>whole</i> path rather than the file name is the point: same-named designs in different
     /// folders are different designs and keep separate snapshots. A design that is later renamed or moved starts a
     /// new set, and its old set rotates out on its own once nothing writes to it.</para>
+    ///
+    /// <para>A path always wins over the slot, so a design saved to a file moves onto its own permanent set and the
+    /// slot it was using goes back to the pool.</para>
     /// </summary>
-    public static string KeyFor(string? designPath)
+    public static string KeyFor(string? designPath, int slot = 0)
     {
-        if (string.IsNullOrWhiteSpace(designPath)) return UntitledKey;
+        if (string.IsNullOrWhiteSpace(designPath))
+            return slot <= 0 ? UntitledKey : $"{UntitledKey}-{slot}";
         var full = designPath;
         try { full = Path.GetFullPath(designPath); }
         catch { /* an unnormalisable path still keys consistently on its raw form */ }
@@ -87,11 +96,14 @@ public sealed class AutoSaveStore
     /// <para>Stamps <see cref="OplanFile.AutoSaveOf"/> with <paramref name="designPath"/> so recovery can put the
     /// design back on its own file, and writes through a <c>.tmp</c> beside the target so a crash mid-write cannot
     /// leave a truncated snapshot where a good one used to be.</para>
+    ///
+    /// <para><paramref name="untitledSlot"/> only matters while <paramref name="designPath"/> is null: it is what
+    /// keeps two untitled designs open at once from rotating each other away. See <see cref="KeyFor"/>.</para>
     /// </summary>
-    public string Write(OplanFile file, string designName, string? designPath, int keep, DateTime now)
+    public string Write(OplanFile file, string designName, string? designPath, int keep, DateTime now, int untitledSlot = 0)
     {
         Directory.CreateDirectory(Root);
-        var key = KeyFor(designPath);
+        var key = KeyFor(designPath, untitledSlot);
         file.AutoSaveOf = designPath;
 
         var path = FreePath(Slug(designName), key, now);

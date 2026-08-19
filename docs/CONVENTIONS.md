@@ -14,6 +14,30 @@ Put new logic in Core and let the app call into it. That is what keeps the bulk 
 suite game-free and fast, and it is the difference between a rule that can be regression
 tested and one that can only be eyeballed.
 
+## Per-document state belongs to the session, not the window
+
+`MainWindow` holds **several designs at once**, one per document tab. Anything that belongs
+to one design goes on `DocumentSession` (the document, its `CommandStack`, its `OplanMeta`,
+its `ShipCanvas`, its report windows, its unsaved flags). Anything shared by every design
+stays on the window: the catalogue, sprites, `GameEnv`, settings, the clipboard.
+
+The window then exposes the active session's state through private properties named exactly
+as the old fields were (`_doc`, `_stack`, `_meta`, `Board`, …). **Keep writing new code
+against those**, the same as before tabs. A new per-document field is a new property on
+`DocumentSession` plus a one-line shim, not a field on `MainWindow`.
+
+Two rules that are easy to get wrong, both of which cost a design's work when they are:
+
+- **A callback that outlives the method capturing it must capture the session, not the
+  shim.** A report window's `Closed` handler, or anything after an `await`, runs whenever
+  the user gets round to it, by which point the shim resolves to whatever tab is active
+  then. `var session = _active;` at the top, and use it. `ShowRatingReport` and
+  `AttachSavedCargoAsync` are the working examples.
+- **Work that finishes against a background tab must still land on it.** An off-thread
+  result belongs to the design that asked for it, so it goes on `session.Board` /
+  `session.LastProblems` whichever tab is on screen. Only the *shared* chrome (the toolbar,
+  the PROBLEMS list, the title) is guarded on `ReferenceEquals(session, _active)`.
+
 ## Theming and control styles
 
 The app themes its chrome with WPF's **Fluent `ThemeMode`**, set in `ThemeManager.Apply`

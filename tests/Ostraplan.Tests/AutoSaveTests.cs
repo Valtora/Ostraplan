@@ -25,11 +25,11 @@ public class AutoSaveTests : IDisposable
 
     /// <summary>Write <paramref name="count"/> snapshots of one design, a minute apart from <c>_t0</c> plus
     /// <paramref name="startMinute"/>, and return the paths in the order they were written.</summary>
-    private List<string> WriteSeries(string name, string? path, int count, int keep, int startMinute = 0)
+    private List<string> WriteSeries(string name, string? path, int count, int keep, int startMinute = 0, int slot = 0)
     {
         var written = new List<string>();
         for (var i = 0; i < count; i++)
-            written.Add(_store.Write(Design(name), name, path, keep, _t0.AddMinutes(startMinute + i)));
+            written.Add(_store.Write(Design(name), name, path, keep, _t0.AddMinutes(startMinute + i), slot));
         return written;
     }
 
@@ -90,7 +90,7 @@ public class AutoSaveTests : IDisposable
     }
 
     [Fact]
-    public void Every_never_saved_design_shares_the_untitled_bucket()
+    public void Untitled_designs_in_the_same_slot_share_a_bucket()
     {
         Assert.Equal(AutoSaveStore.UntitledKey, AutoSaveStore.KeyFor(null));
         Assert.Equal(AutoSaveStore.UntitledKey, AutoSaveStore.KeyFor("   "));
@@ -102,6 +102,33 @@ public class AutoSaveTests : IDisposable
         Assert.Equal(3, all.Count);                       // one shared set of three, not two sets
         Assert.All(all, e => Assert.True(e.IsUntitled));
         Assert.Equal("Another sketch", all[0].DesignName);   // the newest survivor
+    }
+
+    /// <summary>Two untitled designs open at once, a tab each, must not rotate each other away. The editor gives
+    /// each its own slot, and a slot is a bucket of its own.</summary>
+    [Fact]
+    public void Untitled_designs_in_different_slots_keep_separate_sets()
+    {
+        Assert.Equal(AutoSaveStore.UntitledKey, AutoSaveStore.KeyFor(null, slot: 0));
+        Assert.Equal(AutoSaveStore.UntitledKey + "-1", AutoSaveStore.KeyFor(null, slot: 1));
+
+        WriteSeries("First sketch", null, count: 3, keep: 2);
+        WriteSeries("Second sketch", null, count: 3, keep: 2, startMinute: 10, slot: 1);
+
+        var all = _store.List();
+        Assert.Equal(4, all.Count);                        // two kept per slot, not two across both
+        Assert.All(all, e => Assert.True(e.IsUntitled));   // a numbered slot still reads as never-saved
+        Assert.Equal(2, all.Count(e => e.DesignName == "First sketch"));
+        Assert.Equal(2, all.Count(e => e.DesignName == "Second sketch"));
+    }
+
+    /// <summary>A path always wins over a slot, so saving a design moves it onto its own permanent set and frees
+    /// the slot it was holding.</summary>
+    [Fact]
+    public void A_saved_design_keys_on_its_path_whatever_slot_it_held()
+    {
+        Assert.Equal(AutoSaveStore.KeyFor(@"D:\ships\Kestrel.oplan"),
+                     AutoSaveStore.KeyFor(@"D:\ships\Kestrel.oplan", slot: 3));
     }
 
     [Fact]

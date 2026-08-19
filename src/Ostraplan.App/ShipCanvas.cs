@@ -198,6 +198,7 @@ public sealed class ShipCanvas : FrameworkElement
     private double _zoom = 48;
     private Vector _pan;                             // screen position of world origin
     private bool _panInitialized;
+    private bool _fitPending;                        // FitContent was asked for before this canvas had a size — see FitContentWhenReady
 
     public SymmetryMode SymMode { get; private set; }
     public (int X, int Y) SymCenter { get; private set; }
@@ -1112,8 +1113,23 @@ public sealed class ShipCanvas : FrameworkElement
 
     // ---- view ----
 
+    /// <summary>
+    /// Frame the content as soon as this canvas has a size, rather than only if it already has one.
+    ///
+    /// <para>A canvas built for a document tab has not been laid out at the moment the document is installed into
+    /// it, so <see cref="FitContent"/> alone would no-op and the ship would open at the default zoom centred on the
+    /// origin instead of framed. Deferring to the first render size makes opening into a new tab behave exactly like
+    /// opening into the window that is already on screen.</para>
+    /// </summary>
+    public void FitContentWhenReady()
+    {
+        if (RenderSize.Width >= 1) FitContent();
+        else _fitPending = true;
+    }
+
     public void FitContent()
     {
+        _fitPending = false;
         if (Doc?.Bounds() is not { } b || RenderSize.Width < 1) return;
         var tilesW = b.MaxX - b.MinX + 3.0;
         var tilesH = b.MaxY - b.MinY + 3.0;
@@ -1154,7 +1170,13 @@ public sealed class ShipCanvas : FrameworkElement
     protected override void OnRenderSizeChanged(SizeChangedInfo sizeInfo)
     {
         base.OnRenderSizeChanged(sizeInfo);
-        if (!_panInitialized && sizeInfo.NewSize.Width > 0)
+        if (sizeInfo.NewSize.Width <= 0) return;
+
+        // A deferred fit wins over the default centring: it was asked for against this document, and this is the
+        // first moment there is a size to fit to (see FitContentWhenReady).
+        if (_fitPending) { FitContent(); return; }
+
+        if (!_panInitialized)
         {
             _pan = new Vector(sizeInfo.NewSize.Width / 2, sizeInfo.NewSize.Height / 2);
             _panInitialized = true;

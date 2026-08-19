@@ -30,6 +30,9 @@ Press **F1** in-app at any time for the full keybinding table.
    `%APPDATA%\Ostraplan` and survive updates and uninstalls.
 4. A new design opens with a single **Primary Airlock** at the origin. Every ship
    has exactly one; it's locked (you can't move or delete it), just like in-game.
+5. **You can have several designs open at once.** New, Open and every Import start
+   theirs in a tab of its own, so nothing you are working on is closed to make room.
+   See [Working on more than one design](#working-on-more-than-one-design).
 
 If the version banner warns that the game is newer than the version Ostraplan was
 verified against, the validation may have drifted — the numbers are usually still
@@ -40,7 +43,7 @@ right, but treat a mismatch as "double-check in-game".
 | Region | What's there |
 |---|---|
 | **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**, an **ITEMS** tab for loose floor cargo, a **SPECIAL** tab for the structure the game places but never lets you build, and a **FAV/REC** tab at the front for the parts you pinned and the ones you just placed. Search by friendly or internal name. Modded parts show a small origin badge. |
-| **Canvas** (centre) | The tile grid. Place, paint, select, pan and zoom here. |
+| **Canvas** (centre) | The tile grid. Place, paint, select, pan and zoom here. A **tab strip** appears above it as soon as a second design is open, and disappears again when you are back to one. |
 | **Inspector** (right) | The selected part's details, ship stats, the **Problems** list, and the **Law report**. |
 | **Toolbar** (top) | Grouped **File · Edit · Design · Analyse**, then the view overlay toggles **Zones · Rooms · Power · Light · Walk · Wire** (each highlights in the accent colour while active) and the **View ▾** menu (fit, symmetry, Light Viz daylight, walk-overlay switches), with **⚙ Settings** and the **Help ▾** menu on the right. When a newer release exists it is downloaded in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
 
@@ -353,6 +356,30 @@ Two ways out, and it's your call which:
 - **You're done with those mods:** just **Save** and confirm. The parts are dropped,
   the warning clears, and the design carries on as a normal, complete one.
 
+### Working on more than one design
+
+Ostraplan holds as many designs open as you like, one per tab. **File ▸ New**
+(**Ctrl+N**), **File ▸ Open** and every **Import** start theirs in a tab of its own, so
+opening something never closes what you already have — there is no "save your changes
+first?" prompt on the way in any more. The tab strip appears above the canvas the moment
+there are two, and hides again when you are back to one.
+
+| | |
+|---|---|
+| **Switch** | Click a tab, or **Ctrl+Tab** / **Ctrl+Shift+Tab** to step through them. |
+| **New tab** | **Ctrl+N**, or the **+** at the end of the strip. |
+| **Close** | The **✕** on the tab, **Ctrl+W**, or **File ▸ Close Design**. You're asked about unsaved changes then, not before. The last design can't be closed: Ostraplan always has one open. |
+
+Each tab is a design in full: its own undo history, its own view (zoom, pan,
+orientation and overlays), its own zones and its own **Ship Rating**, **Diagnostics**
+and **Flight Dynamics** reports, which close with it. An unsaved tab wears the same
+**\*** in the strip as the title bar, and closing the window asks about each one in
+turn, showing you the design it means.
+
+**Copy and paste work between tabs.** Copy a selection in one design (**Ctrl+C**) and
+paste it into another (**Ctrl+V**) — which is the quick way to carry a section, or a
+set of renamed containers, from one version of a ship to the next.
+
 ### Auto-save
 
 **File ▸ Auto-save** takes a rotating snapshot of the open design on a timer. It is
@@ -366,8 +393,10 @@ so an auto-save can't quietly commit an edit you were going to undo.
 
 Each design keeps its own set, keyed on its file path, so two ships that happen to
 both be called `Kestrel.oplan` in different folders never rotate each other out.
-A design you have never saved has no path to key on, so all such designs share one
-set of snapshots between them.
+A design you have never saved has no path to key on, so it keys on the tab it is in
+instead: two untitled sketches open side by side keep separate sets rather than
+rotating each other away. Every open design is snapshotted, not just the one on
+screen, so a tab you left in the background is covered too.
 
 **Recovering:** **File ▸ Auto-save ▸ Recover auto-save…** lists every snapshot,
 newest first. Recovering one loads it as *unsaved changes* to the design it came
@@ -377,9 +406,9 @@ file. A snapshot of a design that had never been saved will ask you where to put
 snapshots of a design you have since deleted (rotation only prunes designs that are
 still being snapshotted).
 
-A tick is skipped when there is nothing to record or recording would be wrong: no
-unsaved changes, a design held read-only because its mods are missing, or an analysis
-reading the design at that moment. If a snapshot can't be written at all, Ostraplan
+A tick is skipped, per design, when there is nothing to record or recording would be
+wrong: no unsaved changes, a design held read-only because its mods are missing, or
+an analysis reading the design at that moment. If a snapshot can't be written at all, Ostraplan
 says so once and then only logs it, rather than interrupting you every interval.
 
 ### Snapshots
