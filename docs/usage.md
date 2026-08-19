@@ -380,6 +380,14 @@ turn, showing you the design it means.
 paste it into another (**Ctrl+V**) — which is the quick way to carry a section, or a
 set of renamed containers, from one version of a ship to the next.
 
+A paste lands under the cursor whenever it is over the canvas. With the cursor
+elsewhere it falls back to where the selection was copied from: **into another design,
+the same grid position it held there**, so a section carried between two versions of a
+ship arrives where it belongs (every ship is anchored on its primary airlock at the
+origin, so the coordinates mean the same thing in both). Pasting back into the design it
+came from puts the copy one tile off the original instead, so it doesn't land exactly on
+top and look like nothing happened.
+
 ### Auto-save
 
 **File ▸ Auto-save** takes a rotating snapshot of the open design on a timer. It is

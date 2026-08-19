@@ -46,6 +46,11 @@ public partial class MainWindow : Window
     // that asked for it).
     private List<(string Def, int X, int Y, int Rot, IReadOnlyList<CargoItem> Cargo)> _clip = [];   // copied selection, relative to its top-left (with container contents)
     private (int X, int Y) _clipOrigin;               // the copied selection's original top-left (paste fallback)
+    // Which design the clipboard was copied from, so a paste can tell "back into the same one" from "into another".
+    // Weak on purpose: the clipboard outlives the tab it was copied from, and holding a closed design's document
+    // strongly would keep every placement in it alive for the rest of the session. A collected target reads as a
+    // different design, which is the right answer anyway. See PasteAnchor.
+    private WeakReference<ShipDocument>? _clipSource;
     private readonly DispatcherTimer _scanTimer;      // debounces the (now off-thread) problem scan
     private CancellationTokenSource? _scanCts;        // cancels a superseded scan
     private readonly DispatcherTimer _autoSaveTimer;  // opt-in rotating snapshots of the open designs (see RunAutoSave)
@@ -2773,6 +2778,7 @@ public partial class MainWindow : Window
         var minX = selected.Min(p => p.X);
         var minY = selected.Min(p => p.Y);
         _clipOrigin = (minX, minY);
+        _clipSource = new WeakReference<ShipDocument>(_doc);
         // snapshot the container contents too (cargo is immutable, so the reference is a valid snapshot) — each
         // paste deep-clones it with fresh ids, so a copied container pastes with its contents
         _clip = selected.Select(p => (p.DefName, p.X - minX, p.Y - minY, p.Rot, p.Cargo)).ToList();
@@ -2795,13 +2801,28 @@ public partial class MainWindow : Window
             Cargo = Cargo.CloneForest(c.Cargo),   // fresh-id copies of the container's contents
         }).ToList();
 
-    /// <summary>Paste the clipboard at the hovered tile (else just off the original), selecting the copies. Pastes
-    /// into whichever design is on screen, which need not be the one it was copied from.</summary>
+    /// <summary>
+    /// Where a paste lands: the tile under the cursor whenever there is one, and otherwise a position derived from
+    /// where the selection was copied.
+    ///
+    /// <para>That fallback differs by <paramref name="sameDesign"/>, and the difference is the whole point. Pasting
+    /// back into the design it was copied from puts the copy <b>one tile off</b> the original, so it does not land
+    /// exactly on top of it and look like nothing happened. Pasting into a <b>different</b> design there is no
+    /// original to clear, so the nudge would only shift the block by a tile for no reason: it goes at the same grid
+    /// position it held in the design it came from. Every ship is anchored on its primary airlock at the origin, so
+    /// that is a real correspondence between two designs rather than an arbitrary spot — a section carried between
+    /// two versions of a ship arrives where it belongs.</para>
+    /// </summary>
+    internal static (int X, int Y) PasteAnchor((int X, int Y)? hover, (int X, int Y) clipOrigin, bool sameDesign) =>
+        hover ?? (sameDesign ? (clipOrigin.X + 1, clipOrigin.Y + 1) : clipOrigin);
+
+    /// <summary>Paste the clipboard (see <see cref="PasteAnchor"/> for where), selecting the copies. Pastes into
+    /// whichever design is on screen, which need not be the one it was copied from.</summary>
     private void PasteClipboard()
     {
         if (_doc is null || _clip.Count == 0) return;
-        var anchor = _hoverCell ?? (_clipOrigin.X + 1, _clipOrigin.Y + 1);
-        var clones = ClipboardClones(_clip, anchor);
+        var sameDesign = _clipSource is not null && _clipSource.TryGetTarget(out var from) && ReferenceEquals(from, _doc);
+        var clones = ClipboardClones(_clip, PasteAnchor(_hoverCell, _clipOrigin, sameDesign));
         _stack.Push(_doc, new CompositeCommand(clones.Select(c => (IDocCommand)new PlaceCommand(c)).ToList()));
         Board.SelectedIds.Clear();
         foreach (var clone in clones) Board.SelectedIds.Add(clone.Id);
