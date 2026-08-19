@@ -10,7 +10,7 @@ each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.7**, and **1.0.0.11** for the
 apartment, save-record and inventory-grid work).
 
-## [Unreleased]
+## [0.92.0] 2026-08-19, a tab per design, and a UI scale that goes down as well as up
 
 ### Added
 - **Several designs open at once, one per tab.** New, Open and every Import now start their design in
@@ -21,10 +21,9 @@ apartment, save-record and inventory-grid work).
   **Ctrl+Tab**; **Ctrl+W** or the tab's ✕ closes one. Each tab is a design in full, with its own undo
   history, its own view and overlays, and its own Ship Rating, Diagnostics and Flight Dynamics
   reports, which close with it. **Copy and paste work between tabs**, which is the quick way to carry
-  a section, or a set of renamed containers, from one version of a ship to the next. A paste lands
-  under the cursor whichever design it came from. Auto-save covers
-  every open design rather than only the one on screen, and two designs you have never saved no
-  longer rotate each other's snapshots away.
+  a section, or a set of renamed containers, from one version of a ship to the next, and a paste lands
+  under the cursor whichever design it came from. Auto-save covers every open design rather than only
+  the one on screen, and two designs you have never saved no longer rotate each other's snapshots away.
 - **UI scale now goes below 100%, down to 80%.** The slider used to start at 100% and only magnify. It now
   scales down too, for the opposite problem: fitting Ostraplan's toolbar and both sidebars into less of a
   laptop panel, or standing two windows side by side on one monitor. Below 100% the main window keeps the
