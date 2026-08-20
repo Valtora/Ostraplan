@@ -2879,14 +2879,28 @@ cell using the part's own ship attack, or `DefaultExplosion` when it declares no
   convergence tile is a property of its current world anchor and not only of its layout. A
   design can report the anchor its own template or save carries, which is what it will
   spawn with, and nothing beyond that.
+
+> **A ship Ostraplan writes gets a NEW convergence point, and it lands outside the hull.**
+> `ShipExport` anchors the file at `vShipPos = (0,0)` and the game re-seeds the anchor off the
+> first item on load, so world origin falls on the export grid's own origin — the bounding box
+> minus its one-tile pad. Every exported ship therefore converges just off its top-left corner,
+> where 85% of the shipped fleet converges *inside* the hull. That is not a defect of the export:
+> it makes such a ship take **fewer** micrometeoroid hits than a stock one, because most angles
+> now miss. It does mean a design imported from a save must be measured in the frame it arrived
+> with (`ShipDocument.SourceShipPos`) rather than the one it would be exported into, or the
+> answer describes a different ship from the one the player is flying.
 - **Chain explosions and fire propagate.** Both are modelled here as one step from the
   triggering hit; the game keeps burning afterwards, which is simulation and excluded by
   the same rule as gas flow and crew pathing.
 
-> **Deferred in Ostraplan:** planned as **Simulate ▸ Micrometeoroid Strike…** and
-> **Simulate ▸ Weapon Impact…**, sharing one damage heat overlay scaled green at zero,
-> amber past `DataCO.Health` and red past `DataCO.GetMaxHealth`. The two solvers stay
-> separate because the two models are. **Re-verify on a major game version:** the
+> **Ported in Ostraplan:** `MicrometeoroidStrike` and `WeaponImpact` behind
+> **Simulate ▸ Micrometeoroid Strike…** and **Simulate ▸ Weapon Impact…**, sharing one damage
+> heat overlay scaled green at zero, amber past `DataCO.Health` and red past
+> `DataCO.GetMaxHealth`, and one `DamageState` that accumulates across strikes beside the
+> document rather than in it. The two solvers stay separate because the two models are.
+> The randomness is not reproduced: the roll is pinned to its worst case, aim variance is
+> off, and the fire chance is not rolled at all (§26 "What a planner cannot reproduce").
+> **Re-verify on a major game version:** the
 > `AModeMicrometeoroid` and `shipAttacks` numbers, `AttackModeMapping`'s ordering, the
 > `prefabQuad` collider, the `ATC_SPEED_LIMIT` constant, whether `−vStart.normalized` has
 > been corrected to aim at the ship centre, and whether any body other than Earth has been
@@ -3057,8 +3071,9 @@ sets), giving a 220-ship rooms **and** certification gate. Only **Babak / Babak 
 | Nav console screen layout (`GUIOrbitDraw.LoadModules`, `EditMenu.DoesModFit`, `SaveModules`, §17) | ported (rects, bounds, overlap, tray; no rect is invented or resized) | `NavConsole.Arrange` / `ConfigEntries` |
 | Obtainability (brokers, chargen) | ported | `KioskExport`, `StartingShipExport` |
 | Contained/slotted sub-objects on read; exterior-margin trim | not modelled (corpus-only; import drops sub-objects) | — |
-| Micrometeoroid strike (`SpawnMicroMeteoroid`, `DamageRayRandom`, `DamageRay`) | deferred (§26) | planned: **Simulate ▸ Micrometeoroid Strike…** |
-| Projectile/collision damage (`DamageRayShallow`, `ProjectRayOnGrid`, `ApplyDamageToCell`) | deferred (§26) | planned: **Simulate ▸ Weapon Impact…** |
+| Micrometeoroid strike (`SpawnMicroMeteoroid`, `DamageRayRandom`, `DamageRay`) | ported (worst-case roll; §26) | `MicrometeoroidStrike`, `DamageState`, `SpriteExtent` |
+| Projectile/collision damage (`DamageRayShallow`, `ProjectRayOnGrid`, `ApplyDamageToCell`) | ported (no aim variance, no fire roll; §26) | `WeaponImpact` |
+| Break chain (`Destructable`/`DestCheck`, `DataCO.Health` / `GetMaxHealth`) | ported | `Catalog.BreakForms` / `Health` / `MaxHealth` |
 | Fire spread and post-impact burning | excluded (a simulation, not a plan) | never ported |
 | Crew LOS/proximity, docked-ship, station build-zone permission **in `CheckFit`** | excluded (in-game only — they gate the interactive builder, not a spawned ship) | never ported |
 

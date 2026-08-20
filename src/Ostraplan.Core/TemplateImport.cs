@@ -184,7 +184,13 @@ public static class TemplateImport
     {
         var opts = options ?? ImportOptions.Everything;
         var deckTaken = 0;   // contained items hung on a DECK item, counted apart from a placement's cargo
-        var doc = new ShipDocument(catalog) { Kind = DocumentKindGuess.FromDesignation(tmpl.Designation) };
+        var doc = new ShipDocument(catalog)
+        {
+            Kind = DocumentKindGuess.FromDesignation(tmpl.Designation),
+            // The anchor this ship already has, in the document coords TemplateTile is about to place parts in.
+            // See ShipDocument.SourceShipPos: it is what decides where micrometeoroids converge on this hull.
+            SourceShipPos = (-tmpl.VShipPosX, tmpl.VShipPosY),
+        };
         var skipped = new Dictionary<string, int>(StringComparer.Ordinal);
         var systems = 0;
         int looseKept = 0, looseDropped = 0;

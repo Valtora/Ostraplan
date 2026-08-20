@@ -262,7 +262,7 @@ public sealed class ShipCanvas : FrameworkElement
     /// <see cref="AppSettings.AllowModdedOverrides"/>.</summary>
     public bool AllowModdedOverrides { get; set; }
 
-    private enum Drag { None, Pan, Move, Band, Paint, BoxFill, ZonePaint, ZoneBox }
+    private enum Drag { None, Pan, Move, Band, Paint, BoxFill, ZonePaint, ZoneBox, Aim }
     private Drag _drag;
     private Point _dragStartScreen;
     private (int X, int Y) _dragStartCell;
@@ -297,6 +297,14 @@ public sealed class ShipCanvas : FrameworkElement
     private System.Windows.Media.Imaging.BitmapSource? _lightImage;   // the composited lit ship (premultiplied, 16 px/tile), frozen
     private Rect _lightImageRect;        // the doc-tile rect the composite covers
     private int _lightJob;               // monotonic token so a stale worker result can't clobber a newer one
+    // Simulate: the damage heat map and the ghost strike path. Neither comes from the background analysis scan the
+    // other overlays use — damage is a view over session state the user drives one strike at a time, and the ghost
+    // path follows the cursor — so both are pushed straight in and neither is baked.
+    private DamageOverlay _damageOverlay = DamageOverlay.Empty;
+    private (Point Start, Point End)? _ghostPath;      // doc coords; drawn while a Simulate dialog is aiming
+    private Point? _strikePivot;                       // doc coords; the fixed point every micrometeoroid converges on
+    private bool _aiming;                              // a Simulate dialog owns the cursor: report angles, do not edit
+
     private double _powerPhase;                                 // animated dash offset for the lit conduit flow
     private bool _powerAnimating;                               // whether the per-frame flow tick is hooked
     private TimeSpan _lastPowerTime;                            // last CompositionTarget.Rendering time, to advance the phase by elapsed seconds
@@ -644,6 +652,48 @@ public sealed class ShipCanvas : FrameworkElement
         _roomOverlay = overlay ?? RoomOverlay.Empty;
         _roomGeoDirty = true;
         InvalidateVisual();
+    }
+
+    /// <summary>True while a Simulate dialog is aiming: the canvas reports angles instead of editing, and draws the
+    /// pivot and ghost path. Cleared when the dialog closes.</summary>
+    public bool IsAiming => _aiming;
+
+    /// <summary>Raised as the cursor moves while aiming, with the document tile under it. The Simulate dialog turns
+    /// that into an angle through the solver's own inverse — the canvas knows about pixels and nothing else.</summary>
+    public event Action<Point>? AimPointChanged;
+
+    /// <summary>Hand the canvas to a Simulate dialog, or give it back. While aiming, the pivot is drawn and the
+    /// left button swings the ghost path rather than placing or selecting anything.</summary>
+    public void SetAiming(bool on, Point? pivotDoc = null)
+    {
+        _aiming = on;
+        _strikePivot = on ? pivotDoc : null;
+        if (!on) _ghostPath = null;
+        Cursor = on ? System.Windows.Input.Cursors.Cross : null;
+        InvalidateVisual();
+    }
+
+    /// <summary>The ghost strike path to draw, in document coords, or null for none.</summary>
+    public void SetGhostPath((Point Start, Point End)? path)
+    {
+        _ghostPath = path;
+        InvalidateVisual();
+    }
+
+    /// <summary>Push the damage heat map. Cheap and unbaked: it is a handful of parts, not a station's worth of
+    /// room cells, and it changes only when the user fires.</summary>
+    public void SetDamageOverlay(DamageOverlay overlay)
+    {
+        _damageOverlay = overlay ?? DamageOverlay.Empty;
+        InvalidateVisual();
+    }
+
+    /// <summary>The document position under a screen point, in continuous tiles rather than snapped to a cell —
+    /// aiming needs sub-tile precision or the ghost path jumps.</summary>
+    public Point DocPointAt(Point screen)
+    {
+        var p = ScreenToPanSpace(screen);
+        return new Point((p.X - _pan.X) / Zoom, (p.Y - _pan.Y) / Zoom);
     }
 
     /// <summary>Toggle the WalkViz crew-access overlay. Like PowerViz/RoomViz, the walk analysis is only computed
@@ -1267,6 +1317,17 @@ public sealed class ShipCanvas : FrameworkElement
             return;
         }
 
+        // Aiming for a Simulate dialog: the canvas is a protractor, not an editor. Intercepts before selection,
+        // placement, zones and wiring so no strike can nudge the design it is measuring. Pan above still works.
+        if (_aiming && e.ChangedButton == MouseButton.Left)
+        {
+            AimPointChanged?.Invoke(DocPointAt(screen));
+            _drag = Drag.Aim;
+            CaptureMouse();
+            e.Handled = true;
+            return;
+        }
+
         // Wire mode: left-click a signalable device to arm it as the signal source, then click another to
         // connect (or click a connected one to disconnect); the source stays armed so you can wire it to several
         // targets. Right-click drops what's "in hand" first — a held palette brush, else the armed wire source —
@@ -1579,6 +1640,14 @@ public sealed class ShipCanvas : FrameworkElement
     protected override void OnMouseMove(MouseEventArgs e)
     {
         var screen = e.GetPosition(this);
+        // Aiming reads a continuous position, not a cell: snapping the ghost path to tile centres makes it jump.
+        if (_aiming && _drag == Drag.Aim)
+        {
+            AimPointChanged?.Invoke(DocPointAt(screen));
+            e.Handled = true;
+            return;
+        }
+
         var cell = CellAt(screen);
         if (_hoverCell is null || _hoverCell.Value != cell)
         {
@@ -2490,6 +2559,8 @@ public sealed class ShipCanvas : FrameworkElement
         DrawAirSelection(dc);
         if (ShowRooms) DrawRoomOverlay(dc);   // under the zones: rooms are the ground truth a zone is drawn onto
         if (ShowWalk) DrawWalkOverlay(dc);    // over the rooms (a walk zone cuts across compartments), under the zones
+        DrawDamageOverlay(dc);                // the heat map: only ever a handful of parts, and always on top
+        DrawGhostPath(dc);                    // the strike being aimed, over everything
         if (ShowZones || ActiveZoneId is not null) DrawZones(dc);
         DrawOutOfBounds(dc, view);
         DrawOriginMarker(dc);
@@ -2805,6 +2876,92 @@ public sealed class ShipCanvas : FrameworkElement
         // solid red = nobody can operate this, suited or not
         foreach (var (x, y) in _walkOverlay.UnreachableDevices)
             dc.DrawRectangle(UnreachableFill, UnreachablePen, CellRect(x, y, 1, 1));
+    }
+
+    /// <summary>
+    /// The damage heat map: every part a run of strikes has touched, tinted green through amber to red by what it
+    /// has left. Only damaged parts are drawn, so the eye goes to what took the hit rather than to a wash of green.
+    ///
+    /// <para>Not baked like RoomViz or WalkViz. Those fill hundreds of cells and had to be frozen into geometry to
+    /// keep panning smooth; this is a handful of parts, and it changes on every strike, so baking would cost more
+    /// than it saved.</para>
+    /// </summary>
+    private void DrawDamageOverlay(DrawingContext dc)
+    {
+        if (_damageOverlay.IsEmpty) return;
+        foreach (var part in _damageOverlay.Parts)
+        {
+            var fill = DamageBrush(part.Condition);
+            foreach (var (x, y) in part.Tiles) dc.DrawRectangle(fill, null, CellRect(x, y, 1, 1));
+            // A destroyed part gets an outline too: at a glance a dark red tint and a very dark red tint are hard
+            // to tell apart, and "gone" is the one answer nobody should have to squint at.
+            if (part.Destroyed)
+                foreach (var (x, y) in part.Tiles) dc.DrawRectangle(null, DestroyedPen, CellRect(x, y, 1, 1));
+        }
+    }
+
+    /// <summary>Green at full health through amber to red at destroyed. Cached per 5% band: a ship of damaged parts
+    /// would otherwise allocate a brush per part per frame.</summary>
+    private static Brush DamageBrush(double condition)
+    {
+        var band = Math.Clamp((int)Math.Round(condition * 20), 0, 20);
+        if (_damageBrushes[band] is { } cached) return cached;
+        var t = band / 20.0;
+        // Through amber rather than straight green-to-red, so the middle of the scale stays legible: the upper
+        // half fades red out of a steady green, the lower half fades green out of a steady red.
+        var (r, g) = t >= 0.5
+            ? ((byte)(255 * (1 - t) * 2), (byte)200)
+            : ((byte)220, (byte)(200 * t * 2));
+        var brush = new SolidColorBrush(Color.FromArgb(150, r, g, 40));
+        brush.Freeze();
+        return _damageBrushes[band] = brush;
+    }
+
+    private static readonly Brush?[] _damageBrushes = new Brush?[21];
+
+    private static readonly Pen DestroyedPen = FrozenPen(Color.FromArgb(230, 190, 30, 30), 2);
+
+    /// <summary>The strike being aimed: the pivot every micrometeoroid converges on, and the ghost path through it.
+    /// Drawn while a Simulate dialog owns the cursor and never otherwise.</summary>
+    private void DrawGhostPath(DrawingContext dc)
+    {
+        if (!_aiming) return;
+
+        if (_ghostPath is { } path)
+        {
+            var a = new Point(_pan.X + path.Start.X * Zoom, _pan.Y + path.Start.Y * Zoom);
+            var b = new Point(_pan.X + path.End.X * Zoom, _pan.Y + path.End.Y * Zoom);
+            dc.DrawLine(GhostPen, a, b);
+        }
+
+        if (_strikePivot is { } pivot)
+        {
+            var c = new Point(_pan.X + pivot.X * Zoom, _pan.Y + pivot.Y * Zoom);
+            var rad = Math.Max(4, Zoom * 0.35);
+            dc.DrawEllipse(null, PivotPen, c, rad, rad);
+            dc.DrawLine(PivotPen, new Point(c.X - rad * 1.6, c.Y), new Point(c.X + rad * 1.6, c.Y));
+            dc.DrawLine(PivotPen, new Point(c.X, c.Y - rad * 1.6), new Point(c.X, c.Y + rad * 1.6));
+        }
+    }
+
+    private static readonly Pen GhostPen = FrozenDashedPen(Color.FromArgb(220, 255, 240, 120), 2, 6, 4);
+    private static readonly Pen PivotPen = FrozenPen(Color.FromArgb(230, 255, 240, 120), 1.5);
+
+    private static Pen FrozenPen(Color c, double thickness)
+    {
+        var p = new Pen(new SolidColorBrush(c), thickness);
+        p.Freeze();
+        return p;
+    }
+
+    private static Pen FrozenDashedPen(Color c, double thickness, double dash, double gap)
+    {
+        var p = new Pen(new SolidColorBrush(c), thickness)
+        {
+            DashStyle = new DashStyle([dash, gap], 0),
+        };
+        p.Freeze();
+        return p;
     }
 
     /// <summary>

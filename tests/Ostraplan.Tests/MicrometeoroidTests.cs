@@ -261,6 +261,59 @@ public class MicrometeoroidTests
         }
     }
 
+    // ---- aiming ----
+
+    [Theory]
+    [InlineData(10)]
+    [InlineData(75)]
+    [InlineData(160)]
+    [InlineData(200)]
+    [InlineData(315)]
+    public void The_aim_inverse_round_trips_through_the_ray(double angle)
+    {
+        var cat = WallCat();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 7, 4));
+        var anchor = MicrometeoroidStrike.AnchorFor(doc);
+
+        // Fire an angle, take where its rock came FROM, and ask what angle that is. The drag has to agree with the
+        // strike exactly or the ghost path shows one thing and the damage lands somewhere else.
+        var (start, _) = MicrometeoroidStrike.GhostPath(doc, anchor, angle);
+        var back = MicrometeoroidStrike.AngleFrom(doc, anchor, start);
+
+        Assert.NotNull(back);
+        Assert.Equal(angle, back!.Value, 6);
+    }
+
+    [Fact]
+    public void Aiming_from_an_imported_anchor_round_trips_too()
+    {
+        var cat = WallCat();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 6, 6));
+        // An imported anchor sits INSIDE the hull, where the ship centre is nearer the pivot than the ray's radius
+        // — a different branch of the quadratic from the export frame, and the one that can have no solution.
+        doc.SourceShipPos = (3, 3);
+        var anchor = MicrometeoroidStrike.AnchorFor(doc);
+        Assert.Equal(StrikeFrame.AsImported, anchor.Frame);
+
+        foreach (var angle in new double[] { 5, 88, 190, 300 })
+        {
+            var (start, _) = MicrometeoroidStrike.GhostPath(doc, anchor, angle);
+            Assert.Equal(angle, MicrometeoroidStrike.AngleFrom(doc, anchor, start)!.Value, 6);
+        }
+    }
+
+    [Fact]
+    public void Aiming_at_the_pivot_itself_has_no_bearing_to_read()
+    {
+        var cat = WallCat();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0));
+        var anchor = MicrometeoroidStrike.AnchorFor(doc);
+
+        // The cursor resting exactly on the convergence point names no direction, so the caller keeps the angle it
+        // had rather than the ghost path snapping somewhere arbitrary.
+        Assert.Null(MicrometeoroidStrike.AngleFrom(doc, anchor, (anchor.DocX, anchor.DocY)));
+    }
+
     // ---- helpers ----
 
     /// <summary>The first angle whose ray reaches <paramref name="def"/>, searched in tenths of a degree.

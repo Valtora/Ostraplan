@@ -112,7 +112,11 @@ public static class MicrometeoroidStrike
     /// </summary>
     public static StrikeAnchor AnchorFor(ShipDocument doc, (double DocX, double DocY)? importedShipPos = null)
     {
-        if (importedShipPos is { } a) return new StrikeAnchor(a.DocX, a.DocY, StrikeFrame.AsImported);
+        ArgumentNullException.ThrowIfNull(doc);
+        // The document's own import provenance is the default source, so no caller has to remember to pass it and
+        // an imported ship cannot silently be measured in the wrong frame.
+        if ((importedShipPos ?? doc.SourceShipPos) is { } a)
+            return new StrikeAnchor(a.Item1, a.Item2, StrikeFrame.AsImported);
         var b = doc.Bounds();
         return b is null
             ? new StrikeAnchor(0, 0, StrikeFrame.AsExported)
@@ -166,6 +170,44 @@ public static class MicrometeoroidStrike
             geom.StartDoc, geom.EndDoc, hits);
     }
 
+    /// <summary>
+    /// The inverse of the ray geometry: the angle whose strike arrives from <paramref name="fromDoc"/>, or null
+    /// when no strike can approach from there.
+    ///
+    /// <para>This is what makes the aiming drag exact rather than approximate. The angle does not turn the ray
+    /// about the pivot — it turns the ray's <b>start</b> about the ship centre, on a circle of radius r — so the
+    /// direction a strike arrives from is not a straight function of the cursor's bearing. Solving properly:
+    /// every ray passes through the anchor, so a strike arriving from direction û has
+    /// <c>vStart = t·û</c> for some <c>t ≥ 0</c>, and t is fixed by <c>|t·û − centre| = r</c>. Take the far root,
+    /// which is the start outside the hull.</para>
+    ///
+    /// <para>Null happens when the cursor's bearing has no intersection with that circle at all, which an imported
+    /// frame can produce (the anchor is inside the hull, so the centre is closer to it than r). A caller should
+    /// keep the angle it had rather than jumping.</para>
+    /// </summary>
+    public static double? AngleFrom(ShipDocument doc, StrikeAnchor anchor, (double X, double Y) fromDoc)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        ArgumentNullException.ThrowIfNull(anchor);
+
+        var (cx, cy, r) = CentreAndRadius(doc, anchor);
+        var (wx, wy) = ToWorld(fromDoc.X, fromDoc.Y, anchor);
+        var mag = Math.Sqrt(wx * wx + wy * wy);
+        if (mag <= 1e-9 || r <= 0) return null;   // on the pivot itself: no bearing to read
+
+        double ux = wx / mag, uy = wy / mag;
+        var b = ux * cx + uy * cy;
+        var disc = b * b - (cx * cx + cy * cy) + r * r;
+        if (disc < 0) return null;
+
+        var t = b + Math.Sqrt(disc);
+        if (t <= 0) return null;
+
+        // vStart − centre = rot(θ)·up·r, and rot(θ)·up is (−sin θ, cos θ).
+        var (sx, sy) = (t * ux - cx, t * uy - cy);
+        return Norm360(Math.Atan2(-sx, sy) * 180.0 / Math.PI);
+    }
+
     /// <summary>The ray for an angle, without firing it — what the canvas draws as the ghost path while the user
     /// swings it round. Same geometry <see cref="Fire"/> uses.</summary>
     public static ((double X, double Y) StartDoc, (double X, double Y) EndDoc) GhostPath(
@@ -193,18 +235,7 @@ public static class MicrometeoroidStrike
     /// </summary>
     private static Ray Geometry(ShipDocument doc, StrikeAnchor anchor, double angleDeg)
     {
-        var b = doc.Bounds();
-        // The grid the game would build is the bounding box plus a one-tile margin (§18), whatever frame the
-        // items are expressed in, so nCols/nRows come from the content and not from the anchor.
-        var (nCols, nRows) = b is null ? (1, 1) : (b.Value.MaxX - b.Value.MinX + 3, b.Value.MaxY - b.Value.MinY + 3);
-        var originDocX = b is null ? 0 : b.Value.MinX - 1;
-        var originDocY = b is null ? 0 : b.Value.MinY - 1;
-
-        // The grid origin in world coords, then the ship centre the game offsets from.
-        var (ox, oy) = ToWorld(originDocX, originDocY, anchor);
-        double halfX = nCols / 2.0, halfY = -(nRows / 2.0);
-        var r = Math.Sqrt(halfX * halfX + halfY * halfY);
-        var (cx, cy) = (ox + halfX, oy + halfY);
+        var (cx, cy, r) = CentreAndRadius(doc, anchor);
 
         // Quaternion.AngleAxis(θ, forward) * Vector3.up is (−sin θ, cos θ) — a CCW turn of +y about +z.
         var rad = angleDeg * Math.PI / 180.0;
@@ -222,6 +253,20 @@ public static class MicrometeoroidStrike
         var (dx, dy) = (-sx / mag, -sy / mag);
         return new Ray(sx, sy, dx, dy, len,
             ToDoc(sx, sy, anchor), ToDoc(sx + dx * len, sy + dy * len, anchor));
+    }
+
+    /// <summary>The ship centre in world coords and the half-diagonal the ray's start swings on — the game's
+    /// <c>vShipPos + (nCols/2, −nRows/2)</c> and <c>|(nCols/2, −nRows/2)|</c>. Shared by the forward geometry and
+    /// by <see cref="AngleFrom"/>, so the drag and the strike can never disagree about where the circle is.
+    /// <para>The grid the game builds is the bounding box plus a one-tile margin (§18) whatever frame the items are
+    /// expressed in, so the extent comes from the content and not from the anchor.</para></summary>
+    private static (double CX, double CY, double R) CentreAndRadius(ShipDocument doc, StrikeAnchor anchor)
+    {
+        var b = doc.Bounds();
+        var (nCols, nRows) = b is null ? (1, 1) : (b.Value.MaxX - b.Value.MinX + 3, b.Value.MaxY - b.Value.MinY + 3);
+        var (ox, oy) = ToWorld(b is null ? 0 : b.Value.MinX - 1, b is null ? 0 : b.Value.MinY - 1, anchor);
+        double halfX = nCols / 2.0, halfY = -(nRows / 2.0);
+        return (ox + halfX, oy + halfY, Math.Sqrt(halfX * halfX + halfY * halfY));
     }
 
     /// <summary>Document tile coords → the anchor-relative world frame (+y up, like the game).</summary>

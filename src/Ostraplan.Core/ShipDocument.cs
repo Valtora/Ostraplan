@@ -253,6 +253,24 @@ public sealed class ShipDocument
     /// </summary>
     public DocumentKind Kind { get; set; } = DocumentKind.Ship;
 
+    /// <summary>
+    /// Where the ship this design was imported from had its grid anchor (<c>vShipPos</c>), expressed in
+    /// <b>document</b> tile coords, or null for a design authored here.
+    ///
+    /// <para>Only one thing reads it, and it is the reason it exists: micrometeoroid strikes all converge on the
+    /// tile at world origin, which the anchor decides (§26). An imported ship's convergence point is wherever its
+    /// save or template put it — inside the hull for 85% of the shipped fleet — while a design Ostraplan exports
+    /// gets a fresh anchor at the export grid's origin, just outside the corner. Reporting one for the other would
+    /// answer the wrong question for someone checking the ship they are actually flying.</para>
+    ///
+    /// <para>Import-time provenance, deliberately <b>not</b> persisted in the <c>.oplan</c>: it describes the ship
+    /// the design came out of rather than the design, and a reopened file is on its way to being exported afresh,
+    /// which is exactly the fallback case. Document coords are the source ship's own grid coords
+    /// (<see cref="ShipGrid.TemplateTile"/> subtracts <c>vShipPos</c>), so the anchor is
+    /// <c>(−vShipPos.x, +vShipPos.y)</c>.</para>
+    /// </summary>
+    public (double X, double Y)? SourceShipPos { get; set; }
+
     /// <summary>True when the vessel-only analyses (Ship Rating, the nav diagnostic, propulsion, flight
     /// dynamics) do not apply to this design. Read by the shell to hide them; the export path still bakes
     /// <c>aRooms</c>/<c>aRating</c> either way, because the game re-derives both on a full load and a

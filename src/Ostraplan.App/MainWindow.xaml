@@ -139,6 +139,9 @@
                     <Button x:Name="BtnDesignMenu" Content="Design ▾" Padding="10,3" Margin="0,0,3,0" Click="OnDesignMenuClick"
                             ToolTip="Ship identity, wall/floor re-skin, snapshot, and the bill of materials"/>
 
+                    <Button x:Name="BtnSimulateMenu" Content="Simulate ▾" Padding="10,3" Margin="0,0,3,0" Click="OnSimulateMenuClick"
+                            ToolTip="Fire a micrometeoroid or a weapon at the design and see what breaks"/>
+
                     <Border Style="{StaticResource ToolSep}"/>
 
                     <!-- Analyse (headline action — kept prominent) -->
