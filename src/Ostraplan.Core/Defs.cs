@@ -198,12 +198,21 @@ public sealed record InteractionDef(string Name, string? Title, string? TargetPo
 
     public string Label => string.IsNullOrWhiteSpace(Title) ? Name : Title!;
 
+    /// <summary>The loot naming what this interaction turns its target INTO (<c>objLootModeSwitch</c>), or null.
+    /// The game's <c>CondOwner.ModeSwitch</c> replaces the target with the condowner this loot names, which is how
+    /// a break, a repair or a power toggle changes what is on the tile. Read here for the break direction only:
+    /// see <see cref="Catalog.BreakForms"/>.</summary>
+    public string? LootModeSwitch { get; init; }
+
     public static InteractionDef Parse(JsonElement e) => new(
         Json.Str(e, "strName") ?? "",
         Json.Str(e, "strTitle"),
         Json.Str(e, "strTargetPoint"),
         Json.Dbl(e, "fTargetPointRange"),
-        Json.Bool(e, "bNoWalk"));
+        Json.Bool(e, "bNoWalk"))
+    {
+        LootModeSwitch = Json.Str(e, "objLootModeSwitch"),
+    };
 }
 
 /// <summary>
@@ -314,6 +323,20 @@ public sealed record CondOwnerDef(
     /// children so pockets are modelled and ammo is left to the user to author.</summary>
     public string? Loot { get; init; }
 
+    /// <summary>The loot naming the interaction that fires when this part's <c>StatDamage</c> reaches its
+    /// <c>StatDamageMax</c>, taken from the <c>Destructable,StatDamage,&lt;loot&gt;,StatDamageMax,&lt;period&gt;</c>
+    /// entry in <c>aUpdateCommands</c>, or null for a part that cannot be damaged at all.
+    ///
+    /// <para>This one declaration is what makes a part destructable: the game's <c>Destructable.SetData</c> reads
+    /// slot 1 as the damage stat, slot 2 as this loot and slot 3 as the ceiling cond, and <c>DestCheck.DamageCheck</c>
+    /// then mode-switches the part through the loot's interaction when the pool fills. 952 of the 1,120 stock
+    /// condowners declare one; 451 of those are also installed. See <see cref="Catalog.BreakForms"/>, which walks
+    /// it forward, and §26 of docs/GAME-INTERNALS.md.</para>
+    ///
+    /// <para>Only the <c>StatDamage</c> line is kept. The same command shape also files dismantle and repair
+    /// progress (<c>StatDismantleProgress</c>, <c>StatRepairProgress</c>), which are jobs rather than damage.</para></summary>
+    public string? BreakLoot { get; init; }
+
     public static CondOwnerDef Parse(JsonElement e)
     {
         var conds = Json.StrArray(e, "aStartingConds");
@@ -340,7 +363,26 @@ public sealed record CondOwnerDef(
             Jpi = Json.Str(e, "jsonPI"),
             Interactions = Json.StrArray(e, "aInteractions"),
             Loot = Json.Str(e, "strLoot"),
+            BreakLoot = ParseBreakLoot(Json.StrArray(e, "aUpdateCommands")),
         };
+    }
+
+    /// <summary>Pull the break loot out of <c>aUpdateCommands</c>: the third field of the comma-separated
+    /// <c>Destructable</c> entry whose damage stat is <c>StatDamage</c>. Null when the def declares no such entry.
+    /// Mirrors the guard in the game's <c>Destructable.SetData</c>, which indexes slots 1..4 blindly, so an entry
+    /// shorter than five fields is one the game itself would fault on and we skip.</summary>
+    private static string? ParseBreakLoot(string[] updateCommands)
+    {
+        foreach (var cmd in updateCommands)
+        {
+            if (cmd is null) continue;
+            var f = cmd.Split(',');
+            if (f.Length < 5) continue;
+            if (f[0].Trim() is not "Destructable" || f[1].Trim() is not "StatDamage") continue;
+            var loot = f[2].Trim();
+            if (loot.Length > 0) return loot;
+        }
+        return null;
     }
 
     /// <summary>The keys of a flat alternating key/value string array (the game's

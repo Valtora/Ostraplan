@@ -29,12 +29,8 @@ public sealed class SpriteCache
     /// (nCols x adds/nCols): the tank's 3x3 canister sprite sits centered in a 7x7
     /// footprint whose outer ring is abstracted sub-floor storage, not the tank.
     /// </summary>
-    public (int W, int H) SpriteTiles(PartDef part)
-    {
-        var bmp = Sprite(part);
-        return (Math.Max(1, (int)Math.Round(bmp.PixelWidth / 16.0)),
-                Math.Max(1, (int)Math.Round(bmp.PixelHeight / 16.0)));
-    }
+    public (int W, int H) SpriteTiles(PartDef part) =>
+        part.SpriteAbs is { } path ? SpriteExtent.Tiles(path) : SpriteExtent.Unknown;
 
     /// <summary>Cell size in px follows GetMaterialSheet: footprint tiles x 16.</summary>
     public (int Cols, int Rows) SheetDims(PartDef part)

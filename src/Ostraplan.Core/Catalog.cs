@@ -355,6 +355,63 @@ public sealed class Catalog
     /// which is the normal answer for a part that is not broken in the first place.</summary>
     public string? RepairForm(string defName) => RepairForms.GetValueOrDefault(defName);
 
+    /// <summary>
+    /// Working def → the def it becomes when its damage pool fills, from the condowner's own <c>Destructable</c>
+    /// declaration (<see cref="CondOwnerDef.BreakLoot"/>) rather than from any job. <c>ItmWall1x1</c> →
+    /// <c>ItmWall1x1Dmg</c> → destroyed. Empty in synthetic test catalogs.
+    ///
+    /// <para>This is <b>not</b> the inverse of <see cref="RepairForms"/> and must not be derived from it. Repair is
+    /// built from <c>data/installables</c> jobs and answers "what does fixing this yield"; damage is declared on the
+    /// condowner and answers "what does breaking this yield". The two disagree in both directions — a repair job
+    /// normalises a door's lock and power state (§12), and a break can hand back a def no repair job restores — so
+    /// inverting either one produces a plausible table that is wrong in exactly the cases that matter.</para>
+    ///
+    /// <para>Used by <see cref="MaxHealth"/> and by the damage solvers (§26). Unlike an install or a repair the
+    /// target is <b>not</b> run through <see cref="PreferPoweredState"/>: a part that breaks does not come back
+    /// switched on.</para>
+    /// </summary>
+    public IReadOnlyDictionary<string, string> BreakForms { get; init; } = new Dictionary<string, string>(StringComparer.Ordinal);
+
+    /// <summary>The def this part becomes when its own damage pool fills, or null when it breaks into nothing the
+    /// game names — which is what "destroyed" means, and is also the answer for an indestructible part.</summary>
+    public string? BreakForm(string defName) => BreakForms.GetValueOrDefault(defName);
+
+    /// <summary>True when the def carries a damage pool at all (<c>StatDamageMax</c>). A part without one absorbs
+    /// nothing and a strike passes straight through it.</summary>
+    public bool IsDestructable(string defName) => Lookup(defName)?.StartingCondValues.ContainsKey("StatDamageMax") is true;
+
+    /// <summary>
+    /// This form's own damage pool — its <c>StatDamageMax</c> (the game's <c>DataCO.Health</c>), 0 when it declares
+    /// none. Filling it is what breaks the part into <see cref="BreakForm"/>; it is <b>not</b> what destroys it,
+    /// for which see <see cref="MaxHealth"/>.
+    /// </summary>
+    public double Health(string defName) => Lookup(defName)?.StartingCondValues.GetValueOrDefault("StatDamageMax") ?? 0;
+
+    /// <summary>
+    /// The damage this part absorbs before it is gone: its own <see cref="Health"/> plus, recursively, that of
+    /// every form it breaks through. A port of <c>DataCO.GetMaxHealth</c> including its fallbacks — a def that is
+    /// not <c>IsInstalled</c>, declares no break, or whose break does not resolve, is worth its own pool alone.
+    ///
+    /// <para><c>ItmWall1x1</c> is 15 to damage and 45 to destroy; <c>ItmDoor01Closed</c> is 20 and 80. 62% of
+    /// installed damageable parts have a chain longer than one stage, so reading only <see cref="Health"/>
+    /// understates a ship's resilience badly.</para>
+    ///
+    /// <para>Memoised, and cycle-guarded — the game's own walk carries a recursion counter it increments but never
+    /// tests, so a data cycle would hang it where this returns the pool accumulated so far.</para>
+    /// </summary>
+    public double MaxHealth(string defName) => _maxHealth.GetOrAdd(defName, d => MaxHealthWalk(d, []));
+
+    private readonly ConcurrentDictionary<string, double> _maxHealth = new(StringComparer.Ordinal);
+
+    private double MaxHealthWalk(string defName, HashSet<string> seen)
+    {
+        var own = Health(defName);
+        if (!seen.Add(defName)) return own;
+        // The game only chains for an installed def; a loose or packaged form is worth its own pool alone.
+        if (Lookup(defName)?.StartingConds.Contains("IsInstalled") is not true) return own;
+        return BreakForms.GetValueOrDefault(defName) is { } next ? own + MaxHealthWalk(next, seen) : own;
+    }
+
     /// <summary>The ticker templates a freshly-installed instance of <paramref name="part"/> would carry: each of
     /// the def's declared <c>aTickers</c> names resolved to its template. Empty for a non-device part, or when a
     /// referenced ticker isn't loaded.</summary>
@@ -883,6 +940,42 @@ public sealed class Catalog
         foreach (var broken in repairForms.Keys.ToList())
             repairForms[broken] = PreferPoweredState(index, repairForms[broken]);
 
+        // The DAMAGE direction, which is a different table from repairForms above and built from a different
+        // source: a part declares what it breaks into on its own condowner (aUpdateCommands' Destructable line →
+        // CondOwnerDef.BreakLoot), not in data/installables. Walk it exactly as DataCO.GetMaxHealth does — break
+        // loot → the interaction(s) it names → that interaction's objLootModeSwitch → a loot naming EXACTLY ONE
+        // condowner. The single-entry rule is the game's own and it bites: ItmReactorIC03Ignition breaks through
+        // ACTReactorIC03DamageExplode, whose mode-switch loot names both the wreck and SysExplosionFusion, so the
+        // game abandons the walk there and the reactor's chain stops at its own pool. No PreferPoweredState here:
+        // breaking a device is not installing one, and the game hands back precisely the def it names.
+        var breakForms = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var (name, (el, _)) in index.Type("condowners"))
+        {
+            var co = CondOwnerDef.Parse(el);
+            if (string.IsNullOrEmpty(co.BreakLoot)) continue;
+            if (ResolveBreakTarget(co.BreakLoot, loots, interactionDefs) is { } broken && broken != name && Resolvable(broken))
+                breakForms[name] = broken;
+        }
+
+        // Themed skins carry no condowner of their own, so the loop above never saw them. Same shape as the repair
+        // skin pass and for the same reason (§12): a cooverlay's mapModeSwitches carries all of its base's states
+        // as [base, skin] pairs, so walk each pair, break the LEFT side through the base map, then re-skin the
+        // result forward through the same overlay. A themed wall must break into the themed damaged wall, not the
+        // generic one, or a strike would silently re-skin the ship.
+        foreach (var (_, (el, _)) in index.Type("cooverlays"))
+        {
+            var overlay = CoOverlayDef.Parse(el);
+            var switches = overlay.ModeSwitches;
+            for (var i = 0; i + 1 < switches.Length; i += 2)
+            {
+                var (baseState, skinState) = (switches[i], switches[i + 1]);
+                if (breakForms.ContainsKey(skinState) || !breakForms.TryGetValue(baseState, out var baseBroken))
+                    continue;
+                if (ReskinModeSwitch(switches, baseBroken) is { } skinBroken && skinBroken != skinState && Resolvable(skinBroken))
+                    breakForms[skinState] = skinBroken;
+            }
+        }
+
         // Resolve a buildable palette entry, warning when its sprite is missing on disk.
         PartDef? Resolve(string defName, string category, string fallbackOrigin, string[] inputs, string[] tools, bool warnMissingSprite)
         {
@@ -965,6 +1058,7 @@ public sealed class Catalog
             LooseForms = looseForms,
             InstalledForms = installedForms,
             RepairForms = repairForms,
+            BreakForms = breakForms,
             Warnings = warnings,
             Index = index,
         };
@@ -976,6 +1070,47 @@ public sealed class Catalog
     /// loose form (e.g. <c>ItmFloorGrate01Loose</c> → <c>ItmFloorAERO01Loose</c>). Null if the base state isn't
     /// listed, so the caller can fall back to the generic base drop.
     /// </summary>
+    /// <summary>
+    /// The def a break loot turns its target into, or null when the walk does not resolve: the game's
+    /// <c>DataCO.GetMaxHealth</c> inner loop, reproduced.
+    ///
+    /// <para>The loot names interactions (its <c>aCOs</c>, plus nested <c>aLoots</c>); each is looked up and its
+    /// <c>objLootModeSwitch</c> read as a further loot; that loot must not be <c>Blank</c> and must name
+    /// <b>exactly one</b> condowner, which is the broken form. The first entry that satisfies all of it wins,
+    /// matching the game, which assigns and then keeps walking without breaking out.</para>
+    /// </summary>
+    private static string? ResolveBreakTarget(
+        string breakLoot,
+        IReadOnlyDictionary<string, LootDef> loots,
+        IReadOnlyDictionary<string, InteractionDef> interactions)
+    {
+        foreach (var iaName in FlattenLootCos(breakLoot, loots))
+        {
+            if (interactions.GetValueOrDefault(iaName) is not { LootModeSwitch: { Length: > 0 } ms }) continue;
+            if (ms == "Blank" || loots.GetValueOrDefault(ms) is not { } target) continue;
+            if (target.Name == "Blank" || target.Conds.Length != 1) continue;
+            return target.Conds[0];
+        }
+        return null;
+    }
+
+    /// <summary>A loot's <c>aCOs</c> names plus, recursively, those of its nested <c>aLoots</c> — the build-time
+    /// twin of <see cref="LootConds"/>, which needs a constructed Catalog and so cannot be used from
+    /// <see cref="Build"/>. Cycle-guarded; an unresolved name contributes nothing.</summary>
+    private static List<string> FlattenLootCos(string lootName, IReadOnlyDictionary<string, LootDef> loots)
+    {
+        var acc = new List<string>();
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        void Walk(string n)
+        {
+            if (!seen.Add(n) || loots.GetValueOrDefault(n) is not { } l) return;
+            acc.AddRange(l.Conds);
+            foreach (var child in l.Loots) Walk(child);
+        }
+        if (!string.IsNullOrEmpty(lootName) && lootName != "Blank") Walk(lootName);
+        return acc;
+    }
+
     private static string? ReskinModeSwitch(string[] modeSwitches, string baseState)
     {
         for (var i = 0; i + 1 < modeSwitches.Length; i += 2)
