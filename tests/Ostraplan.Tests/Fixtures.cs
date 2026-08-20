@@ -20,6 +20,7 @@ public sealed class Fixtures
     private readonly Dictionary<string, string> _looseForms = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _installedForms = new(StringComparer.Ordinal);
     private readonly Dictionary<string, string> _repairForms = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, string> _breakForms = new(StringComparer.Ordinal);
     private readonly Dictionary<string, LightDef> _lightDefs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ColorDef> _colorTable = new(StringComparer.Ordinal);
     private readonly Dictionary<string, ParallaxDef> _parallaxDefs = new(StringComparer.Ordinal);
@@ -248,6 +249,16 @@ public sealed class Fixtures
         return this;
     }
 
+    /// <summary>Register the DAMAGE direction: <paramref name="whole"/> breaks into <paramref name="broken"/> once
+    /// its own <c>StatDamageMax</c> fills. Give each part its pool through <c>condValues</c>. Deliberately separate
+    /// from <see cref="RepairPair"/>, because in real data the two are separate tables read out of different files
+    /// and one is not the inverse of the other.</summary>
+    public Fixtures BreakPair(string whole, string broken)
+    {
+        _breakForms[whole] = broken;
+        return this;
+    }
+
     /// <summary>The part registered under <paramref name="name"/>.</summary>
     public PartDef Get(string name) => _byName[name];
 
@@ -261,6 +272,7 @@ public sealed class Fixtures
         LooseForms = _looseForms,
         InstalledForms = _installedForms,
         RepairForms = _repairForms,
+        BreakForms = _breakForms,
         LightDefs = _lightDefs,
         ColorTable = _colorTable,
         ParallaxDefs = _parallaxDefs,
