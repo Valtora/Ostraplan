@@ -253,6 +253,61 @@ public class MicrometeoroidTests
         Assert.Equal(1.0, state.Condition(doc.Placements[0], cat), 6);
     }
 
+    // ---- punching through ----
+
+    [Fact]
+    public void Strikes_down_the_same_line_eat_their_way_inward()
+    {
+        var cat = WallCat();
+        // Four bulkheads abreast, each 10 to crack and 20 more to finish. A strike carries 55, so the first one
+        // reaches all four and cracks them — a micrometeoroid can only ever advance a part one stage — and the
+        // second finishes as many as its pool covers. This is the "how many hits to reach the middle" question.
+        var doc = Fixtures.Doc(cat, Enumerable.Range(0, 4).Select(x => Fixtures.P("Wall", x, 0)).ToArray());
+        var state = new DamageState();
+        ((double X, double Y) S, (double X, double Y) E) path = ((-3.0, 0.0), (10.0, 0.0));
+
+        var first = MicrometeoroidStrike.Fire(doc, path.S, path.E, 750, state);
+        Assert.Equal(4, first.Hits.Count);
+        Assert.All(first.Hits, h => Assert.True(h.Broke));
+        Assert.All(doc.Placements, p => Assert.False(state.IsDestroyed(p)));
+        Assert.All(doc.Placements, p => Assert.Equal("WallDmg", state.CurrentDef(p)));
+
+        // Keep firing the same line. Each pass destroys what it can, and the ones already gone neither absorb nor
+        // shield, so the damage reaches further in every time rather than stalling on the outer skin.
+        var shots = 1;
+        while (doc.Placements.Any(p => !state.IsDestroyed(p)) && shots < 20)
+        {
+            MicrometeoroidStrike.Fire(doc, path.S, path.E, 750, state);
+            shots++;
+        }
+
+        Assert.All(doc.Placements, p => Assert.True(state.IsDestroyed(p)));
+        // 4 walls x 30 = 120 damage against 55 a strike, so it cannot be done in fewer than three.
+        Assert.Equal(3, shots);
+    }
+
+    [Fact]
+    public void A_hole_lets_the_next_strike_past_without_spending_anything_on_it()
+    {
+        var cat = WallCat();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 5, 0));
+        var state = new DamageState();
+        var outer = doc.Placements[0];
+
+        // Drive the near wall to nothing, then fire again: the strike must arrive at the far wall with its pool
+        // untouched, because there is no longer anything at the near tile to soak it.
+        MicrometeoroidStrike.Fire(doc, (-3.0, 0.0), (-1.0, 0.0), 750, state);   // a short path, near wall only
+        MicrometeoroidStrike.Fire(doc, (-3.0, 0.0), (1.0, 0.0), 750, state);
+        MicrometeoroidStrike.Fire(doc, (-3.0, 0.0), (1.0, 0.0), 750, state);
+        Assert.True(state.IsDestroyed(outer));
+
+        var through = MicrometeoroidStrike.Fire(doc, (-3.0, 0.0), (10.0, 0.0), 750, state);
+
+        var hit = Assert.Single(through.Hits);
+        Assert.Equal(doc.Placements[1].Id, hit.PlacementId);
+        Assert.Equal(10, through.Delivered, 6);   // the far wall's own pool, and nothing lost on the way
+    }
+
     // ---- the collider ----
 
     [SkippableFact]

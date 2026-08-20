@@ -48,6 +48,7 @@ public sealed class SimulateWindow : Window
 
     private StrikeAnchor _anchor;
     private ((double X, double Y) Start, (double X, double Y) End)? _path;
+    private int _shots;
 
     public SimulateWindow(ShipCanvas board, ShipDocument doc)
     {
@@ -124,6 +125,7 @@ public sealed class SimulateWindow : Window
         clear.Click += (_, _) =>
         {
             _state.Clear();
+            _shots = 0;
             _board.SetDamageOverlay(DamageOverlay.Empty);
             _resultLine.Text = "";
             UpdateTally();
@@ -201,7 +203,7 @@ public sealed class SimulateWindow : Window
 
         _pathLabel.Text = _path is { } p
             ? $"Path: ({p.Start.X:0.0}, {p.Start.Y:0.0}) → ({p.End.X:0.0}, {p.End.Y:0.0}).  "
-              + "Drag another to fire again."
+              + "Press Fire to hit it again, or drag a new one."
             : "Drag a line across the plan to set the path a strike takes, from where it comes in to where it "
               + "leaves. Releasing fires it.";
 
@@ -240,12 +242,14 @@ public sealed class SimulateWindow : Window
             if (WeaponImpact.EntryAlong(_doc, path.Start, path.End) is not { } entry) return;
             var r = WeaponImpact.Fire(_doc, attack, entry, _state);
             _resultLine.Text = r.Missed
-                ? "Missed. Nothing along that line could absorb it."
+                ? "Missed. Nothing along that line was left to hit."
                 : Describe(r.Hits.Select(h => h.PlacementId).Distinct().Count(), r.Delivered,
-                           r.Hits.Count(h => h.Destroyed));
+                           r.Hits.Count(h => h.Destroyed))
+                  + (r.Centre is { } c ? $"  Went off at ({c.X}, {c.Y})." : "");
             _resultLine.Foreground = r.Missed ? Dim : Ink;
         }
 
+        _shots++;
         _board.SetDamageOverlay(DamageOverlay.Build(_doc, _state));
         UpdateTally();
     }
@@ -265,8 +269,10 @@ public sealed class SimulateWindow : Window
             _tallyLine.Foreground = Dim;
             return;
         }
-        _tallyLine.Text = $"Run so far: {ov.Parts.Count} part{(ov.Parts.Count == 1 ? "" : "s")} damaged, "
-                        + $"{ov.Destroyed} destroyed.";
+        // The shot count is the point of hitting one line repeatedly: what is destroyed no longer absorbs, so each
+        // pass reaches further in and the tally answers "how many of these would it take to get through".
+        _tallyLine.Text = $"After {_shots} hit{(_shots == 1 ? "" : "s")}: {ov.Parts.Count} "
+                        + $"part{(ov.Parts.Count == 1 ? "" : "s")} damaged, {ov.Destroyed} destroyed.";
         _tallyLine.Foreground = ov.Destroyed > 0 ? Warn : Dim;
     }
 }

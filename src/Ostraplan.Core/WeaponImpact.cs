@@ -7,18 +7,27 @@ public enum EntryEdge { Top, Bottom, Left, Right }
 /// <summary>Where an impact begins and the unit direction it travels, in <b>document</b> tile coords. This is the
 /// path the user drew: the game itself would only ever start one on the bounding box
 /// (<c>DamageSystem.FindIntersection</c>), but what happens along the path once drawn is its arithmetic exactly.</summary>
-public sealed record ImpactEntry(double DocX, double DocY, double DirX, double DirY, EntryEdge Edge);
+/// <param name="Length">How far the drawn line runs, in tiles. The strike travels this far and no further: a
+/// projectile that finds nothing to detonate against within the path the user drew has missed, rather than
+/// carrying on across the rest of the ship. Without this a second shot down a corridor the first one blasted open
+/// would keep going until it met a surviving wall, however far past the drawn line that was.</param>
+public sealed record ImpactEntry(
+    double DocX, double DocY, double DirX, double DirY, EntryEdge Edge, double Length);
 
 /// <summary>One part a weapon impact damaged.</summary>
 public sealed record ImpactHit(
     Guid PlacementId, string FromDef, double Absorbed, int StagesBroken, bool Destroyed, int DocX, int DocY);
 
 /// <summary>The result of one impact.</summary>
+/// <param name="Centre">The tile it went off on, for a blast or a point impact, or null when nothing along the
+/// drawn path could be detonated against. Worth surfacing: as successive shots open a corridor this walks inward,
+/// and seeing it move is how you tell a strike that punched deeper from one that simply missed.</param>
 public sealed record ImpactResult(
     string Attack,
     ImpactEntry Entry,
     double TotalDamage,
     double Delivered,
+    (int X, int Y)? Centre,
     IReadOnlyList<(int X, int Y)> Cells,
     IReadOnlyList<ImpactHit> Hits)
 {
@@ -67,7 +76,7 @@ public static class WeaponImpact
         var edge = Math.Abs(dx) >= Math.Abs(dy)
             ? dx >= 0 ? EntryEdge.Left : EntryEdge.Right
             : dy >= 0 ? EntryEdge.Top : EntryEdge.Bottom;
-        return new ImpactEntry(startDoc.X, startDoc.Y, dx, dy, edge);
+        return new ImpactEntry(startDoc.X, startDoc.Y, dx, dy, edge, len);
     }
 
     /// <summary>
@@ -86,6 +95,7 @@ public static class WeaponImpact
         var cells = new List<(int X, int Y)>();
         var hits = new List<ImpactHit>();
         var delivered = 0.0;
+        (int X, int Y)? centre = null;
 
         switch (attack.Type)
         {
@@ -99,15 +109,19 @@ public static class WeaponImpact
                 break;
 
             case ImpactType.Circular:
-                if (ImpactPoint(doc, grid, starts[0], entry, attack) is { } centre)
-                    delivered += Blast(doc, grid, centre, attack, cells, hits, state);
+                if (ImpactPoint(doc, grid, starts[0], entry, attack, state) is { } blastAt)
+                {
+                    centre = blastAt;
+                    delivered += Blast(doc, grid, blastAt, attack, cells, hits, state);
+                }
                 break;
 
             case ImpactType.Point:
             case ImpactType.Fragmentation:
                 for (var i = 0; i < starts.Count; i++)
                 {
-                    if (ImpactPoint(doc, grid, starts[i], entry, attack) is not { } at) continue;
+                    if (ImpactPoint(doc, grid, starts[i], entry, attack, state) is not { } at) continue;
+                    centre ??= at;
                     var soft = IsSoftEdge(i, starts.Count, attack.SoftEdgeTileRadius);
                     cells.Add(at);
                     delivered += ApplyToCell(doc, grid, at, attack.TotalDamage, soft, hits, state);
@@ -115,7 +129,7 @@ public static class WeaponImpact
                 break;
         }
 
-        return new ImpactResult(attack.Name, entry, attack.TotalDamage, delivered, cells, hits);
+        return new ImpactResult(attack.Name, entry, attack.TotalDamage, delivered, centre, cells, hits);
     }
 
     // ---- the grid ----
@@ -196,18 +210,25 @@ public static class WeaponImpact
         var range = (int)attack.MaxRange;
         var bounds = Bounds(grid);
         var entered = false;
-        var steps = StepLimit(bounds, px, py);
+        var steps = Steps(entry, bounds, px, py);
 
         while (range >= 0 && budget > 0 && steps-- > 0)
         {
             var cell = ((int)Math.Round(px), (int)Math.Round(py));
             if (grid.ContainsKey(cell))
             {
-                cells.Add(cell);
                 var used = ApplyToCell(doc, grid, cell, budget, soft, hits, state);
-                budget -= used;
-                spent += used;
-                range--;   // only an OCCUPIED cell spends range; empty space is free
+                if (used > 0)
+                {
+                    cells.Add(cell);
+                    budget -= used;
+                    spent += used;
+                    // Only a cell that actually absorbed spends range. The game does this explicitly — a cell its
+                    // ApplyDamageToCell reports as unhit gets the decrement handed back (`if (!hit) num2++`) — and
+                    // it is what lets a second shot down the same line reach further than the first, once the
+                    // first has emptied the tiles nearest the hull.
+                    range--;
+                }
             }
             px += entry.DirX;
             py += entry.DirY;
@@ -223,21 +244,24 @@ public static class WeaponImpact
     /// first holding one of them. This is what makes a missile detonate on the hull rather than at the centre.</summary>
     private static (int X, int Y)? ImpactPoint(
         ShipDocument doc, Dictionary<(int X, int Y), List<Placement>> grid, (int X, int Y) start,
-        ImpactEntry entry, ShipAttackDef attack)
+        ImpactEntry entry, ShipAttackDef attack, DamageState state)
     {
         double px = start.X, py = start.Y;
         var bounds = Bounds(grid);
         var entered = false;
-        var steps = StepLimit(bounds, px, py);
+        var steps = Steps(entry, bounds, px, py);
         while (steps-- > 0)
         {
             var cell = ((int)Math.Round(px), (int)Math.Round(py));
-            if (grid.TryGetValue(cell, out var parts))
-                foreach (var p in parts)
-                {
-                    if (!attack.DetonatesOnContact) return cell;
-                    if (doc.Part(p) is { } def && attack.TriggerConds.Any(def.StartingConds.Contains)) return cell;
-                }
+            if (grid.TryGetValue(cell, out var parts) && FirstStanding(parts, state) is { } p)
+            {
+                // Only the FIRST surviving part on a tile is ever considered — the game's FindPointsOfImpact breaks
+                // out after it, so a wall sharing a tile with a floor is not what a missile triggers on. Destroyed
+                // parts are skipped rather than examined, which is what walks the impact point inward as successive
+                // shots chew through the outer hull.
+                if (!attack.DetonatesOnContact) return cell;
+                if (doc.Part(p) is { } def && attack.TriggerConds.Any(def.StartingConds.Contains)) return cell;
+            }
             px += entry.DirX;
             py += entry.DirY;
             if (!Outside(bounds, px, py)) entered = true;
@@ -347,15 +371,30 @@ public static class WeaponImpact
     private static bool Outside((int MinX, int MaxX, int MinY, int MaxY)? bounds, double px, double py) =>
         bounds is not { } b || px < b.MinX || px > b.MaxX || py < b.MinY || py > b.MaxY;
 
-    /// <summary>How many one-tile steps a walk may take before it has certainly had its chance: enough to cross the
-    /// occupied extent from wherever the path starts, plus a margin. A path aimed away from the ship never enters,
-    /// so it needs a hard stop rather than a "left the grid" test.</summary>
-    private static int StepLimit((int MinX, int MaxX, int MinY, int MaxY)? bounds, double startX, double startY)
+    /// <summary>The first part on a tile that is still there, or null when everything on it is gone.</summary>
+    private static Placement? FirstStanding(List<Placement> parts, DamageState state)
+    {
+        foreach (var p in parts)
+            if (!state.IsDestroyed(p))
+                return p;
+        return null;
+    }
+
+    /// <summary>
+    /// How many one-tile steps a walk may take: the length of the line the user drew, which is the whole point of
+    /// drawing one. A strike goes where it was aimed and stops there, so a second shot down a corridor the first
+    /// blasted open cannot wander off past the end of the path looking for something to hit.
+    ///
+    /// <para>The grid extent is only a backstop, for a path aimed away from the ship that never enters and so would
+    /// never trip the "left the grid" test.</para>
+    /// </summary>
+    private static int Steps(ImpactEntry entry, (int MinX, int MaxX, int MinY, int MaxY)? bounds, double startX, double startY)
     {
         if (bounds is not { } b) return 0;
         var span = (b.MaxX - b.MinX) + (b.MaxY - b.MinY);
         var reach = Math.Abs(startX - b.MinX) + Math.Abs(startX - b.MaxX)
                   + Math.Abs(startY - b.MinY) + Math.Abs(startY - b.MaxY);
-        return (int)Math.Min(8192, span + reach + 8);
+        var backstop = Math.Min(8192, span + reach + 8);
+        return (int)Math.Min(backstop, Math.Ceiling(entry.Length) + 1);
     }
 }

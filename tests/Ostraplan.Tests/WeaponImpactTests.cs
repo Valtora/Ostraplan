@@ -153,6 +153,92 @@ public class WeaponImpactTests
         Assert.Contains(r.Hits, h => h.FromDef == "Wall");
     }
 
+    // ---- punching through ----
+
+    [Fact]
+    public void A_second_shot_down_the_same_line_reaches_past_what_the_first_destroyed()
+    {
+        var cat = Cat();
+        // Five walls abreast. The mass driver's range is two OCCUPIED cells, so on a pristine hull it can only
+        // ever reach the first two — and firing again would be pointless if an emptied tile still cost range.
+        var doc = Fixtures.Doc(cat, Enumerable.Range(0, 5).Select(x => Fixtures.P("Wall", x, 0)).ToArray());
+        var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (12.0, 0.0))!;
+        var state = new DamageState();
+        var driver = Attack("MassDriver", ImpactType.Ray, 60, range: 2);   // 60 = two walls' whole chain
+
+        WeaponImpact.Fire(doc, driver, entry, state);
+        Assert.Equal([true, true, false, false, false], doc.Placements.Select(state.IsDestroyed));
+
+        // The hole the first shot made is now free to travel through, so the second reaches the next pair.
+        WeaponImpact.Fire(doc, driver, entry, state);
+        Assert.Equal([true, true, true, true, false], doc.Placements.Select(state.IsDestroyed));
+
+        WeaponImpact.Fire(doc, driver, entry, state);
+        Assert.Equal([true, true, true, true, true], doc.Placements.Select(state.IsDestroyed));
+    }
+
+    [Fact]
+    public void A_missile_detonates_further_in_once_the_outer_hull_is_gone()
+    {
+        var cat = Cat();
+        var doc = Fixtures.Doc(cat, Enumerable.Range(0, 4).Select(x => Fixtures.P("Wall", x, 0)).ToArray());
+        var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (12.0, 0.0))!;
+        var state = new DamageState();
+        // Radius 0, so the blast is its centre cell alone — which the game applies twice, giving 30 and exactly
+        // destroying one wall. That makes the detonation point visible in what died.
+        var missile = Attack("Missile", ImpactType.Circular, 15, radius: 0, triggers: ["IsWall"]);
+
+        for (var shot = 0; shot < 4; shot++)
+        {
+            WeaponImpact.Fire(doc, missile, entry, state);
+            // Each shot detonates on the outermost wall still standing, so the wall it kills walks inward.
+            Assert.True(state.IsDestroyed(doc.Placements[shot]), $"shot {shot + 1} did not reach wall {shot}");
+            for (var later = shot + 1; later < 4; later++)
+                Assert.False(state.IsDestroyed(doc.Placements[later]), $"shot {shot + 1} reached too far");
+        }
+    }
+
+    [Fact]
+    public void A_strike_stops_at_the_end_of_the_line_it_was_drawn_along()
+    {
+        var cat = Cat();
+        // Outer wall at x=0, then a long gap, then an inner wall far away at x=30. The drawn line stops at x=5,
+        // well short of the inner wall.
+        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 30, 0));
+        var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (5.0, 0.0))!;
+        var state = new DamageState();
+        var missile = Attack("Missile", ImpactType.Circular, 15, radius: 0, triggers: ["IsWall"]);
+
+        WeaponImpact.Fire(doc, missile, entry, state);
+        Assert.True(state.IsDestroyed(doc.Placements[0]));
+
+        // The outer wall is now gone, so nothing along the drawn line can be detonated against. The missile must
+        // MISS rather than fly on to the inner wall thirty tiles further in — which is what a walk bounded by the
+        // grid instead of by the path does, and it puts the blast somewhere the user never aimed.
+        var second = WeaponImpact.Fire(doc, missile, entry, state);
+
+        Assert.True(second.Missed);
+        Assert.False(state.IsDestroyed(doc.Placements[1]));
+    }
+
+    [Fact]
+    public void Only_the_first_surviving_part_on_a_tile_decides_whether_it_detonates()
+    {
+        var cat = Cat();
+        // A floor and a wall sharing one tile, floor first. The game's FindPointsOfImpact looks at the first
+        // surviving part and breaks, so a missile flies over this tile rather than triggering on the buried wall.
+        var doc = Fixtures.Doc(cat,
+            Fixtures.P("Floor", 0, 0), Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 3, 0));
+        var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (8.0, 0.0))!;
+        var missile = Attack("Missile", ImpactType.Circular, 15, radius: 0, triggers: ["IsWall"]);
+
+        var r = WeaponImpact.Fire(doc, missile, entry, new DamageState());
+
+        // It detonated on the clean wall at x=3, not on the one hiding under the floor at x=0.
+        Assert.Contains(r.Cells, c => c == (3, 0));
+        Assert.DoesNotContain(r.Cells, c => c == (0, 0));
+    }
+
     // ---- the grid ----
 
     [Fact]
