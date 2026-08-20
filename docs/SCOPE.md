@@ -74,7 +74,8 @@ tool nothing.
 - **Reading a starting point in**: a core or modded ship template, a residence template,
   or your own ship or apartment out of a save.
 - **Answering questions the layout can answer**: rooms, rating, propulsion figures,
-  atmospheric flight characteristics, bill of materials, power connectivity, crew reach.
+  atmospheric flight characteristics, bill of materials, power connectivity, crew reach,
+  and what a single impact would break.
 - **Costing the work**: what a design takes to build from scratch, and what it takes to
   retrofit a ship you already have into it.
 - **Writing a design into the game**: as a spawnable local mod, as a new ship added
@@ -99,6 +100,11 @@ Each of these is a deliberate no, not a backlog item.
   and *reach* from the layout, which is static data, and neither runs a sim behind it.
   Propulsion and Flight Dynamics evaluate the game's own expressions at a point you
   choose — the same thing a peak-acceleration figure is — rather than flying anything.
+  **A single impact is on the same footing.** Given a strike you specify, the game's own
+  damage arithmetic says which parts break, and that is a geometric question about a
+  layout, answered once. What is *not* in scope is what follows an impact: fire spreading,
+  a hull venting, a reactor cooking off over time. One strike is a measurement; the
+  aftermath is a simulation.
 - **Modelling the economy** beyond the bill of materials and the prices the game
   itself publishes.
 - **More than one ship per document.** One design, one ship. Having several documents

@@ -44,6 +44,7 @@ run one**. See [When a sweep is warranted](#when-a-sweep-is-warranted) in sectio
 - [23. Atmospheric flight (lift, drag and rotors)](#23-atmospheric-flight-lift-drag-and-rotors)
 - [24. What a canister holds (`GasContainer`)](#24-what-a-canister-holds-gascontainer)
 - [25. The inventory grid (`GridLayout`, `GUIInventoryItem`)](#25-the-inventory-grid-gridlayout-guiinventoryitem)
+- [26. Ship damage (micrometeoroids, weapons and collisions)](#26-ship-damage-micrometeoroids-weapons-and-collisions)
 - [Appendix A — Quick reference](#appendix-a--quick-reference)
 - [Appendix B — Ported / deferred / excluded](#appendix-b--ported--deferred--excluded)
 
@@ -2523,6 +2524,376 @@ and what it writes is a state the game reproduces exactly on load, per the round
 
 ---
 
+## 26. Ship damage (micrometeoroids, weapons and collisions)
+
+**Verified against game `1.0.0.11`.**
+
+Ostranauts has **two damage systems**, not one. They live in the same class
+(`Ostranauts.Ships.DamageSystem`), share the attack-data folder, and disagree about almost
+everything that matters: how the impact is located, what geometry is traced, and how much
+a part can absorb before it breaks. Which one runs is decided by the *source* of the hit,
+never by the target, so the player's own deep-loaded ship is damaged by both.
+
+| | Micrometeoroids | Projectiles and collisions |
+|---|---|---|
+| Entry point | `DamageRayRandom` → `DamageRay` | `DamageRayShallow` → `ProjectRayOnGrid` |
+| Geometry | `Physics.RaycastAll` against Unity colliders | tile-grid traversal, no physics |
+| Attack schema | `JsonAttackMode` (`data/attackmodes/coAttacks`) | `JsonShipAttack` (`data/attackmodes/shipAttacks`) |
+| Health read | `Destructable.DmgLeft`, the **current form** only | `DataCO.GetMaxHealth`, the **whole break chain** |
+| Multi-tile part | absorbs **once**, one collider per hit list | absorbs **per cell** it occupies |
+| Also used by | explosions, small arms, melee | missiles, mass drivers, point defence, ship-on-ship collisions, scuttling |
+
+The practical consequence: a micrometeoroid advances a part exactly one break stage and
+moves on, while a missile can take the same part all the way to destroyed in one cell.
+
+### What a part can take
+
+A condowner is damageable when its `aUpdateCommands` carries a `Destructable` line:
+
+```
+"Destructable,StatDamage,<breakInteractionLoot>,StatDamageMax,<signalCheckPeriod>"
+```
+
+`Destructable.SetData` reads slot 1 as the damage stat, slot 2 as the loot naming the
+interaction that fires when the pool fills, and slot 3 as the ceiling cond. 952 of the
+1,120 stock condowners declare one; 451 of those are also `IsInstalled`.
+
+Two different ceilings are then read off that one declaration:
+
+- **`DataCO.Health`** is plain `StatDamageMax`, the current form's own pool. Crossing it
+  fires the break interaction, which mode-switches the part to its damaged form and
+  subtracts the pool again (`DestCheck.DamageCheck`, which also clears `IsPristine`).
+- **`DataCO.GetMaxHealth`** sums the whole chain: this form's `StatDamageMax` plus,
+  recursively, the max health of whatever it breaks into. It resolves the next form by
+  walking the break loot to an `Interaction`, taking that interaction's
+  `objLootModeSwitch`, and requiring a loot with exactly one entry in `aCOs`. A cooverlay
+  re-skins the result through `JCOO.GetModeSwitch`, the same mapping `Catalog.RepairForms`
+  walks in the opposite direction (§12).
+
+| Part | `Health` (first break) | `GetMaxHealth` (destroyed) | Note |
+|---|---|---|---|
+| `ItmWall1x1` | 15 | 45 | → `ItmWall1x1Dmg` (30) |
+| `ItmFloorGrate01` | 15 | 45 | |
+| `ItmDoor01Closed` | 20 | 80 | three stages |
+| `ItmBattery02` | 10 | 40 | |
+| `ItmCapacitor01` | 5 | 13 | |
+| `ItmReactorIC02Off` | 120 | 123 | |
+| `ItmReactorIC03Ignition` | 25 | 25 | breaks via `ACTReactorIC03DamageExplode` |
+
+278 of the 451 installed damageable parts (62%) have a chain that adds health past the
+first stage. `GetMaxHealth` memoises into `maxHealth` on first call and falls back to
+`Health` for anything not `IsInstalled`, for a missing `Destructable` line, and for any
+break whose loot does not resolve to exactly one condowner.
+
+> **Wear is not part of a design.** `StatDamage` is per-instance save state and no def
+> declares it (§12), so every part in a plan starts at zero and its remaining pool is the
+> full ceiling. That is what makes a worst-case answer deterministic once the attack's own
+> randomness is pinned.
+
+### The micrometeoroid path (`DamageRay`)
+
+#### Where a strike comes from
+
+`Ship.UpdateGravAndAtmo` rolls for one on every atmosphere update, which is throttled to
+one per `0.33` of epoch time, and only when the ship has a gravity point of reference:
+
+```
+if (atmosphere.fMicrometeoroidChance > 0 && ptPORGrav != zero
+    && Rand(0,1,Flat) < atmosphere.fMicrometeoroidChance)
+        StarSystem.SpawnMicroMeteoroid(ship, fMult, resetTimeScale: true)
+```
+
+`fMicrometeoroidChance` is authored per atmosphere shell in `data/star_systems`. In stock
+1.0.0.11 **only Earth declares a non-zero value anywhere in the system**:
+
+| Shell | `fMaxAltitude` (km from centre) | chance | orbital v (m/s) | `fMult` |
+|---|---|---|---|---|
+| `Earth_Surface` | 6386 | 0 | | |
+| `Earth_Troposphere` | 6421 | 0 | | |
+| `Earth_Stratosphere` | 6771 | 0.1 | 7671 | 10.23 |
+| `Earth_Mesosphere` | 7071 | 0.25 | 7507 | 10.01 |
+| `Earth_LowOrbit` | 7300 | 0.1 | 7388 | 9.85 |
+| `Earth_HighOrbit` | 7600 | 0.01 | 7241 | 9.65 |
+
+The strength multiplier is closing speed against the body, in units of the ATC speed
+limit:
+
+```
+fMult = max( |boAtmo.vVel − objSS.vVel| / 5.013440329548757E-09 , 0.5 )
+```
+
+That constant is `CrewSim.ATC_SPEED_LIMIT`, and against the game's own AU
+(`149 597 872 km`) it is **exactly 750.0 m/s**. It has no ceiling, only the `0.5` floor, so
+a ship matching the body's velocity still takes half-strength strikes while one in a
+circular orbit at the shells above takes roughly ten times that. The orbital velocities in
+the table are `sqrt(GM/r)` for Earth's authored `fMassKG` of `5.97e24`, which is what a
+ship actually holding one of those orbits is doing.
+
+#### The attack
+
+`AModeMicrometeoroid` is a plain `JsonAttackMode`:
+
+| `fRange` | `fDmgBlunt` | `fDmgCut` | `fDmgEnv` | `fPenetration` |
+|---|---|---|---|---|
+| 100 | 11 | 44 | 55 | 1.0 |
+
+`DamageRay` builds three pools, and only `fDmgEnv` damages structure (blunt and cut go to
+crew wounds):
+
+```
+envPool   = fDmgEnv   * jam.GetDmgAmount(null) * fMult
+bluntPool = fDmgBlunt * jam.GetDmgAmount(null) * fMult
+cutPool   = fDmgCut   * jam.GetDmgAmount(null) * fMult
+```
+
+`GetDmgAmount(null)` is `Rand(0, 1, Mid)`, a mid-biased roll and **not** a constant, so a
+strike's strength is random even at a fixed speed. Pinning it to 1.0 is what "maximum
+strength" means; the worst-case structural pool is therefore `55 × fMult`, from 28 at the
+floor to about 563 in the stratosphere.
+
+#### The ray always passes through world origin
+
+```
+half     = (nCols/2, −nRows/2)
+r        = |half|
+vStart   = vShipPos + half + AngleAxis(θ, forward) * up * r
+DamageRay(vStart, −vStart.normalized, r * 2, ...)
+```
+
+The direction normalises `vStart` itself rather than `vStart − centre`, so the ray is aimed
+at **world (0,0)**, not at the ship. Item world position is `vShipPos + (col, −row)`, which
+`GetTileIndexAtWorldCoords` and `GetWorldCoordsAtTileIndex1` both assert and `MoveShip`
+maintains, so world origin is grid tile:
+
+```
+convergenceTile = ( col = −vShipPos.x , row = vShipPos.y )
+```
+
+`vShipPos` is serialised per ship in `JsonShip`, first set from the top-left tile
+coordinates of the first item placed, translated by `MoveShip` and transformed by
+`RotateCW`. It is not the centre and nothing keeps it near one. Measured across the 220
+core ship objects that carry it:
+
+| | |
+|---|---|
+| convergence tile inside the grid | 188 (85%) |
+| convergence tile **outside the hull** | 32 (15%), including `Babak` and `Babak Refit` |
+| median offset from ship centre, as a fraction of the half-diagonal | 0.41 |
+| ships offset by more than half the half-diagonal | 37% |
+| ships where `\|centre\| > r`, so the `2r` ray cannot reach origin from some angles | 9 |
+
+So micrometeoroid exposure is a **fan through one fixed point**, not an even sweep, and for
+the chargen starter that point is fourteen tiles off the port side. This reads as an
+oversight rather than a design, but it is what 1.0.0.11 does, and any honest per-angle
+answer has to reproduce it.
+
+#### The collider is the sprite rectangle, exactly
+
+Every item is instantiated from one prefab (`DataHandler` builds `strType == "item"` as
+`GetMesh("prefabQuad")` then adds `Item` and `CondOwner`). `prefabQuad` carries a
+**BoxCollider of size `(1, 1, 1)` at centre `(0, 0, 0.5)`**, read directly out of
+`resources.assets`. `Item.ResetTransforms` then overwrites **only z** (centre 5, size 10)
+and sets `localScale = (vScale.x, vScale.y, 1)`.
+
+So the world collider is `vScale` tiles wide by `vScale` tiles high, centred on the item's
+transform. `vScale` is the sprite in tiles, `textureSize / 16` clamped to at least 1, or
+exactly `1 × 1` for any sprite-sheet item, which covers every autotiled wall and floor
+(§4). It is **not** the socket footprint, so the 7×7 tanks present a 3×3 target.
+
+Two consequences fall out of the z arithmetic:
+
+- The ray runs in the `z = 0` plane and a collider spans `[GetZPos(), GetZPos() + 10]`
+  where `GetZPos()` is `−4 × fZScale`. Escaping the band needs `fZScale > 2.5`; the
+  largest in stock data is 1.5, so **every placed item is in band**. Only decorative
+  backgrounds are excluded, because `Ship.BGItemAdd` pushes their collider centre `+125`.
+- `Physics.RaycastAll` returns **one hit per collider**, so a multi-tile part absorbs once
+  per strike no matter how many of its tiles the ray crosses.
+
+#### Consuming the pool
+
+Hits are sorted by distance and walked in order. A hit with a `Destructable` component
+takes `min(envPool, DmgLeft("StatDamage"))`, where `DmgLeft` is
+`StatDamageMax − StatDamage` **on the current form**, then `DamageCheck()` fires any break.
+Blunt and cut are scaled down by the same fraction the environmental pool lost, and the
+walk stops once `envPool` reaches zero.
+
+Because the hit list was built before any break, a part that mode-switches mid-walk is not
+re-hit for its new form's pool. A fresh `ItmWall1x1` therefore costs a strike 15 and comes
+out as `ItmWall1x1Dmg`, never as rubble.
+
+> **A docked ship's parts do not shield you.** With `bAllowDocked: false` the loop
+> `continue`s past any hit whose `CO.ship` is not the target, **without consuming any
+> pool**. The ray passes through a neighbouring hull for free.
+
+#### Point defence
+
+`SpawnMicroMeteoroid` gives defence a chance only half the time:
+
+```
+if (Random.Range(0, 10) < 5 || !WeaponsSystem.TriggerMicroMeteoroidDefense(angle))
+      ... apply the strike ...
+```
+
+`TriggerMicroMeteoroidDefense` needs `HasWeapons()` **and** `HasActiveSensorOn()`, an
+emitting sensor (radar or lidar, the two whose `SensorStrength` defaults above zero)
+switched on. It then models the incoming rock as a `ShipSitu` one docking range out along
+the strike angle, closing at the ATC speed limit, and offers it to every non-reloading
+`IsShipDefensiveWeapon` whose `IsShipWeaponArcAngle` / `IsShipWeaponArcRange` cover it
+(`IsPointInView`, a half-angle dot-product test). **Interception is therefore capped at
+50%** however good the layout is.
+
+### The projectile path (`DamageRayShallow` → `ProjectRayOnGrid`)
+
+Every projectile in the game is itself a `Ship` with `Classification == Projectile`, and
+`CollisionManager` resolves its impact through `DamageRayShallow` regardless of whether the
+target is deep-loaded. Missiles, mass driver rounds, point-defence rounds, ship-on-ship
+collisions and scuttling all run here.
+
+#### The attacks
+
+`data/attackmodes/shipAttacks` holds eight `JsonShipAttack` entries. Ammo selects one by
+`IsShipAttackModeId`, indexed into the `AttackModeMapping` loot:
+
+| id | ammo | attack | `strType` | `fTotalDamage` | `fRadius` | `nSoftEdgeTileRadius` | `fFireChanceCoeff` |
+|---|---|---|---|---|---|---|---|
+| 1 | `ItmAmmo20mm` | `PointDefenseImpact` | point | 15 | 1 | 2 | 0.1 |
+| 2 | `ItmAmmo150mm` | `MassDriverAttack` | ray | 350 | 0 | 0 | 0.1 |
+| 3 | `ItmAmmoMissile01` | `MissileAttack01` | circularBlast | 600 | 11 | 3 | 0.25 |
+| 4 | `ItmAmmoMissile02` | `MissileAttack02` | circularBlast | 450 | 9 | 3 | 0.25 |
+| 5 | `ItmAmmoMissile03` | `MissileAttack03` | circularBlast | 300 | 6 | 3 | 0.25 |
+| 6 | `ItmAmmoDecoyMissile01..03` | `MissileDecoy01` | point | 15 | 1 | 2 | 0.1 |
+| 7 | — | `ScuttleImpact` | ray | 500 | 1 | 1 | — |
+| — | — | `DefaultExplosion` | circularBlast | 300 | 4 | 1 | 0.25 |
+
+`MassDriverAttack` and `ScuttleImpact` carry `fMaxRange: 10`. The three missiles carry
+`aTriggerConds: ["IsWall", "IsRigid", "IsPortal"]`, so they detonate at the first
+structural tile they reach rather than flying to the middle of the ship.
+
+The launchers, for arc work:
+
+| Weapon | arc | range (m) | defensive |
+|---|---|---|---|
+| `ItmShipWeaponPDC01` / `03` | 85° | 12 000 | yes |
+| `ItmShipWeaponPDC02` | 85° | 15 000 | yes |
+| `ItmShipWeaponDecoyLauncher01` | 360° | — | yes |
+| `ItmShipWeaponMassThrower01` | 20° | 90 000 | no |
+| `ItmShipWeaponMassThrower02` | 15° | 120 000 | no |
+| `ItmShipWeaponMassThrower03` | 15° | 66 000 | no |
+| `ItmShipWeaponMissileLauncher01..03` | 360° | — | no |
+
+#### The grid
+
+`GridUtils.CreateShallowItemGrid` builds a `List<DataCOWrapper>[,]` over the ship's
+bounding box, anchored with `gridOffset = (−vShipPos.x, nRows − vShipPos.y)`. It works from
+live condowners when the ship is deeper than `Shallow` and from `json.aItems` otherwise.
+Filters, in order:
+
+- `installedOnly` (the default) keeps only `IsInstalled`. The shallow branch also admits
+  anything `IsExplosive`.
+- `IsMooringPort` is always dropped.
+- The live branch additionally drops `IsSystem`.
+- A part holding any of `IsPortal`, `IsNavStation`, `IsHeavyLiftRotor`, `IsRCSCluster`,
+  `IsShipWeapon` is **bulky**: `SilhouetteUtility.GetFloorVectorGrid` spreads it across
+  every cell of its rotated footprint, and it is entered once per cell. Everything else
+  occupies its anchor cell alone.
+
+#### Entry geometry
+
+`FindIntersect` puts the incoming object into the ship's frame (rotating by `−objSS.fRot`
+about the grid centre), takes the relative velocity as the direction, and asks
+`FindIntersection` for the crossing with the grid's bounding rectangle. That function
+returns the **nearest of the four edge crossings** by straight-line distance, and it is
+worth knowing that it never checks the crossing lies ahead of the object: the `x = 0` and
+`y = 0` edges are guarded by requiring the other coordinate be positive, but the
+`x = gridMax` and `y = gridMax` edges carry no guard at all, so a degenerate geometry can
+return a point off the box.
+
+`DamageRayShallow` then calls `AddVariance`, which is the aim scatter:
+
+- direction rotated by a uniform `±10°`;
+- the entry point slid along whichever edge it sits on by
+  `round(gridDimension × uniform(−0.4, 0.4))`, clamped to the edge.
+
+`AddStartingTiles` finally spreads `fRadius` tiles either side of the entry cell, along the
+entry edge, giving `2·fRadius + 1` parallel starts.
+
+#### The three patterns
+
+**Ray** (`RunRayPattern`) splits `fTotalDamage` evenly across the starting tiles and walks
+each one by `round(point + dir·k)`, up to `fMaxRange` steps. An empty cell does not count
+against the range, so the budget is `fMaxRange` **occupied** cells deep.
+
+**Circular** (`RunCircularPattern`) first finds the impact cell with `FindPointsOfImpact`,
+walking from the entry cell along the direction until it reaches a cell holding a part that
+is not already at max health and, when `aTriggerConds` is set, holds one of those conds. It
+then collects every cell within Euclidean `fRadius` and applies, in ascending distance
+order:
+
+```
+cellDamage = fTotalDamage * (1 − distance / max(1, fRadius))
+```
+
+> **The impact cell is damaged twice.** The list is seeded with `(impact, 0.0)` and the
+> square scan then adds the same cell again at distance 0, so the centre of every blast
+> takes two full-strength applications.
+
+**Point** (`RunPointPattern`) gives each starting tile its own impact point via the same
+walk, and applies the full `fTotalDamage` at each.
+
+`nSoftEdgeTileRadius` marks the outermost starts (or, for circular, every cell beyond
+`fRadius − nSoftEdgeTileRadius`) as `damageOnly`, which caps that cell at `DataCO.Health`
+instead of `GetMaxHealth`. With three starting tiles and a soft edge of 2, **every** tile of
+a point-defence impact is soft, so 20 mm fire can damage a part to its first broken form and
+never destroy it.
+
+#### Applying damage to a cell
+
+`ApplyDamageToCell` walks the cell's parts in order, skipping any already at
+`GetMaxHealth`, and pushes `CurrentDamage` up to that ceiling (or `Health` when
+`damageOnly`), passing the remainder on. `IsSocial` parts are crew and take
+`ApplyCrewDamage` instead, through the `JsonShipAttack`'s own `strJsonAttackMode`.
+
+Fire is rolled per damaged part on a ship at `Loaded.Edit` or deeper:
+
+```
+base = 0.0 if IsFireproof, 0.9 if IsFlammable, 0.5 if IsBurnable, else 0.25
+ignite if Rand(0,1,Flat) <= base * jam.fFireChanceCoeff
+```
+
+A part that crosses into damaged for the first time also triggers system side effects:
+`IsRCSCluster` decrements `nRCSCount` and sets the ship drifting once it reaches zero;
+`IsNavStation` unregisters the ship, drops its transponder antenna and sets it drifting;
+`IsFusionReactorCore` has a 25% chance to scuttle a shallow ship outright; `IsShipWeapon`
+resets the weapon data. `IsFusionReactorCore` and `IsExplosive` additionally return as the
+hit's `Explosive`, which runs `TriggerChainExplosion`: a circular pattern centred on that
+cell using the part's own ship attack, or `DefaultExplosion` when it declares none.
+
+### What a planner cannot reproduce exactly
+
+- **Every strike is a random draw.** `GetDmgAmount`'s mid-biased roll on the meteoroid
+  path, `AddVariance`'s aim scatter on the projectile path, the fire roll, and the 50%
+  point-defence bypass are all live RNG. A plan can only answer for a pinned worst case.
+- **Crew wounds are out of scope.** The blunt and cut pools exist to hurt people
+  (`Wound.Damage`, `GetWoundLocation`), and a design has no crew.
+- **`vShipPos` moves at runtime.** `MoveShip` and `RotateCW` both rewrite it, so a ship's
+  convergence tile is a property of its current world anchor and not only of its layout. A
+  design can report the anchor its own template or save carries, which is what it will
+  spawn with, and nothing beyond that.
+- **Chain explosions and fire propagate.** Both are modelled here as one step from the
+  triggering hit; the game keeps burning afterwards, which is simulation and excluded by
+  the same rule as gas flow and crew pathing.
+
+> **Deferred in Ostraplan:** planned as **Simulate ▸ Micrometeoroid Strike…** and
+> **Simulate ▸ Weapon Impact…**, sharing one damage heat overlay scaled green at zero,
+> amber past `DataCO.Health` and red past `DataCO.GetMaxHealth`. The two solvers stay
+> separate because the two models are. **Re-verify on a major game version:** the
+> `AModeMicrometeoroid` and `shipAttacks` numbers, `AttackModeMapping`'s ordering, the
+> `prefabQuad` collider, the `ATC_SPEED_LIMIT` constant, whether `−vStart.normalized` has
+> been corrected to aim at the ship centre, and whether any body other than Earth has been
+> given a `fMicrometeoroidChance`.
+
+---
+
 ## Appendix A — Quick reference
 
 - **`nLayer` is always 0; draw order is `fZScale`** — higher draws nearer, walls sit at the
@@ -2606,6 +2977,18 @@ and what it writes is a state the game reproduces exactly on load, per the round
 - **Bake `aDockingPorts` + `strPrimaryDockingPortID` or a bought ship never docks** (§6).
 - **Bake `Boarding`/`NotBoarding` spawners into `aShallowPSpecs` or arrivals land outside
   the hull** (§6).
+- **Damage is TWO systems**: micrometeoroids raycast Unity colliders and read the current form's
+  `StatDamageMax`; missiles, mass drivers, point defence and collisions walk the tile grid and read
+  the whole break chain (`DataCO.GetMaxHealth`). Both hit the player's loaded ship (§26).
+- **The damage collider is the SPRITE rect, not the footprint**: every item is `prefabQuad`, whose
+  BoxCollider is `1×1` scaled by `vScale`, so a 7×7 tank presents a 3×3 target (§26, §4).
+- **Every micrometeoroid ray passes through world origin**: `−vStart.normalized` aims at `(0,0)`,
+  i.e. grid tile `(−vShipPos.x, vShipPos.y)`, which is off-centre on most ships and outside the hull
+  on 32 of the 220 core ships including both Babaks (§26).
+- **Micrometeoroid strength is closing speed / 750 m/s**, floored at 0.5 and uncapped;
+  `5.013440329548757E-09` is `ATC_SPEED_LIMIT`. Only Earth declares `fMicrometeoroidChance` (§26).
+- **A blast damages its impact cell twice**: the cell list is seeded with the impact point and the
+  square scan adds it again at distance 0 (§26).
 
 ### The parity corpus (ground truth)
 
@@ -2674,6 +3057,9 @@ sets), giving a 220-ship rooms **and** certification gate. Only **Babak / Babak 
 | Nav console screen layout (`GUIOrbitDraw.LoadModules`, `EditMenu.DoesModFit`, `SaveModules`, §17) | ported (rects, bounds, overlap, tray; no rect is invented or resized) | `NavConsole.Arrange` / `ConfigEntries` |
 | Obtainability (brokers, chargen) | ported | `KioskExport`, `StartingShipExport` |
 | Contained/slotted sub-objects on read; exterior-margin trim | not modelled (corpus-only; import drops sub-objects) | — |
+| Micrometeoroid strike (`SpawnMicroMeteoroid`, `DamageRayRandom`, `DamageRay`) | deferred (§26) | planned: **Simulate ▸ Micrometeoroid Strike…** |
+| Projectile/collision damage (`DamageRayShallow`, `ProjectRayOnGrid`, `ApplyDamageToCell`) | deferred (§26) | planned: **Simulate ▸ Weapon Impact…** |
+| Fire spread and post-impact burning | excluded (a simulation, not a plan) | never ported |
 | Crew LOS/proximity, docked-ship, station build-zone permission **in `CheckFit`** | excluded (in-game only — they gate the interactive builder, not a spawned ship) | never ported |
 
 ---
