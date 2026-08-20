@@ -431,10 +431,13 @@ Everything below is under **File ▸ Import** / the **Export** button.
 
 - **Import a template:** browse core and modded `data/ships` and start from an
   existing hull (a Vagabond, say). No in-game identity, wear or damage.
-- **Import your ship from a save:** pulls your player ship out of a save game,
-  unlinked from it (it can't be written back — that's what *for editing* is for).
-- **Import your ship, for editing:** the same ship with its identity intact, linked to
-  the save so **Update Ship in Save…** can write it back.
+- **From a ship or apartment in a save (layout only):** pick a save, then pick
+  **anything you own in it** — every vessel and every station apartment, in one list,
+  each row tagged with which it is. The layout comes across as a pristine design.
+  Nothing is written to the save, then or ever, which makes this the route for using a
+  ship you own as a planning template.
+- **Your ship, for editing:** the same ship with its in-game identity and per-part
+  condition intact, so **Update Ship in Save…** can write the redesign back onto it.
 
 **What comes in besides the structure.** The first two ask, and remember the answer:
 
@@ -445,11 +448,14 @@ Everything below is under **File ▸ Import** / the **Export** button.
 
 Both default to **on**. Crew are never imported.
 
-- **"For editing" always brings both**, and doesn't ask. That design stays linked to its
-  save, and the write-back emits each container's contents from what was imported, so
-  importing without cargo would delete that cargo from the save.
-- **On the other two routes the contents become the design's own**, so they persist in
-  the `.oplan` and travel through **Export**.
+- **"For editing" always brings both**, and doesn't ask, because the write-back emits
+  each container's contents from what was imported: importing without cargo would delete
+  that cargo from the save. Contents that arrive this way stay the *ship's*, so a
+  write-back re-reads them from the ship it is about to write over and does not revert a
+  locker you have rearranged in game since. Edit a container yourself and it becomes the
+  design's, and nothing overwrites it after that.
+- **On the other two routes the contents become the design's own** straight away.
+- Either way they are stored in the `.oplan` and travel through **Export**.
 - **Deck items are cargo, not structure.** A tool or a piece of scrap lying on the floor
   comes in as a loose object: it renders and travels with the ship but takes no part in
   the placement law or the bill of materials. (Before, these imported as buildable parts,
@@ -599,7 +605,7 @@ overwrite the write on its next autosave. That matters for either destination, a
 matters most in place: the game holds the whole save in memory and writes it back on
 its own schedule.
 
-A design that's linked to a save can still be added to one; the dialog reminds you that
+A design you imported from a save can still be *added* to one; the dialog reminds you that
 this creates a **separate new ship** rather than updating the one you imported. To change
 that ship, use **Analyse ▸ "Update Ship in Save…"** instead.
 
@@ -653,9 +659,9 @@ see [Apartments](#apartments).
   you untick it. Do it from the game's **Main Menu**, not while the save is loaded, or
   the game will overwrite your edit on its next autosave. In the in-game Load menu,
   press **Refresh** to see the just-written copy.
-- A design imported from a save needs **no save picker**: it already names the save and
-  the ship it came from. Selecting the destination re-locates that ship, and if the save
-  has moved or been deleted it says so there rather than at the write.
+- A design you imported from a save **this sitting** needs no save picker: Ostraplan
+  still has the ship it came from and offers that one. Reopen the design another day and
+  it is asked which ship it replaces, like any other, because the file names no save.
 - **A design that never came from a save is asked which ship to replace.** Pick the save,
   pick the ship, and the design is written onto it. Nothing on that ship is recognised as
   already built, so every part currently on it is torn out and the design goes up in its
@@ -703,9 +709,11 @@ see [Apartments](#apartments).
 - Like every destination, it reopens at the start rather than on Review. Landing one click
   from rewriting a save you already have is a footgun, and this is the path where it would
   cost the most.
-- A save-edit `.oplan` stays **linked** to its save — it references the live state
-  rather than embedding it, so keep the save if you want to write back later. For a
-  ship detached from any save, **Export** it instead.
+- **An `.oplan` is a design and nothing else.** It records no save and no ship. Delete
+  the save it came from, move it to another machine, or hand it to somebody who has
+  never seen your playthrough, and it still opens, edits, prices and exports. What a
+  write-back needs from a save is read out of whichever ship you point it at when you
+  run it.
 
 ### If your ship uses mods you don't have loaded
 
@@ -745,6 +753,11 @@ they are not the same errand, so each has its own action and each lists only its
 | Import ▸ From ship template… | Import ▸ From apartment template… |
 | Import ▸ Your ship, for editing… | Import ▸ Your apartment, for editing… |
 | Transfer Ship to Another Save… | Transfer Apartment to Another Save… |
+
+The one action that lists both together is **Import ▸ "From a ship or apartment in a save
+(layout only)"**, which writes nothing to your save and so has no wrong row to land on.
+Your apartments appear there beside your ships, tagged, which is the quickest way to use
+one you already own as a starting point for another.
 
 The apartment template list is the eleven residences a Real Estate broker sells, read from
 the game's own broker data, so a mod that adds one shows up there too.

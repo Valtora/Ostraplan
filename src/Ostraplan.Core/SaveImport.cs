@@ -77,8 +77,12 @@ public static class SaveImport
                ?? zips.OrderByDescending(z => new FileInfo(z).Length).First();
     }
 
-    /// <summary>Import the player's ship from a save's data zip. Throws (for the caller to report) if it
-    /// can't find the player record or that ship.</summary>
+    /// <summary>Import the player's ship from a save's data zip, without asking which — whatever their character
+    /// is standing on. Throws (for the caller to report) if it can't find the player record or that ship.
+    /// <para>Every import in the app asks instead (see <see cref="ListPlayerShips"/>), because a docked character
+    /// is standing on a station and an apartment is never what they are standing on. This is the no-question form,
+    /// and it is what pins the session-record diagnostics that <see cref="ReadSession(ZipArchive, out string?)"/>
+    /// produces.</para></summary>
     public static ImportResult ImportPlayerShip(string zipPath, Catalog catalog, ImportOptions? options = null)
     {
         using var zip = ZipFile.OpenRead(zipPath);
@@ -218,10 +222,29 @@ public static class SaveImport
     }
 
     /// <summary>
+    /// Why <see cref="ListPlayerShips"/> came back empty, when the reason is that the save could not be read —
+    /// null when it read fine and the player simply owns nothing in it.
+    ///
+    /// <para>The two want opposite responses and the empty list cannot tell them apart, which is the price of
+    /// that method never throwing. A picker showing nothing is where the difference matters most: "you don't own
+    /// an apartment yet" is an answer, and "this record parsed but carries no strShip" is a bug report.</para>
+    /// </summary>
+    public static string? WhyUnreadable(string zipPath)
+    {
+        try
+        {
+            using var zip = ZipFile.OpenRead(zipPath);
+            return ReadSession(zip, out var why) is null ? NoSessionMessage(why) : null;
+        }
+        catch (Exception ex) { return $"This save's data zip couldn't be opened: {ex.Message}"; }
+    }
+
+    /// <summary>
     /// The ships in a save the player could edit: every ship the player owns (the player CO's <c>aMyShips</c>),
     /// plus the ship they're currently standing on if that isn't one of them (a station or another vessel — the
     /// currently-occupied ship is what a naive import would grab). Owned ships come first, the current ship is
-    /// flagged. Never throws — returns an empty list if the save can't be read.
+    /// flagged. Never throws — returns an empty list if the save can't be read, and
+    /// <see cref="WhyUnreadable"/> is what tells that apart from a save holding nothing of the player's.
     /// </summary>
     public static IReadOnlyList<SaveShipChoice> ListPlayerShips(string zipPath)
     {

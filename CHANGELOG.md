@@ -12,6 +12,34 @@ apartment, save-record and inventory-grid work).
 
 ## [Unreleased]
 
+### Changed
+- **Importing a layout from a save now asks which ship, instead of taking the one you were standing
+  on.** **File ▸ Import ▸ "From a ship or apartment in a save (layout only)"** shows a picker of
+  **everything you own** in that save: every vessel and every station apartment, in one list, each row
+  tagged with which it is. It used to skip the question and read whatever your character was standing
+  on, which on a docked save is the station, and which meant an apartment could not be imported this
+  way at all. The list is the same one the retrofit comparison and the write-back target have always
+  used; this route was the one that never got it. Nothing is written to your save on this path, then
+  or ever, so there is no wrong row to land on and no reason to make you pick the errand before the
+  thing. Thanks to RedTwinkleToes for the report.
+- **A `.oplan` no longer belongs to a save game.** A design imported for editing used to record the
+  save folder and ship RegID it came from, and reopening it went looking for that save: delete the
+  save, rename its folder, or open the design on another machine, and it came up without the contents
+  of any of its containers. A design now carries everything it describes, container contents included,
+  and names no save at all. Delete the save it came from, move the file, or hand it to somebody who
+  has never seen your playthrough, and it still opens, edits, prices and exports exactly as it did.
+  - **Which ship a write-back goes over is asked at the write.** A design you imported this sitting
+    still offers the ship it came from, so the import-edit-write round trip is unchanged. Reopen it
+    another day and **Update Ship in Save** asks which save and which ship, the same as it does for a
+    design you drew from scratch, and writing it back onto the ship it came from is one of the answers.
+  - **A write-back re-reads each container from the ship it is about to write over**, so a locker you
+    rearranged in game after saving the design is not reverted by it. Only containers you edited
+    yourself in the inventory editor are held as the design's own and left alone. This used to happen
+    on open, against the save the file named, which is why the file had to name one.
+  - Designs written by 0.92.x and earlier still carry that save. Opening one reads its container
+    contents back from that save once, as before, and saving it writes them into the design and drops
+    the reference for good. Nothing is lost, and nothing has to be re-imported.
+
 ### Fixed
 - **An exported ship with no in-game name is named by the game, not after your design file.** Leaving
   the **In-game name** box blank used to fall back to the design's own name, so a ship exported as

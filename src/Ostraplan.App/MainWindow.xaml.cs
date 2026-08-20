@@ -1814,9 +1814,9 @@ public partial class MainWindow : Window
         AdoptLoadedDocument(file, doc, missing, file.AutoSaveOf, dirty: true);
         AuditLog.Add($"Recovered the auto-save snapshot {entry.Path}.");
 
-        // Same as reopening a save-derived .oplan: the snapshot carries layout only, so re-hang the container
-        // contents from its source save if that save is still where it was.
-        if (doc.SourceSave is { } srcSave) AttachSavedCargoAsync(doc, srcSave);
+        // Same as reopening a save-derived .oplan: a snapshot written by an older build carries no container
+        // contents of its own, so they are re-read once from the save it named.
+        AttachLegacySavedCargoAsync(doc, file.Source);
 
         var onto = file.AutoSaveOf is { } path
             ? $"Saving writes it back to {Path.GetFileName(path)}."
@@ -1867,11 +1867,10 @@ public partial class MainWindow : Window
         _settings.Save();
         AuditLog.Add($"Opened {dlg.FileName}.");
 
-        // A reopened save-derived design carries no cargo (the .oplan stores only layout); re-locate its
-        // source save and hang each container's contents back on its placement, so the inventory viewer works
-        // right away. Eager, off-thread, and silent if the save has moved.
-        if (doc.SourceSave is { } srcSave)
-            AttachSavedCargoAsync(doc, srcSave);
+        // A design written by an older build stored only the layout and left its container contents in the save
+        // it named. Re-read them once so the inventory viewer works right away, after which the design owns them
+        // and the file stops naming a save at all. Eager, off-thread, and it reports nothing if the save has moved.
+        AttachLegacySavedCargoAsync(doc, file.Source);
 
         if (missing.Count > 0)
             Dlg.Warn(this, "This design is missing mods",
@@ -1912,7 +1911,7 @@ public partial class MainWindow : Window
         doc.FilePath = filePath;
         _meta = file.Meta;
         _stateDirty = dirty;
-        _saveContext = null;   // a reopened save-derived design re-locates its context on demand (from SourceSave)
+        _saveContext = null;   // a reopened design is bound to no save; the write-back asks which ship it replaces
         _unresolvedParts = missing;   // a design missing its mods is incomplete: read-only until they're enabled
         _stack.Reset();
         Board.SetDocument(doc);
@@ -1923,14 +1922,23 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Re-attach a reopened save-derived design's cargo: re-locate its source save off the UI thread, rebuild the
-    /// <see cref="SaveShipContext"/>, and hang each container's contents back on its placement (matched by
-    /// <see cref="Placement.OriginStrID"/>) so the inventory viewer works immediately. Also caches the context so a
-    /// later write-back skips a second re-locate. A moved/unreadable save just leaves the cargo unattached — the
-    /// design still opens and edits; the write-back flow is where a missing save is reported.
+    /// Re-attach the container contents of a design written by a build that did not store them.
+    ///
+    /// <para>Up to 0.92.x an <c>.oplan</c> imported for editing recorded the save and ship it came from and
+    /// nothing of what its containers held, so reopening one meant going and finding that save. A design now
+    /// carries its own contents and names no save, but a file already on disk does not, and this is the only
+    /// thing that says where they were. So it runs for a legacy <paramref name="src"/> and for nothing else:
+    /// re-locate that save off the UI thread, hang each container's contents back on its placement (matched by
+    /// <see cref="Placement.OriginStrID"/>), and cache the context so a write-back in the same sitting skips a
+    /// second re-locate. Saving the design then writes the contents into the file and drops the source, after
+    /// which this never runs for it again.</para>
+    ///
+    /// <para>A moved or unreadable save just leaves the contents unattached, with no report: the design still
+    /// opens, edits and exports, and the write-back is where a save that cannot be found is worth saying so.</para>
     /// </summary>
-    private async void AttachSavedCargoAsync(ShipDocument doc, SaveSourceRef src)
+    private async void AttachLegacySavedCargoAsync(ShipDocument doc, OplanSource? src)
     {
+        if (src is null || src.SaveName.Length == 0 || src.RegId.Length == 0) return;
         if (_catalog is null || _env is null) return;
         var (env0, catalog0, save0, reg0) = (_env, _catalog, src.SaveName, src.RegId);
         var session = _active;   // the tab this design is in; the user is free to work in another one meanwhile
@@ -3659,9 +3667,12 @@ public partial class MainWindow : Window
 
         // specs + a value estimate are needed before the wizard: the estimate pre-fills the starting-ship mortgage
         _roomSpecs ??= RoomCertifier.LoadSpecs(_index);
+        // Whatever this design is bound to in this sitting: the import stamps SourceSave, and a design written by
+        // an older build has only the context its legacy source was relocated into on open.
+        var bound = _doc.SourceSave ?? _saveContext?.Source;
         var session = new WizardSession
         {
-            Plan = ExportPlan.FromSettings(_settings, _meta, _doc.SourceSave),
+            Plan = ExportPlan.FromSettings(_settings, _meta, bound),
             Doc = _doc,
             Catalog = _catalog,
             Specs = _roomSpecs,
@@ -3670,7 +3681,7 @@ public partial class MainWindow : Window
             Settings = _settings,
             Meta = _meta,
             Saves = SaveImport.ListSaves(_env),
-            SourceSave = _doc.SourceSave,
+            SourceSave = bound,
             UpdateTarget = updateTarget,
             SaveContext = _saveContext,
             Palette = _allParts,
@@ -3933,7 +3944,9 @@ public partial class MainWindow : Window
         var import = new MenuItem { Header = "Import" };
         import.Items.Add(MenuAction("From ship template…", () => ImportTemplate(DocumentKind.Ship)));
         import.Items.Add(MenuAction("From apartment template…", () => ImportTemplate(DocumentKind.Residence)));
-        import.Items.Add(MenuAction("From save game (layout only)…", ImportSave));
+        // Named for what it lists, because the complaint about the old wording was that nobody could tell it
+        // reached anything but the ship you were standing on.
+        import.Items.Add(MenuAction("From a ship or apartment in a save (layout only)…", ImportSave));
         import.Items.Add(new Separator());
         // Two entries rather than one picker with both in it. A ship and an apartment are edited the same way but
         // they are not the same errand, and the ship list is the one people are looking down when they mean the
@@ -4015,7 +4028,13 @@ public partial class MainWindow : Window
         BtnSurface.IsChecked = Board.SurfaceMode;
     }
 
-    /// <summary>Pick a save and import the player's ship from it — layout only, behind an explicit confirmation.</summary>
+    /// <summary>
+    /// Pick a save, pick anything in it you own, and import that as a pristine layout.
+    ///
+    /// <para>One list for ships and apartments alike, unfiltered. This path writes nothing, so there is no wrong
+    /// row to land on and no reason to make the user choose the errand before the thing. It used to skip the
+    /// question entirely and take whatever the character was standing on, which is a station as often as not.</para>
+    /// </summary>
     private async void ImportSave()
     {
         if (_catalog is null || _env is null) return;
@@ -4028,25 +4047,44 @@ public partial class MainWindow : Window
             return;
         }
 
-        var picker = new SavePickerDialog(saves, "Import a ship from a save game",
-            "Imports the player's ship as a pristine layout — crew, cargo, wear and damage are discarded.",
-            "Import") { Owner = this };
+        var picker = new SavePickerDialog(saves, "Import from a save game",
+            "Imports a ship or apartment you own as a pristine layout — crew, wear and damage are discarded.",
+            "Choose save") { Owner = this };
         if (picker.ShowDialog() != true || picker.Selected is not { } save) return;
 
-        var ship = save.ShipName.Length > 0 ? $"“{save.ShipName}”" : "the player's ship";
+        var ships = SaveImport.ListPlayerShips(save.ZipPath);
+        if (ships.Count == 0)
+        {
+            // An unreadable save and a save holding nothing of yours both come back empty, and they are not the
+            // same news, so say which.
+            Dlg.Show(this, SaveImport.WhyUnreadable(save.ZipPath)
+                    ?? "Couldn't find anything you own in that save (no ships, no apartments, and no current ship "
+                       + "on record).",
+                "Import", MessageBoxButton.OK, MessageBoxImage.Warning);
+            return;
+        }
+
+        var shipDlg = new ShipChoiceDialog(save.Name, ships, kind: null,
+            title: "Import which ship or apartment?",
+            note: $"Everything you own in save “{save.Name}”. Only the layout is read: nothing is written to the "
+                + "save, now or later.") { Owner = this };
+        if (shipDlg.ShowDialog() != true || shipDlg.Selected is not { } chosen) return;
+
+        var noun = chosen.IsResidence ? "apartment" : "ship";
         var who = save.PlayerName.Length > 0 ? $"{save.PlayerName}'s " : "";
-        if (AskImportOptions($"Import {ship} for planning?",
-                $"From {who}save “{save.Name}”. The design arrives unlinked from that save: wear and damage are "
-                + "discarded and it cannot be written back, which is what \"your ship, for editing\" is for.")
+        if (AskImportOptions($"Import “{chosen.Name}” for planning?",
+                $"{chosen.RegId} from {who}save “{save.Name}”. The design arrives as its own thing: wear and damage "
+                + $"are discarded, and it is never written back to that save. To redesign the live {noun} and put "
+                + $"the result in the game, use \"your {noun}, for editing\" instead.")
             is not { } options)
             return;
 
-        var (catalog, zip) = (_catalog, save.ZipPath);
+        var (catalog, zip, regId) = (_catalog, save.ZipPath, chosen.RegId);
         ImportResult result;
         Mouse.OverrideCursor = Cursors.Wait;
         try
         {
-            result = await Ui.OffThread(() => SaveImport.ImportPlayerShip(zip, catalog, options));
+            result = await Ui.OffThread(() => SaveImport.ImportShipLayout(zip, regId, catalog, options));
         }
         catch (Exception ex)
         {
@@ -4059,7 +4097,7 @@ public partial class MainWindow : Window
         }
 
         InstallImportedDocument(result, options: options);
-        AuditLog.Add($"Imported ship from save \"{save.Name}\" (layout only).");
+        AuditLog.Add($"Imported {noun} \"{chosen.Name}\" ({chosen.RegId}) from save \"{save.Name}\" (layout only).");
     }
 
     /// <summary>Import the player's ship FOR EDITING: keeps each part's save identity plus a full context, so
@@ -4082,8 +4120,10 @@ public partial class MainWindow : Window
                 (residence
                     ? "It keeps its registration, its place at the station and the transit route that reaches it: only the layout changes.\n\n"
                     : "") +
-                "The .oplan you save stays linked to this save.\n" +
-                $"It references the {noun}'s live state (crew, cargo, wear) rather than embedding it, so keep the save if you want to write back later.\n\n" +
+                "The .oplan you save is a design and nothing more. It records no save and no ship, so it opens, " +
+                "edits and exports whether or not this save still exists, and you can send it to someone who has " +
+                $"never seen it. Reopen it another day and the write-back asks which {noun} to write over, this " +
+                "one included.\n\n" +
                 (residence
                     ? "There is no mod export for an apartment: the game sells one through a Real Estate broker, which a ship mod cannot stock."
                     : "For a standalone, shareable ship instead, use Export, which makes a spawnable mod."),
@@ -4165,16 +4205,18 @@ public partial class MainWindow : Window
         var ships = all.Where(s => s.IsResidence == residence).ToList();
         if (ships.Count == 0)
         {
-            // Say which of the two things went wrong. "No apartments" on a save that has three ships in it is a
-            // different problem from a save Ostraplan could read nothing out of at all.
+            // Say which of the three things went wrong. "No apartments" on a save that has three ships in it is a
+            // different problem from a save that holds nothing of yours, and both are different from one Ostraplan
+            // could not read at all.
             Dlg.Show(this,
-                residence
-                    ? all.Count > 0
-                        ? $"No apartments in that save. Ostraplan found {all.Count} ship(s) there, so the save read "
-                          + "fine — you just don't own a residence in it yet. Buy one from a station's Real Estate "
-                          + "kiosk, or use \"From apartment template\" to design one from scratch."
-                        : "Couldn't find anything you own in that save."
-                    : "Couldn't find a ship in that save (no owned ships and no current ship on record).",
+                all.Count > 0 && residence
+                    ? $"No apartments in that save. Ostraplan found {all.Count} ship(s) there, so the save read "
+                      + "fine — you just don't own a residence in it yet. Buy one from a station's Real Estate "
+                      + "kiosk, or use \"From apartment template\" to design one from scratch."
+                    : SaveImport.WhyUnreadable(save.ZipPath)
+                      ?? (residence
+                          ? "Couldn't find anything you own in that save."
+                          : "Couldn't find a ship in that save (no owned ships and no current ship on record)."),
                 title, MessageBoxButton.OK, MessageBoxImage.Warning);
             return null;
         }
@@ -4270,7 +4312,7 @@ public partial class MainWindow : Window
         // Ask which ship BEFORE the wizard exists, so backing out of the picker cancels the action outright.
         // Asked from inside the wizard instead, a cancel could only block a step of a window already on screen.
         SaveSourceRef? target = null;
-        if (_doc?.SourceSave is null)
+        if ((_doc?.SourceSave ?? _saveContext?.Source) is null)
         {
             if (UpdateDriver.PickTarget(this, saves, _doc?.Kind ?? DocumentKind.Ship) is not { } picked) return;
             target = new SaveSourceRef(picked.Save.Name, picked.RegId);
@@ -4624,7 +4666,8 @@ public partial class MainWindow : Window
     private string DescribeDocument()
     {
         if (_doc is null) return "none";
-        var kind = _doc.SourceSave is not null ? "save-derived" : _doc.FilePath is not null ? ".oplan" : "unsaved";
+        var kind = (_doc.SourceSave ?? _saveContext?.Source) is not null ? "save-bound"
+            : _doc.FilePath is not null ? ".oplan" : "unsaved";
         var dirty = _stack.Dirty ? ", unsaved changes" : "";
         var incomplete = _unresolvedParts.Count > 0 ? $", {_unresolvedParts.Count} missing-mod part(s)" : "";
         var others = _sessions.Count > 1 ? $" (+{_sessions.Count - 1} more open)" : "";

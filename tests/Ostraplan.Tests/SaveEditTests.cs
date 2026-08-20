@@ -256,8 +256,11 @@ public class SaveEditTests(ITestOutputHelper output)
         Assert.All(swap.Value.New, np => Assert.True(np.IsGiven));       // but given-ness still inherited
     }
 
+    /// <summary>Each part keeps the save id it was imported under, because that is what the write-back diffs
+    /// against. The <b>save</b> it came from is not written at all: a design is save-agnostic, and the ship it
+    /// replaces is chosen at the write.</summary>
     [SkippableFact]
-    public void Oplan_roundtrips_origin_and_source()
+    public void Oplan_roundtrips_origin_and_never_writes_a_source_save()
     {
         var g = TestData.RequireGame();
         if (g.Catalog.Parts.FirstOrDefault()?.DefName is not { } def) return;
@@ -270,13 +273,90 @@ public class SaveEditTests(ITestOutputHelper output)
         try
         {
             OplanFile.FromDocument(doc, g.Index, new OplanMeta { Name = "roundtrip" }).Save(path);
-            var (doc2, missing) = OplanFile.Load(path).ToDocument(g.Catalog);
+            Assert.DoesNotContain("\"source\"", File.ReadAllText(path), StringComparison.Ordinal);
+
+            var file = OplanFile.Load(path);
+            var (doc2, missing) = file.ToDocument(g.Catalog);
 
             Assert.Empty(missing);
             var p2 = Assert.Single(doc2.Placements);
             Assert.Equal("orig-1", p2.OriginStrID);
             Assert.True(p2.IsGiven);
-            Assert.Equal(new SaveSourceRef("mod save", "J-P3HF"), doc2.SourceSave);
+            Assert.Null(file.Source);
+            Assert.Null(doc2.SourceSave);
+        }
+        finally { File.Delete(path); }
+    }
+
+    /// <summary>A file written by a build up to 0.92.x carries the save it came from. It is still parsed, so the
+    /// container contents it left behind there can be read back once on open, but it never reaches the document
+    /// and a re-save drops it.</summary>
+    [SkippableFact]
+    public void Legacy_source_is_parsed_but_not_adopted_and_is_dropped_on_resave()
+    {
+        var g = TestData.RequireGame();
+        if (g.Catalog.Parts.FirstOrDefault()?.DefName is not { } def) return;
+
+        var path = Path.Combine(Path.GetTempPath(), $"oplan_{Guid.NewGuid():N}.oplan");
+        try
+        {
+            File.WriteAllText(path, $$"""
+            {
+              "formatVersion": 1,
+              "meta": { "name": "legacy" },
+              "source": { "saveName": "mod save", "regId": "J-P3HF" },
+              "parts": [ { "def": "{{def}}", "x": 2, "y": 3, "rot": 0, "origin": "orig-1" } ]
+            }
+            """);
+
+            var file = OplanFile.Load(path);
+            Assert.Equal("mod save", file.Source?.SaveName);
+            Assert.Equal("J-P3HF", file.Source?.RegId);
+
+            var (doc, _) = file.ToDocument(g.Catalog);
+            Assert.Null(doc.SourceSave);
+
+            OplanFile.FromDocument(doc, g.Index, file.Meta).Save(path);
+            Assert.Null(OplanFile.Load(path).Source);
+        }
+        finally { File.Delete(path); }
+    }
+
+    /// <summary>
+    /// Container contents are written for every container, so the design reads without the save it came from, and
+    /// each one records whether the design <b>owns</b> them.
+    ///
+    /// <para>That flag is what a write-back reads to decide it may refresh a container from the ship it is about
+    /// to write over: contents that merely arrived with an import are the ship's and may be re-read, contents the
+    /// user authored are the design's and may not.</para>
+    /// </summary>
+    [SkippableFact]
+    public void Oplan_stores_container_contents_and_marks_which_are_the_designs_own()
+    {
+        var g = TestData.RequireGame();
+        if (g.Catalog.Parts.FirstOrDefault()?.DefName is not { } def) return;
+
+        var doc = new ShipDocument(g.Catalog);
+        var imported = new Placement { DefName = def, X = 0, Y = 0, OriginStrID = "orig-1" };
+        var authored = new Placement { DefName = def, X = 6, Y = 0, OriginStrID = "orig-2" };
+        new PlaceCommand(imported).Do(doc);
+        new PlaceCommand(authored).Do(doc);
+        imported.Cargo = [new CargoItem("cargo-1", def, null, false, [])];
+        authored.Cargo = [new CargoItem("cargo-2", def, null, false, [])];
+        doc.MarkCargoEdited(authored);
+
+        var path = Path.Combine(Path.GetTempPath(), $"oplan_{Guid.NewGuid():N}.oplan");
+        try
+        {
+            OplanFile.FromDocument(doc, g.Index, new OplanMeta { Name = "cargo" }).Save(path);
+            var (doc2, _) = OplanFile.Load(path).ToDocument(g.Catalog);
+
+            var back1 = doc2.Placements.Single(p => p.OriginStrID == "orig-1");
+            var back2 = doc2.Placements.Single(p => p.OriginStrID == "orig-2");
+            Assert.Equal("cargo-1", Assert.Single(back1.Cargo).StrID);
+            Assert.Equal("cargo-2", Assert.Single(back2.Cargo).StrID);
+            Assert.False(doc2.IsCargoEdited(back1));   // the ship's: a write-back may refresh it
+            Assert.True(doc2.IsCargoEdited(back2));    // the design's: it may not
         }
         finally { File.Delete(path); }
     }

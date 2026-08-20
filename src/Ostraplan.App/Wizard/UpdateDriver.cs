@@ -129,9 +129,30 @@ public sealed class UpdateDriver : ExportDriver
             session.SaveContext = _ctx;   // cache for the rest of the session, as the menu action always did
         }
 
+        RefreshImportedCargo(session.Doc, _ctx);
         SeedIdentityFromShip(session);
         Recost(session);
         return null;
+    }
+
+    /// <summary>
+    /// Re-read each container's contents from the ship this write is about to go over, for every container whose
+    /// contents the user has not authored.
+    ///
+    /// <para>The write-back emits what the placement holds, so whatever is not in that tree is dropped from the
+    /// save. A design reopened from an <c>.oplan</c> holds the contents as they were when it was imported, and the
+    /// player has usually been playing since: without this, writing back would revert every locker they had
+    /// rearranged, and report the difference as cargo lost. Refreshing here rather than at open is also what lets
+    /// the file stop naming a save at all — the ship is known by then, because the user has just chosen it.</para>
+    ///
+    /// <para>A container the user edited in the inventory editor is left alone: that snapshot is the design, and
+    /// overwriting it with the ship's contents would throw away the edit.</para>
+    /// </summary>
+    private static void RefreshImportedCargo(ShipDocument doc, SaveShipContext ctx)
+    {
+        foreach (var p in doc.Placements)
+            if (p.OriginStrID is { } id && !doc.IsCargoEdited(p) && ctx.CargoByOrigin.TryGetValue(id, out var forest))
+                p.Cargo = forest;
     }
 
     private static bool IsSameShip(SaveShipContext ctx, SaveSourceRef target) =>

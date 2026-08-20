@@ -22,8 +22,16 @@ public sealed class OplanFile
     [JsonPropertyName("game")] public OplanGame Game { get; set; } = new();
     [JsonPropertyName("mods")] public List<OplanMod> Mods { get; set; } = [];
     [JsonPropertyName("meta")] public OplanMeta Meta { get; set; } = new();
-    /// <summary>Set when this design was imported from a save for editing — the save + ship to write back
-    /// into. Null for from-scratch/template/layout-only designs. See <see cref="ShipDocument.SourceSave"/>.</summary>
+    /// <summary>
+    /// <b>Legacy, read-only.</b> Builds up to 0.92.x stamped the save + ship a design was imported from into the
+    /// file, and reopening it went looking for that save. A design is now save-agnostic: it carries its own
+    /// container contents (<see cref="OplanPart.Cargo"/>) and names the ship it should be written over at the
+    /// write, so nothing in the file depends on a save still being on this machine.
+    ///
+    /// <para>Still parsed, because a file written by an older build carries no container contents of its own and
+    /// this is the only thing that says where they were. Opening such a file reads them back once and then owns
+    /// them; the next save drops this field and the design is unlinked for good. Never written.</para>
+    /// </summary>
     [JsonPropertyName("source")] public OplanSource? Source { get; set; }
     [JsonPropertyName("parts")] public List<OplanPart> Parts { get; set; } = [];
     /// <summary>The design's painted zones (see <see cref="ShipZone"/>). Additive since format v1 — older
@@ -78,16 +86,17 @@ public sealed class OplanFile
                                 .Select(s => new OplanMod { Name = s.Label, Entry = s.Raw })
                                 .ToList(),
             Meta = meta,
-            Source = doc.SourceSave is { } s ? new OplanSource { SaveName = s.SaveName, RegId = s.RegId } : null,
             Parts = doc.Placements
                        .Select(p => new OplanPart
                        {
                            Def = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot, Given = p.IsGiven, Origin = p.OriginStrID,
                            SwappedFrom = p.SwappedFromStrID, SwappedFromDef = p.SwappedFromDef,
                            Name = p.CustomName, Z = p.ZBias == 0 ? null : p.ZBias,
-                           // Persist a FULL snapshot of a container's contents once it has been edited, so authored
-                           // cargo is authoritative on reopen rather than re-derived from the (possibly moved) save.
-                           Cargo = doc.IsCargoEdited(p) && p.Cargo.Count > 0 ? p.Cargo.Select(ToOplanCargo).ToList() : null,
+                           // A FULL snapshot of whatever this container holds, authored or imported alike. Written
+                           // for every container rather than only for edited ones, because the design has to be
+                           // readable without the save it came from. CargoOwn is what keeps the two apart.
+                           Cargo = p.Cargo.Count > 0 ? p.Cargo.Select(ToOplanCargo).ToList() : null,
+                           CargoOwn = p.Cargo.Count > 0 ? doc.IsCargoEdited(p) : null,
                            NavLayout = p.NavLayout is { Count: > 0 } nav
                                ? new Dictionary<string, string>(nav, StringComparer.Ordinal) : null,
                            // An emptied tank is an EMPTY map, not a null one, so the two must stay distinct here:
@@ -137,7 +146,6 @@ public sealed class OplanFile
     {
         var doc = new ShipDocument(catalog)
         {
-            SourceSave = Source is { } s ? new SaveSourceRef(s.SaveName, s.RegId) : null,
             ExtraMassKg = ExtraMassKg ?? 0,
             Kind = Enum.TryParse<DocumentKind>(Kind, ignoreCase: true, out var kind) ? kind : DocumentKind.Ship,
         };
@@ -164,12 +172,16 @@ public sealed class OplanFile
             };
             doc.Add(placement);
             byIndex[i] = placement;
-            // Restore an edited container's authored contents from the snapshot and re-mark it edited, so the
-            // save re-attach on open leaves it alone (its snapshot is authoritative) and a re-save re-persists it.
+            // Restore the container's contents from the snapshot. Re-mark it edited only when the snapshot is
+            // the design's OWN — contents the user authored, which nothing may overwrite. Contents that merely
+            // came in with an import stay unmarked, so a write-back can refresh them from the ship it is about
+            // to write over (see UpdateDriver) rather than reverting lockers the player has since rearranged.
+            // A file from a build before CargoOwn existed only ever wrote a snapshot when it was edited, so a
+            // missing flag means owned.
             if (part.Cargo is { Count: > 0 } snap)
             {
                 placement.Cargo = FromOplanCargoList(snap, catalog.Lookup(placement.DefName), catalog);
-                doc.MarkCargoEdited(placement);
+                if (part.CargoOwn ?? true) doc.MarkCargoEdited(placement);
             }
         }
         // Device links: resolve each (source, target) index pair to its placements; skip a pair whose endpoint was
@@ -349,10 +361,15 @@ public sealed class OplanPart
     /// almost all of them. Additive at format v1: an older build ignores it and round-trips it through
     /// <see cref="Extra"/>, so a re-stacked design opened in one draws in the old order but loses nothing.</summary>
     [JsonPropertyName("z")] public int? Z { get; set; }
-    /// <summary>A full snapshot of this container's contents, present only when its cargo was edited in the
-    /// inventory editor (see <see cref="ShipDocument.IsCargoEdited"/>). Null for un-edited parts, whose cargo is
-    /// re-read from the linked save on open. See <see cref="OplanCargo"/>.</summary>
+    /// <summary>A full snapshot of this container's contents, so the design can be read, priced and exported
+    /// without the save it came from. Null for a container holding nothing. See <see cref="OplanCargo"/>.</summary>
     [JsonPropertyName("cargo")] public List<OplanCargo>? Cargo { get; set; }
+    /// <summary>Whether <see cref="Cargo"/> is the design's <b>own</b> — contents the user authored in the
+    /// inventory editor (see <see cref="ShipDocument.IsCargoEdited"/>) — as against contents that arrived with an
+    /// import and are still the ship's. Only the latter may be refreshed from the ship a write-back is about to
+    /// write over. Null — and omitted — when the container holds nothing, and in a file written before this
+    /// existed, where a snapshot was only ever written for an edited container and so reads back as owned.</summary>
+    [JsonPropertyName("cargoOwn")] public bool? CargoOwn { get; set; }
     /// <summary>A nav console's screen arrangement, when the user laid one out in the arrange dialog (see
     /// <see cref="Placement.NavLayout"/>): module GUI-prefab key → anchor rect, <c>""</c> for a shelved module.
     /// Null — and omitted — for every other part and for a console left at the game's own arrangement, which is

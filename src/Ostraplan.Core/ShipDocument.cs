@@ -229,10 +229,14 @@ public sealed class ShipDocument
     public string? FilePath { get; set; }
 
     /// <summary>
-    /// When this design was imported from a save <b>for editing</b>, the save + ship it came from — so an
-    /// edit can be written back into a copy of that save. Persisted in the .oplan (see <see cref="OplanFile"/>)
-    /// and restored on reopen; null for from-scratch, template, or layout-only save designs. The heavy
-    /// per-item <see cref="SaveShipContext"/> is held alongside in-session and rebuilt from this on reopen.
+    /// When this design was imported from a save <b>for editing</b> in this session, the save + ship it came
+    /// from — so the write-back knows which ship to offer without asking again. Null for from-scratch, template
+    /// and layout-only designs.
+    ///
+    /// <para><b>Not persisted.</b> An <c>.oplan</c> is save-agnostic: it carries its own container contents and
+    /// is written over whichever ship is chosen at the write, so nothing in the file depends on a save still
+    /// being on this machine. This is a convenience for the sitting the import happened in, and it dies with the
+    /// document.</para>
     /// </summary>
     public SaveSourceRef? SourceSave { get; set; }
 

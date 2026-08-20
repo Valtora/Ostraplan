@@ -215,38 +215,55 @@ public sealed class ShipChoiceDialog : Window
 
     public SaveShipChoice? Selected { get; private set; }
 
+    /// <param name="kind">Which kind the caller has already filtered the list to, for the wording and the row
+    /// tags. <b>Null for a mixed list</b>: every vessel and every apartment together, each row tagged with which
+    /// it is. That is what a read wants. Nothing is written on those paths, so there is no wrong row to land on,
+    /// and filtering would only make the user pick the errand before they pick the thing.</param>
+    /// <param name="title">Overrides the window title, for a caller whose errand is not editing.</param>
+    /// <param name="note">Overrides the line above the list, likewise.</param>
     public ShipChoiceDialog(string saveName, IReadOnlyList<SaveShipChoice> ships,
-        DocumentKind kind = DocumentKind.Ship)
+        DocumentKind? kind = DocumentKind.Ship, string? title = null, string? note = null)
     {
-        var residence = kind == DocumentKind.Residence;
-        Title = residence ? "Choose an apartment to edit" : "Choose a ship to edit";
+        Title = title ?? kind switch
+        {
+            DocumentKind.Residence => "Choose an apartment to edit",
+            DocumentKind.Ship => "Choose a ship to edit",
+            _ => "Choose a ship or apartment",
+        };
         Width = 480; Height = 520;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = ThemeManager.WindowBg;
 
         var rows = ships.Select(c => new ShipRow(
             c.Name + (c.Current ? "   ·   you are here" : ""),
-            c.Owned ? c.Sub : c.Sub + "   ·   NOT OWNED — station/other vessel (unsupported)",
+            Subtitle(c, kind),
             c)).ToList();
 
         var root = new DockPanel { Margin = new Thickness(16) };
 
-        var note = new TextBlock
+        var noteBlock = new TextBlock
         {
-            // The apartment note says where they come from, because "apartments you own" is a list nobody has
-            // seen before and the game itself never shows one: an apartment is registered somewhere different
-            // from your vessels, which is why they can be listed apart in the first place.
-            Text = residence
-                ? $"Apartments in save “{saveName}” that you own, one row per station residence registered to "
-                  + "your character. Editing one keeps its registration, its place at the station and the transit "
-                  + "route that reaches it; only the layout changes."
-                : $"Ships in save “{saveName}” that you own. Ostranauts imports the ship you're standing " +
-                  "on, which may be a station — pick the one you mean. Ships you don't own are shown but editing " +
-                  "them is unsupported and may break your save.",
+            Text = note ?? kind switch
+            {
+                // The apartment note says where they come from, because "apartments you own" is a list nobody has
+                // seen before and the game itself never shows one: an apartment is registered somewhere different
+                // from your vessels, which is why they can be listed apart in the first place.
+                DocumentKind.Residence =>
+                    $"Apartments in save “{saveName}” that you own, one row per station residence registered to "
+                    + "your character. Editing one keeps its registration, its place at the station and the transit "
+                    + "route that reaches it; only the layout changes.",
+                DocumentKind.Ship =>
+                    $"Ships in save “{saveName}” that you own. Ostranauts imports the ship you're standing "
+                    + "on, which may be a station — pick the one you mean. Ships you don't own are shown but editing "
+                    + "them is unsupported and may break your save.",
+                _ =>
+                    $"Everything you own in save “{saveName}”: every ship, and every apartment registered to your "
+                    + "character. The one you are standing on is only one of them, and it may be a station.",
+            },
             Foreground = ThemeManager.Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
         };
-        DockPanel.SetDock(note, Dock.Top);
-        root.Children.Add(note);
+        DockPanel.SetDock(noteBlock, Dock.Top);
+        root.Children.Add(noteBlock);
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 8, 0, 0) };
         var ok = new Button { Content = "Choose", Padding = new Thickness(18, 4, 18, 4), Margin = new Thickness(0, 0, 8, 0), IsDefault = true };
@@ -270,6 +287,14 @@ public sealed class ShipChoiceDialog : Window
         root.Children.Add(_list);
 
         Content = root;
+    }
+
+    /// <summary>The subtitle line: make/model/RegID, led by what the row is when the list mixes both kinds, and
+    /// tailed by the not-owned warning for the station or other vessel the player happens to be standing on.</summary>
+    private static string Subtitle(SaveShipChoice c, DocumentKind? kind)
+    {
+        var sub = kind is null ? (c.IsResidence ? "APARTMENT   ·   " : "SHIP   ·   ") + c.Sub : c.Sub;
+        return c.Owned ? sub : sub + "   ·   NOT OWNED — station/other vessel (unsupported)";
     }
 
     private void Accept()

@@ -59,13 +59,10 @@ A complete file, with every section populated:
     "designation": "II",
     "description": "A refitted hauler."
   },
-  "source": {
-    "saveName": "Cold Open",
-    "regId": "J-P3HF"
-  },
   "parts": [
     { "def": "ItmWall01", "x": 3, "y": 2, "rot": 0, "given": false },
     { "def": "ItmLocker01", "x": 5, "y": 4, "rot": 90, "given": true, "origin": "a1b2c3d4-…",
+      "cargoOwn": true,
       "cargo": [
         { "def": "ItmFoodRation", "strId": "…", "authored": true, "x": 0, "y": 0, "rot": 0, "stack": 4, "isStack": true }
       ]
@@ -102,13 +99,13 @@ A complete file, with every section populated:
   `DefaultIgnoreCondition = WhenWritingNull`: a `null` field is **omitted**, but an
   empty **array** is written (`"zones": []`, `"links": []`, …). So a minimal
   from-scratch design still carries empty `mods` / `zones` / `looseObjects` /
-  `links` / `dismissedAlerts` arrays, and omits `source` (null), `extraMassKg` (zero),
-  and any per-part `origin` / `swappedFrom` / `swappedFromDef` / `cargo` / `fill` that is
+  `links` / `dismissedAlerts` arrays, and omits `extraMassKg` (zero) and any per-part
+  `origin` / `swappedFrom` / `swappedFromDef` / `cargo` / `cargoOwn` / `fill` that is
   null. Note that `fill` is the one field where an **empty** value is meaningful — an
   emptied tank writes `"fill": {}`, which is not the same as omitting it.
 - Property order follows the field order below (`formatVersion`, `viewRot`, `game`,
-  `mods`, `meta`, `source`, `parts`, `zones`, `looseObjects`, `links`,
-  `dismissedAlerts`, `extraMassKg`, `autoSaveOf`).
+  `mods`, `meta`, `parts`, `zones`, `looseObjects`, `links`, `dismissedAlerts`,
+  `extraMassKg`, `autoSaveOf`).
 - Rotations are one of `0`, `90`, `180`, `270`, normalized on load.
 
 ## Field reference
@@ -122,7 +119,7 @@ A complete file, with every section populated:
 | `game` | object | The game versions in play at save time (below). |
 | `mods` | array | The design's dependency manifest (below). |
 | `meta` | object | Name, author, notes, and the ship's in-game identity (below). |
-| `source` | object / absent | Present **only** for a design imported from a save for editing (below). Absent for from-scratch, template, and layout-only designs. |
+| `source` | object / absent | **Legacy, read-only** (below). Written by builds up to 0.92.x for a design imported from a save for editing. Parsed, never written, and dropped on the next save. |
 | `parts` | array | The whole design, in draw/overlap order (below). |
 | `zones` | array | Painted crew/trade zones (below). Additive since v1. |
 | `looseObjects` | array | Loose floor cargo (below). Additive since v1. |
@@ -175,11 +172,12 @@ The design itself, in draw order (array order is preserved). Each entry:
 | `x`, `y` | int | Top-left tile of the (rotated) footprint, in document coordinates (unbounded, may be negative). |
 | `rot` | int | `0` / `90` / `180` / `270`. |
 | `given` | bool | Imported (pre-existing) structure, exempt from the placement-law scan until moved. `false` for parts you placed. |
-| `origin` | string / absent | Save-edit only: the source save item's `strID`, used to write structural edits back to the right item. Absent otherwise. |
+| `origin` | string / absent | Save-edit only: the `strID` the item had in the save it was imported from, used to write structural edits back to the right item. Absent otherwise. An id the write target does not recognise is treated as a new part, so this never binds the design to one particular save. |
 | `swappedFrom` | string / absent | Save-edit only: the `strID` this part **used to be**, before an uninstall / install or door toggle re-stated it under another def. `origin` is necessarily absent when this is present (the item record can't be reused), but the part is still one the player owns, so the edit cost prices it as a move rather than as construction. |
 | `swappedFromDef` | string / absent | The def the part carried before that swap, so swapping back to it restores `origin` outright and the round trip is free. Always absent when `swappedFrom` is. |
 | `z` | int / absent | The manual draw-order bias a **Move Back / Move Forward** wrote onto this part. Absent for a part left in the automatic order, which is nearly all of them. Cosmetic: it moves the part inside its render layer and nothing else reads it. |
-| `cargo` | array / absent | A full snapshot of this container's contents, present **only** when its cargo was edited in the inventory editor. Un-edited containers omit it and re-read their contents from the linked save on open. |
+| `cargo` | array / absent | A full snapshot of this container's contents. Absent only for a container holding nothing. |
+| `cargoOwn` | bool / absent | Whether `cargo` is the design's **own** (authored in the inventory editor) rather than contents that arrived with an import and are still the ship's. Only the latter are refreshed from the ship a write-back is about to write over. Absent when the container holds nothing, and in a file from before this field, where a snapshot was only ever written for an edited container and so reads back as owned. |
 | `fill` | object / absent | How much of what this canister or tank holds: payload condition (`StatGasMolO2`, `StatLiqD2O`, …) → amount. Absent for a part left at the amounts its def ships with, which is nearly all of them. An **empty object is not the same as absent**: it is a container deliberately emptied, and absent means "whatever the def carries". Amounts are moles for a gas and kilograms for a liquid or solid. |
 
 **Cargo snapshot node** (`cargo[]`, recursive via `children`):
@@ -260,8 +258,8 @@ skipped, so a stale index can never wire the wrong parts.
   rather than guessed. (In the app you can then enable the mods and reopen, or
   confirm the drop and continue.)
 - **Everything else is rebuilt.** Zones, loose items, links, dismissed alerts, and
-  any edited-container cargo snapshots are restored; rooms, rating, and materials
-  are recomputed.
+  container cargo snapshots are restored; rooms, rating, and materials are
+  recomputed. Nothing is read from a save game.
 
 ## `kind` — ship or residence
 
@@ -280,27 +278,36 @@ wizard offers. Set on import — conclusively from a `|` in the save RegID, othe
 `designation` ending in "Residence" — and changed in Ship Info. Additive at format v1, so
 no version bump. See [GAME-INTERNALS §19](GAME-INTERNALS.md#apartments-are-ships-sold-as-station-sub-modules).
 
-## Save-edit designs
+## Save-edit designs, and why a design names no save
 
-A design imported from a save *for editing* (rather than as a layout copy) carries
-two extra pieces so structural edits can be written back into the save without
-disturbing anything else:
+A design imported from a save *for editing* differs from a layout copy in exactly one
+way: every imported part carries an **`origin`**, the `strID` that item has in the save.
+That is what a write-back diffs against, so an edit lands on the right item and leaves
+crew, world position and identity alone.
 
-- the top-level **`source`** block — the save folder name (`saveName`) and the ship
-  RegID (`regId`) — enough to re-locate the ship and rebuild the write-back context
-  on reopen; and
-- a per-part **`origin`** (the source item's `strID`) on every imported part.
+**Nothing else about a save is recorded.** A design does not name the save it came from,
+and opening one reads no save game. It carries its own container contents
+(**`cargo`**), its own tank and container levels (**`fill`**, which has to be embedded
+because every analysis takes a part's figures from its def — without it a half-empty tank
+would be valued, rated and flown as a full one), and everything else it needs. So the
+file opens, edits, prices and exports on a machine that has never had that save, or has
+since deleted it, and it can be handed to somebody else as it stands.
 
-The live per-item state (crew, cargo, wear, ship name, world position) is **not**
-embedded — it is re-read from the referenced save on reopen. So a save-edit `.oplan` is
-faithful *as a layout* on its own, and reconstructs the live ship for write-back only while
-its save is present. To keep a standalone, shareable ship with no save dependency,
-**export** the design instead.
+Which ship a write-back goes over is asked at the write, not read out of the file. An
+`origin` the chosen ship does not recognise is simply treated as a new part, which is
+what makes a design drawn from scratch and one imported from a save interchangeable as
+write targets.
 
-The one exception is a container's **`fill`**, which the import reads out of the save and
-records on the part. It has to be embedded rather than re-read: every analysis takes a
-part's figures from its def, so without it a half-empty tank would be valued, rated and
-flown as a full one.
+### `source` — legacy
+
+Builds up to 0.92.x wrote a top-level `source` block, the save folder name (`saveName`)
+and the ship RegID (`regId`), and left the container contents in that save rather than in
+the file. Opening such a design meant going and finding the save, and it lost its
+contents if the save had moved.
+
+The block is still parsed, because it is the only thing that says where a legacy file's
+contents were. Opening one reads them back once, after which the design owns them and the
+next save writes them into the file and drops `source` for good. It is never written.
 
 ---
 
