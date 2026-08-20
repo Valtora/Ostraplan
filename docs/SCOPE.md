@@ -104,6 +104,10 @@ Each of these is a deliberate no, not a backlog item.
 - **More than one ship per document.** One design, one ship. Having several documents
   open at once, a tab each, is a different thing and is fine: each tab is still one
   design holding one ship.
+- **Naming loose items.** The game lets you rename anything that is not a person, a tool on
+  the deck included, and every *placed part* can be named here for that reason. Loose cargo
+  cannot: it is contents rather than structure, an overlay that takes no part in the Law, and
+  it carries no name of its own in a design any more than it carries tile conditions.
 - **Managing your mods.** Ostraplan never writes `loading_order.json`. Registration,
   load order, and conflict patching are
   [Ostrasort](https://github.com/Valtora/Ostrasort) and ModTools' job, and Ostraplan
