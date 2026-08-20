@@ -517,6 +517,66 @@ public sealed record InstallableDef(
 /// A loot's direct payload lives in aCOs ("IsWall=1.0x1" for condition-type
 /// loots); aLoots nests other loots. Tile socket adds expand through both.
 /// </summary>
+/// <summary>How a ship attack lays its damage on the grid (the game's <c>JsonShipAttack.ImpactType</c>).</summary>
+public enum ImpactType
+{
+    /// <summary>A line of tiles from the entry point along the incoming direction, damage split evenly across the
+    /// starting tiles and each sub-ray walking until it runs out or reaches <c>fMaxRange</c> occupied cells. The
+    /// mass driver, and scuttling.</summary>
+    Ray,
+
+    /// <summary>A disc centred on the first tile the trajectory reaches that satisfies the attack's trigger conds,
+    /// falling off linearly with distance. The missiles, and every chain explosion.</summary>
+    Circular,
+
+    /// <summary>Full damage at each starting tile's own impact point, with no spread. Point defence and decoys.</summary>
+    Point,
+
+    /// <summary>The game's fallback when <c>strType</c> matches nothing else. No shipped attack uses it.</summary>
+    Fragmentation,
+}
+
+/// <summary>
+/// A ship-scale attack from <c>data/attackmodes/shipAttacks</c> (the game's <c>JsonShipAttack</c>) — a missile, a
+/// mass driver round, point-defence fire, a collision or a scuttling charge.
+///
+/// <para><b>Not the same thing as an attack mode.</b> <c>data/attackmodes/coAttacks</c> holds
+/// <c>JsonAttackMode</c>s, which damage through the physics raycast and carry blunt/cut/env pools; these damage
+/// through the tile grid and carry one <see cref="TotalDamage"/> figure. The two systems share a folder and
+/// nothing else (§26). An entry without <c>fTotalDamage</c> is a <c>JsonAttackMode</c> and is skipped here.</para>
+/// </summary>
+public sealed record ShipAttackDef(
+    string Name, ImpactType Type, float MaxRange, double TotalDamage,
+    int Radius, int SoftEdgeTileRadius, double FireChanceCoeff, string[] TriggerConds, string? AttackMode)
+{
+    /// <summary>True when the impact point is the first tile holding one of <see cref="TriggerConds"/> rather than
+    /// simply the first tile holding anything. The three missiles set this to <c>IsWall</c>/<c>IsRigid</c>/
+    /// <c>IsPortal</c>, which is what makes them detonate on the hull instead of flying to the middle.</summary>
+    public bool DetonatesOnContact => TriggerConds.Length > 0;
+
+    public static ShipAttackDef? Parse(JsonElement e)
+    {
+        if (!e.TryGetProperty("fTotalDamage", out _)) return null;   // a coAttack, not a ship attack
+        var type = (Json.Str(e, "strType") ?? "").ToLowerInvariant() switch
+        {
+            "ray" => ImpactType.Ray,
+            "circularblast" => ImpactType.Circular,
+            "point" => ImpactType.Point,
+            _ => ImpactType.Fragmentation,
+        };
+        return new ShipAttackDef(
+            Json.Str(e, "strName") ?? "",
+            type,
+            (float)Json.Dbl(e, "fMaxRange"),
+            Json.Dbl(e, "fTotalDamage"),
+            Json.Int(e, "fRadius"),
+            Json.Int(e, "nSoftEdgeTileRadius"),
+            Json.Dbl(e, "fFireChanceCoeff"),
+            Json.StrArray(e, "aTriggerConds"),
+            Json.Str(e, "strJsonAttackMode"));
+    }
+}
+
 public sealed record LootDef(string Name, string[] Conds, string[] Loots)
 {
     /// <summary>The loot's <c>strType</c>. "item" means its <c>aCOs</c> name ITEMS to spawn rather than conditions

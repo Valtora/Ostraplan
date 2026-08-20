@@ -257,6 +257,12 @@ public sealed class Catalog
     /// <see cref="InteractionsFor"/>. Empty in synthetic catalogs.</summary>
     public IReadOnlyDictionary<string, InteractionDef> InteractionDefs { get; init; } = new Dictionary<string, InteractionDef>();
 
+    /// <summary>The ship-scale attacks the loaded data declares (<c>data/attackmodes/shipAttacks</c>), by name —
+    /// the missiles, the mass driver, point-defence fire, the default explosion and the scuttling charge. Empty in
+    /// synthetic test catalogs. See <see cref="ShipAttackDef"/> for why the coAttacks in the same folder are not
+    /// here.</summary>
+    public IReadOnlyDictionary<string, ShipAttackDef> ShipAttacks { get; init; } = new Dictionary<string, ShipAttackDef>();
+
     private readonly ConcurrentDictionary<string, IReadOnlyList<InteractionDef>> _interactions = new(StringComparer.Ordinal);
 
     /// <summary>
@@ -819,6 +825,11 @@ public sealed class Catalog
         var colorTable = index.Type("colors").ToDictionary(kv => kv.Key, kv => ColorDef.Parse(kv.Value.El), StringComparer.Ordinal);
         var parallaxDefs = index.Type("parallax").ToDictionary(kv => kv.Key, kv => ParallaxDef.Parse(kv.Value.El), StringComparer.Ordinal);
         var interactionDefs = index.Type("interactions").ToDictionary(kv => kv.Key, kv => InteractionDef.Parse(kv.Value.El), StringComparer.Ordinal);
+        var shipAttacks = index.Type("attackmodes")
+            .Select(kv => ShipAttackDef.Parse(kv.Value.El))
+            .OfType<ShipAttackDef>()
+            .Where(a => a.Name.Length > 0)
+            .ToDictionary(a => a.Name, StringComparer.Ordinal);
 
         // Loose cargo items for the inventory editor's add-picker: condowners typed "Item" minus installed
         // structure (a wall is strType "Item" too but carries IsInstalled), PLUS the cooverlay skins of those
@@ -1053,6 +1064,7 @@ public sealed class Catalog
             ColorTable = colorTable,
             ParallaxDefs = parallaxDefs,
             InteractionDefs = interactionDefs,
+            ShipAttacks = shipAttacks,
             LooseItems = looseItems,
             SpecialItems = specialItems,
             LooseForms = looseForms,
