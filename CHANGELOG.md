@@ -12,6 +12,14 @@ apartment, save-record and inventory-grid work).
 
 ## [Unreleased]
 
+### Added
+- **Rename a part by typing over its name in the inspector.** The name at the top of the **PART** block is
+  now a text field, the way the game's own object panel is: it reads as a plain line until you click it,
+  takes the whole name so typing replaces it, and lands on **Enter** or when you click away, with
+  **Escape** to put it back. It is one undo step, the same as before. **Right-click ▸ Rename…** is
+  untouched and still opens the dialog, so whichever route you are already on is the one that works.
+  Thanks to nighoggDatatype for the request.
+
 ### Changed
 - **Importing a layout from a save now asks which ship, instead of taking the one you were standing
   on.** **File ▸ Import ▸ "From a ship or apartment in a save (layout only)"** shows a picker of

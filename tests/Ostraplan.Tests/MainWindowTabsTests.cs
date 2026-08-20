@@ -2,6 +2,7 @@ using System.Threading;
 using System.Windows;
 using System.Windows.Controls;
 using Ostraplan.App;
+using Ostraplan.Core;
 using Xunit;
 
 namespace Ostraplan.Tests;
@@ -96,6 +97,46 @@ public class MainWindowTabsTests
             w.CloseSession(first);
             Assert.Single(w.OpenSessions);
             Assert.Same(first, w.ActiveSession);
+
+            w.Close();
+        });
+    }
+
+    /// <summary>
+    /// The inspector's PART name is the rename field (#30), so what it will accept has to follow the selection:
+    /// a lone placement can be typed over, and anything else (nothing selected, several parts) is a plain
+    /// read-only line. Focus and typing need a shown window, so this covers the wiring rather than the commit;
+    /// what a commit makes of the text is <see cref="RenameTests.Typing_the_stock_name_back_means_no_name_at_all"/>.
+    /// </summary>
+    [Fact]
+    public void The_inspector_name_is_editable_only_for_a_lone_selected_part()
+    {
+        RunSta(() =>
+        {
+            var w = new MainWindow();
+            var box = (TextBox)w.FindName("InsFriendly");
+            var cat = new Fixtures().Part("Rack", container: (6, 6)).Build();
+            var one = new Placement { DefName = "Rack", X = 0, Y = 0 };
+            var two = new Placement { DefName = "Rack", X = 2, Y = 0 };
+            var doc = Fixtures.Doc(cat, one, two);
+
+            var session = w.ActiveSession;
+            session.Doc = doc;
+            session.Board.SetDocument(doc);
+
+            session.Board.SetSelection([one]);
+            Assert.False(box.IsReadOnly);
+            Assert.True(box.Focusable);
+            Assert.Equal("Rack", box.Text);
+
+            session.Board.SetSelection([one, two]);
+            Assert.True(box.IsReadOnly);
+            Assert.False(box.Focusable);
+            Assert.Equal("2 parts selected", box.Text);
+
+            session.Board.SetSelection([]);
+            Assert.True(box.IsReadOnly);
+            Assert.False(box.Focusable);
 
             w.Close();
         });

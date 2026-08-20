@@ -1045,17 +1045,22 @@ its own. (An alarm left *off* carries no sensor and stays off, which is what off
 
 ## Naming a part
 
-Right-click any part and choose **Rename…** to give it a name of its own, so a hold of
-identical racks reads "spare tool storage" and "spare reactor parts" instead of five
-identical rows. The name shows in the inspector, in the right-click menu and on the
-contents window, and it is the game's own rename rather than an Ostraplan label: it travels
-into the game through **Export** and **Update Ship in Save…**, and it comes back when you
-import.
+**Type over the name in the inspector**, the way the game's own object panel works: select a
+part and the name at the top of the **PART** block is a text field. It reads as a plain line
+until you click it, takes the whole name so typing replaces it, and commits on **Enter** or
+when you click away. **Escape** puts it back. **Right-click ▸ Rename…** does the same thing
+through a dialog, for when the menu is where you already are.
+
+A name is the game's own rename rather than an Ostraplan label, so a hold of identical racks
+reads "spare tool storage" and "spare reactor parts" instead of five identical rows. It shows
+in the inspector, in the right-click menu and on the contents window, it travels into the game
+through **Export** and **Update Ship in Save…**, and it comes back when you import.
 
 - **Import reads names too.** A ship you labelled in game keeps those labels, and so do
   stock ships that ship with them (the **Babak Refit** carries 51, "Pressurization SB"
   on an electrical box among them). These used to be dropped on the way in.
-- **Clearing the box restores the stock name.** There is no separate action.
+- **Clearing the field restores the stock name**, and so does typing the stock name back into
+  it. There is no separate action.
 - **Anything can be named**, the same as in game: airlocks, canisters and signs as much
   as racks and pumps, the primary airlock included. Names typed here are capped at
   64 characters; a name read off an imported ship is kept exactly as the game stored it.

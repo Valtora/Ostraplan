@@ -65,6 +65,15 @@ public static class Rename
     /// </summary>
     public static bool CanRename(PartDef? part) => part is not null;
 
+    /// <summary>
+    /// What a name <b>typed by the user</b> means for a part: the cleaned name (see <see cref="Clean"/>), or null
+    /// when the box was left empty <i>or</i> holds the part's own stock name. Both mean "no rename": a part called
+    /// what its def calls it carries no <c>Rename</c> panel, which is how the game stores it, and typing the stock
+    /// name back is the obvious way to undo a rename in a field that shows you that name to begin with.
+    /// </summary>
+    public static string? Typed(string? input, PartDef? part) =>
+        Clean(input) is { } name && name != part?.Friendly ? name : null;
+
     /// <summary>The name to show for a placement: its custom name when it has one, else its def's own.</summary>
     public static string Display(Placement placement, PartDef? part) =>
         placement.CustomName ?? part?.Friendly ?? placement.DefName;

@@ -13,6 +13,36 @@
             <Setter Property="FontWeight" Value="Bold"/>
             <Setter Property="Margin" Value="0,10,0,4"/>
         </Style>
+        <!-- The PART name, edited in place (issue #30). The game's own object panel lets you type over a name
+             where it is shown rather than through a menu, so this reads as a plain line until it takes focus and
+             wears the theme's own text-box chrome once it does. Two details worth keeping:
+             * The flattening lives in TRIGGERS on the unfocused and read-only states, never in setters. That way
+               the focused look is Fluent's own rather than something hand-drawn its states would paint over
+               (CONVENTIONS.md), and hovering a live field brings the box back as the affordance that it is one.
+             * Padding and the negative Margin cancel out (the Fluent template adds ~3px of its own), so the text
+               sits in the same column as every other row and the line does not jump when focus arrives. -->
+        <Style x:Key="InlineName" TargetType="TextBox" BasedOn="{StaticResource {x:Type TextBox}}">
+            <Setter Property="FontSize" Value="15"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+            <Setter Property="MinHeight" Value="0"/>
+            <Setter Property="Padding" Value="4,1"/>
+            <Setter Property="Margin" Value="-7,0,0,0"/>
+            <Style.Triggers>
+                <Trigger Property="IsReadOnly" Value="True">
+                    <Setter Property="Background" Value="Transparent"/>
+                    <Setter Property="BorderBrush" Value="Transparent"/>
+                </Trigger>
+                <MultiTrigger>
+                    <MultiTrigger.Conditions>
+                        <Condition Property="IsKeyboardFocusWithin" Value="False"/>
+                        <Condition Property="IsMouseOver" Value="False"/>
+                    </MultiTrigger.Conditions>
+                    <Setter Property="Background" Value="Transparent"/>
+                    <Setter Property="BorderBrush" Value="Transparent"/>
+                </MultiTrigger>
+            </Style.Triggers>
+        </Style>
         <Style x:Key="SideValue" TargetType="TextBlock">
             <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
             <Setter Property="TextWrapping" Value="Wrap"/>
@@ -209,7 +239,9 @@
                 <StackPanel x:Name="ZonesPanel"/>
                 <Separator Margin="0,10,0,0" Background="{DynamicResource PanelBorder}"/>
                 <TextBlock Text="PART" Style="{StaticResource SideHeader}"/>
-                <TextBlock x:Name="InsFriendly" Style="{StaticResource SideValue}" FontSize="15" FontWeight="SemiBold" Text="—"/>
+                <TextBox x:Name="InsFriendly" Style="{StaticResource InlineName}" Text="—" IsReadOnly="True" Focusable="False"
+                         PreviewMouseLeftButtonDown="OnPartNamePreviewClick" GotKeyboardFocus="OnPartNameFocused"
+                         LostFocus="OnPartNameLostFocus" KeyDown="OnPartNameKeyDown"/>
                 <TextBlock x:Name="InsInternal" Style="{StaticResource SideValue}" Opacity="0.6" FontSize="11"/>
                 <StackPanel x:Name="DescBlock" Visibility="Collapsed">
                     <TextBlock Text="DESCRIPTION" Style="{StaticResource SideHeader}"/>

@@ -33,6 +33,21 @@ public class RenameTests
         Assert.Equal(Rename.MaxLength, cleaned!.Length);
     }
 
+    [Fact]
+    public void Typing_the_stock_name_back_means_no_name_at_all()
+    {
+        var part = new Fixtures().Part("Rack", container: (6, 6)).Build().Lookup("Rack");
+
+        // What the inspector's name field and the rename dialog both do with what was typed (#30). The field shows
+        // the stock name to begin with, so typing it back has to mean the same as clearing the box: no rename.
+        Assert.Null(Rename.Typed(part!.Friendly, part));
+        Assert.Null(Rename.Typed("  " + part.Friendly + "  ", part));
+        Assert.Null(Rename.Typed("", part));
+        Assert.Null(Rename.Typed(null, part));
+        Assert.Equal("spare tools", Rename.Typed("  spare tools  ", part));
+        Assert.Equal("Rack", Rename.Typed("Rack", null));   // nothing to compare against: it is just a name
+    }
+
     // ---- reading the game's shape ----
 
     [Fact]

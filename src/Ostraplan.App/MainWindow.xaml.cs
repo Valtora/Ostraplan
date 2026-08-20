@@ -2575,9 +2575,11 @@ public partial class MainWindow : Window
         if (!Rename.CanRename(part)) return;
 
         var dlg = new RenameDialog(part!.Friendly, p.CustomName) { Owner = this };
-        if (dlg.ShowDialog() != true || dlg.ChosenName == p.CustomName) return;
+        if (dlg.ShowDialog() != true) return;
+        var chosen = Rename.Typed(dlg.ChosenName, part);   // the stock name typed back means the same as an empty box
+        if (chosen == p.CustomName) return;
 
-        _stack.Push(_doc, new SetCustomNameCommand(p, p.CustomName, dlg.ChosenName));
+        _stack.Push(_doc, new SetCustomNameCommand(p, p.CustomName, chosen));
         Board.InvalidateVisual();
         UpdateInspector();
     }
@@ -3337,15 +3339,15 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.Z when ctrl && shift:   // Ctrl+Shift+Z: redo (the common alias for Ctrl+Y)
-                if (_doc is not null) _stack.Redo(_doc);
+                Redo();
                 e.Handled = true;
                 break;
             case Key.Z when ctrl:
-                if (_doc is not null) _stack.Undo(_doc);
+                Undo();
                 e.Handled = true;
                 break;
             case Key.Y when ctrl:
-                if (_doc is not null) _stack.Redo(_doc);
+                Redo();
                 e.Handled = true;
                 break;
             case Key.A when ctrl && !e.IsRepeat:   // select every part
@@ -3468,7 +3470,7 @@ public partial class MainWindow : Window
 
         if (part is null)
         {
-            InsFriendly.Text = selected.Count > 1 ? $"{selected.Count} parts selected" : "—";
+            SetPartNameRow(selected.Count > 1 ? $"{selected.Count} parts selected" : "—", null, null);
             InsInternal.Text = "";
             DescBlock.Visibility = Visibility.Collapsed;
             InsCategory.Text = "";
@@ -3482,16 +3484,18 @@ public partial class MainWindow : Window
             return;
         }
 
-        var lockedNote = Board.ArmedPart is null && selected.Count == 1 && _doc?.IsLocked(selected[0]) == true
-            ? "  · fixed to the ship"
-            : "";
+        // The lone selected placement, when that is what this is: an armed palette part is a def rather than a
+        // placement of one, and a multi-selection has no single one. Everything per-placement below keys off it.
+        var lone = Board.ArmedPart is null && selected.Count == 1 ? selected[0] : null;
+        var lockedNote = lone is not null && _doc?.IsLocked(lone) == true ? "  · fixed to the ship" : "";
         // a selected loose floor item shows its stacked count
         var looseNote = Board.ArmedPart is null && Board.SelectedLoose is { Quantity: > 1 } sl ? $"  · ×{sl.Quantity}" : "";
         // A named part leads with its own name; the stock one moves alongside so the row still says what the thing
-        // actually is. Only ever on a lone selected placement — an armed palette part has no name of its own.
-        var named = Board.ArmedPart is null && selected.Count == 1 ? selected[0].CustomName : null;
-        InsFriendly.Text = (named ?? part.Friendly) + lockedNote + looseNote;
-        InsInternal.Text = named is null ? part.DefName : $"{part.Friendly}  ·  {part.DefName}";
+        // actually is. The name row is the rename box (#30), so both notes ride on the dim line under it rather
+        // than inside the text the user is about to type over.
+        var named = lone?.CustomName;
+        SetPartNameRow(named ?? part.Friendly, lone, part);
+        InsInternal.Text = (named is null ? part.DefName : $"{part.Friendly}  ·  {part.DefName}") + lockedNote + looseNote;
         if (part.Desc is { Length: > 0 } desc)
         {
             InsDesc.Text = desc;
@@ -3511,7 +3515,97 @@ public partial class MainWindow : Window
         InsInputs.Text = part.Inputs.Length == 0 ? "none" : string.Join("\n", part.Inputs);
         // A tank's contents belong to the placed part, not the def, so only a lone selected placement has any
         // (an armed palette part is a def and holds whatever the def holds).
-        PopulateStats(part, Board.ArmedPart is null && selected.Count == 1 ? selected[0] : null);
+        PopulateStats(part, lone);
+    }
+
+    // ---- the PART name row: renaming in place, the way the game's own object panel does (#30) ----
+
+    /// <summary>What the name row is editing: the part, the design it belongs to, and the text the box held when
+    /// focus arrived (what Escape puts back). Captured on focus rather than read at the commit, because LostFocus
+    /// arrives after the click that caused it, by which point the selection, or the active tab, has already moved
+    /// on. The name has to land on the part that was typed into (see the session rule in CONVENTIONS.md).</summary>
+    private (DocumentSession Session, Placement Part, string Was)? _nameEdit;
+
+    /// <summary>
+    /// Fill the PART name row and say whether it can be typed into. Editable only for a lone selected placement:
+    /// an armed palette part is a def and has no name of its own, a multi-selection has nothing single to name,
+    /// and a selected loose floor item carries no name at all. The right-click <b>Rename…</b> dialog remains the
+    /// other way in, and both push the same command.
+    /// </summary>
+    private void SetPartNameRow(string text, Placement? target, PartDef? part)
+    {
+        // Never overwrite what is being typed. This runs on every document change, and the rename itself is one.
+        if (!InsFriendly.IsKeyboardFocusWithin) InsFriendly.Text = text;
+
+        var editable = target is not null && Rename.CanRename(part);
+        InsFriendly.IsReadOnly = !editable;
+        InsFriendly.Focusable = editable;
+        InsFriendly.MaxLength = Rename.MaxLength;
+        InsFriendly.Cursor = editable ? Cursors.IBeam : Cursors.Arrow;
+        InsFriendly.ToolTip = editable
+            ? "The name this part goes by in game. Type over it, and clear it to go back to the stock name."
+            : null;
+    }
+
+    /// <summary>Take the whole name on the first click into the row, so click-and-type replaces the stock name
+    /// rather than typing into the middle of it. A click inside a row that already has focus places the caret as
+    /// usual.</summary>
+    private void OnPartNamePreviewClick(object sender, MouseButtonEventArgs e)
+    {
+        if (!InsFriendly.Focusable || InsFriendly.IsKeyboardFocusWithin) return;
+        InsFriendly.Focus();
+        InsFriendly.SelectAll();
+        e.Handled = true;
+    }
+
+    private void OnPartNameFocused(object sender, KeyboardFocusChangedEventArgs e)
+    {
+        var selected = Board.SelectedPlacements();
+        if (_doc is null || Board.ArmedPart is not null || selected.Count != 1) return;
+        _nameEdit = (_active, selected[0], InsFriendly.Text);
+        InsFriendly.SelectAll();
+    }
+
+    private void OnPartNameLostFocus(object sender, RoutedEventArgs e) => CommitPartName();
+
+    /// <summary>Enter commits, Escape puts the row back as it was. Both hand the keyboard to the canvas, where the
+    /// editor's own keys live — and going out that way is what commits, through <see cref="CommitPartName"/> on the
+    /// way.</summary>
+    private void OnPartNameKeyDown(object sender, KeyEventArgs e)
+    {
+        if (e.Key is not (Key.Enter or Key.Escape)) return;
+        if (e.Key == Key.Escape && _nameEdit is { } edit) InsFriendly.Text = edit.Was;
+        Board.Focus();
+        e.Handled = true;
+    }
+
+    /// <summary>
+    /// Land what was typed on the part it was typed for, as one undo step — the same command the right-click
+    /// dialog pushes. Clearing the box <b>or</b> typing the stock name back into it clears the rename: a part
+    /// called what its def calls it carries no name at all, which is how the game stores it (see
+    /// <see cref="Rename"/>).
+    /// </summary>
+    private void CommitPartName()
+    {
+        if (_nameEdit is not { } edit) return;
+        _nameEdit = null;   // whichever route gets here first commits; the rest are no-ops
+        var (session, target, _) = edit;
+
+        // A freeze is an engine reading this very document off-thread, and it disables the chrome under the box,
+        // which is one of the ways focus leaves. The design is held read-only until it lands, this edit included.
+        if (session.Doc is not { } doc || _freeze.IsFrozen || !doc.Placements.Contains(target))
+        {
+            UpdateInspector();
+            return;
+        }
+
+        var typed = Rename.Typed(InsFriendly.Text, doc.Part(target));
+        if (typed != target.CustomName)
+        {
+            session.Stack.Push(doc, new SetCustomNameCommand(target, target.CustomName, typed));
+            session.Board.InvalidateVisual();
+        }
+        if (ReferenceEquals(session, _active)) UpdateInspector();
     }
 
     /// <summary>The curated key figures the inspector surfaces (in this order, only when present) — the raw game
@@ -4496,14 +4590,26 @@ public partial class MainWindow : Window
         else Dlg.Info(this, "Import", report);
     }
 
-    private void OnUndoClick(object sender, RoutedEventArgs e)
+    private void OnUndoClick(object sender, RoutedEventArgs e) => Undo();
+
+    private void OnRedoClick(object sender, RoutedEventArgs e) => Redo();
+
+    /// <summary>Step the active design's history, and re-read the inspector from what is left. The panel shows the
+    /// selected part's name, and that name is editable in place, so a rename that has just been undone has to stop
+    /// being displayed as the part's name — an undo the panel does not follow is a name the user could type back in
+    /// by accident.</summary>
+    private void Undo()
     {
-        if (_doc is not null) _stack.Undo(_doc);
+        if (_doc is null) return;
+        _stack.Undo(_doc);
+        UpdateInspector();
     }
 
-    private void OnRedoClick(object sender, RoutedEventArgs e)
+    private void Redo()
     {
-        if (_doc is not null) _stack.Redo(_doc);
+        if (_doc is null) return;
+        _stack.Redo(_doc);
+        UpdateInspector();
     }
 
     /// <summary>The Help ▾ dropdown: controls/keybinds, report a bug, and the on-disk activity log.</summary>
