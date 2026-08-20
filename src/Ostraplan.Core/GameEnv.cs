@@ -14,10 +14,11 @@ public sealed class GameEnv
 {
     public const string DefaultGameRoot = @"C:\Program Files (x86)\Steam\steamapps\common\Ostranauts";
 
-    /// <summary>The game version the ported constants/tables were last verified against. Moved to 1.0.0.7
-    /// (Steam build 24535205) by a full re-verification pass over every ported system, the compiled render
-    /// shaders included; see docs/GAME-INTERNALS.md.</summary>
-    public const string VerifiedGameVersion = "1.0.0.7";
+    /// <summary>The game version the ported constants/tables were last verified against. Moved to 1.0.0.11
+    /// (Steam build 24744728) by the sweep in docs/GAME-INTERNALS.md §1: the named methods re-read against a
+    /// fresh decompile with no logic drift, the lighting shaders re-extracted and disassembled, and the parity
+    /// corpus green against the live install's data.</summary>
+    public const string VerifiedGameVersion = "1.0.0.11";
 
     public required string GameRoot { get; init; }
     public required string DiscoveredVia { get; init; }

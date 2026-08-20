@@ -7,8 +7,7 @@ release tags.
 
 Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
-[docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.7**, and **1.0.0.11** for the
-apartment, save-record and inventory-grid work).
+[docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.11**).
 
 ## [Unreleased]
 
@@ -21,6 +20,13 @@ apartment, save-record and inventory-grid work).
   Thanks to nighoggDatatype for the request.
 
 ### Changed
+- **Ostraplan is now verified against Ostranauts 1.0.0.11.** The port is re-checked against the game
+  rather than assumed to still fit, and the pin the app carries is what says which build that was. This
+  sweep re-read the placement Law, the item footprint and sprite scale, rotation, the rating cutoffs and
+  size classes, the room fill, room certification and the pricing maths against a fresh decompile, and
+  re-extracted the lighting shaders, whose constants live in compiled GPU code where no data check can
+  see them. Nothing had moved, and the whole suite passes against the installed game's own data. The
+  version now shows on exported mods and in the `versionVerified` line of every `.oplan` you save.
 - **Importing a layout from a save now asks which ship, instead of taking the one you were standing
   on.** **File ▸ Import ▸ "From a ship or apartment in a save (layout only)"** shows a picker of
   **everything you own** in that save: every vessel and every station apartment, in one list, each row

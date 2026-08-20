@@ -9,7 +9,7 @@ silently wrong answers). Each system below is described as the game implements i
 with the relevant `Type.Method` citations; a short **Ported in Ostraplan** note
 points to where that system is reimplemented.
 
-**Verified against game `1.0.0.7`** (`GameEnv.VerifiedGameVersion`, Steam build 24535205),
+**Verified against game `1.0.0.11`** (`GameEnv.VerifiedGameVersion`, Steam build 24744728),
 except where a section carries a later stamp of its own. Rating cutoffs and other magic
 numbers are compiled into the DLL and invisible to data diffing, so they can drift between
 patches with nothing in the data to show for it. The version pin exists to flag that.
