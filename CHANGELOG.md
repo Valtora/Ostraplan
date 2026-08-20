@@ -60,7 +60,7 @@ apartment, save-record and inventory-grid work).
   | Asteroid Residence", but apartments were only the likeliest case rather than the whole of it: any
   name too long for its tab did the same, and plenty of ship names in a save are. An apartment's tab
   now shows the designation alone — "Asteroid Residence" — since the station half is the same on every
-  apartment there; the title bar still shows the whole name. Thanks to RedTwinkleToes for the report.
+  apartment there; the title bar still shows the whole name. Thanks to nighoggDatatype for the report.
 - **Anything can be renamed now, not just containers and devices.** Right-click a secondary airlock and
   **Rename…** was not there, because the option was offered only on parts that hold an inventory or
   carry a control panel. That rule read as "the things worth naming" and was not: it also left out the
