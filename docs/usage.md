@@ -825,8 +825,10 @@ write-back.
   refusing because the far edge is in the way.
 - Walls and floors never rotate, in a container as on the ship grid. The game refuses to
   turn them at all, so a rotation authored for one would not survive a load.
-- **Drop onto a box** to put the item inside it, or **onto the trail** at the top to move it
-  out to a container further up. Either way it lands in the first cell that takes it.
+- **Drop it into a container** to nest it inside, or **onto a name at the top** to move it
+  out to a container further up. Either way it lands in the first cell that takes it. Those
+  names only appear once you have drilled into something, so the hint offers that second
+  drop only when there is somewhere above to drop onto.
 
 An item is turned on its side when it no longer fits upright, both when you add one and when
 you drop one into another container. That is what lets a 3×5 Polaris decoy launcher take

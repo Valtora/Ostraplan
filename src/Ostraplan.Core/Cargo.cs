@@ -131,7 +131,7 @@ public static class Cargo
                 var sub = Build(id);
                 // A stack persists as a lead item plus its copies as same-def children (StackCount = aStack.Count+1),
                 // NOT as a container of distinct items — collapse it to one entry with a count so the viewer shows
-                // ×N and doesn't offer to drill into a box of itself. Guard on "not a container" so a real container
+                // ×N and doesn't offer to drill into a container of itself. Guard on "not a container" so a real one
                 // that happens to hold same-def items (a crate of crates) isn't mistaken for a stack.
                 var isStack = sub.Count > 0 && def?.IsContainer != true && sub.All(k => k.DefName == defName);
                 // Heal a pocket an older Ostraplan wrote as ordinary cargo. Only this exact shape is touched: a

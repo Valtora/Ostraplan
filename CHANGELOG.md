@@ -51,6 +51,15 @@ apartment, save-record and inventory-grid work).
     the reference for good. Nothing is lost, and nothing has to be re-imported.
 
 ### Fixed
+- **The inventory editor's hint now names things the app names elsewhere.** The line under a container's
+  grid read "onto a box to nest · onto the trail to move out". Neither noun appeared anywhere else in
+  Ostranauts, in Ostraplan or in the docs. A **box** is a container, which is what the right-click menu,
+  the part data and this manual all call it, so the hint says **"into a container to nest it"** now. The
+  **trail** was the breadcrumb of container names across the top, and worse than obscure it was often
+  describing nothing: at the top level of a container you have not drilled into anything, so there are
+  no names up there to drop onto. It now reads **"onto a name at the top"**, and appears only once
+  there is a name there, which is the condition the right-click **Move to** menu has always used.
+  Thanks to RedTwinkleToes for the report.
 - **A tab keeps its ✕ however long the design's name is.** With several designs open, a name too long
   for its tab pushed the **✕** off the end of the tab and out of sight, so the obvious way to close
   that design was not there. **Ctrl+W** and **File ▸ Close Design** always still worked, but you had

@@ -208,7 +208,11 @@ public sealed class InventoryWindow : Window
             if (Editing)
                 _body.Children.Add(new TextBlock
                 {
-                    Text = "Drag to move, R turns it in hand · onto a box to nest · onto the trail to move out · right-click to remove",
+                    // "A name at the top" is the breadcrumb, so only claim it when an ancestor is actually up there
+                    // to drop onto. The right-click "Move to" menu is gated on the same depth for the same reason.
+                    Text = "Drag to move, R turns it in hand · into a container to nest it"
+                           + (_path.Count > 1 ? " · onto a name at the top to move it out" : "")
+                           + " · right-click to remove",
                     Foreground = Dim, FontSize = 11, Margin = new Thickness(0, 0, 0, 6), TextWrapping = TextWrapping.Wrap,
                 });
         }
@@ -554,7 +558,7 @@ public sealed class InventoryWindow : Window
         var grid = container.ContainerGrid ?? (6, 6);
         var dlg = new AddCargoDialog(_catalog, _sprites, container, offered,
             def => CargoEdit.MaxAddable(HostCargo, containerId, grid, def),
-            // the crumb trail's tail is what the user is actually looking at, custom name and all
+            // the breadcrumb's tail is what the user is actually looking at, custom name and all
             _path.Count > 0 ? _path[^1].Title : null) { Owner = this };
         if (dlg.ShowDialog() != true || dlg.Chosen is not { } pick) return;
 
@@ -776,7 +780,7 @@ public sealed class InventoryWindow : Window
         // is not news and a dialog here would only be in the way.
     }
 
-    /// <summary>Move an item into another container (a nested box, or an ancestor on the breadcrumb) — into its
+    /// <summary>Move an item into another container (one nested here, or an ancestor on the breadcrumb) — into its
     /// first free cell, subject to the container's filter and capacity ("the Law").</summary>
     private void MoveToTarget(CargoItem item, string? containerId)
     {
