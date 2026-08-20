@@ -1043,11 +1043,11 @@ every switched-on alarm carries the game's own sensor, which reads the real cond
 tick and trips the alarm itself. An O2 alarm set nominal aboard a ship in vacuum goes red on
 its own. (An alarm left *off* carries no sensor and stays off, which is what off means.)
 
-## Naming a container or a device
+## Naming a part
 
-Right-click a container or a device and choose **Rename…** to give it a name of its own, so
-a hold of identical racks reads "spare tool storage" and "spare reactor parts" instead of
-five identical rows. The name shows in the inspector, in the right-click menu and on the
+Right-click any part and choose **Rename…** to give it a name of its own, so a hold of
+identical racks reads "spare tool storage" and "spare reactor parts" instead of five
+identical rows. The name shows in the inspector, in the right-click menu and on the
 contents window, and it is the game's own rename rather than an Ostraplan label: it travels
 into the game through **Export** and **Update Ship in Save…**, and it comes back when you
 import.
@@ -1056,7 +1056,8 @@ import.
   stock ships that ship with them (the **Babak Refit** carries 51, "Pressurization SB"
   on an electrical box among them). These used to be dropped on the way in.
 - **Clearing the box restores the stock name.** There is no separate action.
-- Names are offered on **containers and devices** only. Names typed here are capped at
+- **Anything can be named**, the same as in game: airlocks, canisters and signs as much
+  as racks and pumps, the primary airlock included. Names typed here are capped at
   64 characters; a name read off an imported ship is kept exactly as the game stored it.
 - A name survives a move, an uninstall and a switch on or off, since none of those change
   what the thing is called.

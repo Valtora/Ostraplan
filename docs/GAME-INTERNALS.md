@@ -1112,8 +1112,10 @@ content of a name, and stores it verbatim.
 > read correctly by accident while growing a stale panel per edit and leaving the item a
 > shape the game itself never writes. Names read off a ship are carried and written back
 > **verbatim** (`Rename.OrNull`); the 64-character cap applies only to names typed in
-> Ostraplan's own dialog. Ostraplan offers renaming on containers and devices only, which
-> is narrower than the game's "anything not a person".
+> Ostraplan's own dialog. Renaming is offered on **any placed part**, the same latitude the
+> game gives. It was once narrowed to containers and devices, which left the secondary
+> airlock, the gas canisters, the beacon and every damaged variant unnameable while their
+> imported names still displayed, so the narrowing was dropped in 0.93.1.
 
 ---
 
@@ -2656,7 +2658,7 @@ sets), giving a 220-ship rooms **and** certification gate. Only **Babak / Babak 
 | Interaction reach (`Interaction.Triggered` range + LOS) | ported | `WalkNetwork`, `LineOfSight` |
 | Crew pathing itself (costs, occupancy, doors opening over time) | excluded (a simulation, not a plan) | never ported |
 | Device signal connections (`Electrical` GPM) | ported | `DeviceLink` / `DeviceLinks`, `ShipExport.WireDeviceLinks` |
-| Object rename (`CondOwner.Rename` / `CheckForRename`, the `Rename` GPM) | ported (containers and devices only, §14) | `Rename`, `Placement.CustomName` |
+| Object rename (`CondOwner.Rename` / `CheckForRename`, the `Rename` GPM) | ported (§14) | `Rename`, `Placement.CustomName` |
 | Power-state switching (`PreferPoweredState` both ways; alarm sensing) | ported (nominal states only, §12) | `Catalog.PowerToggle` |
 | Deferred lighting (`Visibility` + `LoSPass`) | ported (preview only) | `LightNetwork`, `VisibilityMesh`, `LightComposite` |
 | `JsonShip` (de)serialization — export/template/save schema | ported | `ShipExport` (write), `ShipTemplate` (read) |

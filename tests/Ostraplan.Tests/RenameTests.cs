@@ -187,13 +187,18 @@ public class RenameTests
     // ---- against the real catalog ----
 
     [SkippableFact]
-    public void Containers_and_devices_can_be_renamed_but_structure_cannot()
+    public void Anything_placed_can_be_renamed_the_way_the_game_allows()
     {
         var g = TestData.RequireGame();
 
-        Assert.False(Rename.CanRename(g.Catalog.Lookup(Wall)));                       // no storage, no panel
-        Assert.False(Rename.CanRename(null));
-        Assert.True(Rename.CanRename(g.Catalog.Lookup("ItmAirPump01Off")));           // a device: has GPM panels
+        Assert.False(Rename.CanRename(null));                                // an unresolved def is not a part
+        Assert.True(Rename.CanRename(g.Catalog.Lookup("ItmAirPump01Off")));  // a device: has GPM panels
+
+        // None of these is a container or carries a panel, and each was unnameable until 0.93.1 (#32). The
+        // secondary airlock is the one that was reported; the rest are the same hole seen from other angles.
+        foreach (var def in new[] { Wall, "ItmDockSys03Closed", Catalog.PrimaryDocksysDef, "ItmRTAO2", "ItmTable02" })
+            if (g.Catalog.Lookup(def) is { } part)
+                Assert.True(Rename.CanRename(part), def);
 
         if (g.Catalog.Lookup(Rack) is { } rack) Assert.True(Rename.CanRename(rack));  // a container
     }
@@ -255,5 +260,23 @@ public class RenameTests
         // and reaches the document the import builds
         var imported = TemplateImport.FromTemplate(ship, g.Catalog).Doc;
         Assert.Contains(imported.Placements, p => p.CustomName == "spare reactor parts");
+    }
+
+    [SkippableFact]
+    public void A_name_on_the_primary_airlock_is_exported_like_any_other()
+    {
+        var g = TestData.RequireGame();
+        Skip.IfNot(g.Catalog.Lookup(Catalog.PrimaryDocksysDef) is not null, "no primary airlock in this install");
+
+        // The one part a design locks (ShipDocument.IsLocked). The lock is about geometry: it cannot be moved or
+        // deleted, but the game renames it like anything else, so a name given here has to travel (#32).
+        var doc = new ShipDocument(g.Catalog);
+        var port = new Placement { DefName = Catalog.PrimaryDocksysDef, X = 0, Y = 0, CustomName = "bow airlock" };
+        new PlaceCommand(port).Do(doc);
+        Assert.True(doc.IsLocked(port));
+
+        var (ship, _, _) = ShipExport.Build(doc, g.Catalog, [], "Tug");
+        var panel = Assert.Single(Assert.Single(ship.AItems).AGPMSettings!, s => s.StrName == Rename.Panel);
+        Assert.Equal(new object?[] { Rename.NameKey, "bow airlock" }, panel.DictGUIPropMap);
     }
 }

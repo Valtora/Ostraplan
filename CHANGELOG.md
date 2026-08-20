@@ -43,6 +43,15 @@ apartment, save-record and inventory-grid work).
     the reference for good. Nothing is lost, and nothing has to be re-imported.
 
 ### Fixed
+- **Anything can be renamed now, not just containers and devices.** Right-click a secondary airlock and
+  **Rename…** was not there, because the option was offered only on parts that hold an inventory or
+  carry a control panel. That rule read as "the things worth naming" and was not: it also left out the
+  gas and RTA canisters, the signal beacon, the cargo lift, the terminal, the dining table, the floor
+  signs and every *damaged* variant of a part that does have a panel. The game itself renames anything
+  that is not a person, so Ostraplan now does the same, and that includes the **primary airlock**,
+  which is fixed to the ship but no less nameable for it. Import already read a name off any part at
+  all, so a ship you had labelled in game could show a name Ostraplan gave you no way to change or
+  clear; that is gone too. Thanks to nighoggDatatype for the report.
 - **An exported ship with no in-game name is named by the game, not after your design file.** Leaving
   the **In-game name** box blank used to fall back to the design's own name, so a ship exported as
   `fCargoTug` spawned in game called "fCargoTug", which is the name of a file, painted on a hull. Blank now

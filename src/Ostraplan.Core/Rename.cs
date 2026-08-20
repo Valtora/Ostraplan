@@ -52,12 +52,18 @@ public static class Rename
     public static string? OrNull(string? name) => string.IsNullOrEmpty(name) ? null : name;
 
     /// <summary>
-    /// Can this part be renamed? The game allows it on anything that is not a person, but a name is only ever
-    /// useful on something you would go looking for, so Ostraplan offers it on <b>containers</b> (the case that was
-    /// asked for: racks, lockers, crates) and on <b>devices</b> — anything carrying a control panel, which is what
-    /// a GUI-prop-map declaration means. Walls, floors and raw structure are excluded.
+    /// Can this part be renamed? Anything that resolves to a def can. The game allows it on every object that is
+    /// not a person (<c>CondOwner.Rename</c>), so Ostraplan offers it wherever the game does.
+    ///
+    /// <para>This was once narrowed to <b>containers</b> and <b>devices</b> (anything carrying a control panel,
+    /// which is what a GUI-prop-map declaration means), on the theory that a name is only ever useful on something
+    /// you would go looking for. The theory does not survive the data: the secondary airlock, every gas canister,
+    /// the signal beacon, the cargo lift and every <i>damaged</i> variant of a part that does have a panel are none
+    /// of those things, and each was left unnameable. Import already reads a name off any item at all
+    /// (<see cref="FromItem"/>), so the narrow rule also left a name given in game to such a part shown in the
+    /// inspector but impossible to edit or clear.</para>
     /// </summary>
-    public static bool CanRename(PartDef? part) => part is not null && (part.IsContainer || part.Gpm.Count > 0);
+    public static bool CanRename(PartDef? part) => part is not null;
 
     /// <summary>The name to show for a placement: its custom name when it has one, else its def's own.</summary>
     public static string Display(Placement placement, PartDef? part) =>

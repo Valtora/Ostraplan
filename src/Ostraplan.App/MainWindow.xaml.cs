@@ -2560,14 +2560,17 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// Give a placed container or device a name of its own, the way the game's own rename box does — so a hold of
+    /// Give a placed part a name of its own, the way the game's own rename box does — so a hold of
     /// identical racks can read "spare tool storage" and "spare reactor parts" instead of five identical rows. The
     /// name travels into the game on export and on a save write-back, and comes back on import (see
     /// <see cref="Rename"/>).
+    ///
+    /// <para>The primary airlock is included, locked though it is: the lock is about geometry, and the game lets a
+    /// player rename that port like any other object.</para>
     /// </summary>
     private void RenamePart(Placement p)
     {
-        if (_doc is null || _catalog is null || _doc.IsLocked(p)) return;
+        if (_doc is null || _catalog is null) return;
         var part = _doc.Part(p);
         if (!Rename.CanRename(part)) return;
 
@@ -2963,10 +2966,12 @@ public partial class MainWindow : Window
                 menu.Items.Add(Item("Switch off" + (toSwitchOff.Count > 1 ? $" ({toSwitchOff.Count})" : ""), "", (_, _) => TogglePower(toSwitchOff)));
         }
 
-        // rename — a single container or device. One at a time by nature: a name is the thing that tells two
-        // otherwise-identical racks apart, so applying one to a multi-selection would defeat the point.
+        // rename — a single part, whatever it is (the game renames anything that is not a person, the primary
+        // airlock included: its lock is about geometry, not about what it is called). One at a time by nature: a
+        // name is the thing that tells two otherwise-identical racks apart, so applying one to a multi-selection
+        // would defeat the point.
         var renameTarget = multi ? null : (selected.Count == 1 ? selected[0] : stack[0]);
-        if (renameTarget is { } rt && !_doc.IsLocked(rt) && Rename.CanRename(_doc.Part(rt)))
+        if (renameTarget is { } rt && Rename.CanRename(_doc.Part(rt)))
         {
             menu.Items.Add(new Separator());
             menu.Items.Add(Item(rt.CustomName is null ? "Rename…" : "Rename or clear…", "", (_, _) => RenamePart(rt)));
