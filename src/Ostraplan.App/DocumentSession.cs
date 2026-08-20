@@ -72,10 +72,34 @@ internal sealed class DocumentSession
     /// <see cref="AutoSaveStore.KeyFor"/>.</summary>
     public int UntitledSlot { get; init; }
 
-    /// <summary>What the tab wears: the file's name once it has one, else the design name. Matches what the title
-    /// bar and the status strip show for the active document.</summary>
+    /// <summary>What this design is called: the file's name once it has one, else the design name. Matches what
+    /// the title bar and the status strip show for the active document.</summary>
     public string DisplayName =>
         Doc?.FilePath is { } f ? System.IO.Path.GetFileNameWithoutExtension(f) : Meta.Name;
+
+    /// <summary>
+    /// What the tab wears, which is <see cref="DisplayName"/> with an apartment's station prefix dropped. The
+    /// game names a bought residence <c>&lt;station&gt; | &lt;designation&gt;</c>
+    /// (<see cref="ResidenceGrant"/>, GAME-INTERNALS §19), so one imported from a save and not yet saved to a
+    /// file arrives called something like "K-Leg: Port Azikiwe | Asteroid Residence". The station half is the
+    /// longer half and it is the same on every apartment at that station, so the tab keeps the designation and
+    /// the title bar keeps the whole name.
+    ///
+    /// <para>Only for a residence, and split on the first pipe the way <see cref="SaveZip.StationOf"/> splits the
+    /// RegID: a ship may have a pipe in its name and mean it.</para>
+    /// </summary>
+    public string TabName
+    {
+        get
+        {
+            var name = DisplayName;
+            if (Doc?.IsResidence != true) return name;
+            var pipe = name.IndexOf('|');
+            if (pipe < 0) return name;
+            var designation = name[(pipe + 1)..].Trim();
+            return designation.Length > 0 ? designation : name;   // "<station> |" with nothing after it is still a name
+        }
+    }
 
     /// <summary>True when closing this tab would lose work.</summary>
     public bool Dirty => Doc is not null && (Stack.Dirty || StateDirty);

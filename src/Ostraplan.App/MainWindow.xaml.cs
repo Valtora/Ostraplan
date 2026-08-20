@@ -317,13 +317,15 @@ public partial class MainWindow : Window
     /// paint over.</summary>
     private ToggleButton BuildDocTab(DocumentSession session)
     {
-        var row = new StackPanel { Orientation = Orientation.Horizontal };
-        row.Children.Add(new TextBlock
-        {
-            Text = session.DisplayName + (session.Dirty ? " *" : ""),
-            TextTrimming = TextTrimming.CharacterEllipsis,
-            VerticalAlignment = VerticalAlignment.Center,
-        });
+        // A DockPanel rather than the horizontal StackPanel this was, because a StackPanel measures its children
+        // with INFINITE width in the stacking direction: the name's CharacterEllipsis never engaged, the row
+        // overran the DocTab style's MaxWidth, and the ✕ — last in the row — was pushed clean off the end of the
+        // tab, leaving Ctrl+W and File ▸ Close Design as the only ways to close that design (#35). A DockPanel
+        // gives the ✕ its width first and measures the name with what is left, so the name is what gives way at
+        // 240 rather than the control the user is reaching for. It also keeps a short tab
+        // sized to its content, which a Grid with a * column would not: a * column takes the whole 240 and every
+        // tab comes out the same width.
+        var row = new DockPanel { LastChildFill = true };
 
         var close = new TextBlock
         {
@@ -334,14 +336,24 @@ public partial class MainWindow : Window
         // PreviewMouseLeftButtonDown, marked handled, so clicking the ✕ closes the tab instead of also selecting it
         // — the same trick the palette's favourite star uses.
         close.PreviewMouseLeftButtonDown += (_, e) => { e.Handled = true; CloseSession(session); };
-        row.Children.Add(close);
+        DockPanel.SetDock(close, Dock.Right);
+        row.Children.Add(close);   // first, so it reserves its width; the fill child is arranged from what remains
+
+        row.Children.Add(new TextBlock
+        {
+            Text = session.TabName + (session.Dirty ? " *" : ""),
+            TextTrimming = TextTrimming.CharacterEllipsis,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
 
         var tab = new ToggleButton
         {
             Style = (Style)FindResource("DocTab"),
             Content = row,
             IsChecked = ReferenceEquals(session, _active),
-            ToolTip = session.Doc?.FilePath ?? "Not saved to a file yet",
+            // The full name, because the tab shows a trimmed one: an apartment loses its station prefix to
+            // TabName, and anything long enough loses its tail to the ellipsis.
+            ToolTip = session.DisplayName + "\n" + (session.Doc?.FilePath ?? "Not saved to a file yet"),
         };
         tab.Click += (_, _) => ActivateSession(session);
         return tab;

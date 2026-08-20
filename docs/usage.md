@@ -370,6 +370,12 @@ there are two, and hides again when you are back to one.
 | **New tab** | **Ctrl+N**, or the **+** at the end of the strip. |
 | **Close** | The **✕** on the tab, **Ctrl+W**, or **File ▸ Close Design**. You're asked about unsaved changes then, not before. The last design can't be closed: Ostraplan always has one open. |
 
+A tab is labelled with the file's name once the design has one, and with the design name
+until then. A name too long for the tab is trimmed with an ellipsis, and an apartment
+shows its designation alone: the game calls one "K-Leg: Port Azikiwe | Asteroid
+Residence", and the tab says "Asteroid Residence". Hover a tab for the full name and the
+file it is in.
+
 Each tab is a design in full: its own undo history, its own view (zoom, pan,
 orientation and overlays), its own zones and its own **Ship Rating**, **Diagnostics**
 and **Flight Dynamics** reports, which close with it. An unsaved tab wears the same

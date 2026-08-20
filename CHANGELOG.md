@@ -51,6 +51,16 @@ apartment, save-record and inventory-grid work).
     the reference for good. Nothing is lost, and nothing has to be re-imported.
 
 ### Fixed
+- **A tab keeps its ✕ however long the design's name is.** With several designs open, a name too long
+  for its tab pushed the **✕** off the end of the tab and out of sight, so the obvious way to close
+  that design was not there. **Ctrl+W** and **File ▸ Close Design** always still worked, but you had
+  to know that. The name is what gives way now: it is trimmed with an ellipsis and the ✕ stays put.
+  Hover a tab for the full name and the file it is in. It turned up on **apartments imported from a
+  save** because the game names a residence after the station it hangs off, as in "K-Leg: Port Azikiwe
+  | Asteroid Residence", but apartments were only the likeliest case rather than the whole of it: any
+  name too long for its tab did the same, and plenty of ship names in a save are. An apartment's tab
+  now shows the designation alone — "Asteroid Residence" — since the station half is the same on every
+  apartment there; the title bar still shows the whole name. Thanks to RedTwinkleToes for the report.
 - **Anything can be renamed now, not just containers and devices.** Right-click a secondary airlock and
   **Rename…** was not there, because the option was offered only on parts that hold an inventory or
   carry a control panel. That rule read as "the things worth naming" and was not: it also left out the
