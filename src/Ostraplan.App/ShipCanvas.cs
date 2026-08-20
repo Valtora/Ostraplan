@@ -1297,11 +1297,16 @@ public sealed class ShipCanvas : FrameworkElement
 
         if (e.ChangedButton == MouseButton.Right)
         {
+            var rmbCell = CellAt(screen);
             // A loose floor item the cursor is over wins the right-click when it is the TOPMOST thing there, even
             // while a brush is armed: disarm, select it, and open its menu (Change Quantity / Delete) — otherwise a
             // dropped item is unreachable because the brush stays armed after dropping. One that has been pushed
             // under a fixture falls through to the placement menu, whose stacked picker lists it.
-            if (Doc is not null && TopLooseAt(CellAt(screen)) is { } looseRmb)
+            // Surfaces mode ghosts clutter and steps it out of the way of a click, the left button's rule, so the
+            // deck under the item is what the menu is about there. The exception is a tile with no structure at
+            // all: nothing would open, and a right-click that does nothing is worse than one on the clutter.
+            if (Doc is not null && TopLooseAt(rmbCell) is { } looseRmb
+                && (!SurfaceMode || Doc.HitTestStack(rmbCell.X, rmbCell.Y).Count == 0))
             {
                 if (ArmedPart is not null) { SetArmed(null); Disarmed?.Invoke(); }
                 SelectedIds.Clear();
@@ -1309,7 +1314,7 @@ public sealed class ShipCanvas : FrameworkElement
                 SelectedLoose = looseRmb;
                 LooseSelectionChanged?.Invoke();
                 InvalidateVisual();
-                LooseContextMenuRequested?.Invoke(CellAt(screen));
+                LooseContextMenuRequested?.Invoke(rmbCell);
                 e.Handled = true;
                 return;
             }
@@ -1320,7 +1325,6 @@ public sealed class ShipCanvas : FrameworkElement
             }
             else if (Doc is not null)
             {
-                var rmbCell = CellAt(screen);
                 var stack = Doc.HitTestStack(rmbCell.X, rmbCell.Y);
                 if (stack.Count > 0)
                 {
@@ -1328,14 +1332,19 @@ public sealed class ShipCanvas : FrameworkElement
                     // the left-click path already keeps the two selections mutually exclusive, and the re-stack
                     // actions read whichever one is live to decide what they move
                     ClearLooseSelection();
-                    // if nothing in this stack is already selected, grab the topmost so a
+                    // if nothing in this stack is already selected, grab the part a click would land on so a
                     // plain right-click + Delete still acts on the visible part — but keep an
                     // existing box selection (>1) intact so its layer filter / group actions
-                    // apply to the whole thing, wherever inside it you click
+                    // apply to the whole thing, wherever inside it you click.
+                    // The pick is the same one the left button makes (SurfaceAwareHit), so in Surfaces mode the
+                    // right button reaches the deck under the clutter rather than the clutter. The whole menu
+                    // (Rename, View contents, Delete) reads the selection, so picking the topmost part here made
+                    // every one of them act on the fixture standing over the tile. A tile with nothing in focus on
+                    // it falls back to the topmost, so the menu still opens on a ghosted stack.
                     if (SelectedIds.Count <= 1 && !stack.Any(p => SelectedIds.Contains(p.Id)))
                     {
                         SelectedIds.Clear();
-                        SelectedIds.Add(stack[0].Id);
+                        SelectedIds.Add((SurfaceAwareHit(rmbCell.X, rmbCell.Y) ?? stack[0]).Id);
                         SelectionChanged?.Invoke();
                         InvalidateVisual();
                     }

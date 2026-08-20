@@ -10,6 +10,17 @@ each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.7**, and **1.0.0.11** for the
 apartment, save-record and inventory-grid work).
 
+## [Unreleased]
+
+### Fixed
+- **Surfaces mode: right-clicking now selects what you can see, like left-clicking does.** With
+  Surfaces on, everything but the focused deck layer is ghosted and steps out of the way of a click,
+  except that the right button ignored the whole arrangement and grabbed the topmost part anyway. So
+  right-clicking a sub-floor bin under a turbo pump opened the menu on the pump, and **Rename…**,
+  **View contents** and **Delete** all acted on it. Both buttons now land on the same part. The
+  stacked picker still lists everything on the tile, ghosted parts included, for when one of those is
+  what you were after.
+
 ## [0.92.0] 2026-08-19, a tab per design, and a UI scale that goes down as well as up
 
 ### Added

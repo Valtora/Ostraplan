@@ -1093,10 +1093,13 @@ bathroom, caution markings around a reactor or a door, an armoured run of wall a
 one flank. It changes two things while it is on, and nothing at all while it is off.
 
 - **Everything outside the focused layer is ghosted**, and steps out of the way of
-  clicks. The floor under a bed is one click away instead of a trip through the
-  right-click layer picker, and a box-select over the deck catches deck. Ghosted parts
-  are still *there* — they just stop being the subject. **SHOW** in the Surfaces bar
-  picks the focus (**Both**, **Floors**, **Walls**; see
+  clicks, whichever button you use. The floor under a bed is one click away instead of a
+  trip through the right-click layer picker, and right-clicking it opens the menu on *it*
+  rather than on the bed, so **Rename…**, **View contents** and **Delete** act on the deck
+  you can see rather than on the fixture standing over it. A box-select over the deck
+  catches deck. Ghosted parts are still *there*, they just stop being the subject, and the
+  right-click picker still lists the whole stack when one of them is what you were after.
+  **SHOW** in the Surfaces bar picks the focus (**Both**, **Floors**, **Walls**; see
   [floors under walls](#floors-under-walls)), and **View ▸ Surfaces** sets how visible
   the ghosted layers stay (15% by default; drop it to 0 to hide them outright).
 - **A 1×1 wall or floor brush re-skins what is already on the tile** instead of being
