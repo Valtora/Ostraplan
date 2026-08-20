@@ -10,11 +10,13 @@ namespace Ostraplan.Core;
 /// <c>Ostranauts_Data/Mods</c>); the mod folder itself is named after the ship.
 /// <para><see cref="PublicName"/> is the ship's in-game display name (shown at the XPDR
 /// transponder, comms, broker listings, MFD dock info, and the rating screen) — distinct from
-/// <see cref="ShipName"/>, which only names the mod/file. Defaults to <see cref="ShipName"/>
-/// when left blank by the dialog, but must never be blank/"$TEMPLATE" itself: the game only
-/// keeps a custom <c>publicName</c> when the on-disk value isn't one of those two things
-/// (verified against decompiled <c>Ship.InitShip</c>) — otherwise it re-rolls a random name on
-/// every spawn, which is exactly the "brittle" behavior this fixes.</para>
+/// <see cref="ShipName"/>, which only names the mod/file. A name typed here is written through
+/// verbatim and sticks, because the game only re-rolls a random <c>publicName</c> when the
+/// on-disk value is null, empty or <c>"$TEMPLATE"</c> (verified against decompiled
+/// <c>Ship.InitShip</c>). Left blank it resolves to <see cref="ShipExport.VariedNames"/> and the
+/// game names each spawned copy as it names its own ships. It must <b>not</b> fall back to
+/// <see cref="ShipName"/>: that is the design's file name, and shipping it as the ship's visible
+/// name is what put "fCargoTug" on a player's nav display.</para>
 /// <para><see cref="Make"/>/<see cref="Model"/>/<see cref="Year"/>/<see cref="Designation"/>/
 /// <see cref="Description"/> map straight onto the game's own <c>JsonShip</c> fields (present on
 /// core ships and used by mods like Ithalan's Additional Ships) — flavor text only, no game logic
@@ -22,8 +24,8 @@ namespace Ostraplan.Core;
 /// <para><see cref="ReplaceTarget"/>, when set, is the <c>strName</c> of an existing (core or mod)
 /// ship this design should <b>replace</b>: the exported ship is keyed to that name so — loaded after
 /// core — the game's whole-object override swaps the design in for the original everywhere it spawns.
-/// A replacement with no explicit <see cref="PublicName"/> keeps the vanilla varied-naming behaviour
-/// (<c>publicName = "$TEMPLATE"</c>), not the design name.</para>
+/// It changes nothing about naming: an export takes the vanilla varied names when
+/// <see cref="PublicName"/> is blank whether or not it replaces anything.</para>
 /// <para><see cref="ModName"/> names the mod itself (its <c>mod_info.json strName</c> + folder), separate
 /// from the ship. Blank resolves (<see cref="ShipExport.ResolveModName"/>) to <c>"{ReplaceTarget} - Replaced
 /// via Ostraplan"</c> for a replacement (so the mod is distinct from the ship it overrides), else to
@@ -122,6 +124,15 @@ public sealed record ExportMetadata(
 /// </summary>
 public static class ShipExport
 {
+    /// <summary>
+    /// The <c>publicName</c> the game reads as "name this ship yourself". <c>Ship.InitShip</c> rolls a fresh
+    /// <c>DataHandler.GetShipName()</c> whenever the stored value is null, empty or this sentinel, and keeps any
+    /// other string verbatim (GAME-INTERNALS §"Ship identity on spawn"). All but a handful of the 220 core ship
+    /// templates carry it, so it is what an unnamed ship should be written as rather than blank: blank and the
+    /// sentinel behave identically in game, but the sentinel is what the game's own data looks like.
+    /// </summary>
+    public const string VariedNames = "$TEMPLATE";
+
     /// <summary>Metres per tile (16&#160;px); the game's dimensions string uses this (10×12 → "3.20m x 3.84m").</summary>
     private const double MetresPerTile = 0.32;
 
@@ -445,10 +456,11 @@ public static class ShipExport
         var regId = GenerateRegID();
         var zones = BuildZones(doc, grid, regId);
 
-        // publicName is written verbatim: the caller (Write) has already resolved the display-name policy
-        // (custom name / vanilla "$TEMPLATE" for a replacement / the ship name), via ResolvePublicName. Build is a
-        // mechanical writer — it only falls back to the ship name if handed nothing at all.
-        var publicName = meta?.PublicName is { Length: > 0 } pn ? pn : shipName;
+        // publicName is written verbatim: the caller has already resolved the display-name policy via
+        // ResolvePublicName. Build is a mechanical writer, and handed nothing at all it writes the sentinel that
+        // asks the game to name the ship. It must never fall back to shipName: on a mod export that is the design's
+        // file name and on a save grant it is the registration, and both have shipped as a ship's visible name.
+        var publicName = meta?.PublicName is { Length: > 0 } pn ? pn : VariedNames;
 
         // Bake the installed docking ports + primary. The game rebuilds these from items only on a Full/Edit load
         // (Ship load clears aDockingPorts then re-registers via AddCO); a SHALLOW-loaded spawn reads them straight
@@ -583,7 +595,7 @@ public static class ShipExport
         // the ship object itself and the delivery loot pools — must use this, NOT the display publicName.
         var isReplace = !string.IsNullOrWhiteSpace(opts.ReplaceTarget);
         var strName = isReplace ? opts.ReplaceTarget!.Trim() : opts.ShipName;
-        var publicName = ResolvePublicName(opts.PublicName, opts.ShipName, isReplace);
+        var publicName = ResolvePublicName(opts.PublicName, VariedNames);
 
         var meta = new ExportMetadata(publicName, opts.Make, opts.Model, opts.Year, opts.Designation, opts.Description);
         var (ship, rating, roomCount) = Build(doc, catalog, specs, strName, warnings, meta, opts.Wear);
@@ -679,14 +691,17 @@ public static class ShipExport
 
     /// <summary>
     /// Resolve the ship's in-game <c>publicName</c> from the user's input. A real typed name (not blank, not the
-    /// literal <c>"$TEMPLATE"</c> sentinel) is always honoured. Otherwise: a <b>replacement</b> keeps the vanilla
-    /// varied-naming behaviour (<c>"$TEMPLATE"</c>, so each spawned copy still gets its own generated name, matching
-    /// the original template), while a <b>new</b> ship takes the design name (a stable identity for your own ship).
+    /// literal <see cref="VariedNames"/> sentinel) is always honoured; anything else falls through to
+    /// <paramref name="whenBlank"/>, which is the caller's answer to "what does leaving it blank mean here".
+    ///
+    /// <para>A ship the <b>game</b> hands out, which is a mod export whether or not it replaces an existing
+    /// ship, passes <see cref="VariedNames"/>: that is what every one of the 220 core templates carries, and a
+    /// design's own name is a file name rather than a ship's. A ship written straight into a <b>save</b> as one
+    /// you already own passes the design name instead, since it has to be findable as the thing you
+    /// designed.</para>
     /// </summary>
-    public static string ResolvePublicName(string? custom, string fallbackName, bool isReplace) =>
-        custom is { Length: > 0 } c && c.Trim() is { Length: > 0 } t && t != "$TEMPLATE" ? t
-        : isReplace ? "$TEMPLATE"
-        : fallbackName;
+    public static string ResolvePublicName(string? custom, string whenBlank) =>
+        custom is { Length: > 0 } c && c.Trim() is { Length: > 0 } t && t != VariedNames ? t : whenBlank;
 
     /// <summary>
     /// Resolve the mod's name (its <c>mod_info.json strName</c> + folder), which is separate from the ship. A name

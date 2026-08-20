@@ -517,7 +517,9 @@ Writes a spawnable local mod (`data/ships/<Name>.json` in
     X without it, and the broker kiosk falls back to a plain silhouette. Re-exporting
     redraws the set and clears out images of rooms the design no longer has.
   - **Name it and give it flavour** — the in-game ship name (kept exactly as typed)
-    plus make / model / year / designation / description.
+    plus make / model / year / designation / description. Leave the name blank and the game
+    names the ship, a different name for each copy it spawns, exactly as it does for the ships
+    it ships with. The design's own name is a file name, and it never becomes the ship's.
   - **Replace an existing ship** — pick any vanilla or modded ship and your design
     takes over its identity, so the game spawns yours in its place everywhere. Great
     for retrofitting: import a vanilla hull, rebuild it with your installed parts mods,

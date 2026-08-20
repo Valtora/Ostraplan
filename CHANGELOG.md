@@ -13,6 +13,18 @@ apartment, save-record and inventory-grid work).
 ## [Unreleased]
 
 ### Fixed
+- **An exported ship with no in-game name is named by the game, not after your design file.** Leaving
+  the **In-game name** box blank used to fall back to the design's own name, so a ship exported as
+  `fCargoTug` spawned in game called "fCargoTug", which is the name of a file, painted on a hull. Blank now
+  writes what all 220 of the game's own ship templates carry, and the game names each copy it spawns
+  the way it names its own ships. A name you type is unchanged: it is still written through verbatim
+  and still sticks across spawns, which is the whole reason the box is there. The **Review** step says
+  which you are getting before anything is written. Thanks to Fuji for the report.
+  - A design written **into a save** as a ship you own still takes the design name when the box is
+    blank, because that one is a specific ship you have to go and find among your own. An apartment
+    is still named after its station, and a write-back onto a ship you already own still keeps the
+    name that ship has. Each destination now says which in the step itself, where it used to claim
+    the design name for all of them.
 - **Surfaces mode: right-clicking now selects what you can see, like left-clicking does.** With
   Surfaces on, everything but the focused deck layer is ghosted and steps out of the way of a click,
   except that the right button ignored the whole arrangement and grabbed the topmost part anyway. So

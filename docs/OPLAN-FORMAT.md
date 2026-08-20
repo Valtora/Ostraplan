@@ -159,7 +159,7 @@ missing-mods check on open.
 | `author` | string | Free text. |
 | `notes` | string | Free text. |
 | `created` / `modified` | UTC datetime | Timestamps; `modified` is stamped on every save. |
-| `publicName` | string | The ship's in-game display name (transponder/comms/broker). Blank means the exporter falls back to the design name. |
+| `publicName` | string | The ship's in-game display name (transponder/comms/broker). Blank leaves the naming to whatever the destination does with an unnamed ship: a mod export writes `"$TEMPLATE"` and the game names each spawned copy itself, a save grant takes the design name, and a save write-back keeps the name the ship already has. |
 | `make`, `model`, `year`, `designation`, `description` | string | The ship's in-game identity flavour, edited in the **Ship Info** dialog and used to pre-fill the export dialog. |
 
 The identity fields (`publicName` … `description`) are additive since v1 and default

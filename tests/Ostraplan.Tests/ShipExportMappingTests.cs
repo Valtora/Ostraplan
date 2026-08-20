@@ -199,33 +199,39 @@ public class ShipExportMappingTests
     }
 
     [Fact]
-    public void Build_falls_back_to_the_ship_name_when_no_public_name_is_given()
+    public void Build_never_names_a_ship_after_the_thing_it_was_handed_as_a_strName()
     {
-        // Build is the mechanical writer: an empty meta.PublicName falls back to the ship name (the caller,
-        // ShipExport.Write, resolves the richer "$TEMPLATE"/replacement policy via ResolvePublicName).
+        // Build is the mechanical writer, and the strName it is handed is an internal key: the design's file name
+        // on a mod export, the registration on a save grant. Neither is a name for a hull, and falling back to it
+        // is what put "fCargoTug" on a player's nav display. Handed nothing, it writes the sentinel that asks the
+        // game to name the ship; the callers resolve the richer per-destination policy via ResolvePublicName.
         var fx = new Fixtures().Floor("Floor");
         var cat = fx.Build();
         var doc = Fixtures.Doc(cat, Fixtures.P("Floor", 0, 0));
 
         var (blank, _, _) = ShipExport.Build(doc, cat, NoSpecs, "T", meta: new ExportMetadata(""));
-        Assert.Equal("T", blank.PublicName);
+        Assert.Equal(ShipExport.VariedNames, blank.PublicName);
+
+        var (none, _, _) = ShipExport.Build(doc, cat, NoSpecs, "T");
+        Assert.Equal(ShipExport.VariedNames, none.PublicName);   // no metadata at all, same answer
 
         var (given, _, _) = ShipExport.Build(doc, cat, NoSpecs, "T", meta: new ExportMetadata("Charon"));
         Assert.Equal("Charon", given.PublicName);   // a real name is written verbatim
     }
 
     [Theory]
-    // custom, fallback, isReplace -> expected
-    [InlineData("Charon", "MyShip", false, "Charon")]       // a real typed name always wins
-    [InlineData("Charon", "MyShip", true, "Charon")]        // …even when replacing
-    [InlineData("", "MyShip", false, "MyShip")]             // new ship, blank -> the design name (stable identity)
-    [InlineData("  ", "MyShip", false, "MyShip")]           // whitespace counts as blank
-    [InlineData("", "MyShip", true, "$TEMPLATE")]           // replacement, blank -> vanilla varied naming
-    [InlineData("$TEMPLATE", "MyShip", false, "MyShip")]    // the literal sentinel is never a real name (new)
-    [InlineData("$TEMPLATE", "MyShip", true, "$TEMPLATE")]  // …and maps to vanilla naming when replacing
-    public void ResolvePublicName_covers_new_and_replacement_naming(string custom, string fallback, bool isReplace, string expected)
+    // custom, whenBlank -> expected
+    [InlineData("Charon", "$TEMPLATE", "Charon")]           // a real typed name always wins
+    [InlineData("Charon", "MyShip", "Charon")]              // …whatever blank would have meant
+    [InlineData("", "$TEMPLATE", "$TEMPLATE")]              // mod export, blank -> the game's varied names
+    [InlineData("  ", "$TEMPLATE", "$TEMPLATE")]            // whitespace counts as blank
+    [InlineData("", "MyShip", "MyShip")]                    // save grant, blank -> the design name
+    [InlineData("$TEMPLATE", "MyShip", "MyShip")]           // the literal sentinel is never a real name
+    [InlineData(null, "$TEMPLATE", "$TEMPLATE")]            // and neither is nothing at all
+    public void ResolvePublicName_honours_a_typed_name_and_defers_blank_to_the_caller(
+        string? custom, string whenBlank, string expected)
     {
-        Assert.Equal(expected, ShipExport.ResolvePublicName(custom, fallback, isReplace));
+        Assert.Equal(expected, ShipExport.ResolvePublicName(custom, whenBlank));
     }
 
     [Theory]
@@ -250,7 +256,9 @@ public class ShipExportMappingTests
 
         var (ship, _, _) = ShipExport.Build(doc, cat, NoSpecs, "T");
 
-        Assert.Equal("T", ship.PublicName);   // falls back to the ship name, not "$TEMPLATE"
+        // the flavour fields go out blank, but the display name does not: blank is the game's cue to roll a random
+        // name on every single load, so an unnamed ship is written as the sentinel instead
+        Assert.Equal(ShipExport.VariedNames, ship.PublicName);
         Assert.Equal("", ship.Make);
         Assert.Equal("", ship.Model);
     }

@@ -160,6 +160,41 @@ public class ShipExportTests
     }
 
     [SkippableFact]
+    public void Write_with_no_in_game_name_leaves_the_naming_to_the_game()
+    {
+        // Reported from a playthrough: an exported ship showed up in game called "fCargoTug", which is the name of
+        // the design file and not of a ship. A blank in-game name used to fall back to the design name; it now
+        // writes the sentinel every core template carries, so the game rolls a name per spawn as it does for its
+        // own ships.
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        var doc = BuildDooredHull(g.Catalog);
+
+        var dest = Path.Combine(Path.GetTempPath(), "OstraplanNameTest_" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(dest);
+        try
+        {
+            var opts = new ExportOptions("fCargoTug", "Tester", "", "1.0.0",
+                g.Env.InstalledVersion ?? GameEnv.VerifiedGameVersion, dest, PublicName: "");
+            var result = ShipExport.Write(doc, g.Catalog, specs, opts);
+
+            var tmpl = Assert.Single(ShipTemplate.ParseFile(File.ReadAllText(result.ShipJsonPath)).ToList());
+            Assert.Equal("fCargoTug", tmpl.Name);                        // the strName is still the design's
+            Assert.Equal(ShipExport.VariedNames, tmpl.PublicName);       // …but it is not the ship's visible name
+
+            // a name that WAS typed is still written through verbatim and sticks across spawns
+            var named = ShipExport.Write(doc, g.Catalog, specs, opts with { PublicName = "Charon" });
+            Assert.Equal("Charon",
+                Assert.Single(ShipTemplate.ParseFile(File.ReadAllText(named.ShipJsonPath)).ToList()).PublicName);
+        }
+        finally
+        {
+            Directory.Delete(dest, recursive: true);
+        }
+    }
+
+    [SkippableFact]
     public void Write_with_delivery_emits_loot_lifeevents_and_interactions_preserving_core_pools()
     {
         var g = TestData.RequireGame();

@@ -10,8 +10,8 @@ namespace Ostraplan.App.Wizard;
 ///
 /// <para>Identity is editable on all three. Updating a ship in a save seeds it from the ship's current record on
 /// import, so the boxes open on what the ship really is and an edit replaces it; the only field that reads
-/// differently there is the in-game name, where blank means "keep the name it has" rather than "fall back to the
-/// ship name". That is a note change, not a shape change.</para>
+/// differently per destination is the in-game name, whose blank each of them answers differently (see
+/// <see cref="NoteFor"/>). That is a note change, not a shape change.</para>
 /// </summary>
 public sealed class ShipStep : WizardStep
 {
@@ -45,7 +45,7 @@ public sealed class ShipStep : WizardStep
         _designation = Field(identity, "Designation (class/role, e.g. \"Salvage Tug\")", "");
         _description = Field(identity, "Description (optional)", "", multiline: true);
 
-        _identityNote = Note(body, NoteFor(ExportDestination.Mod, "ship"));   // retitled per kind on Enter
+        _identityNote = Note(body, NoteFor(ExportDestination.Mod, "ship", isResidence: false));   // retitled per kind on Enter
 
         _wearHost = Add(body, new Border { Margin = new Thickness(0, 4, 0, 0) });
         _wear = NewWearControl(ExportDestination.Mod, offerSourceCondition: false);
@@ -126,7 +126,7 @@ public sealed class ShipStep : WizardStep
         _wear.SetWear(plan.Wear);
         _wear.SetKeepSourceCondition(offerSource && plan.NewShip.KeepSourceCondition);
 
-        _identityNote.Text = NoteFor(plan.Destination, session.Noun);
+        _identityNote.Text = NoteFor(plan.Destination, session.Noun, session.IsResidence);
     }
 
     /// <summary>
@@ -139,17 +139,31 @@ public sealed class ShipStep : WizardStep
         && session.SaveContext is not null
         && session.Doc.Placements.Any(p => p.OriginStrID is not null);
 
-    /// <summary>The identity note. An update writes onto a ship that already has an identity, so a blank in-game
-    /// name there keeps the one it has rather than falling back to the ship name (the game re-rolls a random name
-    /// for a ship whose stored one is blank, so there is nothing else blank could usefully mean).</summary>
-    private static string NoteFor(ExportDestination destination, string noun) =>
-        destination == ExportDestination.UpdateShipInSave
-            ? $"These are the {noun}'s own in-game details, read out of your save. Change one and the write-back " +
-              $"changes it on the {noun}. Leave the in-game name blank to keep the name it already has. The rest is " +
-              "flavor text. Edit these anytime from \"Ship Info\" — they are saved with the design."
-            : $"Leave the in-game name blank to use the design name (or, when replacing a {noun}, the game's usual " +
-              "varied names). Type a name to pin it: it shows at the transponder, comms, and broker listings. The " +
-              "rest is flavor text. Edit these anytime from \"Ship Info\" — they are saved with the design.";
+    /// <summary>The identity note. Blank always means "I am not naming this one", but what the game then calls it
+    /// depends on where the design is going, so each destination says which it is: an update keeps the name the ship
+    /// already has, a mod export takes the game's own varied names (as every core template does), a granted ship
+    /// takes the design name so you can find it in your save, and a granted apartment is named after its station
+    /// the way the broker names one. The one thing blank never means is a nameless ship: the game rolls a fresh
+    /// random name for any ship whose stored name is blank.</summary>
+    private static string NoteFor(ExportDestination destination, string noun, bool isResidence)
+    {
+        const string tail = "Type a name to pin it: it shows at the transponder, comms, and broker listings. The " +
+            "rest is flavor text. Edit these anytime from \"Ship Info\" — they are saved with the design.";
+        return destination switch
+        {
+            ExportDestination.UpdateShipInSave =>
+                $"These are the {noun}'s own in-game details, read out of your save. Change one and the write-back " +
+                $"changes it on the {noun}. Leave the in-game name blank to keep the name it already has. " + tail,
+            ExportDestination.Mod =>
+                "Leave the in-game name blank and the game names the ship, a different name for each copy it " +
+                "spawns, exactly as it names the ships it ships with. " + tail,
+            _ when isResidence =>
+                "Leave the in-game name blank and the apartment is named after its station, the way the real " +
+                "estate broker names one. " + tail,
+            _ => "Leave the in-game name blank to use the design name, so the ship is easy to pick out of your " +
+                 "save. " + tail,
+        };
+    }
 
     public override string? Validate() =>
         _name.Text.Trim().Length == 0

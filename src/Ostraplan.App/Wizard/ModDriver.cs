@@ -52,7 +52,9 @@ public sealed class ModDriver : ExportDriver
             ? TemplateImport.ResolveShipStrName(rs.Path) ?? rs.Name
             : null;
         var strName = _replaceTarget ?? plan.ShipName;
-        var publicName = ShipExport.ResolvePublicName(plan.Identity.PublicName, plan.ShipName, _replaceTarget is not null);
+        // Blank means the game's own varied names, replacement or not: a mod's ship is one the game hands out,
+        // and the design name is a file name rather than something to paint on a hull.
+        var publicName = ShipExport.ResolvePublicName(plan.Identity.PublicName, ShipExport.VariedNames);
         _delivery = BuildDelivery(plan, publicName);
 
         var parent = Parent(session);
@@ -67,7 +69,9 @@ public sealed class ModDriver : ExportDriver
         {
             new("Ship", $"{plan.ShipName}  ({ship.AItems.Length} parts, {roomCount} certified room(s))"),
             new("Rating", string.IsNullOrEmpty(rating.Display) ? "None" : rating.Display),
-            new("In-game name", publicName == "$TEMPLATE" ? "the game's usual varied names" : publicName),
+            new("In-game name", publicName == ShipExport.VariedNames
+                ? "the game's usual varied names, a fresh one per spawn"
+                : publicName),
             new("Condition", _pinnedWear.Enabled
                 ? $"worn to ~{_pinnedWear.TargetCondition * 100:0}% average (parts vary, none below 10%)"
                 : "pristine"),
@@ -249,7 +253,7 @@ public sealed class ModDriver : ExportDriver
     private static ShipDelivery BuildDelivery(ExportPlan plan, string publicName) => new(
         plan.Mod.BrokerPools, plan.Mod.BrokerWeight ?? 0.05, plan.Mod.SpecialOfferPools,
         plan.Mod.StartingShip, plan.Mod.StartWeight, plan.Mod.StartStation, plan.Mod.StartMortgage,
-        publicName is { Length: > 0 } && publicName != "$TEMPLATE" ? publicName : plan.ShipName,
+        publicName is { Length: > 0 } && publicName != ShipExport.VariedNames ? publicName : plan.ShipName,
         plan.Identity.Description, plan.Mod.StartingShipExclusive,
         plan.Mod.DerelictPools, plan.Mod.DerelictWeight ?? 0.05);
 

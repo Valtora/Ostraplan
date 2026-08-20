@@ -262,14 +262,14 @@ public static class SaveGrant
         // the template-spawn mechanism; a save load takes a part's condition from its CO's aConds instead. Baking
         // it during CO synthesis below keeps one wear path for save-shaped output rather than two that could
         // disagree about what the ship's condition actually is.
-        // Resolve the display name BEFORE building, through the same policy the mod export uses. ShipExport.Build
-        // falls back to the strName it is handed when the metadata carries no public name, and a granted ship's
-        // strName is its registration — so leaving the fallback to Build would name the ship "H-1234" in game.
+        // Resolve the display name BEFORE building: left to ShipExport.Build, a blank one becomes the sentinel
+        // that asks the game to roll a name, which is right for a ship the game hands out and wrong here. A grant
+        // puts one specific ship in your save for you to go and find, so blank means the design name.
         // A residence is named the way the broker names one — "<station> | <designation>" — unless the user has
-        // pinned a name of their own, which stays theirs. A vessel keeps the usual fallback to the design name.
+        // pinned a name of their own, which stays theirs.
         var publicName = opts.Residence is { } home && (opts.Meta?.PublicName ?? "").Trim().Length == 0
             ? ResidenceGrant.PublicName(home, opts.Meta?.Designation, opts.DesignName)
-            : ShipExport.ResolvePublicName(opts.Meta?.PublicName, opts.DesignName, isReplace: false);
+            : ShipExport.ResolvePublicName(opts.Meta?.PublicName, opts.DesignName);
         var meta = (opts.Meta ?? new ExportMetadata()) with { PublicName = publicName };
 
         // Only a transfer needs the id map back; an ordinary grant has nothing to trace a part to.
