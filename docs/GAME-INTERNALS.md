@@ -2898,6 +2898,11 @@ cell using the part's own ship attack, or `DefaultExplosion` when it declares no
 > heat overlay scaled green at zero, amber past `DataCO.Health` and red past
 > `DataCO.GetMaxHealth`, and one `DamageState` that accumulates across strikes beside the
 > document rather than in it. The two solvers stay separate because the two models are.
+> **The path is drawn by the user, not aimed by the game.** Everything a ray does once drawn is
+> ported exactly, but where it may go is not constrained: a planner that could only fire the
+> rays the game rolls could not answer "what would a hit here cost", which is the question a
+> design is being checked against. `GameRayFor` still exposes the game's own aiming, and the
+> canvas marks the convergence point, so the difference is visible rather than hidden.
 > The randomness is not reproduced: the roll is pinned to its worst case, aim variance is
 > off, and the fire chance is not rolled at all (§26 "What a planner cannot reproduce").
 > **Re-verify on a major game version:** the

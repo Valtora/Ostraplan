@@ -89,7 +89,7 @@ public class MicrometeoroidTests
         var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 3, 3), Fixtures.P("Wall", 8, 5));
         var anchor = MicrometeoroidStrike.AnchorFor(doc);
 
-        var (start, end) = MicrometeoroidStrike.GhostPath(doc, anchor, angle);
+        var (start, end) = MicrometeoroidStrike.GameRayFor(doc, anchor, angle);
 
         // This is the aim bug, and it is the whole reason the origin is not a free parameter: the game normalises
         // the START position rather than the offset from the ship, so every ray it fires runs through world origin.
@@ -106,7 +106,7 @@ public class MicrometeoroidTests
 
         // 45° is the degenerate angle for a square ship, which fires nothing — see the test below. Any other
         // angle gives the full ray.
-        var (start, end) = MicrometeoroidStrike.GhostPath(doc, anchor, 30);
+        var (start, end) = MicrometeoroidStrike.GameRayFor(doc, anchor, 30);
         var len = Math.Sqrt(Math.Pow(end.X - start.X, 2) + Math.Pow(end.Y - start.Y, 2));
 
         // length = 2r where r is the half-diagonal of the padded grid (13x13 here).
@@ -115,21 +115,39 @@ public class MicrometeoroidTests
     }
 
     [Fact]
-    public void One_angle_per_ship_fires_nothing_at_all()
+    public void One_angle_per_ship_is_a_ray_the_game_never_fires()
     {
         var cat = WallCat();
         // A square design puts that angle at exactly 45°: the ray's start lands ON the convergence point, and
         // Unity's normalized returns zero below its epsilon rather than a unit vector, so RaycastAll travels
-        // nowhere. Reproduced rather than smoothed over, because inventing a direction would manufacture a strike
-        // the game never delivers.
+        // nowhere. It is a fact about the game's own aiming, which is why it survives the move to drawn paths —
+        // the reference overlay must not draw a ray the game would not fire.
         var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 10, 10));
         var anchor = MicrometeoroidStrike.AnchorFor(doc);
 
-        var r = MicrometeoroidStrike.Fire(doc, anchor, 45, 750, new DamageState());
+        var (start, end) = MicrometeoroidStrike.GameRayFor(doc, anchor, 45);
 
-        Assert.True(r.Missed);
-        Assert.Equal(r.Pool, r.PoolRemaining, 6);
-        Assert.Equal(r.StartDoc, r.EndDoc);
+        Assert.Equal(start, end);
+    }
+
+    [Fact]
+    public void A_drawn_path_may_go_anywhere_the_game_could_not()
+    {
+        var cat = WallCat();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 20, 20));
+        var anchor = MicrometeoroidStrike.AnchorFor(doc);
+
+        // This wall is far from the convergence point and no real micrometeoroid would ever reach it at this
+        // heading. Drawing through it still resolves, because the question "what would a hit here cost" is worth
+        // answering even when the game cannot ask it.
+        var r = MicrometeoroidStrike.Fire(doc, (18.0, 20.0), (22.0, 20.0), 750, new DamageState());
+
+        Assert.False(r.Missed);
+        Assert.Equal(10, r.Delivered, 6);
+        // The reference ray is still available and still runs through the anchor, which is what tells the user
+        // this was a hypothetical.
+        var (gs, ge) = MicrometeoroidStrike.GameRayFor(doc, anchor, 30);
+        Assert.True(PointToSegment((anchor.DocX, anchor.DocY), gs, ge) < 1e-6);
     }
 
     // ---- what it hits ----
@@ -144,7 +162,8 @@ public class MicrometeoroidTests
 
         // A pool of 55 against a wall whose whole chain is 30. The physics hit list is built before anything
         // breaks, so the wall absorbs its own 10, becomes WallDmg, and the ray does NOT come back for the other 20.
-        var r = MicrometeoroidStrike.Fire(doc, anchor, AngleHitting(doc, anchor, "Wall"), 750, state);
+        var path = Through(doc.Placements[0]);
+        var r = MicrometeoroidStrike.Fire(doc, path.Start, path.End, 750, state);
 
         var hit = Assert.Single(r.Hits);
         Assert.Equal("Wall", hit.FromDef);
@@ -163,18 +182,18 @@ public class MicrometeoroidTests
         var anchor = MicrometeoroidStrike.AnchorFor(doc);
         var state = new DamageState();
         var p = doc.Placements[0];
-        var angle = AngleHitting(doc, anchor, "Wall");
+        var path = Through(p);
 
-        MicrometeoroidStrike.Fire(doc, anchor, angle, 750, state);
+        MicrometeoroidStrike.Fire(doc, path.Start, path.End, 750, state);
         Assert.Equal("WallDmg", state.CurrentDef(p));
         Assert.False(state.IsDestroyed(p));
 
-        MicrometeoroidStrike.Fire(doc, anchor, angle, 750, state);
+        MicrometeoroidStrike.Fire(doc, path.Start, path.End, 750, state);
         Assert.True(state.IsDestroyed(p));
         Assert.Equal(0, state.Condition(p, cat), 6);
 
         // Gone means gone: a third strike finds nothing left to absorb.
-        var third = MicrometeoroidStrike.Fire(doc, anchor, angle, 750, state);
+        var third = MicrometeoroidStrike.Fire(doc, path.Start, path.End, 750, state);
         Assert.Empty(third.Hits);
     }
 
@@ -187,16 +206,14 @@ public class MicrometeoroidTests
         var doc = Fixtures.Doc(cat,
             Fixtures.P("Rock", 0, 0), Fixtures.P("Rock", 1, 0), Fixtures.P("Rock", 2, 0),
             Fixtures.P("Wall", 0, 1), Fixtures.P("Wall", 1, 1), Fixtures.P("Wall", 2, 1));
-        var anchor = MicrometeoroidStrike.AnchorFor(doc);
-
         var hitAny = false;
-        for (var a = 0; a < 360; a++)
+        for (var y = 0; y < 2; y++)
         {
-            var r = MicrometeoroidStrike.Fire(doc, anchor, a, 750, new DamageState());
+            var r = MicrometeoroidStrike.Fire(doc, (-2.0, y), (5.0, y), 750, new DamageState());
             Assert.DoesNotContain(r.Hits, h => h.FromDef == "Rock");
             hitAny |= r.Hits.Count > 0;
         }
-        Assert.True(hitAny, "no angle reached the ship at all");
+        Assert.True(hitAny, "no path reached the ship at all");
     }
 
     [Fact]
@@ -209,8 +226,8 @@ public class MicrometeoroidTests
 
         Assert.Equal(1.0, state.Condition(p, cat), 6);
 
-        var anchor = MicrometeoroidStrike.AnchorFor(doc);
-        MicrometeoroidStrike.Fire(doc, anchor, AngleHitting(doc, anchor, "Wall"), 750, state);
+        var path = Through(p);
+        MicrometeoroidStrike.Fire(doc, path.Start, path.End, 750, state);
 
         // 10 of 30 absorbed. Measuring against the current form's pool instead would read this as full health
         // again the instant the wall broke, which is exactly the misleading answer the overlay must not give.
@@ -224,8 +241,8 @@ public class MicrometeoroidTests
         var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0));
         var state = new DamageState();
 
-        var anchor2 = MicrometeoroidStrike.AnchorFor(doc);
-        MicrometeoroidStrike.Fire(doc, anchor2, AngleHitting(doc, anchor2, "Wall"), 750, state);
+        var path = Through(doc.Placements[0]);
+        MicrometeoroidStrike.Fire(doc, path.Start, path.End, 750, state);
 
         // The placement still names the pristine def: a design carries no wear, and the .oplan must not gain any.
         Assert.Equal("Wall", doc.Placements[0].DefName);
@@ -252,83 +269,30 @@ public class MicrometeoroidTests
         Skip.If(big is null, "no 3x3 destructable part in this install");
 
         var doc = Fixtures.Doc(cat, new Placement { DefName = big!.DefName, X = 0, Y = 0 });
-        var anchor = MicrometeoroidStrike.AnchorFor(doc);
 
-        for (var angle = 0; angle < 360; angle += 15)
+        // Sweep paths right across it in both axes and diagonally: a raycast returns one hit per collider, so a
+        // part several tiles wide is charged once however much of it the line crosses.
+        for (var i = -1; i <= 3; i++)
         {
-            var r = MicrometeoroidStrike.Fire(doc, anchor, angle, 750, new DamageState());
-            Assert.True(r.Hits.Count <= 1, $"angle {angle} hit the same part {r.Hits.Count} times");
+            foreach (var (s, e) in new[]
+                     {
+                         ((-4.0, (double)i), (6.0, (double)i)),
+                         (((double)i, -4.0), ((double)i, 6.0)),
+                         ((-4.0, (double)i - 4), (6.0, (double)i + 6)),
+                     })
+            {
+                var r = MicrometeoroidStrike.Fire(doc, s, e, 750, new DamageState());
+                Assert.True(r.Hits.Count <= 1, $"path {s}->{e} hit the same part {r.Hits.Count} times");
+            }
         }
-    }
-
-    // ---- aiming ----
-
-    [Theory]
-    [InlineData(10)]
-    [InlineData(75)]
-    [InlineData(160)]
-    [InlineData(200)]
-    [InlineData(315)]
-    public void The_aim_inverse_round_trips_through_the_ray(double angle)
-    {
-        var cat = WallCat();
-        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 7, 4));
-        var anchor = MicrometeoroidStrike.AnchorFor(doc);
-
-        // Fire an angle, take where its rock came FROM, and ask what angle that is. The drag has to agree with the
-        // strike exactly or the ghost path shows one thing and the damage lands somewhere else.
-        var (start, _) = MicrometeoroidStrike.GhostPath(doc, anchor, angle);
-        var back = MicrometeoroidStrike.AngleFrom(doc, anchor, start);
-
-        Assert.NotNull(back);
-        Assert.Equal(angle, back!.Value, 6);
-    }
-
-    [Fact]
-    public void Aiming_from_an_imported_anchor_round_trips_too()
-    {
-        var cat = WallCat();
-        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 6, 6));
-        // An imported anchor sits INSIDE the hull, where the ship centre is nearer the pivot than the ray's radius
-        // — a different branch of the quadratic from the export frame, and the one that can have no solution.
-        doc.SourceShipPos = (3, 3);
-        var anchor = MicrometeoroidStrike.AnchorFor(doc);
-        Assert.Equal(StrikeFrame.AsImported, anchor.Frame);
-
-        foreach (var angle in new double[] { 5, 88, 190, 300 })
-        {
-            var (start, _) = MicrometeoroidStrike.GhostPath(doc, anchor, angle);
-            Assert.Equal(angle, MicrometeoroidStrike.AngleFrom(doc, anchor, start)!.Value, 6);
-        }
-    }
-
-    [Fact]
-    public void Aiming_at_the_pivot_itself_has_no_bearing_to_read()
-    {
-        var cat = WallCat();
-        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0));
-        var anchor = MicrometeoroidStrike.AnchorFor(doc);
-
-        // The cursor resting exactly on the convergence point names no direction, so the caller keeps the angle it
-        // had rather than the ghost path snapping somewhere arbitrary.
-        Assert.Null(MicrometeoroidStrike.AngleFrom(doc, anchor, (anchor.DocX, anchor.DocY)));
     }
 
     // ---- helpers ----
 
-    /// <summary>The first angle whose ray reaches <paramref name="def"/>, searched in tenths of a degree.
-    /// Angles are searched rather than guessed because the convergence point of an unexported design sits just
-    /// OUTSIDE the hull, so most angles graze or miss it entirely — which is the behaviour under test elsewhere.</summary>
-    private static double AngleHitting(ShipDocument doc, StrikeAnchor anchor, string def)
-    {
-        for (var i = 0; i < 3600; i++)
-        {
-            var a = i / 10.0;
-            if (MicrometeoroidStrike.Fire(doc, anchor, a, 750, new DamageState()).Hits.Any(h => h.FromDef == def))
-                return a;
-        }
-        throw new Xunit.Sdk.XunitException($"no angle reaches {def}");
-    }
+    /// <summary>A straight path across a placement, from one tile before it to one tile after — the line a user
+    /// would drag through the part they want to test.</summary>
+    private static ((double X, double Y) Start, (double X, double Y) End) Through(Placement p) =>
+        ((p.X - 2.0, p.Y), (p.X + 2.0, p.Y));
 
 
     private static double PointToSegment((double X, double Y) p, (double X, double Y) a, (double X, double Y) b)

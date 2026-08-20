@@ -35,20 +35,19 @@ public sealed class SimulateWindow : Window
     private readonly DamageState _state = new();
 
     private readonly TabControl _tabs = new();
-    private readonly Slider _angle = new() { Minimum = 0, Maximum = 359.9, Value = 45 };
-    private readonly TextBlock _angleLabel = new();
+    private readonly TextBlock _pathLabel = new();
     private readonly Slider _speed = new()
     {
         Minimum = 0, Maximum = MicrometeoroidStrike.MaxClosingSpeedMs, Value = 750,
     };
     private readonly TextBlock _speedLabel = new();
     private readonly ComboBox _attackBox = new();
-    private readonly Slider _alongEdge = new() { Minimum = 0, Maximum = 1, Value = 0.5 };
     private readonly TextBlock _frameLine = new();
     private readonly TextBlock _resultLine = new();
     private readonly TextBlock _tallyLine = new();
 
     private StrikeAnchor _anchor;
+    private ((double X, double Y) Start, (double X, double Y) End)? _path;
 
     public SimulateWindow(ShipCanvas board, ShipDocument doc)
     {
@@ -65,21 +64,18 @@ public sealed class SimulateWindow : Window
 
         Content = BuildBody();
 
-        _angle.ValueChanged += (_, _) => { UpdateLabels(); RefreshGhost(); };
         _speed.ValueChanged += (_, _) => UpdateLabels();
-        _alongEdge.ValueChanged += (_, _) => RefreshGhost();
-        _tabs.SelectionChanged += (_, _) => { UpdateLabels(); RefreshGhost(); };
-        _board.AimPointChanged += OnAimPoint;
+        _tabs.SelectionChanged += (_, _) => UpdateLabels();
+        _board.StrikePathDrawn += OnPathDrawn;
 
         Loaded += (_, _) =>
         {
             _board.SetAiming(true, new Point(_anchor.DocX, _anchor.DocY));
             UpdateLabels();
-            RefreshGhost();
         };
         Closed += (_, _) =>
         {
-            _board.AimPointChanged -= OnAimPoint;
+            _board.StrikePathDrawn -= OnPathDrawn;
             _board.SetAiming(false);
             _board.SetDamageOverlay(DamageOverlay.Empty);
         };
@@ -95,10 +91,7 @@ public sealed class SimulateWindow : Window
     private UIElement BuildBody()
     {
         var mm = new StackPanel { Margin = new Thickness(12) };
-        mm.Children.Add(Label("Approach angle"));
-        mm.Children.Add(_angle);
-        mm.Children.Add(_angleLabel);
-        mm.Children.Add(Label("Closing speed", new Thickness(0, 10, 0, 0)));
+        mm.Children.Add(Label("Closing speed"));
         mm.Children.Add(_speed);
         mm.Children.Add(_speedLabel);
         mm.Children.Add(new TextBlock
@@ -112,15 +105,12 @@ public sealed class SimulateWindow : Window
         var wp = new StackPanel { Margin = new Thickness(12) };
         wp.Children.Add(Label("Weapon"));
         wp.Children.Add(_attackBox);
-        wp.Children.Add(Label("Approach angle", new Thickness(0, 10, 0, 0)));
         wp.Children.Add(new TextBlock
         {
-            Text = "The aim point is the crossing of that heading with the ship's bounding box, which is the only "
-                 + "place the game lets an impact begin.",
-            Foreground = Dim, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 6), FontSize = 11,
+            Text = "Draw the path the same way. A missile still detonates on the first structural tile it meets "
+                 + "along it, and the blast falls off from there.",
+            Foreground = Dim, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0), FontSize = 11,
         });
-        wp.Children.Add(Label("Offset along that edge", new Thickness(0, 6, 0, 0)));
-        wp.Children.Add(_alongEdge);
 
         _tabs.Items.Add(new TabItem { Header = "Micrometeoroid", Content = mm });
         _tabs.Items.Add(new TabItem { Header = "Weapon impact", Content = wp });
@@ -159,7 +149,12 @@ public sealed class SimulateWindow : Window
         _tallyLine.Margin = new Thickness(12, 4, 12, 0);
         _tallyLine.FontSize = 11;
 
+        _pathLabel.Foreground = Dim;
+        _pathLabel.TextWrapping = TextWrapping.Wrap;
+        _pathLabel.Margin = new Thickness(12, 10, 12, 6);
+
         var root = new StackPanel();
+        root.Children.Add(_pathLabel);
         root.Children.Add(_tabs);
         root.Children.Add(_frameLine);
         root.Children.Add(_resultLine);
@@ -186,63 +181,43 @@ public sealed class SimulateWindow : Window
 
     // ---- aiming ----
 
-    private void OnAimPoint(Point doc)
+    /// <summary>A path was drawn on the plan. Dragging previews it; releasing arms it, and firing on release is
+    /// what makes the tool feel like aiming rather than filling in a form.</summary>
+    private void OnPathDrawn(Point start, Point end, bool committed)
     {
-        if (IsMicrometeoroid)
-        {
-            // The solver's own inverse, so the drag and the strike can never disagree. Null means the cursor names
-            // no reachable approach, and the angle simply stays where it was.
-            if (MicrometeoroidStrike.AngleFrom(_doc, _anchor, (doc.X, doc.Y)) is { } deg) _angle.Value = deg;
-        }
-        else
-        {
-            var b = _doc.Bounds();
-            if (b is null) return;
-            var cx = (b.Value.MinX + b.Value.MaxX) / 2.0;
-            var cy = (b.Value.MinY + b.Value.MaxY) / 2.0;
-            var deg = Math.Atan2(cy - doc.Y, cx - doc.X) * 180.0 / Math.PI;
-            _angle.Value = deg < 0 ? deg + 360 : deg;
-        }
-    }
-
-    private void RefreshGhost()
-    {
-        if (IsMicrometeoroid)
-        {
-            var (s, e) = MicrometeoroidStrike.GhostPath(_doc, _anchor, _angle.Value);
-            _board.SetGhostPath(s == e ? null : (new Point(s.X, s.Y), new Point(e.X, e.Y)));
-        }
-        else if (WeaponImpact.EntryFor(_doc, _angle.Value, _alongEdge.Value) is { } entry)
-        {
-            var len = 200.0;
-            _board.SetGhostPath((new Point(entry.DocX, entry.DocY),
-                                 new Point(entry.DocX + entry.DirX * len, entry.DocY + entry.DirY * len)));
-        }
-        else _board.SetGhostPath(null);
+        _board.SetGhostPath((start, end));
+        _path = ((start.X, start.Y), (end.X, end.Y));
+        UpdateLabels();
+        if (committed) Fire();
     }
 
     private void UpdateLabels()
     {
-        _angleLabel.Text = $"{_angle.Value:0.0}°";
-        _angleLabel.Foreground = Dim;
-
         var speed = _speed.Value;
         var mult = MicrometeoroidStrike.MultiplierFor(speed);
         _speedLabel.Text = $"{speed:0} m/s  ({mult:0.0}× the ATC limit, worst case "
                          + $"{MicrometeoroidStrike.WorstCasePool(speed):0} damage)";
         _speedLabel.Foreground = Dim;
 
+        _pathLabel.Text = _path is { } p
+            ? $"Path: ({p.Start.X:0.0}, {p.Start.Y:0.0}) → ({p.End.X:0.0}, {p.End.Y:0.0}).  "
+              + "Drag another to fire again."
+            : "Drag a line across the plan to set the path a strike takes, from where it comes in to where it "
+              + "leaves. Releasing fires it.";
+
         _board.SetAiming(true, IsMicrometeoroid ? new Point(_anchor.DocX, _anchor.DocY) : null);
 
         _frameLine.Text = IsMicrometeoroid
-            ? _anchor.Frame == StrikeFrame.AsImported
-                ? "Every micrometeoroid converges on the marked point, which is where this ship's own grid anchor "
-                + "puts it. That is the game aiming at world origin rather than at the ship, and it means the "
-                + "angle is the only thing that varies."
-                : "Every micrometeoroid converges on the marked point. This design has no anchor of its own yet, so "
-                + "that is where one Ostraplan exports will sit: just outside the top-left corner. Import the ship "
-                + "from your save to measure the hull you are actually flying."
-            : "The aim point is constrained to the bounding box, which is the only place the game starts an impact.";
+            ? "You may draw any path, including ones the game itself cannot produce: in Ostranauts every "
+            + "micrometeoroid runs through the single marked point, so a part no line through it reaches is one "
+            + "the game will never chip. Draw through the marker to see what really happens to this hull, and "
+            + "anywhere else to ask what a hit there would cost."
+            + (_anchor.Frame == StrikeFrame.AsImported
+                ? ""
+                : " This design has no anchor of its own yet, so the marker is where one Ostraplan exports will "
+                + "sit. Import the ship from your save to measure the hull you are actually flying.")
+            : "The path is yours to draw. The game would only ever start an impact on the hull line, but what "
+            + "happens along the path once drawn is its own arithmetic.";
     }
 
     // ---- firing ----
@@ -251,19 +226,18 @@ public sealed class SimulateWindow : Window
     {
         if (IsMicrometeoroid)
         {
-            var r = MicrometeoroidStrike.Fire(_doc, _anchor, _angle.Value, _speed.Value, _state);
+            if (_path is not { } path) return;
+            var r = MicrometeoroidStrike.Fire(_doc, path.Start, path.End, _speed.Value, _state);
             _resultLine.Text = r.Missed
-                ? r.StartDoc == r.EndDoc
-                    ? "That exact angle fires nothing: the rock starts on the convergence point itself, and the "
-                    + "game's raycast travels nowhere. Nudge the angle."
-                    : "Missed. The ray crossed without finding anything able to absorb it."
+                ? "Missed. That path crossed nothing able to absorb it."
                 : Describe(r.Hits.Count, r.Delivered, r.Hits.Count(h => h.ToDef is null && h.Broke));
             _resultLine.Foreground = r.Missed ? Dim : Ink;
         }
         else
         {
             if (SelectedAttack is not { } attack) return;
-            if (WeaponImpact.EntryFor(_doc, _angle.Value, _alongEdge.Value) is not { } entry) return;
+            if (_path is not { } path) return;
+            if (WeaponImpact.EntryAlong(_doc, path.Start, path.End) is not { } entry) return;
             var r = WeaponImpact.Fire(_doc, attack, entry, _state);
             _resultLine.Text = r.Missed
                 ? "Missed. Nothing along that line could absorb it."

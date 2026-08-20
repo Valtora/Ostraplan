@@ -4,9 +4,9 @@ namespace Ostraplan.Core;
 /// multi-tile impact <b>along</b> the entry edge, so this decides the spread axis.</summary>
 public enum EntryEdge { Top, Bottom, Left, Right }
 
-/// <summary>Where an incoming trajectory crosses the ship's bounding box, in <b>document</b> tile coords, with the
-/// unit direction it is travelling. This is the aim point, and it is constrained to the box: the game computes it
-/// with <c>DamageSystem.FindIntersection</c> and nothing may impact from anywhere else.</summary>
+/// <summary>Where an impact begins and the unit direction it travels, in <b>document</b> tile coords. This is the
+/// path the user drew: the game itself would only ever start one on the bounding box
+/// (<c>DamageSystem.FindIntersection</c>), but what happens along the path once drawn is its arithmetic exactly.</summary>
 public sealed record ImpactEntry(double DocX, double DocY, double DirX, double DirY, EntryEdge Edge);
 
 /// <summary>One part a weapon impact damaged.</summary>
@@ -38,33 +38,36 @@ public sealed record ImpactResult(
 /// <para><b>What is deliberately not reproduced.</b> The game jitters every shot before it lands
 /// (<c>AddVariance</c>: ±10° on direction and a slide of ±40% of the grid along the entry edge) and rolls per-part
 /// fire chances. Both are live RNG, so an aim point here is exact and a plan reports the worst case rather than a
-/// sample. Fire and chain explosions past the first step are simulation and out of scope.</para>
+/// sample. Fire and chain explosions past the first step are simulation and out of scope. The path is the user's
+/// to draw, which is more freedom than the game gives an attacker and is the point: a designer needs to ask what a
+/// hit <i>here</i> would do, not only what the game happens to roll.</para>
 /// </summary>
 public static class WeaponImpact
 {
     /// <summary>
-    /// Where a trajectory through the ship enters its bounding box, given an approach angle in degrees.
+    /// The impact a drawn path describes: it starts where the line starts and travels along it.
     ///
-    /// <para>The angle names the direction the projectile travels. The entry point is the crossing of that line
-    /// with the padded bounding box, which is the only place the game lets an impact start: aiming at an interior
-    /// tile is not something <c>FindIntersection</c> can express.</para>
+    /// <para>The <see cref="EntryEdge"/> is still derived, because the game spreads a multi-tile impact along the
+    /// edge a projectile came through and the spread axis has to come from somewhere. It is read off the direction
+    /// of travel, which is the same answer the game's own <c>FindIntersection</c> would reach for a trajectory
+    /// heading that way.</para>
+    ///
+    /// <para>Null only for a path of no length, which describes nothing.</para>
     /// </summary>
-    public static ImpactEntry? EntryFor(ShipDocument doc, double angleDeg, double alongEdge = 0.5)
+    public static ImpactEntry? EntryAlong(ShipDocument doc, (double X, double Y) startDoc, (double X, double Y) endDoc)
     {
-        if (doc.Bounds() is not { } b) return null;
-        double minX = b.MinX - 1, minY = b.MinY - 1, maxX = b.MaxX + 1, maxY = b.MaxY + 1;
+        ArgumentNullException.ThrowIfNull(doc);
+        double dx = endDoc.X - startDoc.X, dy = endDoc.Y - startDoc.Y;
+        var len = Math.Sqrt(dx * dx + dy * dy);
+        if (len <= 1e-9) return null;
+        dx /= len;
+        dy /= len;
 
-        var rad = angleDeg * Math.PI / 180.0;
-        double dx = Math.Cos(rad), dy = Math.Sin(rad);
-        // Travelling in (dx, dy) means entering through the edge it is heading away from.
-        var t = Math.Clamp(alongEdge, 0, 1);
-        return Math.Abs(dx) >= Math.Abs(dy)
-            ? dx >= 0
-                ? new ImpactEntry(minX, minY + t * (maxY - minY), dx, dy, EntryEdge.Left)
-                : new ImpactEntry(maxX, minY + t * (maxY - minY), dx, dy, EntryEdge.Right)
-            : dy >= 0
-                ? new ImpactEntry(minX + t * (maxX - minX), minY, dx, dy, EntryEdge.Top)
-                : new ImpactEntry(minX + t * (maxX - minX), maxY, dx, dy, EntryEdge.Bottom);
+        // Travelling in (dx, dy) means it came through the edge it is heading away from.
+        var edge = Math.Abs(dx) >= Math.Abs(dy)
+            ? dx >= 0 ? EntryEdge.Left : EntryEdge.Right
+            : dy >= 0 ? EntryEdge.Top : EntryEdge.Bottom;
+        return new ImpactEntry(startDoc.X, startDoc.Y, dx, dy, edge);
     }
 
     /// <summary>
@@ -192,8 +195,10 @@ public static class WeaponImpact
         double px = start.X, py = start.Y;
         var range = (int)attack.MaxRange;
         var bounds = Bounds(grid);
+        var entered = false;
+        var steps = StepLimit(bounds, px, py);
 
-        while (range >= 0 && budget > 0)
+        while (range >= 0 && budget > 0 && steps-- > 0)
         {
             var cell = ((int)Math.Round(px), (int)Math.Round(py));
             if (grid.ContainsKey(cell))
@@ -206,7 +211,10 @@ public static class WeaponImpact
             }
             px += entry.DirX;
             py += entry.DirY;
-            if (Outside(bounds, px, py)) break;
+            // A drawn path may begin well clear of the ship, which the game's own never did — it always started on
+            // the grid edge. So only stop once the walk has actually reached the ship and then left it again.
+            if (!Outside(bounds, px, py)) entered = true;
+            else if (entered) break;
         }
         return spent;
     }
@@ -219,7 +227,9 @@ public static class WeaponImpact
     {
         double px = start.X, py = start.Y;
         var bounds = Bounds(grid);
-        while (true)
+        var entered = false;
+        var steps = StepLimit(bounds, px, py);
+        while (steps-- > 0)
         {
             var cell = ((int)Math.Round(px), (int)Math.Round(py));
             if (grid.TryGetValue(cell, out var parts))
@@ -230,8 +240,10 @@ public static class WeaponImpact
                 }
             px += entry.DirX;
             py += entry.DirY;
-            if (Outside(bounds, px, py)) return null;
+            if (!Outside(bounds, px, py)) entered = true;
+            else if (entered) return null;
         }
+        return null;
     }
 
     /// <summary>A disc around the impact cell, falling off linearly with distance, nearest first.</summary>
@@ -334,4 +346,16 @@ public static class WeaponImpact
 
     private static bool Outside((int MinX, int MaxX, int MinY, int MaxY)? bounds, double px, double py) =>
         bounds is not { } b || px < b.MinX || px > b.MaxX || py < b.MinY || py > b.MaxY;
+
+    /// <summary>How many one-tile steps a walk may take before it has certainly had its chance: enough to cross the
+    /// occupied extent from wherever the path starts, plus a margin. A path aimed away from the ship never enters,
+    /// so it needs a hard stop rather than a "left the grid" test.</summary>
+    private static int StepLimit((int MinX, int MaxX, int MinY, int MaxY)? bounds, double startX, double startY)
+    {
+        if (bounds is not { } b) return 0;
+        var span = (b.MaxX - b.MinX) + (b.MaxY - b.MinY);
+        var reach = Math.Abs(startX - b.MinX) + Math.Abs(startX - b.MaxX)
+                  + Math.Abs(startY - b.MinY) + Math.Abs(startY - b.MaxY);
+        return (int)Math.Min(8192, span + reach + 8);
+    }
 }

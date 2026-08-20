@@ -303,7 +303,8 @@ public sealed class ShipCanvas : FrameworkElement
     private DamageOverlay _damageOverlay = DamageOverlay.Empty;
     private (Point Start, Point End)? _ghostPath;      // doc coords; drawn while a Simulate dialog is aiming
     private Point? _strikePivot;                       // doc coords; the fixed point every micrometeoroid converges on
-    private bool _aiming;                              // a Simulate dialog owns the cursor: report angles, do not edit
+    private bool _aiming;                              // a Simulate dialog owns the cursor: draw paths, do not edit
+    private Point? _aimStart;                          // doc coords; where the current strike path was begun
 
     private double _powerPhase;                                 // animated dash offset for the lit conduit flow
     private bool _powerAnimating;                               // whether the per-frame flow tick is hooked
@@ -658,16 +659,17 @@ public sealed class ShipCanvas : FrameworkElement
     /// pivot and ghost path. Cleared when the dialog closes.</summary>
     public bool IsAiming => _aiming;
 
-    /// <summary>Raised as the cursor moves while aiming, with the document tile under it. The Simulate dialog turns
-    /// that into an angle through the solver's own inverse — the canvas knows about pixels and nothing else.</summary>
-    public event Action<Point>? AimPointChanged;
+    /// <summary>Raised as a strike path is drawn: press, drag, release. The Simulate dialog fires along whatever
+    /// comes out — the canvas measures the line and decides nothing about what it means.</summary>
+    public event Action<Point, Point, bool>? StrikePathDrawn;
 
-    /// <summary>Hand the canvas to a Simulate dialog, or give it back. While aiming, the pivot is drawn and the
-    /// left button swings the ghost path rather than placing or selecting anything.</summary>
-    public void SetAiming(bool on, Point? pivotDoc = null)
+    /// <summary>Hand the canvas to a Simulate dialog, or give it back. While aiming, dragging draws the strike path
+    /// instead of placing or selecting anything, and <paramref name="referenceDoc"/> (when given) marks where the
+    /// game's own micrometeoroids would converge.</summary>
+    public void SetAiming(bool on, Point? referenceDoc = null)
     {
         _aiming = on;
-        _strikePivot = on ? pivotDoc : null;
+        _strikePivot = on ? referenceDoc : null;
         if (!on) _ghostPath = null;
         Cursor = on ? System.Windows.Input.Cursors.Cross : null;
         InvalidateVisual();
@@ -1321,7 +1323,7 @@ public sealed class ShipCanvas : FrameworkElement
         // placement, zones and wiring so no strike can nudge the design it is measuring. Pan above still works.
         if (_aiming && e.ChangedButton == MouseButton.Left)
         {
-            AimPointChanged?.Invoke(DocPointAt(screen));
+            _aimStart = DocPointAt(screen);
             _drag = Drag.Aim;
             CaptureMouse();
             e.Handled = true;
@@ -1641,9 +1643,9 @@ public sealed class ShipCanvas : FrameworkElement
     {
         var screen = e.GetPosition(this);
         // Aiming reads a continuous position, not a cell: snapping the ghost path to tile centres makes it jump.
-        if (_aiming && _drag == Drag.Aim)
+        if (_aiming && _drag == Drag.Aim && _aimStart is { } from)
         {
-            AimPointChanged?.Invoke(DocPointAt(screen));
+            StrikePathDrawn?.Invoke(from, DocPointAt(screen), false);
             e.Handled = true;
             return;
         }
@@ -1688,6 +1690,16 @@ public sealed class ShipCanvas : FrameworkElement
         var drag = _drag;
         _drag = Drag.None;
         ReleaseMouseCapture();
+
+        // Releasing commits the strike path. The dialog decides whether to fire on it; the canvas only says a line
+        // was finished.
+        if (drag == Drag.Aim)
+        {
+            if (_aimStart is { } from) StrikePathDrawn?.Invoke(from, DocPointAt(e.GetPosition(this)), true);
+            _aimStart = null;
+            e.Handled = true;
+            return;
+        }
 
         if (drag == Drag.Paint)
             CommitStroke();
@@ -2892,11 +2904,16 @@ public sealed class ShipCanvas : FrameworkElement
         foreach (var part in _damageOverlay.Parts)
         {
             var fill = DamageBrush(part.Condition);
-            foreach (var (x, y) in part.Tiles) dc.DrawRectangle(fill, null, CellRect(x, y, 1, 1));
-            // A destroyed part gets an outline too: at a glance a dark red tint and a very dark red tint are hard
-            // to tell apart, and "gone" is the one answer nobody should have to squint at.
-            if (part.Destroyed)
-                foreach (var (x, y) in part.Tiles) dc.DrawRectangle(null, DestroyedPen, CellRect(x, y, 1, 1));
+            // Every damaged part is outlined, not just tinted. A part that has lost a little is still nearly
+            // green, and green on a dark ship is invisible — so the tint answers "how bad" while the outline
+            // answers "was this hit at all", which is the question you ask first.
+            var pen = part.Destroyed ? DestroyedPen : TouchedPen;
+            foreach (var (x, y) in part.Tiles)
+            {
+                var r = CellRect(x, y, 1, 1);
+                dc.DrawRectangle(fill, null, r);
+                dc.DrawRectangle(null, pen, r);
+            }
         }
     }
 
@@ -2920,6 +2937,7 @@ public sealed class ShipCanvas : FrameworkElement
     private static readonly Brush?[] _damageBrushes = new Brush?[21];
 
     private static readonly Pen DestroyedPen = FrozenPen(Color.FromArgb(230, 190, 30, 30), 2);
+    private static readonly Pen TouchedPen = FrozenPen(Color.FromArgb(140, 250, 230, 150), 1);
 
     /// <summary>The strike being aimed: the pivot every micrometeoroid converges on, and the ghost path through it.
     /// Drawn while a Simulate dialog owns the cursor and never otherwise.</summary>
@@ -2934,9 +2952,11 @@ public sealed class ShipCanvas : FrameworkElement
             dc.DrawLine(GhostPen, a, b);
         }
 
-        if (_strikePivot is { } pivot)
+        // Where the game's OWN micrometeoroids converge. Not a constraint on what you may draw — it is the one
+        // thing a hand-drawn line cannot tell you, since a part no real ray reaches is one the game will never chip.
+        if (_strikePivot is { } reference)
         {
-            var c = new Point(_pan.X + pivot.X * Zoom, _pan.Y + pivot.Y * Zoom);
+            var c = new Point(_pan.X + reference.X * Zoom, _pan.Y + reference.Y * Zoom);
             var rad = Math.Max(4, Zoom * 0.35);
             dc.DrawEllipse(null, PivotPen, c, rad, rad);
             dc.DrawLine(PivotPen, new Point(c.X - rad * 1.6, c.Y), new Point(c.X + rad * 1.6, c.Y));

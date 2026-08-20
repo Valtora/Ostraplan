@@ -34,18 +34,15 @@ public sealed record StrikeHit(
 
 /// <summary>The result of one strike: the path it took and what it cost the ship.</summary>
 public sealed record StrikeResult(
-    double AngleDeg,
     double SpeedMs,
     double Multiplier,
     double Pool,
     double PoolRemaining,
-    StrikeAnchor Anchor,
     (double X, double Y) StartDoc,
     (double X, double Y) EndDoc,
     IReadOnlyList<StrikeHit> Hits)
 {
-    /// <summary>True when the ray crossed the ship without finding anything able to absorb it. A strike that
-    /// converges on a point outside the hull can miss entirely at some angles.</summary>
+    /// <summary>True when the path crossed nothing able to absorb it.</summary>
     public bool Missed => Hits.Count == 0;
 
     /// <summary>Damage actually delivered into the ship.</summary>
@@ -124,30 +121,35 @@ public static class MicrometeoroidStrike
     }
 
     /// <summary>
-    /// Fire one strike at <paramref name="angleDeg"/> and resolve it against <paramref name="state"/>, which is
-    /// mutated: a strike leaves damage behind, and firing the same angle twice is how a wall goes from whole to
-    /// damaged to gone. Pass a fresh <see cref="DamageState"/> for a single-strike worst case.
+    /// Fire one strike along the path <paramref name="startDoc"/> → <paramref name="endDoc"/> and resolve it
+    /// against <paramref name="state"/>, which is mutated: a strike leaves damage behind, and drawing the same
+    /// line twice is how a wall goes from whole to damaged to gone. Pass a fresh <see cref="DamageState"/> for a
+    /// single-strike worst case.
+    ///
+    /// <para><b>The path is whatever you draw.</b> The game itself can only produce paths through one fixed point
+    /// (see <see cref="AnchorFor"/> and <see cref="GameRayFor"/>), but a planner that could only show those could
+    /// not answer "what if it came in here instead", which is the question a designer actually has. What the ray
+    /// does once it is drawn is the game's own arithmetic, exactly.</para>
     /// </summary>
     /// <param name="doc">The design. Never modified: accumulated damage lives in <paramref name="state"/>, because
     /// wear is not part of a design (§12) and must not reach the .oplan.</param>
-    /// <param name="angleDeg">The approach angle in degrees, the game's own uniform [0, 360) roll.</param>
     /// <param name="closingSpeedMs">Speed relative to the body, clamped to <see cref="MaxClosingSpeedMs"/>.</param>
     public static StrikeResult Fire(
-        ShipDocument doc, StrikeAnchor anchor, double angleDeg, double closingSpeedMs, DamageState state)
+        ShipDocument doc, (double X, double Y) startDoc, (double X, double Y) endDoc,
+        double closingSpeedMs, DamageState state)
     {
         ArgumentNullException.ThrowIfNull(doc);
-        ArgumentNullException.ThrowIfNull(anchor);
         ArgumentNullException.ThrowIfNull(state);
 
         var speed = Math.Clamp(closingSpeedMs, 0, MaxClosingSpeedMs);
         var mult = MultiplierFor(speed);
         var pool = WorstCasePool(speed);
 
-        var geom = Geometry(doc, anchor, angleDeg);
+        var geom = RayThrough(startDoc, endDoc);
         var hits = new List<StrikeHit>();
         var remaining = pool;
 
-        foreach (var (placement, distance) in Along(doc, anchor, geom))
+        foreach (var (placement, distance) in Along(doc, geom))
         {
             if (remaining <= 0) break;
             // A destroyed part is not on the tile any more, so it neither absorbs nor shields. Without this it
@@ -165,60 +167,40 @@ public static class MicrometeoroidStrike
             hits.Add(new StrikeHit(placement.Id, from, taken, broke, to, distance));
         }
 
-        return new StrikeResult(
-            Norm360(angleDeg), speed, mult, pool, remaining, anchor,
-            geom.StartDoc, geom.EndDoc, hits);
+        return new StrikeResult(speed, mult, pool, remaining, startDoc, endDoc, hits);
     }
 
     /// <summary>
-    /// The inverse of the ray geometry: the angle whose strike arrives from <paramref name="fromDoc"/>, or null
-    /// when no strike can approach from there.
+    /// The path the <b>game</b> would fire at a given angle — reference only, and no longer how a strike is aimed.
     ///
-    /// <para>This is what makes the aiming drag exact rather than approximate. The angle does not turn the ray
-    /// about the pivot — it turns the ray's <b>start</b> about the ship centre, on a circle of radius r — so the
-    /// direction a strike arrives from is not a straight function of the cursor's bearing. Solving properly:
-    /// every ray passes through the anchor, so a strike arriving from direction û has
-    /// <c>vStart = t·û</c> for some <c>t ≥ 0</c>, and t is fixed by <c>|t·û − centre| = r</c>. Take the far root,
-    /// which is the start outside the hull.</para>
-    ///
-    /// <para>Null happens when the cursor's bearing has no intersection with that circle at all, which an imported
-    /// frame can produce (the anchor is inside the hull, so the centre is closer to it than r). A caller should
-    /// keep the angle it had rather than jumping.</para>
+    /// <para>Kept because it is the one thing a free-drawn line cannot tell you: where real micrometeoroids
+    /// actually go on this hull. Every one of them runs through <see cref="AnchorFor"/>, so a part no such ray
+    /// reaches is one the game will never chip, however badly a hand-drawn path treats it.</para>
     /// </summary>
-    public static double? AngleFrom(ShipDocument doc, StrikeAnchor anchor, (double X, double Y) fromDoc)
+    public static ((double X, double Y) StartDoc, (double X, double Y) EndDoc) GameRayFor(
+        ShipDocument doc, StrikeAnchor anchor, double angleDeg)
     {
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(anchor);
-
-        var (cx, cy, r) = CentreAndRadius(doc, anchor);
-        var (wx, wy) = ToWorld(fromDoc.X, fromDoc.Y, anchor);
-        var mag = Math.Sqrt(wx * wx + wy * wy);
-        if (mag <= 1e-9 || r <= 0) return null;   // on the pivot itself: no bearing to read
-
-        double ux = wx / mag, uy = wy / mag;
-        var b = ux * cx + uy * cy;
-        var disc = b * b - (cx * cx + cy * cy) + r * r;
-        if (disc < 0) return null;
-
-        var t = b + Math.Sqrt(disc);
-        if (t <= 0) return null;
-
-        // vStart − centre = rot(θ)·up·r, and rot(θ)·up is (−sin θ, cos θ).
-        var (sx, sy) = (t * ux - cx, t * uy - cy);
-        return Norm360(Math.Atan2(-sx, sy) * 180.0 / Math.PI);
-    }
-
-    /// <summary>The ray for an angle, without firing it — what the canvas draws as the ghost path while the user
-    /// swings it round. Same geometry <see cref="Fire"/> uses.</summary>
-    public static ((double X, double Y) StartDoc, (double X, double Y) EndDoc) GhostPath(
-        ShipDocument doc, StrikeAnchor anchor, double angleDeg)
-    {
         var g = Geometry(doc, anchor, angleDeg);
         return (g.StartDoc, g.EndDoc);
     }
 
+    /// <summary>A ray straight from one document point to another: the path the user drew.</summary>
+    private static Ray RayThrough((double X, double Y) startDoc, (double X, double Y) endDoc)
+    {
+        double dx = endDoc.X - startDoc.X, dy = endDoc.Y - startDoc.Y;
+        var len = Math.Sqrt(dx * dx + dy * dy);
+        return len <= 1e-9
+            ? new Ray(startDoc.X, startDoc.Y, 0, 0, 0, startDoc, endDoc)
+            : new Ray(startDoc.X, startDoc.Y, dx / len, dy / len, len, startDoc, endDoc);
+    }
+
     // ---- geometry ----
 
+    /// <summary>A path across the plan in <b>document</b> tile coords. Everything downstream works in this one
+    /// frame; the world/anchor frame exists only inside <see cref="Geometry"/>, which is the only place the game's
+    /// own aiming is reproduced.</summary>
     private readonly record struct Ray(
         double StartX, double StartY, double DirX, double DirY, double Length,
         (double X, double Y) StartDoc, (double X, double Y) EndDoc);
@@ -247,12 +229,11 @@ public static class MicrometeoroidStrike
         // Vector3.normalized returns zero below its epsilon rather than a unit vector, and RaycastAll along a zero
         // direction hits nothing at all. Reproduced rather than papered over — inventing a direction here would
         // manufacture a strike the game never delivers. It is reachable: for a square ship it is exactly 45°.
-        if (mag <= 1e-9) return new Ray(sx, sy, 0, 0, 0, ToDoc(sx, sy, anchor), ToDoc(sx, sy, anchor));
+        if (mag <= 1e-9) return RayThrough(ToDoc(sx, sy, anchor), ToDoc(sx, sy, anchor));
 
         var len = 2 * r;
         var (dx, dy) = (-sx / mag, -sy / mag);
-        return new Ray(sx, sy, dx, dy, len,
-            ToDoc(sx, sy, anchor), ToDoc(sx + dx * len, sy + dy * len, anchor));
+        return RayThrough(ToDoc(sx, sy, anchor), ToDoc(sx + dx * len, sy + dy * len, anchor));
     }
 
     /// <summary>The ship centre in world coords and the half-diagonal the ray's start swings on — the game's
@@ -281,10 +262,10 @@ public static class MicrometeoroidStrike
     /// Every placement whose collider the ray crosses, nearest first — the ordered <c>Physics.RaycastAll</c> hit
     /// list. One entry per part however many tiles it spans, because a raycast returns one hit per collider.
     /// </summary>
-    private static List<(Placement Part, double Distance)> Along(ShipDocument doc, StrikeAnchor anchor, Ray ray)
+    private static List<(Placement Part, double Distance)> Along(ShipDocument doc, Ray ray)
     {
         var hits = new List<(Placement, double)>();
-        if (ray.Length <= 0) return hits;   // the degenerate angle: the game fires nothing
+        if (ray.Length <= 0) return hits;   // a path of no length hits nothing
         foreach (var p in doc.Placements)
         {
             if (doc.Part(p) is not { } def) continue;
@@ -292,15 +273,14 @@ public static class MicrometeoroidStrike
             // Collider centre is the FOOTPRINT centre (the item's own transform position), and its extent is the
             // SPRITE, which for the big tanks is much the smaller of the two.
             var (fw, fh) = GridMath.Size(def.Item.Width, def.Item.Height, p.Rot);
-            var centreDocX = p.X + fw / 2.0 - 0.5;
-            var centreDocY = p.Y + fh / 2.0 - 0.5;
+            var centreX = p.X + fw / 2.0 - 0.5;
+            var centreY = p.Y + fh / 2.0 - 0.5;
             var (sw, sh) = SpriteExtent.Tiles(def);
             // The collider turns with the transform, and every rotation is a right angle, so a turned box is just
             // the swapped extents.
             if (p.Rot is 90 or 270) (sw, sh) = (sh, sw);
 
-            var (cx, cy) = ToWorld(centreDocX, centreDocY, anchor);
-            if (SlabHit(ray, cx, cy, sw / 2.0, sh / 2.0) is { } d) hits.Add((p, d));
+            if (SlabHit(ray, centreX, centreY, sw / 2.0, sh / 2.0) is { } d) hits.Add((p, d));
         }
         hits.Sort((a, b) => a.Item2.CompareTo(b.Item2));
         return hits;

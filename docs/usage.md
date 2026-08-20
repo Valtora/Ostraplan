@@ -339,57 +339,53 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
 
 **Simulate ▸ Micrometeoroid Strike…** and **Simulate ▸ Weapon Impact…** fire something at the
 design and tint every part it damages, green through amber to red. Both open the same window on
-a different tab. Damage builds up across strikes and is **never saved**: it lives beside the
-design, not in it, so closing the window or pressing **Start over** puts the ship back to
-pristine. Your `.oplan` is untouched throughout.
+a different tab.
+
+**Drag a line across the plan** to say where the strike comes in and where it goes out. Let go
+and it fires along that line. Drag another to fire again. Damage builds up across strikes and is
+**never saved**: it lives beside the design, not in it, so closing the window or pressing
+**Start over** puts the ship back to pristine. Your `.oplan` is untouched throughout.
 
 - **The heat scale is the part's whole life.** Green is untouched, red is gone, and the middle
   is how far through its break chain it has been driven. A wall takes 15 damage to crack and 30
-  more to destroy, so a cracked wall reads two thirds rather than jumping back to full.
+  more to destroy, so a cracked wall reads two thirds rather than jumping back to full. Anything
+  that was hit at all is outlined, so a part that only lost a little is still easy to find.
 - **Two very different things can hit you**, and the game treats them nothing alike:
-  - a **micrometeoroid** advances a part exactly one stage and moves on, so it cracks a wall
-    and can never finish it in one strike;
+  - a **micrometeoroid** advances a part exactly one stage, so it cracks a wall and can never
+    finish it in one strike;
   - a **weapon** prices the whole chain at once, so a missile takes that same wall from whole
     to gone in one go.
 
 ### Micrometeoroid
 
-Set the **approach angle** and the **closing speed**, then **Fire**. You can also swing the
-angle by dragging on the plan: the dashed ghost path follows the cursor and the readout keeps up.
+Draw the path, set the **closing speed**, and it fires on release.
 
-- **You cannot choose where it hits, and that is the game's doing.** Every micrometeoroid in
-  Ostranauts converges on a single fixed point, marked with a crosshair on the plan. The angle
-  is the only thing that varies, which is why the window gives you an angle and not a target.
-  It looks like an oversight in the game and it may be fixed one day; until then, showing you
-  anything else would be showing you strikes that cannot happen.
-- **Where that point sits depends on where the ship came from.** A design imported from a save
+- **You can draw paths the game itself cannot fire, and that is deliberate.** In Ostranauts every
+  micrometeoroid runs through one fixed point, marked with a crosshair on the plan. That is the
+  game aiming at world origin rather than at the ship, and it means real strikes only ever arrive
+  along lines through that marker. Drawing through it shows you what actually happens to this
+  hull; drawing anywhere else answers the more useful design question, "what would a hit *here*
+  cost me". A part no line through the marker reaches is one the game will never chip, so the
+  marker is worth a glance before you trust a worrying result.
+- **Where the marker sits depends on where the ship came from.** A design imported from a save
   or a template keeps its own, which for most ships is somewhere inside the hull. A design you
   authored here has none yet, so the window uses the one it will get when Ostraplan exports it,
   just outside the top-left corner. The window says which it is using. If you want to know
   whether the ship you are *flying* is vulnerable, import it from your save rather than
   measuring the copy you drew.
-- **Expect misses.** When the convergence point is outside the hull most angles sail past, and
-  the window says so. That is a real answer, not a broken one.
 - **Speed is a real speed.** It is your closing speed against the body, and the readout shows
   what it works out to: 750 m/s is the reference, and a circular orbit in the shells that
   actually produce micrometeoroids closes at about 7.4 km/s, which hits ten times as hard.
   Matching the body's velocity still leaves you taking half-strength strikes. Only Earth's
   upper atmosphere and orbits produce them at all in the base game.
-- **One angle per ship fires nothing.** At exactly that angle the rock starts on the
-  convergence point and the game's own raycast goes nowhere. The window tells you; nudge the
-  angle.
 
 ### Weapon impact
 
 Pick the weapon — every attack your install and your mods declare, from 20 mm point-defence
-fire up to the heaviest missile — then set the approach angle and slide the aim along the edge
-it enters through.
+fire up to the heaviest missile — then draw the path the same way.
 
-- **The aim point is on the ship's bounding box**, because that is the only place the game
-  starts an impact. You are choosing where a trajectory crosses the hull line, not painting a
-  target on an interior tile.
 - **Missiles detonate on the hull**, not in the middle: they trigger on the first structural
-  tile they meet, and the blast falls off with distance from there.
+  tile they meet along the line, and the blast falls off with distance from there.
 - **Point-defence fire can never destroy anything.** Its whole spread is "soft edge", which
   caps each tile at a part's first broken form. That is the game's rule, not a rounding here.
 - **Damage is the worst case.** In game every shot is jittered before it lands and fires are

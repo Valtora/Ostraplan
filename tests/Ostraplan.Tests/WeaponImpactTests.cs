@@ -37,30 +37,29 @@ public class WeaponImpactTests
     // ---- entry geometry ----
 
     [Theory]
-    [InlineData(0, EntryEdge.Left)]      // travelling +x enters from the left
-    [InlineData(180, EntryEdge.Right)]
-    [InlineData(90, EntryEdge.Top)]      // +y is down in document coords
-    [InlineData(270, EntryEdge.Bottom)]
-    public void The_entry_point_is_on_the_bounding_box(double angle, EntryEdge expected)
+    [InlineData(1, 0, EntryEdge.Left)]     // travelling +x came through the left
+    [InlineData(-1, 0, EntryEdge.Right)]
+    [InlineData(0, 1, EntryEdge.Top)]      // +y is down in document coords
+    [InlineData(0, -1, EntryEdge.Bottom)]
+    public void The_entry_edge_follows_the_direction_of_travel(double dx, double dy, EntryEdge expected)
     {
         var cat = Cat();
         var doc = Row(cat);
 
-        var entry = WeaponImpact.EntryFor(doc, angle);
+        var entry = WeaponImpact.EntryAlong(doc, (0.0, 0.0), (dx * 5, dy * 5));
 
         Assert.NotNull(entry);
+        // The edge is what the game spreads a multi-tile impact along, so it has to come from somewhere even
+        // though the path itself is now free.
         Assert.Equal(expected, entry!.Edge);
-        // The box is the bounds plus the one-tile pad, and the aim point must lie on it: the game's
-        // FindIntersection cannot express an impact starting anywhere else.
-        var onBox = Math.Abs(entry.DocX - (-1)) < 1e-9 || Math.Abs(entry.DocX - 5) < 1e-9
-                 || Math.Abs(entry.DocY - (-1)) < 1e-9 || Math.Abs(entry.DocY - 1) < 1e-9;
-        Assert.True(onBox, $"entry ({entry.DocX}, {entry.DocY}) is not on the box");
+        Assert.Equal(0, entry.DocX, 6);
+        Assert.Equal(0, entry.DocY, 6);
     }
 
     [Fact]
-    public void An_empty_design_has_nowhere_to_be_hit()
+    public void A_path_of_no_length_describes_nothing()
     {
-        Assert.Null(WeaponImpact.EntryFor(Fixtures.Doc(Cat()), 0));
+        Assert.Null(WeaponImpact.EntryAlong(Row(Cat()), (2.0, 2.0), (2.0, 2.0)));
     }
 
     // ---- the ceiling ----
@@ -71,7 +70,7 @@ public class WeaponImpactTests
         var cat = Cat();
         var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0));
         var state = new DamageState();
-        var entry = WeaponImpact.EntryFor(doc, 0)!;
+        var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (12.0, 0.0))!;
 
         // 30 into a wall whose chain is 30: gone in one, which the micrometeoroid path can never do because it
         // only ever reads the current form's pool.
@@ -91,7 +90,7 @@ public class WeaponImpactTests
         var cat = Cat();
         var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 0, 1), Fixtures.P("Wall", 0, 2));
         var state = new DamageState();
-        var entry = WeaponImpact.EntryFor(doc, 0)!;
+        var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (12.0, 0.0))!;
 
         // Point defence: radius 1 gives three starts, soft edge 2 makes every one of them soft, so 20mm fire caps
         // each part at its first broken form however much damage it carries.
@@ -114,7 +113,7 @@ public class WeaponImpactTests
         var doc = Fixtures.Doc(cat,
             Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 1, 0),
             Fixtures.P("Wall", 6, 0), Fixtures.P("Wall", 7, 0));
-        var entry = WeaponImpact.EntryFor(doc, 0)!;
+        var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (12.0, 0.0))!;
 
         var r = WeaponImpact.Fire(doc, Attack("MassDriver", ImpactType.Ray, 400, range: 4), entry, new DamageState());
 
@@ -127,7 +126,7 @@ public class WeaponImpactTests
     {
         var cat = Cat();
         var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0));
-        var entry = WeaponImpact.EntryFor(doc, 0)!;
+        var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (12.0, 0.0))!;
 
         // The game seeds its cell list with the impact point and the square scan then adds it again at distance 0.
         // A wall whose whole chain is 30 therefore dies to a blast of 20 at the centre, because it lands twice.
@@ -145,7 +144,7 @@ public class WeaponImpactTests
         // floor and detonate on the wall rather than at the first thing it touches.
         var doc = Fixtures.Doc(cat,
             Fixtures.P("Floor", 0, 0), Fixtures.P("Floor", 1, 0), Fixtures.P("Wall", 2, 0));
-        var entry = WeaponImpact.EntryFor(doc, 0)!;
+        var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (12.0, 0.0))!;
 
         var missile = Attack("MissileAttack01", ImpactType.Circular, 12, radius: 1, triggers: ["IsWall"]);
         var r = WeaponImpact.Fire(doc, missile, entry, new DamageState());
@@ -166,7 +165,7 @@ public class WeaponImpactTests
                   condValues: new Dictionary<string, double> { ["StatDamageMax"] = 10 })
             .Build();
         var doc = Fixtures.Doc(cat, Fixtures.P("Crate", 0, 0), Fixtures.P("Wall", 1, 0));
-        var entry = WeaponImpact.EntryFor(doc, 0)!;
+        var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (12.0, 0.0))!;
 
         var r = WeaponImpact.Fire(doc, Attack("MassDriver", ImpactType.Ray, 100), entry, new DamageState());
 

@@ -13,22 +13,24 @@ each release was verified against is recorded in
 
 ### Added
 - **Simulate: fire a micrometeoroid or a weapon at the design and see what breaks.** A new
-  **Simulate ▾** menu with **Micrometeoroid Strike…** and **Weapon Impact…**. Set an approach angle
-  and a closing speed, or pick a weapon and slide its aim along the edge it comes in through, then
-  **Fire**: every part it damages is tinted green through amber to red by how much of its life is
-  left, and repeated strikes build up so you can see what a bad run does. Damage is never saved and
-  never reaches your `.oplan` — **Start over** puts the ship back to pristine.
+  **Simulate ▾** menu with **Micrometeoroid Strike…** and **Weapon Impact…**. **Drag a line across
+  the plan** to say where the strike comes in and where it leaves, and it fires along it: every part
+  it damages is tinted green through amber to red by how much of its life is left, outlined so a
+  light scratch is still easy to spot, and repeated strikes build up so you can see what a bad run
+  does. Damage is never saved and never reaches your `.oplan` — **Start over** puts the ship back
+  to pristine.
   - **The two are not variants of each other**, because the game runs two unrelated damage systems.
     A micrometeoroid advances a part exactly one stage, so it cracks a wall and cannot finish it in
     one strike; a weapon prices the whole break chain at once, so a missile takes the same wall from
     whole to gone. Point-defence fire can never destroy anything at all, which is the game's rule.
-  - **You pick the angle, not the impact point, and that is the game's doing.** Every micrometeoroid
-    in Ostranauts converges on one fixed point, which the window marks. The angle is the only thing
-    that varies. Expect misses when that point falls outside the hull, and expect one angle per ship
-    to fire nothing at all — both are real answers, and the window says so.
-  - **Import from your save to measure the ship you are flying.** The convergence point belongs to
-    the ship's own grid anchor, so a design you drew here is measured in the frame it will be
-    exported into rather than one it has never had. The window tells you which it is using.
+  - **You can draw paths the game itself cannot fire.** In Ostranauts every micrometeoroid runs
+    through one fixed point, which the plan marks with a crosshair. Draw through it to see what
+    really happens to your hull; draw anywhere else to ask what a hit *there* would cost, which is
+    the question you are usually trying to answer. Everything the strike does once drawn is the
+    game's own arithmetic.
+  - **Import from your save to measure the ship you are flying.** That marked point belongs to the
+    ship's own grid anchor, so a design you drew here is marked where one Ostraplan exports will
+    sit rather than where your existing hull has it. The window tells you which it is using.
   - Thanks to nighoggDatatype for the request.
 - **Rename a part by typing over its name in the inspector.** The name at the top of the **PART** block is
   now a text field, the way the game's own object panel is: it reads as a plain line until you click it,
