@@ -386,8 +386,18 @@ fire up to the heaviest missile — then draw the path the same way.
 
 - **Missiles detonate on the hull**, not in the middle: they trigger on the first structural
   tile they meet along the line, and the blast falls off with distance from there.
-- **Point-defence fire can never destroy anything.** Its whole spread is "soft edge", which
-  caps each tile at a part's first broken form. That is the game's rule, not a rounding here.
+- **Keep firing to see how deep a hull really is.** Anything with nothing left to give is
+  passed over on the next shot, so the impact point walks inward as you go and the readout
+  says where each one went off. Watching that number move in is how you answer "how many of
+  these would it take to reach the middle". The tally counts only the shots that landed.
+- **Point-defence fire cannot take a part from whole to gone in one burst.** Its whole spread
+  is "soft edge", which caps a part it finds intact at its first broken form. The cap is on
+  the part rather than on the burst, though, so a second burst on the same tile finishes what
+  the first cracked. That is the game's rule, not a rounding here.
+- **A miss is not the same as a shot that found nothing left.** "Missed" means nothing along
+  the line you drew could set the weapon off. If it went off and still did nothing, the window
+  says so and gives the tile, which means that part of the hull is already spent and the line
+  needs redrawing rather than firing again.
 - **Damage is the worst case.** In game every shot is jittered before it lands and fires are
   rolled per part; neither is reproduced, because a plan should tell you what a bad day looks
   like rather than sample one.

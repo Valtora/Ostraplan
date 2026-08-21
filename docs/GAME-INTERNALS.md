@@ -2843,15 +2843,41 @@ walk, and applies the full `fTotalDamage` at each.
 `nSoftEdgeTileRadius` marks the outermost starts (or, for circular, every cell beyond
 `fRadius − nSoftEdgeTileRadius`) as `damageOnly`, which caps that cell at `DataCO.Health`
 instead of `GetMaxHealth`. With three starting tiles and a soft edge of 2, **every** tile of
-a point-defence impact is soft, so 20 mm fire can damage a part to its first broken form and
-never destroy it.
+a point-defence impact is soft.
+
+> **The soft cap is on the part, not on the tile, and it lifts.** `ApplyDamageToCell`
+> downgrades the ceiling only under `if (damageOnly && !item.IsDamaged)`, so a soft hit is
+> capped at the first break while the part is whole and prices it against the whole chain
+> the moment it is not. `DataCOWrapper.IsDamaged` is `DataCO.HasCond("IsDamaged")` or
+> `CurrentDamage > 0 && CurrentDamage >= DataCO.Health`, which a part satisfies as soon as
+> its first pool fills. So 20 mm fire cannot take a wall from whole to gone in one burst, but
+> a second burst on the same tile finishes it, and a part that arrives already damaged is
+> priced against the whole chain from the first round.
 
 #### Applying damage to a cell
 
 `ApplyDamageToCell` walks the cell's parts in order, skipping any already at
 `GetMaxHealth`, and pushes `CurrentDamage` up to that ceiling (or `Health` when
-`damageOnly`), passing the remainder on. `IsSocial` parts are crew and take
-`ApplyCrewDamage` instead, through the `JsonShipAttack`'s own `strJsonAttackMode`.
+`damageOnly` **and** the part is still whole), passing the remainder on. `IsSocial` parts
+are crew and take `ApplyCrewDamage` instead, through the `JsonShipAttack`'s own
+`strJsonAttackMode`.
+
+> **Max health, not destruction, is what takes a part out of the reckoning.** Both
+> `FindPointsOfImpact` and `ApplyDamageToCell` skip on
+> `|CurrentDamage − GetMaxHealth()| < ε` (0.01 and 0.1 respectively) and never ask what form
+> the part ended up in. The two come apart whenever a chain finishes on something the game
+> still names but does not install: `ItmStorageBin2x101` runs bin → `…Dmg` → `ItmScrapAluminum`
+> → `ItmScrapTrash`, and because `GetMaxHealth` stops chaining at the first non-`IsInstalled`
+> form, the bin is full at 35 while still being a named object rather than nothing. A part with
+> no `Destructable` line at all satisfies the same test untouched, its max health being zero,
+> which is the mechanism behind "a strike passes straight through it".
+
+> **In the shallow branch a part never changes form.** `DataCOWrapper.CurrentDamage`'s setter
+> mode-switches the live `CondOwner` through its break chain only when it wraps one; wrapping a
+> `JsonItem` it just writes `StatDamage` and the item keeps its original def. Everything the
+> projectile path reads afterwards — `HasCond`, `Health`, `GetMaxHealth`, `IsDamaged` — is
+> therefore the **original** def's, with one accumulating `StatDamage` measured against the
+> whole chain. That is the branch a planner models.
 
 Fire is rolled per damaged part on a ship at `Loaded.Edit` or deeper:
 

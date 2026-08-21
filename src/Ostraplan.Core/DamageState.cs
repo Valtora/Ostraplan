@@ -47,6 +47,46 @@ public sealed class DamageState
     /// <summary>True once the part has broken into nothing the game names.</summary>
     public bool IsDestroyed(Placement p) => _parts.GetValueOrDefault(p.Id)?.Destroyed ?? false;
 
+    /// <summary>
+    /// True once this part has absorbed everything its break chain can take, and so is passed over by the
+    /// projectile solver (§26).
+    ///
+    /// <para><b>Not the same thing as destroyed, and it is this rather than destroyed that the game tests.</b>
+    /// Both <c>FindPointsOfImpact</c> and <c>ApplyDamageToCell</c> skip a part on
+    /// <c>|CurrentDamage − GetMaxHealth()| &lt; ε</c>, never asking what form it ended up in. The two part
+    /// company whenever a chain finishes on something the game still names: <c>ItmStorageBin2x101</c> ends as
+    /// <c>ItmScrapTrash</c>, loose debris that is not installed and so is not counted by
+    /// <see cref="Catalog.MaxHealth"/>, which leaves the bin full but never <see cref="IsDestroyed"/>. Reading
+    /// destroyed alone left such a part standing as an obstacle for ever, and since a bin carries
+    /// <c>IsRigid</c> that was enough to detonate every later missile on the same tile as the first.</para>
+    ///
+    /// <para>A part that declares no damage pool at all is spent from the start, both here and in the game: its
+    /// max health is zero, so the test passes on an untouched part and a strike goes straight through it.</para>
+    /// </summary>
+    public bool IsSpent(Placement p, Catalog catalog)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        return IsDestroyed(p) || TotalDamage(p, catalog) >= catalog.MaxHealth(p.DefName) - 0.01;
+    }
+
+    /// <summary>
+    /// True when the part reads as damaged, the game's <c>DataCOWrapper.IsDamaged</c>: either its def says so
+    /// outright, or it has taken at least its first form's own pool.
+    ///
+    /// <para>What it governs is the soft edge. <c>damageOnly</c> caps a cell at <see cref="Catalog.Health"/>
+    /// instead of <see cref="Catalog.MaxHealth"/> <b>only while the part is still whole</b>; once it is damaged
+    /// the cap comes off and even point-defence fire prices it against the whole chain. So 20mm cannot take a
+    /// part from whole to gone, but it can finish one that something else already opened up, and it can do it
+    /// on its own second pass.</para>
+    /// </summary>
+    public bool IsDamaged(Placement p, Catalog catalog)
+    {
+        ArgumentNullException.ThrowIfNull(catalog);
+        if (catalog.Lookup(p.DefName)?.StartingConds.Contains("IsDamaged") is true) return true;
+        var total = TotalDamage(p, catalog);
+        return total > 0 && total >= catalog.Health(p.DefName);
+    }
+
     /// <summary>Throw the run away and start from a pristine ship.</summary>
     public void Clear() => _parts.Clear();
 

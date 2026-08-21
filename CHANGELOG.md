@@ -22,7 +22,14 @@ each release was verified against is recorded in
   - **The two are not variants of each other**, because the game runs two unrelated damage systems.
     A micrometeoroid advances a part exactly one stage, so it cracks a wall and cannot finish it in
     one strike; a weapon prices the whole break chain at once, so a missile takes the same wall from
-    whole to gone. Point-defence fire can never destroy anything at all, which is the game's rule.
+    whole to gone. Point-defence fire cannot manage that in one burst, its whole spread being "soft
+    edge", but the cap is on the part rather than on the burst and lifts once the part is cracked, so
+    a second burst on the same tile finishes it. That is the game's rule.
+  - **Keep firing down one line to see how deep a hull really is.** Anything with nothing left to
+    give is passed over on the next shot, so the impact point walks inward and the window says where
+    each shot went off. That is how you answer "how many of these would it take to reach the middle".
+    A shot that found nothing left to set it off says so rather than counting itself, and the tally
+    counts only the shots that landed.
   - **You can draw paths the game itself cannot fire.** In Ostranauts every micrometeoroid runs
     through one fixed point, which the plan marks with a crosshair. Draw through it to see what
     really happens to your hull; draw anywhere else to ask what a hit *there* would cost, which is

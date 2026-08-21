@@ -226,14 +226,15 @@ public sealed class SimulateWindow : Window
 
     private void Fire()
     {
+        bool landed;
         if (IsMicrometeoroid)
         {
             if (_path is not { } path) return;
             var r = MicrometeoroidStrike.Fire(_doc, path.Start, path.End, _speed.Value, _state);
+            landed = !r.Missed;
             _resultLine.Text = r.Missed
                 ? "Missed. That path crossed nothing able to absorb it."
                 : Describe(r.Hits.Count, r.Delivered, r.Hits.Count(h => h.ToDef is null && h.Broke));
-            _resultLine.Foreground = r.Missed ? Dim : Ink;
         }
         else
         {
@@ -241,15 +242,24 @@ public sealed class SimulateWindow : Window
             if (_path is not { } path) return;
             if (WeaponImpact.EntryAlong(_doc, path.Start, path.End) is not { } entry) return;
             var r = WeaponImpact.Fire(_doc, attack, entry, _state);
-            _resultLine.Text = r.Missed
-                ? "Missed. Nothing along that line was left to hit."
-                : Describe(r.Hits.Select(h => h.PlacementId).Distinct().Count(), r.Delivered,
-                           r.Hits.Count(h => h.Destroyed))
-                  + (r.Centre is { } c ? $"  Went off at ({c.X}, {c.Y})." : "");
-            _resultLine.Foreground = r.Missed ? Dim : Ink;
+            landed = !r.Missed;
+            // A shot that went off and delivered nothing is not a miss, and saying so would be the difference
+            // between "aim somewhere else" and "this hull has nothing left to give here".
+            _resultLine.Text = r switch
+            {
+                { Missed: true, Centre: { } spent } =>
+                    $"Went off at ({spent.X}, {spent.Y}), but everything within reach of it was already spent.",
+                { Missed: true } => "Missed. Nothing along that line was left to hit.",
+                _ => Describe(r.Hits.Select(h => h.PlacementId).Distinct().Count(), r.Delivered,
+                              r.Hits.Count(h => h.Destroyed))
+                     + (r.Centre is { } c ? $"  Went off at ({c.X}, {c.Y})." : ""),
+            };
         }
 
-        _shots++;
+        _resultLine.Foreground = landed ? Ink : Dim;
+        // Only a shot that landed counts. Counting every press would say "after 7 hits" for a hull six of them
+        // never touched, which is the one number the tally exists to get right.
+        if (landed) _shots++;
         _board.SetDamageOverlay(DamageOverlay.Build(_doc, _state));
         UpdateTally();
     }

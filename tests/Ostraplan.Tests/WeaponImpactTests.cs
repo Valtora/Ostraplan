@@ -85,7 +85,7 @@ public class WeaponImpactTests
     }
 
     [Fact]
-    public void A_soft_edge_can_damage_but_never_destroy()
+    public void A_soft_edge_stops_at_the_first_break_while_the_part_is_whole()
     {
         var cat = Cat();
         var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 0, 1), Fixtures.P("Wall", 0, 2));
@@ -93,7 +93,8 @@ public class WeaponImpactTests
         var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (12.0, 0.0))!;
 
         // Point defence: radius 1 gives three starts, soft edge 2 makes every one of them soft, so 20mm fire caps
-        // each part at its first broken form however much damage it carries.
+        // each part at its first broken form however much damage it carries. That cap is on the PART, not on the
+        // start, and lifts once the part is damaged: see the test below.
         var pd = Attack("PointDefenceImpact", ImpactType.Point, damage: 500, radius: 1, soft: 2);
         var r = WeaponImpact.Fire(doc, pd, entry, state);
 
@@ -237,6 +238,122 @@ public class WeaponImpactTests
         // It detonated on the clean wall at x=3, not on the one hiding under the floor at x=0.
         Assert.Contains(r.Cells, c => c == (3, 0));
         Assert.DoesNotContain(r.Cells, c => c == (0, 0));
+    }
+
+    // ---- what counts as still worth hitting ----
+
+    /// <summary>
+    /// Wall as above, plus a bin whose chain ends on <b>scrap</b>: a form the game still names but does not
+    /// install. <see cref="Catalog.MaxHealth"/> counts scrap's own pool and stops there rather than following it
+    /// on, so the bin is full at 35 while <see cref="DamageState.IsDestroyed"/> stays false. That is the shape
+    /// that broke repeated fire, because a bin carries <c>IsRigid</c> and a missile triggers on that.
+    /// </summary>
+    private static Catalog CatWithScrap() => new Fixtures()
+        .Part("Wall", startingConds: ["IsInstalled", "IsWall"],
+              condValues: new Dictionary<string, double> { ["StatDamageMax"] = 10 })
+        .Part("WallDmg", startingConds: ["IsInstalled", "IsWall", "IsDamaged"],
+              condValues: new Dictionary<string, double> { ["StatDamageMax"] = 20 })
+        .Part("Bin", startingConds: ["IsInstalled", "IsRigid"],
+              condValues: new Dictionary<string, double> { ["StatDamageMax"] = 10 })
+        .Part("BinDmg", startingConds: ["IsInstalled", "IsRigid", "IsDamaged"],
+              condValues: new Dictionary<string, double> { ["StatDamageMax"] = 20 })
+        .Part("Scrap", startingConds: ["IsRigid"],   // loose debris on the deck: NOT installed
+              condValues: new Dictionary<string, double> { ["StatDamageMax"] = 5 })
+        .Part("Trash", startingConds: [],
+              condValues: new Dictionary<string, double> { ["StatDamageMax"] = 5 })
+        .BreakPair("Wall", "WallDmg")
+        .BreakPair("Bin", "BinDmg")
+        .BreakPair("BinDmg", "Scrap")
+        .BreakPair("Scrap", "Trash")
+        .Build();
+
+    [Fact]
+    public void A_chain_that_ends_in_scrap_is_spent_without_ever_being_destroyed()
+    {
+        var cat = CatWithScrap();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Bin", 0, 0));
+        var state = new DamageState();
+        var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (8.0, 0.0))!;
+
+        // 10 + 20 + 5: the whole chain the game prices this bin against, MaxHealth stopping at scrap because
+        // scrap is not installed.
+        Assert.Equal(35, cat.MaxHealth("Bin"), 6);
+        WeaponImpact.Fire(doc, Attack("MassDriver", ImpactType.Ray, 35), entry, state);
+
+        var bin = doc.Placements[0];
+        // It broke all the way through into a form the catalog still names, so it is NOT destroyed, and that is
+        // exactly why destroyed is the wrong question to ask about it.
+        Assert.False(state.IsDestroyed(bin));
+        Assert.True(state.IsSpent(bin, cat));
+        Assert.Equal(35, state.TotalDamage(bin, cat), 6);
+    }
+
+    [Fact]
+    public void A_missile_detonates_past_a_part_that_is_spent_but_not_destroyed()
+    {
+        var cat = CatWithScrap();
+        // The bin sits on the hull line with a wall three tiles further in. Both carry a trigger cond.
+        var doc = Fixtures.Doc(cat, Fixtures.P("Bin", 0, 0), Fixtures.P("Wall", 3, 0));
+        var state = new DamageState();
+        var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (8.0, 0.0))!;
+        // Radius 0, so the blast is its centre alone, applied twice: 40 into a 35-point chain empties the bin.
+        var missile = Attack("Missile", ImpactType.Circular, 20, radius: 0, triggers: ["IsWall", "IsRigid"]);
+
+        var first = WeaponImpact.Fire(doc, missile, entry, state);
+        Assert.Equal((0, 0), first.Centre);
+        Assert.True(state.IsSpent(doc.Placements[0], cat));
+        Assert.False(state.IsDestroyed(doc.Placements[0]));
+
+        // The bin has nothing left to give, so the game walks straight past it. Asking whether it was DESTROYED
+        // instead left a heap of scrap standing in for structure, and every later missile went off on the same
+        // tile as the first however many were fired.
+        var second = WeaponImpact.Fire(doc, missile, entry, state);
+
+        Assert.Equal((3, 0), second.Centre);
+        Assert.NotEqual(0.0, state.TotalDamage(doc.Placements[1], cat));
+    }
+
+    [Fact]
+    public void A_part_with_no_damage_pool_does_not_set_a_missile_off()
+    {
+        var cat = new Fixtures()
+            .Part("Statue", startingConds: ["IsInstalled", "IsRigid"])   // no StatDamageMax at all
+            .Part("Wall", startingConds: ["IsInstalled", "IsWall"],
+                  condValues: new Dictionary<string, double> { ["StatDamageMax"] = 10 })
+            .Build();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Statue", 0, 0), Fixtures.P("Wall", 3, 0));
+        var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (8.0, 0.0))!;
+        var missile = Attack("Missile", ImpactType.Circular, 20, radius: 0, triggers: ["IsWall", "IsRigid"]);
+
+        var r = WeaponImpact.Fire(doc, missile, entry, new DamageState());
+
+        // Max health zero satisfies the game's own "already at max health" skip on an untouched part, so a strike
+        // passes through it as if it were not there.
+        Assert.Equal((3, 0), r.Centre);
+    }
+
+    [Fact]
+    public void A_soft_edge_finishes_a_part_something_already_cracked()
+    {
+        var cat = Cat();
+        // Three walls abreast, centred on the line: radius 1 spreads the starts one tile either side of it, so
+        // all three are under fire.
+        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, -1), Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 0, 1));
+        var state = new DamageState();
+        var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (12.0, 0.0))!;
+        var pd = Attack("PointDefenceImpact", ImpactType.Point, damage: 500, radius: 1, soft: 2);
+
+        // First burst: every wall is whole, so every one is capped at its first break and survives as WallDmg.
+        WeaponImpact.Fire(doc, pd, entry, state);
+        Assert.All(doc.Placements, p => Assert.False(state.IsDestroyed(p)));
+        Assert.All(doc.Placements, p => Assert.True(state.IsDamaged(p, cat)));
+
+        // Second burst on the same tiles: `damageOnly && !IsDamaged` no longer holds, so the cap comes off and
+        // the same 20mm prices them against the whole chain. Point defence cannot take a hull from whole to gone
+        // in one pass, but it does get through it, which is what makes firing repeatedly worth doing.
+        WeaponImpact.Fire(doc, pd, entry, state);
+
+        Assert.All(doc.Placements, p => Assert.True(state.IsDestroyed(p)));
     }
 
     // ---- the grid ----

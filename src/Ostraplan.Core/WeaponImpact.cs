@@ -31,6 +31,9 @@ public sealed record ImpactResult(
     IReadOnlyList<(int X, int Y)> Cells,
     IReadOnlyList<ImpactHit> Hits)
 {
+    /// <summary>True when nothing absorbed anything. Two different things can cause it, and
+    /// <see cref="Centre"/> is what tells them apart: a null centre means the shot never found a tile to go off
+    /// on, and a set one means it did but every part within reach was already spent.</summary>
     public bool Missed => Hits.Count == 0;
 }
 
@@ -192,9 +195,12 @@ public static class WeaponImpact
         return list;
     }
 
-    /// <summary>The outermost starts are "soft": they may damage a part into its next form but never destroy it,
-    /// because the cell is capped at <c>Health</c> rather than <c>MaxHealth</c>. With three starts and a soft edge
-    /// of 2 — point-defence fire — every start is soft, so 20mm can never destroy anything.</summary>
+    /// <summary>The outermost starts are "soft": a part they find still whole is capped at <c>Health</c> rather
+    /// than <c>MaxHealth</c>, so one pass takes it into its next form and no further. The cap is on the part's
+    /// state, not on the start, and lifts once the part reads as damaged (<see cref="DamageState.IsDamaged"/>).
+    /// With three starts and a soft edge of 2 — point-defence fire — every start is soft, so 20mm cannot take
+    /// anything from whole to gone in one burst, but a second burst on the same tile prices it against the whole
+    /// chain and can.</summary>
     private static bool IsSoftEdge(int index, int count, int softRadius) =>
         softRadius > 0 && (index <= softRadius - 1 || index >= count - softRadius);
 
@@ -253,12 +259,12 @@ public static class WeaponImpact
         while (steps-- > 0)
         {
             var cell = ((int)Math.Round(px), (int)Math.Round(py));
-            if (grid.TryGetValue(cell, out var parts) && FirstStanding(parts, state) is { } p)
+            if (grid.TryGetValue(cell, out var parts) && FirstStanding(doc, parts, state) is { } p)
             {
-                // Only the FIRST surviving part on a tile is ever considered — the game's FindPointsOfImpact breaks
-                // out after it, so a wall sharing a tile with a floor is not what a missile triggers on. Destroyed
-                // parts are skipped rather than examined, which is what walks the impact point inward as successive
-                // shots chew through the outer hull.
+                // Only the FIRST part on a tile with anything left to give is ever considered — the game's
+                // FindPointsOfImpact breaks out after it, so a wall sharing a tile with a floor is not what a
+                // missile triggers on. Spent parts are skipped rather than examined, which is what walks the
+                // impact point inward as successive shots chew through the outer hull.
                 if (!attack.DetonatesOnContact) return cell;
                 if (doc.Part(p) is { } def && attack.TriggerConds.Any(def.StartingConds.Contains)) return cell;
             }
@@ -318,9 +324,17 @@ public static class WeaponImpact
         foreach (var p in parts)
         {
             if (budget <= 0) break;
-            if (state.IsDestroyed(p)) continue;
+            // ApplyDamageToCell's own skip, and the same test FindPointsOfImpact uses to choose a detonation
+            // tile. A part with no damage pool at all is spent from the start and the shot passes through it.
+            if (state.IsSpent(p, doc.Catalog)) continue;
 
-            var ceiling = soft ? doc.Catalog.Health(p.DefName) : doc.Catalog.MaxHealth(p.DefName);
+            // The soft edge caps the cell at the first break rather than the whole chain, but the game applies
+            // that cap ONLY to a part that is still whole (`if (damageOnly && !item.IsDamaged)`). Once a part
+            // reads as damaged the cap comes off, which is what lets point-defence fire finish something on a
+            // later pass instead of stalling against a wall it has already cracked.
+            var ceiling = soft && !state.IsDamaged(p, doc.Catalog)
+                ? doc.Catalog.Health(p.DefName)
+                : doc.Catalog.MaxHealth(p.DefName);
             var left = ceiling - state.TotalDamage(p, doc.Catalog);
             if (left <= 0) continue;
 
@@ -371,11 +385,17 @@ public static class WeaponImpact
     private static bool Outside((int MinX, int MaxX, int MinY, int MaxY)? bounds, double px, double py) =>
         bounds is not { } b || px < b.MinX || px > b.MaxX || py < b.MinY || py > b.MaxY;
 
-    /// <summary>The first part on a tile that is still there, or null when everything on it is gone.</summary>
-    private static Placement? FirstStanding(List<Placement> parts, DamageState state)
+    /// <summary>
+    /// The first part on a tile that still has something left to give, or null when every part on it is spent.
+    ///
+    /// <para>The game's gate is <see cref="DamageState.IsSpent"/>, not destroyed: <c>FindPointsOfImpact</c> skips
+    /// on <c>|CurrentDamage − GetMaxHealth()| &lt; 0.01</c> and then <c>break</c>s, so the first part with any
+    /// capacity left is the only one a missile's trigger conds are ever tested against.</para>
+    /// </summary>
+    private static Placement? FirstStanding(ShipDocument doc, List<Placement> parts, DamageState state)
     {
         foreach (var p in parts)
-            if (!state.IsDestroyed(p))
+            if (!state.IsSpent(p, doc.Catalog))
                 return p;
         return null;
     }
