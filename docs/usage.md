@@ -349,7 +349,13 @@ and it fires along that line. Drag another to fire again. Damage builds up acros
 - **The heat scale is the part's whole life.** Green is untouched, red is gone, and the middle
   is how far through its break chain it has been driven. A wall takes 15 damage to crack and 30
   more to destroy, so a cracked wall reads two thirds rather than jumping back to full. Anything
-  that was hit at all is outlined, so a part that only lost a little is still easy to find.
+  that was hit at all is outlined, so a part that only lost a little is still easy to find. The
+  tint covers the object itself, not the clearance around it, so a dead LHe tank colours the
+  tank rather than the deck it stands on.
+- **Nothing has to breach to get inside.** A strike is a damage budget spent along its line, and
+  a wall it only cracks costs it that wall's damage and no more. The rest carries on into the
+  compartment behind, which is why you will see interior damage under a hull that is still
+  standing. That is the game's own rule, not an approximation here.
 - **Two very different things can hit you**, and the game treats them nothing alike:
   - a **micrometeoroid** advances a part exactly one stage, so it cracks a wall and can never
     finish it in one strike;

@@ -2744,6 +2744,16 @@ Because the hit list was built before any break, a part that mode-switches mid-w
 re-hit for its new form's pool. A fresh `ItmWall1x1` therefore costs a strike 15 and comes
 out as `ItmWall1x1Dmg`, never as rubble.
 
+> **There is no penetration test, so a hull that only cracks does not stop anything.** The
+> loop's single exit is `if (num2 <= 0.0) break`, the pool running dry. Nothing anywhere asks
+> whether the part survived, whether it was a wall, or whether a hole was made: each hit takes
+> `min(pool, DmgLeft)` and the walk `continue`s to the next collider regardless. A 565-point
+> strike meeting a fresh `ItmWall1x1` spends 15 on it, leaves it standing as
+> `ItmWall1x1Dmg`, and carries the other 550 straight into the compartment behind. That is why
+> a strike shows a trail of interior damage under an intact hull, and it is the game's answer
+> rather than an artefact of the port: a micrometeoroid here is a damage budget spent along a
+> line in distance order, not a projectile that has to breach.
+
 > **A docked ship's parts do not shield you.** With `bAllowDocked: false` the loop
 > `continue`s past any hit whose `CO.ship` is not the target, **without consuming any
 > pool**. The ray passes through a neighbouring hull for free.

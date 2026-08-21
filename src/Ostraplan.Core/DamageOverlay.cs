@@ -11,7 +11,8 @@ namespace Ostraplan.Core;
 /// the tile is no longer the part the design names.</param>
 /// <param name="CurrentDef">The form it is in now, for the tooltip: a damaged wall is a different def from the
 /// wall that was drawn there.</param>
-/// <param name="Tiles">Its footprint in document coords, which is what gets tinted.</param>
+/// <param name="Tiles">The part's <b>body</b> in document coords, which is what gets tinted: the object itself
+/// rather than its socket clearance. See <see cref="ShipDocument.BodyBounds"/>.</param>
 public sealed record DamagedPart(
     Guid PlacementId, double Condition, int Stages, bool Destroyed, string CurrentDef,
     IReadOnlyList<(int X, int Y)> Tiles);
@@ -54,11 +55,15 @@ public sealed record DamageOverlay(IReadOnlyList<DamagedPart> Parts, int Destroy
             if (d.Destroyed) destroyed++;
             if (condition < worst) worst = condition;
 
-            var (w, h) = GridMath.Size(def.Item.Width, def.Item.Height, p.Rot);
-            var tiles = new List<(int X, int Y)>(w * h);
-            for (var dy = 0; dy < h; dy++)
-                for (var dx = 0; dx < w; dx++)
-                    tiles.Add((p.X + dx, p.Y + dy));
+            // The BODY, not the socket. A part's footprint is its clearance, which for the LHe canisters is 7×7
+            // around a 3×3 object, so tinting the socket painted a 49-tile block of deck for a tank that absorbed
+            // on one cell and read as though the whole bay had gone. The body is what the eye is looking at, it is
+            // what the selection outline already uses, and it is exactly the collider a micrometeoroid raycasts.
+            var (bx, by, bw, bh) = doc.BodyBounds(p);
+            var tiles = new List<(int X, int Y)>(bw * bh);
+            for (var dy = 0; dy < bh; dy++)
+                for (var dx = 0; dx < bw; dx++)
+                    tiles.Add((bx + dx, by + dy));
 
             parts.Add(new DamagedPart(p.Id, condition, d.Stages, d.Destroyed, d.Def, tiles));
         }

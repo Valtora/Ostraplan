@@ -51,7 +51,7 @@ public class DamageOverlayTests
     }
 
     [Fact]
-    public void A_multi_tile_part_tints_its_whole_footprint()
+    public void A_multi_tile_part_tints_its_whole_body()
     {
         var cat = Cat();
         var doc = Fixtures.Doc(cat, Fixtures.P("Big", 3, 4));
@@ -63,6 +63,26 @@ public class DamageOverlayTests
         Assert.Equal(4, part.Tiles.Count);
         Assert.Contains((3, 4), part.Tiles);
         Assert.Contains((4, 5), part.Tiles);
+    }
+
+    [SkippableFact]
+    public void A_tank_tints_the_tank_and_not_the_deck_around_it()
+    {
+        var g = TestData.RequireGame();
+        // The LHe canisters are the widest gap between socket and object in stock data: a 3×3 tank sitting in a
+        // 7×7 clearance. Tinting the socket painted 49 tiles of deck for a part that absorbs on one cell, so a
+        // single dead tank read as though the whole bay had gone.
+        var doc = Fixtures.Doc(g.Catalog, Fixtures.P("ItmCanisterLHe02", 10, 10));
+        Skip.IfNot(doc.Placements.Count == 1, "ItmCanisterLHe02 not in this install");
+        var state = new DamageState();
+        state.Apply(doc.Placements[0], "ItmCanisterLHe02", 5, g.Catalog);
+
+        var part = Assert.Single(DamageOverlay.Build(doc, state).Parts);
+
+        Assert.Equal(9, part.Tiles.Count);
+        // Offset into the socket, not anchored at its corner: the object sits in the middle of its clearance.
+        Assert.DoesNotContain((10, 10), part.Tiles);
+        Assert.Contains((13, 13), part.Tiles);
     }
 
     [Fact]

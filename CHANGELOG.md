@@ -35,6 +35,10 @@ each release was verified against is recorded in
     really happens to your hull; draw anywhere else to ask what a hit *there* would cost, which is
     the question you are usually trying to answer. Everything the strike does once drawn is the
     game's own arithmetic.
+  - **The tint covers the object, not the clearance around it.** A part's footprint is the room it
+    needs, which for the LHe tanks is a 7×7 socket around a 3×3 tank, so tinting the socket painted
+    49 tiles of deck for a tank that takes damage on one cell and made a single dead tank read as a
+    dead bay. It now paints what you are looking at, the same extent the selection outline uses.
   - **The Simulate menu is the only switch between the two.** The window shows the one you opened
     and has no tabs of its own, so picking the other entry from the menu re-points the window and
     keeps the damage run you have built up.
