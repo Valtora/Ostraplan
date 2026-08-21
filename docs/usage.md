@@ -1141,7 +1141,7 @@ every switched-on alarm carries the game's own sensor, which reads the real cond
 tick and trips the alarm itself. An O2 alarm set nominal aboard a ship in vacuum goes red on
 its own. (An alarm left *off* carries no sensor and stays off, which is what off means.)
 
-## Naming a part
+## Naming a part or a deck item
 
 **Type over the name in the inspector**, the way the game's own object panel works: select a
 part and the name at the top of the **PART** block is a text field. It reads as a plain line
@@ -1162,13 +1162,21 @@ through **Export** and **Update Ship in Save…**, and it comes back when you im
 - **Anything can be named**, the same as in game: airlocks, canisters and signs as much
   as racks and pumps, the primary airlock included. Names typed here are capped at
   64 characters; a name read off an imported ship is kept exactly as the game stored it.
+- **Items lying on the deck are named the same way**, because the game renames a tool on
+  the floor as readily as the rack it belongs in. Select one and type over the name, or
+  **right-click ▸ Rename…**. That is how a Smart Crate reads "Electrical" for the wire and
+  sensors that go in it, a SuperHandy is labelled with the ship section it belongs to, and
+  a stack of ablative liner replacements says what it is there for. The name shows on the
+  item's menu, on its contents window and in the stacked-tile list, and travels with it into
+  the game exactly as a part's does. On a stack it belongs to the stack as a whole.
 - A name survives a move, an uninstall and a switch on or off, since none of those change
   what the thing is called.
 
 Placing *arbitrary* loose inventory — tools, food, consumables — is the separate
 **ITEMS** palette tab: arm one and click to drop it onto a floor tile, or into a
 container under the cursor if one accepts it. Right-click a placed loose item for
-**Change Quantity** (stackable items, up to the item's stack limit) and **Delete**.
+**Rename…**, **Change Quantity** (stackable items, up to the item's stack limit) and
+**Delete**.
 Loose cargo carries no structure, so it takes no part in the Law; it just renders and
 travels with the ship through **Export** and save write-back.
 

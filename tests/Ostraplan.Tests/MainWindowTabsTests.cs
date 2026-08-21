@@ -106,9 +106,10 @@ public class MainWindowTabsTests
 
     /// <summary>
     /// The inspector's PART name is the rename field (#30), so what it will accept has to follow the selection:
-    /// a lone placement can be typed over, and anything else (nothing selected, several parts) is a plain
-    /// read-only line. Focus and typing need a shown window, so this covers the wiring rather than the commit;
-    /// what a commit makes of the text is <see cref="RenameTests.Typing_the_stock_name_back_means_no_name_at_all"/>.
+    /// a lone placement <b>or a lone loose deck item</b> can be typed over (#38), and anything else (nothing
+    /// selected, several things) is a plain read-only line. Focus and typing need a shown window, so this covers
+    /// the wiring rather than the commit; what a commit makes of the text is
+    /// <see cref="RenameTests.Typing_the_stock_name_back_means_no_name_at_all"/>.
     /// </summary>
     [Fact]
     public void The_inspector_name_is_editable_only_for_a_lone_selected_part()
@@ -117,10 +118,12 @@ public class MainWindowTabsTests
         {
             var w = new MainWindow();
             var box = (TextBox)w.FindName("InsFriendly");
-            var cat = new Fixtures().Part("Rack", container: (6, 6)).Build();
+            var cat = new Fixtures().Part("Rack", container: (6, 6)).Part("Wrench").Build();
             var one = new Placement { DefName = "Rack", X = 0, Y = 0 };
             var two = new Placement { DefName = "Rack", X = 2, Y = 0 };
             var doc = Fixtures.Doc(cat, one, two);
+            var wrench = new LooseObject { DefName = "Wrench", X = 4, Y = 0, CustomName = "port toolkit" };
+            new PlaceLooseCommand(wrench).Do(doc);
 
             var session = w.ActiveSession;
             session.Doc = doc;
@@ -130,6 +133,16 @@ public class MainWindowTabsTests
             Assert.False(box.IsReadOnly);
             Assert.True(box.Focusable);
             Assert.Equal("Rack", box.Text);
+
+            // a deck item carries a name of its own, and the row shows and edits it like a part's
+            session.Board.SetSelection([], [wrench]);
+            Assert.False(box.IsReadOnly);
+            Assert.True(box.Focusable);
+            Assert.Equal("port toolkit", box.Text);
+
+            session.Board.SetSelection([one], [wrench]);
+            Assert.True(box.IsReadOnly);
+            Assert.False(box.Focusable);
 
             session.Board.SetSelection([one, two]);
             Assert.True(box.IsReadOnly);

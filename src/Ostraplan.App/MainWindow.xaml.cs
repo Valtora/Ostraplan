@@ -2691,6 +2691,25 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// The same for a loose deck item (#38). The game renames anything that is not a person, a tool on the floor
+    /// included, and a design can mean it: a SuperHandy labelled with the section it belongs to, a crate labelled
+    /// with what goes in it. The name travels with the item through export and save write-back, and comes back on
+    /// import, exactly as a placed part's does.
+    /// </summary>
+    private void RenameLoose(LooseObject lo, PartDef part)
+    {
+        if (_doc is null) return;
+        var dlg = new RenameDialog(part.Friendly, lo.CustomName, "item") { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+        var chosen = Rename.Typed(dlg.ChosenName, part);   // the stock name typed back means the same as an empty box
+        if (chosen == lo.CustomName) return;
+
+        _stack.Push(_doc, new SetLooseCustomNameCommand(lo, lo.CustomName, chosen));
+        Board.InvalidateVisual();
+        UpdateInspector();
+    }
+
+    /// <summary>
     /// Re-state each part to the def <paramref name="peer"/> maps it to, at the same tile and rotation, as one undo
     /// step; the swapped-in parts become the selection. Shared by the door and power toggles, which differ only in
     /// the mapping.
@@ -3100,7 +3119,7 @@ public partial class MainWindow : Window
                     : Board.SelectedIds.Count == 1 && Board.SelectedIds.Contains(d.Id);
                 var name = d.Placement is { } dp
                     ? Rename.Display(dp, _doc.Part(dp)) + (_doc.IsLocked(dp) ? "   · fixed" : "")
-                    : (_catalog!.Lookup(d.DefName)?.Friendly ?? d.DefName) + "   · loose";
+                    : Rename.Display(d.Loose!, _catalog!.Lookup(d.DefName)) + "   · loose";
                 menu.Items.Add(Item((isSel ? "●  " : "○  ") + name, "", (_, _) => Board.SelectItem(target)));
             }
         }
@@ -3278,7 +3297,7 @@ public partial class MainWindow : Window
         var menu = new ContextMenu { PlacementTarget = Board };
         menu.Items.Add(new MenuItem
         {
-            Header = part.Friendly + (lo.Quantity > 1 ? $"  · ×{lo.Quantity}" : ""),
+            Header = Rename.Display(lo, part) + (lo.Quantity > 1 ? $"  · ×{lo.Quantity}" : ""),
             IsEnabled = false, FontWeight = FontWeights.SemiBold,
         });
         menu.Items.Add(new Separator());
@@ -3286,6 +3305,10 @@ public partial class MainWindow : Window
         var stackable = part.StackLimit > 1;
         menu.Items.Add(Item(stackable ? "Change Quantity…" : "Change Quantity (not stackable)", "",
             (_, _) => ChangeLooseQuantity(lo, part), stackable));
+
+        // rename — the same entry a placed part gets, because the game draws no line between the two (#38). One
+        // item at a time, for the same reason: a name is what tells two otherwise-identical crates apart.
+        menu.Items.Add(Item(lo.CustomName is null ? "Rename…" : "Rename or clear…", "", (_, _) => RenameLoose(lo, part)));
 
         // "View contents…": a deck item that can hold things — a crate or toolbox, or a garment, backpack or EVA
         // suit, which store in their own pockets rather than a grid. Shown even when empty, like a placed
@@ -3312,7 +3335,7 @@ public partial class MainWindow : Window
     private void OpenLooseInventory(LooseObject lo, PartDef part)
     {
         if (_doc is null || _catalog is null || _sprites is null) return;
-        new InventoryWindow(_catalog, _sprites, lo.DefName, part.Friendly, lo.Cargo, _doc, _stack, rootLoose: lo)
+        new InventoryWindow(_catalog, _sprites, lo.DefName, Rename.Display(lo, part), lo.Cargo, _doc, _stack, rootLoose: lo)
         { Owner = this }.ShowDialog();
     }
 
@@ -3321,7 +3344,7 @@ public partial class MainWindow : Window
     {
         if (_doc is null) return;
         var max = Math.Max(1, part.StackLimit);
-        var dlg = new LooseQuantityDialog(part.Friendly, lo.Quantity, max) { Owner = this };
+        var dlg = new LooseQuantityDialog(Rename.Display(lo, part), lo.Quantity, max) { Owner = this };
         if (dlg.ShowDialog() != true || dlg.Quantity == lo.Quantity) return;
         _stack.Push(_doc, new SetLooseQuantityCommand(lo, lo.Quantity, dlg.Quantity));
         UpdateInspector();
@@ -3698,7 +3721,9 @@ public partial class MainWindow : Window
         var lone = Board.SelectionCount == 1;
         var part = Board.ArmedPart
                    ?? (lone && selected.Count == 1 ? _doc?.Part(selected[0]) : null)
-                   ?? (lone && Board.SelectedLoose is { } lo ? _catalog?.Lookup(lo.DefName) : null);   // a selected loose floor item
+                   // a selected loose floor item, resolved through the DESIGN's own catalog like the placement
+                   // above it: the window's is the same one in practice, but the document is what owns the def
+                   ?? (lone && Board.SelectedLoose is { } lo ? _doc?.Catalog.Lookup(lo.DefName) : null);
 
         if (part is null)
         {
@@ -3727,8 +3752,10 @@ public partial class MainWindow : Window
         // A named part leads with its own name; the stock one moves alongside so the row still says what the thing
         // actually is. The name row is the rename box (#30), so both notes ride on the dim line under it rather
         // than inside the text the user is about to type over.
-        var named = lonePart?.CustomName;
-        SetPartNameRow(named ?? part.Friendly, lonePart, part);
+        // What the name row is about: the lone part, or the lone deck item, both of which carry a name (#38).
+        var nameTarget = LoneNameTarget();
+        var named = nameTarget?.CustomName;
+        SetPartNameRow(named ?? part.Friendly, nameTarget, part);
         InsInternal.Text = (named is null ? part.DefName : $"{part.Friendly}  ·  {part.DefName}") + lockedNote + looseNote;
         if (part.Desc is { Length: > 0 } desc)
         {
@@ -3754,19 +3781,33 @@ public partial class MainWindow : Window
 
     // ---- the PART name row: renaming in place, the way the game's own object panel does (#30) ----
 
-    /// <summary>What the name row is editing: the part, the design it belongs to, and the text the box held when
-    /// focus arrived (what Escape puts back). Captured on focus rather than read at the commit, because LostFocus
-    /// arrives after the click that caused it, by which point the selection, or the active tab, has already moved
-    /// on. The name has to land on the part that was typed into (see the session rule in CONVENTIONS.md).</summary>
-    private (DocumentSession Session, Placement Part, string Was)? _nameEdit;
+    /// <summary>What the name row is editing: the thing being named, the design it belongs to, and the text the box
+    /// held when focus arrived (what Escape puts back). Captured on focus rather than read at the commit, because
+    /// LostFocus arrives after the click that caused it, by which point the selection, or the active tab, has
+    /// already moved on. The name has to land on the part that was typed into (see the session rule in
+    /// CONVENTIONS.md).</summary>
+    private (DocumentSession Session, RenderItem Target, string Was)? _nameEdit;
 
     /// <summary>
-    /// Fill the PART name row and say whether it can be typed into. Editable only for a lone selected placement:
-    /// an armed palette part is a def and has no name of its own, a multi-selection has nothing single to name,
-    /// and a selected loose floor item carries no name at all. The right-click <b>Rename…</b> dialog remains the
-    /// other way in, and both push the same command.
+    /// What the name row is about: the lone selected placement, or the lone selected loose deck item, since both
+    /// carry a name of their own (#38). Null for an armed palette part (a def has no name) and for a
+    /// multi-selection (nothing single to name). <see cref="RenderItem"/> is the pair the document already uses for
+    /// "a part or a deck item", so the row is written once against it rather than twice.
     /// </summary>
-    private void SetPartNameRow(string text, Placement? target, PartDef? part)
+    private RenderItem? LoneNameTarget()
+    {
+        if (Board.ArmedPart is not null || Board.SelectionCount != 1) return null;
+        var selected = Board.SelectedPlacements();
+        if (selected.Count == 1) return new RenderItem(selected[0], null);
+        return Board.SelectedLoose is { } lo ? new RenderItem(null, lo) : null;
+    }
+
+    /// <summary>
+    /// Fill the PART name row and say whether it can be typed into. Editable for whatever
+    /// <see cref="LoneNameTarget"/> resolves to. The right-click <b>Rename…</b> dialog remains the other way in,
+    /// and both push the same command.
+    /// </summary>
+    private void SetPartNameRow(string text, RenderItem? target, PartDef? part)
     {
         // Never overwrite what is being typed. This runs on every document change, and the rename itself is one.
         if (!InsFriendly.IsKeyboardFocusWithin) InsFriendly.Text = text;
@@ -3777,7 +3818,7 @@ public partial class MainWindow : Window
         InsFriendly.MaxLength = Rename.MaxLength;
         InsFriendly.Cursor = editable ? Cursors.IBeam : Cursors.Arrow;
         InsFriendly.ToolTip = editable
-            ? "The name this part goes by in game. Type over it, and clear it to go back to the stock name."
+            ? $"The name this {(target?.IsLoose == true ? "item" : "part")} goes by in game. Type over it, and clear it to go back to the stock name."
             : null;
     }
 
@@ -3794,9 +3835,8 @@ public partial class MainWindow : Window
 
     private void OnPartNameFocused(object sender, KeyboardFocusChangedEventArgs e)
     {
-        var selected = Board.SelectedPlacements();
-        if (_doc is null || Board.ArmedPart is not null || selected.Count != 1) return;
-        _nameEdit = (_active, selected[0], InsFriendly.Text);
+        if (_doc is null || LoneNameTarget() is not { } target) return;
+        _nameEdit = (_active, target, InsFriendly.Text);
         InsFriendly.SelectAll();
     }
 
@@ -3825,18 +3865,25 @@ public partial class MainWindow : Window
         _nameEdit = null;   // whichever route gets here first commits; the rest are no-ops
         var (session, target, _) = edit;
 
+        // Still there? The thing being named can have been deleted, or undone away, while the box held focus.
+        static bool StillInDesign(ShipDocument doc, RenderItem item) =>
+            item.Placement is { } p ? doc.Placements.Contains(p) : doc.LooseObjects.Contains(item.Loose!);
+
         // A freeze is an engine reading this very document off-thread, and it disables the chrome under the box,
         // which is one of the ways focus leaves. The design is held read-only until it lands, this edit included.
-        if (session.Doc is not { } doc || _freeze.IsFrozen || !doc.Placements.Contains(target))
+        if (session.Doc is not { } doc || _freeze.IsFrozen || !StillInDesign(doc, target))
         {
             UpdateInspector();
             return;
         }
 
-        var typed = Rename.Typed(InsFriendly.Text, doc.Part(target));
+        var def = target.Placement is { } part ? doc.Part(part) : doc.Catalog.Lookup(target.DefName);
+        var typed = Rename.Typed(InsFriendly.Text, def);
         if (typed != target.CustomName)
         {
-            session.Stack.Push(doc, new SetCustomNameCommand(target, target.CustomName, typed));
+            session.Stack.Push(doc, target.Placement is { } p
+                ? (IDocCommand)new SetCustomNameCommand(p, target.CustomName, typed)
+                : new SetLooseCustomNameCommand(target.Loose!, target.CustomName, typed));
             session.Board.InvalidateVisual();
         }
         if (ReferenceEquals(session, _active)) UpdateInspector();

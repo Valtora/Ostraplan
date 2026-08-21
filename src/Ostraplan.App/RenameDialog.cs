@@ -6,8 +6,9 @@ using Ostraplan.Core;
 namespace Ostraplan.App;
 
 /// <summary>
-/// Names a placed part, the way the game's own rename box does. Clearing the box restores the part's stock name,
-/// which is why there is no separate "clear" action: an empty name <i>is</i> no name (see <see cref="Rename"/>).
+/// Names a placed part, or a loose deck item, the way the game's own rename box does. Clearing the box restores
+/// the stock name, which is why there is no separate "clear" action: an empty name <i>is</i> no name (see
+/// <see cref="Rename"/>).
 /// </summary>
 public sealed class RenameDialog : Window
 {
@@ -16,7 +17,10 @@ public sealed class RenameDialog : Window
     /// <summary>The chosen name, already normalised — null when the user cleared it.</summary>
     public string? ChosenName { get; private set; }
 
-    public RenameDialog(string stockName, string? currentName)
+    /// <param name="stockName">The name the def itself goes by, shown above the box.</param>
+    /// <param name="currentName">The name it carries now, or null for none.</param>
+    /// <param name="noun">What the thing being named is, for the hint line: a part, or an item on the deck.</param>
+    public RenameDialog(string stockName, string? currentName, string noun = "part")
     {
         Title = "Rename";
         Width = 420;
@@ -33,7 +37,7 @@ public sealed class RenameDialog : Window
         });
         body.Children.Add(new TextBlock
         {
-            Text = "The name this part goes by in game. Leave it empty to go back to the stock name.",
+            Text = $"The name this {noun} goes by in game. Leave it empty to go back to the stock name.",
             Foreground = ThemeManager.Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(0, 4, 0, 10),
         });

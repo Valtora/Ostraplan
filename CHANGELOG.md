@@ -12,6 +12,21 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Loose items can be named, the same as a placed part.** Select an item lying on the deck and type
+  over the name at the top of the inspector, or use **right-click ▸ Rename…**. That is how a Smart
+  Crate reads "Electrical" for the wire, lights and sensors that go in it, a SuperHandy carries the
+  section of the ship it belongs to, and a stack of ablative core liner replacements says what it is
+  doing there. A deck item is often part of the design intent rather than clutter on it, and until now
+  it was the one thing in a design that could not be labelled.
+  - **It is the game's own rename, not an Ostraplan label**, so it goes where every other name does:
+    into the game through **Export** and **Update Ship in Save…**, back out again when you import a
+    ship carrying one, and into the `.oplan` with the rest of the design. Clearing the box, or typing
+    the stock name back into it, puts the item back to its stock name.
+  - The name shows on the item's right-click menu, on its contents window, on the quantity prompt and
+    in the stacked-tile list, so a labelled crate is recognisable wherever the item comes up.
+  - **A stack is named as a stack.** The name belongs to the pile of twenty rounds rather than to one
+    of them, which is where the game keeps it too.
+  - Thanks to nighoggDatatype for the request.
 - **Loose items are part of the selection now, so a deck's clutter can be dealt with in one go.**
   A box-select catches the items lying on the floor along with the structure, and the filter it
   offers has a **Loose items** row alongside the layers: right-click ▸ **Select only ▸ Loose items**,
