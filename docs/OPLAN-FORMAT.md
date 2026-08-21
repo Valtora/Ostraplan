@@ -80,7 +80,7 @@ A complete file, with every section populated:
     }
   ],
   "looseObjects": [
-    { "def": "ItmWrench", "x": 6, "y": 4, "rot": 0, "qty": 1 },
+    { "def": "ItmWrench", "x": 6, "y": 4, "rot": 0, "qty": 1, "name": "port toolkit" },
     { "def": "ItmBackpack01", "x": 7, "y": 4, "rot": 0, "qty": 1,
       "cargo": [ { "def": "PocketPouchSmall01", "strId": "…", "authored": true,
                    "intrinsic": true, "slotted": true, "slot": "pocket_pouchSm01" } ] }
@@ -175,6 +175,7 @@ The design itself, in draw order (array order is preserved). Each entry:
 | `origin` | string / absent | Save-edit only: the `strID` the item had in the save it was imported from, used to write structural edits back to the right item. Absent otherwise. An id the write target does not recognise is treated as a new part, so this never binds the design to one particular save. |
 | `swappedFrom` | string / absent | Save-edit only: the `strID` this part **used to be**, before an uninstall / install or door toggle re-stated it under another def. `origin` is necessarily absent when this is present (the item record can't be reused), but the part is still one the player owns, so the edit cost prices it as a move rather than as construction. |
 | `swappedFromDef` | string / absent | The def the part carried before that swap, so swapping back to it restores `origin` outright and the round trip is free. Always absent when `swappedFrom` is. |
+| `name` | string / absent | The name the user gave this part (the game's own `Rename`, see [GAME-INTERNALS](GAME-INTERNALS.md#the-rename-gpm--an-objects-own-name)). Absent for a part carrying its def's stock name. |
 | `z` | int / absent | The manual draw-order bias a **Move Back / Move Forward** wrote onto this part. Absent for a part left in the automatic order, which is nearly all of them. Cosmetic: it moves the part inside its render layer and nothing else reads it. |
 | `cargo` | array / absent | A full snapshot of this container's contents. Absent only for a container holding nothing. |
 | `cargoOwn` | bool / absent | Whether `cargo` is the design's **own** (authored in the inventory editor) rather than contents that arrived with an import and are still the ship's. Only the latter are refreshed from the ship a write-back is about to write over. Absent when the container holds nothing, and in a file from before this field, where a snapshot was only ever written for an edited container and so reads back as owned. |
@@ -226,6 +227,7 @@ on load. One per tile — a later duplicate at the same tile overwrites.
 | `def` | string | The item's `strName`. |
 | `x`, `y`, `rot` | int | Tile pose in document coordinates. |
 | `qty` | int | Stacked count (≥ 1). Absent or `0` in an older file means a single item. |
+| `name` | string / absent | The name the user gave this deck item, exactly as on a part (above). Absent for an item carrying its def's stock name, which is nearly all of them. On a stack it is the stack's, and reaches the game on the stack head. |
 | `z` | int / absent | The manual draw-order bias, exactly as on a part: loose items share one render order with placed structure. Absent for the automatic order. |
 | `cargo` | array / absent | What the item holds, in the same **cargo snapshot node** shape as a part's (above). A crate on the deck holds what was put in it; a garment, backpack or EVA suit holds its own pockets. Absent for the great majority of deck items, which hold nothing. |
 

@@ -399,7 +399,11 @@ public static class ShipExport
             var headId = Guid.NewGuid().ToString();
             var qty = Math.Clamp(lo.Quantity, 1, Math.Max(1, part.StackLimit));
 
-            items.Add(new ExportedItem { StrName = lo.DefName, FX = fx, FY = fy, FRotation = rot, StrID = headId });
+            var head = new ExportedItem { StrName = lo.DefName, FX = fx, FY = fy, FRotation = rot, StrID = headId };
+            // A name the user gave this deck item, on the head alone: the stack's extra copies below are members of
+            // it, and the game keeps the name on the head's CO (see Rename and LooseObject.CustomName).
+            if (lo.CustomName is { } looseName) head.AGPMSettings = [RenameGpm(looseName)];
+            items.Add(head);
 
             if (qty > 1)
             {

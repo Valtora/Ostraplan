@@ -1,4 +1,5 @@
 using System.IO;
+using System.Text.Json;
 using System.Text.Json.Nodes;
 using Ostraplan.Core;
 using Xunit;
@@ -431,6 +432,27 @@ public class SaveEditInjectSyntheticTests
         Assert.All(ammo, i => Assert.Contains((string)i["strID"]!, CoIds(ship)));   // every copy carries a CO
         var headCo = ((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()).Single(o => (string)o["strID"]! == (string)head["strID"]!);
         Assert.Equal(2, ((JsonArray)headCo["aStack"]!).Count);                  // head lists its members
+    }
+
+    [Fact]
+    public void A_named_loose_item_is_injected_with_its_rename_panel_on_the_head()
+    {
+        // a name the user gave a deck item reaches the save as the game's own Rename panel (#38), on the stack
+        // head alone — the extra copies are members of it and the game keeps the name on the head's CO
+        var cat = new Fixtures().Floor("Floor").Part("Ammo", stackLimit: 10).Build();
+        var ctx = Context(
+            new JsonArray(Item("a", "Floor", 100, 200)),
+            new JsonArray(Co("a", "Floor")),
+            new() { ["a"] = new OriginPart(0, 0, 0, []) });
+        var doc = Fixtures.Doc(cat, new Placement { DefName = "Floor", X = 0, Y = 0, OriginStrID = "a" });
+        new PlaceLooseCommand(new LooseObject { DefName = "Ammo", X = 0, Y = 0, Quantity = 3, CustomName = "Poison Bullet" }).Do(doc);
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
+
+        var ammo = Items(ship).Where(i => (string)i["strName"]! == "Ammo").ToList();
+        var head = Assert.Single(ammo, i => i["strParentID"] is null);
+        Assert.Equal("Poison Bullet", Rename.FromItem(JsonDocument.Parse(head.ToJsonString()).RootElement));
+        Assert.All(ammo.Where(i => i["strParentID"] is not null), m => Assert.Null(m["aGPMSettings"]));
     }
 
     [Fact]

@@ -277,6 +277,99 @@ public class RenameTests
         Assert.Contains(imported.Placements, p => p.CustomName == "spare reactor parts");
     }
 
+    // ---- loose deck items (#38): the game renames a tool on the floor as readily as the rack it belongs in ----
+
+    [Fact]
+    public void A_deck_item_can_be_named_and_cleared_as_one_undo_step_each()
+    {
+        var cat = new Fixtures().Part("Crate", container: (4, 4)).Build();
+        var doc = new ShipDocument(cat);
+        var stack = new CommandStack();
+        var crate = new LooseObject { DefName = "Crate", X = 0, Y = 0 };
+        new PlaceLooseCommand(crate).Do(doc);
+
+        stack.Push(doc, new SetLooseCustomNameCommand(crate, crate.CustomName, "Electrical"));
+        Assert.Equal("Electrical", crate.CustomName);
+        Assert.Equal("Electrical", Rename.Display(crate, cat.Lookup("Crate")));
+
+        stack.Push(doc, new SetLooseCustomNameCommand(crate, crate.CustomName, null));
+        Assert.Null(crate.CustomName);
+        Assert.Equal(cat.Lookup("Crate")!.Friendly, Rename.Display(crate, cat.Lookup("Crate")));
+
+        stack.Undo(doc);
+        Assert.Equal("Electrical", crate.CustomName);   // the same object, renamed in place: the selection survives
+        stack.Undo(doc);
+        Assert.Null(crate.CustomName);
+    }
+
+    [SkippableFact]
+    public void A_deck_items_name_round_trips_through_the_oplan()
+    {
+        var g = TestData.RequireGame();
+        Skip.If(g.Catalog.LooseItems.Count == 0, "no loose items in this build");
+        var item = g.Catalog.LooseItems[0];
+
+        var doc = new ShipDocument(g.Catalog);
+        var named = new LooseObject { DefName = item.DefName, X = 0, Y = 0, CustomName = "Salvage" };
+        var plain = new LooseObject { DefName = item.DefName, X = 1, Y = 0 };
+        new PlaceLooseCommand(named).Do(doc);
+        new PlaceLooseCommand(plain).Do(doc);
+
+        var (rebuilt, _) = OplanFile.FromDocument(doc, g.Index, new OplanMeta()).ToDocument(g.Catalog);
+
+        Assert.Equal("Salvage", rebuilt.LooseAt(0, 0)!.CustomName);
+        Assert.Null(rebuilt.LooseAt(1, 0)!.CustomName);
+    }
+
+    [SkippableFact]
+    public void A_named_deck_item_exports_its_rename_panel_on_the_stack_head_alone()
+    {
+        var g = TestData.RequireGame();
+        var stackable = g.Catalog.LooseItems.FirstOrDefault(p => p.StackLimit > 1);
+        Skip.If(stackable is null, "no stackable loose item in this build");
+
+        var doc = new ShipDocument(g.Catalog);
+        var qty = Math.Min(3, stackable!.StackLimit);
+        new PlaceLooseCommand(new LooseObject
+        {
+            DefName = stackable.DefName, X = 0, Y = 0, Quantity = qty, CustomName = "Poison Bullet",
+        }).Do(doc);
+
+        var (ship, _, _) = ShipExport.Build(doc, g.Catalog, [], "Named Deck Item");
+
+        var emitted = ship.AItems.Where(i => i.StrName == stackable.DefName).ToList();
+        var head = Assert.Single(emitted, i => i.StrParentID is null);
+        var panel = Assert.Single(head.AGPMSettings!, s => s.StrName == Rename.Panel);
+        Assert.Equal(new object?[] { Rename.NameKey, "Poison Bullet" }, panel.DictGUIPropMap);
+        // the extra copies are members of the head's stack, and the game keeps the name on the head's CO alone
+        Assert.All(emitted.Where(i => i.StrParentID is not null), m => Assert.Null(m.AGPMSettings));
+    }
+
+    [SkippableFact]
+    public void A_deck_items_name_authored_in_game_survives_an_import()
+    {
+        var g = TestData.RequireGame();
+        Skip.If(g.Catalog.LooseItems.Count == 0, "no loose items in this build");
+        var item = g.Catalog.LooseItems[0];
+
+        var ship = ShipTemplate.ParseFile($$"""
+            [{
+              "strName": "TestShip", "nCols": 4, "nRows": 4,
+              "vShipPos": { "x": 0.0, "y": 0.0 },
+              "aItems": [
+                { "strName": "{{item.DefName}}", "fX": 0.0, "fY": 0.0, "fRotation": 0.0, "strID": "a",
+                  "aGPMSettings": [ { "strName": "Rename", "dictGUIPropMap": ["strName", "Salvage crate"] } ] },
+                { "strName": "{{item.DefName}}", "fX": 1.0, "fY": 0.0, "fRotation": 0.0, "strID": "b" }
+              ]
+            }]
+            """).Single();
+
+        // it is loose, not structure, so it lands in LooseObjects rather than as a placement — with its label
+        var imported = TemplateImport.FromTemplate(ship, g.Catalog).Doc;
+        Assert.Contains(imported.LooseObjects, o => o.CustomName == "Salvage crate");
+        Assert.Contains(imported.LooseObjects, o => o.CustomName is null);
+    }
+
     [SkippableFact]
     public void A_name_on_the_primary_airlock_is_exported_like_any_other()
     {

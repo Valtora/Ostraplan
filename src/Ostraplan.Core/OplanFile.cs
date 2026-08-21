@@ -110,7 +110,7 @@ public sealed class OplanFile
                               .Select(lo => new OplanLoose
                               {
                                   Def = lo.DefName, X = lo.X, Y = lo.Y, Rot = lo.Rot, Qty = lo.Quantity,
-                                  Z = lo.ZBias == 0 ? null : lo.ZBias,
+                                  Name = lo.CustomName, Z = lo.ZBias == 0 ? null : lo.ZBias,
                                   Cargo = lo.Cargo.Count > 0 ? lo.Cargo.Select(ToOplanCargo).ToList() : null,
                               })
                               .ToList(),
@@ -200,6 +200,7 @@ public sealed class OplanFile
                 {
                     DefName = lo.Def, X = lo.X, Y = lo.Y, Rot = GridMath.Norm(lo.Rot),
                     Quantity = lo.Qty < 1 ? 1 : lo.Qty, ZBias = lo.Z ?? 0,
+                    CustomName = Rename.OrNull(lo.Name),   // verbatim, exactly as a part's name (see OplanPart.Name)
                     // AddLoose tops up the item's own pockets, so a file written before deck items held anything
                     // still opens with them (and a file that has them is left alone).
                     Cargo = FromOplanCargoList(lo.Cargo ?? [], catalog.Lookup(lo.Def), catalog),
@@ -433,6 +434,11 @@ public sealed class OplanLoose
     [JsonPropertyName("y")] public int Y { get; set; }
     [JsonPropertyName("rot")] public int Rot { get; set; }
     [JsonPropertyName("qty")] public int Qty { get; set; } = 1;   // stacked count (>=1); absent/0 in an older file → single
+    /// <summary>A name the user gave this deck item (see <see cref="LooseObject.CustomName"/>), on the same terms
+    /// as a part's <see cref="OplanPart.Name"/>. Null — and omitted — for an item carrying its stock name, which
+    /// is nearly all of them. Additive: an older build ignores it and round-trips it through
+    /// <see cref="Extra"/>, so a design opened in one loses no names.</summary>
+    [JsonPropertyName("name")] public string? Name { get; set; }
     /// <summary>The manual draw-order bias (see <see cref="OplanPart.Z"/>); null for the automatic order.</summary>
     [JsonPropertyName("z")] public int? Z { get; set; }
 

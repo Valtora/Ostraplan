@@ -53,7 +53,9 @@ public static class Rename
 
     /// <summary>
     /// Can this part be renamed? Anything that resolves to a def can. The game allows it on every object that is
-    /// not a person (<c>CondOwner.Rename</c>), so Ostraplan offers it wherever the game does.
+    /// not a person (<c>CondOwner.Rename</c>), so Ostraplan offers it wherever the game does — on a
+    /// <see cref="LooseObject"/> lying on the deck as much as on a <see cref="Placement"/>, since the game draws no
+    /// such distinction and a design can mean a name on either (#38).
     ///
     /// <para>This was once narrowed to <b>containers</b> and <b>devices</b> (anything carrying a control panel,
     /// which is what a GUI-prop-map declaration means), on the theory that a name is only ever useful on something
@@ -77,6 +79,12 @@ public static class Rename
     /// <summary>The name to show for a placement: its custom name when it has one, else its def's own.</summary>
     public static string Display(Placement placement, PartDef? part) =>
         placement.CustomName ?? part?.Friendly ?? placement.DefName;
+
+    /// <summary>The same for a loose deck item (see <see cref="LooseObject.CustomName"/>). A separate overload
+    /// rather than a shared interface: the two are unrelated types by design (structure against overlay), and the
+    /// name is the only thing they have in common.</summary>
+    public static string Display(LooseObject loose, PartDef? part) =>
+        loose.CustomName ?? part?.Friendly ?? loose.DefName;
 
     /// <summary>
     /// The custom name baked into one <c>aItems</c> entry's <c>aGPMSettings</c>, or null when it carries none.

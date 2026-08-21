@@ -262,7 +262,15 @@ public static class TemplateImport
                     }
                     var (lcol, lrow, lrot) = ShipGrid.TemplateTile(
                         item.FX, item.FY, item.FRotation, part.Item.Width, part.Item.Height, tmpl.VShipPosX, tmpl.VShipPosY);
-                    var dropped = new LooseObject { DefName = item.DefName, X = lcol, Y = lrow, Rot = lrot, Quantity = quantity };
+                    // A name the ship already carried rides in on a deck item exactly as it does on structure: a
+                    // crate labelled in game keeps its label (see LooseObject.CustomName). The name is the head's,
+                    // which is the item this object was built from; the members folded into the quantity carry
+                    // their own and are not read.
+                    var dropped = new LooseObject
+                    {
+                        DefName = item.DefName, X = lcol, Y = lrow, Rot = lrot, Quantity = quantity,
+                        CustomName = item.CustomName,
+                    };
                     doc.AddLoose(dropped);
                     if (item.StrID is { Length: > 0 } lid) looseByStrId[lid] = dropped;
                     looseKept += quantity;

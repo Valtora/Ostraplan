@@ -496,3 +496,16 @@ public sealed class SetCustomNameCommand(Placement placement, string? before, st
             ? $"Cleared the name on {AuditFmt.Name(f, placement.DefName)}"
             : $"Named {AuditFmt.Name(f, placement.DefName)} \"{after}\"";
 }
+
+/// <summary>Give a loose deck item a name of its own, or clear it back to the stock one — the loose twin of
+/// <see cref="SetCustomNameCommand"/> (see <see cref="Rename"/>). Nothing about the item's pose changes, so no
+/// re-analysis is implied.</summary>
+public sealed class SetLooseCustomNameCommand(LooseObject obj, string? before, string? after) : IDocCommand, IAuditDescribable
+{
+    public void Do(ShipDocument doc) => doc.SetCustomName(obj, after);
+    public void Undo(ShipDocument doc) => doc.SetCustomName(obj, before);
+    public string Describe(Func<string, string?> f) =>
+        after is null
+            ? $"Cleared the name on the loose {AuditFmt.Name(f, obj.DefName)}"
+            : $"Named the loose {AuditFmt.Name(f, obj.DefName)} \"{after}\"";
+}

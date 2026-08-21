@@ -206,6 +206,13 @@ public readonly record struct RenderItem(Placement? Placement, LooseObject? Loos
     public int Y => Placement?.Y ?? Loose!.Y;
     public int Rot => Placement?.Rot ?? Loose!.Rot;
     public int ZBias => Placement?.ZBias ?? Loose!.ZBias;
+
+    /// <summary>The name the user gave this one, or null when it carries its def's own (see
+    /// <see cref="Rename"/>). Both halves carry one: the game renames a tool on the deck as readily as the rack
+    /// it belongs in. Branches on which half is set rather than coalescing, unlike the members above: the value
+    /// is itself nullable, so <c>Placement?.CustomName ?? Loose!.CustomName</c> would dereference the null half
+    /// for every unnamed part.</summary>
+    public string? CustomName => Placement is { } p ? p.CustomName : Loose!.CustomName;
 }
 
 /// <summary>
@@ -823,6 +830,10 @@ public sealed class ShipDocument
     /// empty collapsing to null (<see cref="Rename.OrNull"/>): typed input is normalised at the rename dialog, and
     /// normalising again here would corrupt an undo that restores a name imported exactly as the game stored it.</summary>
     internal void SetCustomName(Placement p, string? name) { p.CustomName = Rename.OrNull(name); RaiseChanged(); }
+
+    /// <summary>Set or clear a loose deck item's own name (see <see cref="LooseObject.CustomName"/>), on the same
+    /// terms as a part's: the game renames a tool on the floor as readily as the rack it belongs in.</summary>
+    internal void SetCustomName(LooseObject o, string? name) { o.CustomName = Rename.OrNull(name); RaiseChanged(); }
 
     // ---- device-link mutations (command implementations only) ----
 

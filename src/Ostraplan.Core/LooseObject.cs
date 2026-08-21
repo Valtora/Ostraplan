@@ -50,6 +50,21 @@ public sealed class LooseObject
     /// </summary>
     public IReadOnlyList<CargoItem> Cargo { get; set; } = [];
 
+    /// <summary>
+    /// A name the user gave this item, replacing its stock one everywhere the item is named. Null (and omitted
+    /// from the .oplan) when it carries the name its def came with.
+    ///
+    /// <para>The same rename a <see cref="Placement"/> carries (see <see cref="Rename"/>), for the same reason: the
+    /// game renames <b>anything that is not a person</b>, a tool on the deck included, so a crate can read
+    /// "Electrical" and a SuperHandy can be labelled with the section it belongs to (#38). It travels as the
+    /// item's own <c>Rename</c> GPM panel on export and on a save write-back, and an import reads it back.</para>
+    ///
+    /// <para>On a stack (<see cref="Quantity"/> &gt; 1) the name lands on the <b>head</b>, which is the object the
+    /// design has: the extra copies are written as members of the head's stack and carry no name, exactly as the
+    /// game keeps a renamed stack.</para>
+    /// </summary>
+    public string? CustomName { get; set; }
+
     /// <summary>A manual draw-order bias, exactly as <see cref="Placement.ZBias"/> — loose items share the one
     /// render order with placed parts (see <see cref="ShipDocument.RenderOrder"/>), so a dropped canister can be
     /// pushed behind the fixture it leans on. Mutable for the same reason <see cref="Quantity"/> is: the nudge

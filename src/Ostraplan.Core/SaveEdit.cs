@@ -378,7 +378,12 @@ public static class SaveEdit
             var headId = Guid.NewGuid().ToString();
             var qtyL = Math.Clamp(lo.Quantity, 1, Math.Max(1, lpart.StackLimit));
 
-            outItems.Add(new JsonObject { ["strName"] = lo.DefName, ["fX"] = lfx, ["fY"] = lfy, ["fRotation"] = lfrot, ["strID"] = headId });
+            var headItem = new JsonObject { ["strName"] = lo.DefName, ["fX"] = lfx, ["fY"] = lfy, ["fRotation"] = lfrot, ["strID"] = headId };
+            // A name the user gave this deck item, on the head alone — the stack's extra copies are members of it
+            // (see LooseObject.CustomName). Every loose item is written fresh on each write-back, so there is never
+            // an existing panel to replace here; ApplyRename is used all the same, for one rule about the shape.
+            ApplyRename(headItem, lo.CustomName);
+            outItems.Add(headItem);
             var headCo = SynthesizeCo(lo.DefName, headId, catalog, ctx.Source.RegId, ctx.Epoch);
 
             if (qtyL > 1)

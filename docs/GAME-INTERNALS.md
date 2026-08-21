@@ -3130,7 +3130,7 @@ sets), giving a 220-ship rooms **and** certification gate. Only **Babak / Babak 
 | Interaction reach (`Interaction.Triggered` range + LOS) | ported | `WalkNetwork`, `LineOfSight` |
 | Crew pathing itself (costs, occupancy, doors opening over time) | excluded (a simulation, not a plan) | never ported |
 | Device signal connections (`Electrical` GPM) | ported | `DeviceLink` / `DeviceLinks`, `ShipExport.WireDeviceLinks` |
-| Object rename (`CondOwner.Rename` / `CheckForRename`, the `Rename` GPM) | ported (§14) | `Rename`, `Placement.CustomName` |
+| Object rename (`CondOwner.Rename` / `CheckForRename`, the `Rename` GPM) | ported (§14) | `Rename`, `Placement.CustomName`, `LooseObject.CustomName` |
 | Power-state switching (`PreferPoweredState` both ways; alarm sensing) | ported (nominal states only, §12) | `Catalog.PowerToggle` |
 | Deferred lighting (`Visibility` + `LoSPass`) | ported (preview only) | `LightNetwork`, `VisibilityMesh`, `LightComposite` |
 | `JsonShip` (de)serialization — export/template/save schema | ported | `ShipExport` (write), `ShipTemplate` (read) |
