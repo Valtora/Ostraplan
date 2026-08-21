@@ -44,6 +44,8 @@ public partial class MainWindow : Window
     // is most of the reason for having more than one open (the container renames on discussion #33 are the case
     // that asked for it).
     private List<(string Def, int X, int Y, int Rot, IReadOnlyList<CargoItem> Cargo)> _clip = [];   // copied selection, relative to its top-left (with container contents)
+    // the loose half of the same copy, relative to the same top-left: a copied room brings the clutter on its deck
+    private List<(string Def, int X, int Y, int Rot, int Quantity, IReadOnlyList<CargoItem> Cargo)> _clipLoose = [];
     // The copied selection's original top-left. Only a last resort for a paste: the canvas answers where the cursor
     // is, and this stands in for the one case it cannot, a canvas that has not been laid out yet.
     private (int X, int Y) _clipOrigin;
@@ -1999,10 +2001,22 @@ public partial class MainWindow : Window
         RecordRecentUse();   // the armed brush just landed at least one part — it's now "recently used"
     }
 
-    private void OnMoveRequested(IReadOnlyList<Placement> placements, int dx, int dy)
+    /// <summary>A move drag landed. The two halves of a mixed selection go down as <b>one</b> undo step: dragging a
+    /// room across and pressing Ctrl+Z should put the room back, not the structure only and then the clutter on a
+    /// second press. <paramref name="loose"/> is null when the deck items would not fit where the drag put them
+    /// (see <see cref="LooseTransform"/>); the structure still moves and the status bar says what stayed.</summary>
+    private void OnMoveRequested(
+        IReadOnlyList<Placement> placements,
+        IReadOnlyList<(LooseObject Obj, int X, int Y, int Rot)>? loose,
+        int dx, int dy)
     {
-        if (_doc is null || placements.Count == 0) return;
-        _stack.Push(_doc, new MoveCommand(placements, dx, dy));
+        if (_doc is null) return;
+        if (loose is null) ReportLooseBlocked();
+        if (placements.Count == 0 && (loose is null || loose.Count == 0)) return;
+        var cmds = new List<IDocCommand>(2);
+        if (placements.Count > 0) cmds.Add(new MoveCommand(placements, dx, dy));
+        if (loose is { Count: > 0 }) cmds.Add(new SetLoosePosesCommand(loose));
+        _stack.Push(_doc, cmds.Count == 1 ? cmds[0] : new CompositeCommand(cmds));
     }
 
     /// <summary>A symmetric move: the canvas has already computed each part's mirrored target pose. One undo step.</summary>
@@ -2012,20 +2026,28 @@ public partial class MainWindow : Window
         _stack.Push(_doc, new SetPosesCommand(poses.Select(t => (t.P, t.X, t.Y, t.Rot)).ToList()));
     }
 
+    /// <summary>
+    /// Delete what is selected, of both kinds, as one undo step. A box over a room catches its structure and the
+    /// clutter lying on it, and Delete is what the whole loose-item filter exists to reach: narrow the catch to
+    /// "Loose items" and this clears a deck without touching a wall.
+    ///
+    /// <para>Locked structure (the primary airlock) is skipped, as ever. Nothing loose is ever locked: it is cargo
+    /// on the floor, not part of the ship.</para>
+    /// </summary>
     private void DeleteSelection()
     {
         if (_doc is null) return;
-        if (Board.SelectedLoose is { } loose)   // a selected loose floor item — remove just it
-        {
-            _stack.Push(_doc, new RemoveLooseCommand(loose));
-            Board.ClearLooseSelection();
-            UpdateInspector();
-            return;
-        }
         var selected = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
-        if (selected.Count == 0) return;
-        _stack.Push(_doc, new RemoveCommand(selected));
+        var loose = Board.SelectedLooseObjects();
+        if (selected.Count == 0 && loose.Count == 0) return;
+
+        var cmds = new List<IDocCommand>(loose.Count + 1);
+        if (selected.Count > 0) cmds.Add(new RemoveCommand(selected));
+        cmds.AddRange(loose.Select(lo => (IDocCommand)new RemoveLooseCommand(lo)));
+        _stack.Push(_doc, cmds.Count == 1 ? cmds[0] : new CompositeCommand(cmds));
+
         Board.SelectedIds.Clear();
+        Board.ClearLooseSelection();
         UpdateInspector();
     }
 
@@ -2409,7 +2431,8 @@ public partial class MainWindow : Window
     {
         if (_doc is null) return;
         var parts = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
-        if (parts.Count == 0) return;
+        var loose = Board.SelectedLooseObjects();
+        if (parts.Count + loose.Count == 0) return;
 
         // With symmetry on AND the selection a genuine mirror set, the selection holds mirror partners
         // (auto-selected together): rotate the primary side and reflect it onto its partners so the group stays
@@ -2435,12 +2458,21 @@ public partial class MainWindow : Window
             return;
         }
 
-        if (parts.Count == 1)
+        if (parts.Count == 1 && loose.Count == 0)
         {
             // a single part turns in place — but sheet items (walls/floors) auto-tile, they don't rotate
             var p = parts[0];
             if (_doc.Part(p)?.Item.HasSpriteSheet == true) return;
             _stack.Push(_doc, new RotateCommand(_doc, p, delta));
+            return;
+        }
+
+        if (parts.Count == 0 && loose.Count == 1)
+        {
+            // a lone deck item turns in place, on the tile it is already on: nothing to collide with, and no
+            // bounding box worth turning about
+            var lo = loose[0];
+            _stack.Push(_doc, new SetLoosePosesCommand([(lo, lo.X, lo.Y, lo.Rot + delta)]));
             return;
         }
 
@@ -2453,12 +2485,59 @@ public partial class MainWindow : Window
                 return new GroupRotate.Item(p.X, p.Y, w, h, p.Rot, _doc.Part(p)?.Item.HasSpriteSheet == true);
             })
             .ToList();
+        items.AddRange(LooseAsItems(loose));   // one bounding box over both halves, so the whole catch turns as one
         var poses = GroupRotate.Rotate(items, delta);
-        var batch = new List<(Placement, int, int, int)>(parts.Count);
-        for (var i = 0; i < parts.Count; i++)
-            batch.Add((parts[i], poses[i].X, poses[i].Y, poses[i].Rot));
-        _stack.Push(_doc, new SetPosesCommand(batch));
+        PushGroupTransform(parts, loose, poses);
     }
+
+    /// <summary>
+    /// The loose half of a selection as group-transform inputs, in <see cref="ShipCanvas.SelectedLooseObjects"/>
+    /// order so the poses coming back line up with it. Appended after the parts, which is what puts both halves
+    /// inside the one bounding box: rotating a room and its clutter about two different centres would tear the
+    /// arrangement apart, which is the whole reason they are transformed together.
+    /// </summary>
+    private List<GroupRotate.Item> LooseAsItems(IReadOnlyList<LooseObject> loose) =>
+        loose.Select(o =>
+        {
+            var def = _catalog!.Lookup(o.DefName);
+            var (w, h) = def is null ? (1, 1) : GridMath.Size(def.Item.Width, def.Item.Height, o.Rot);
+            return new GroupRotate.Item(o.X, o.Y, w, h, o.Rot, def?.Item.HasSpriteSheet == true);
+        }).ToList();
+
+    /// <summary>
+    /// Commit a group rotate or flip: the poses array covers the parts first and the loose items after (see
+    /// <see cref="LooseAsItems"/>), and the two halves go down as one undo step.
+    ///
+    /// <para>One loose item per tile is the only thing that can refuse a transform. When it does, the structure
+    /// still turns and the status bar says the deck items stayed — the alternative, refusing the whole thing
+    /// because one crate is in the way, makes a rotate fail for a reason that is not about the ship.</para>
+    /// </summary>
+    private void PushGroupTransform(
+        IReadOnlyList<Placement> parts, IReadOnlyList<LooseObject> loose, (int X, int Y, int Rot)[] poses)
+    {
+        if (_doc is null) return;
+        var cmds = new List<IDocCommand>(2);
+        if (parts.Count > 0)
+        {
+            var batch = new List<(Placement, int, int, int)>(parts.Count);
+            for (var i = 0; i < parts.Count; i++)
+                batch.Add((parts[i], poses[i].X, poses[i].Y, poses[i].Rot));
+            cmds.Add(new SetPosesCommand(batch));
+        }
+        if (loose.Count > 0)
+        {
+            var byId = new Dictionary<Guid, (int X, int Y, int Rot)>(loose.Count);
+            for (var i = 0; i < loose.Count; i++) byId[loose[i].Id] = poses[parts.Count + i];
+            var loosePoses = LooseTransform.Poses(_doc, loose, o => byId[o.Id]);
+            if (loosePoses is null) ReportLooseBlocked();
+            else cmds.Add(new SetLoosePosesCommand(loosePoses));
+        }
+        if (cmds.Count > 0) _stack.Push(_doc, cmds.Count == 1 ? cmds[0] : new CompositeCommand(cmds));
+    }
+
+    /// <summary>Say in the status bar that the loose half of a transform could not be honoured. Not a dialog: the
+    /// action still did what it could, and this is the line that explains what it left alone.</summary>
+    private void ReportLooseBlocked() => TxtGhost.Text = "⛔ " + LooseTransform.Blocked;
 
     /// <summary>
     /// Mirror the current selection about its bounding-box centre — <paramref name="horizontal"/> flips
@@ -2471,7 +2550,8 @@ public partial class MainWindow : Window
     {
         if (_doc is null) return;
         var parts = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
-        if (parts.Count == 0) return;
+        var loose = Board.SelectedLooseObjects();
+        if (parts.Count + loose.Count == 0) return;
 
         var items = parts
             .Select(p =>
@@ -2480,18 +2560,17 @@ public partial class MainWindow : Window
                 return new GroupRotate.Item(p.X, p.Y, w, h, p.Rot, _doc.Part(p)?.Item.HasSpriteSheet == true);
             })
             .ToList();
+        items.AddRange(LooseAsItems(loose));   // mirrored about the same centre as the structure (see LooseAsItems)
         var poses = GroupFlip.Flip(items, horizontal);
-        var batch = new List<(Placement, int, int, int)>(parts.Count);
-        for (var i = 0; i < parts.Count; i++)
-            batch.Add((parts[i], poses[i].X, poses[i].Y, poses[i].Rot));
-        _stack.Push(_doc, new SetPosesCommand(batch));
+        PushGroupTransform(parts, loose, poses);
     }
 
     private void DuplicateSelection()
     {
         if (_doc is null) return;
         var selected = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
-        if (selected.Count == 0) return;
+        var loose = Board.SelectedLooseObjects();
+        if (selected.Count == 0 && loose.Count == 0) return;
         var clones = selected
             .Select(p => new Placement
             {
@@ -2499,10 +2578,25 @@ public partial class MainWindow : Window
                 Cargo = Cargo.CloneForest(p.Cargo),   // duplicate a container's contents with it
             })
             .ToList();
-        _stack.Push(_doc, new CompositeCommand(clones.Select(c => (IDocCommand)new PlaceCommand(c)).ToList()));
-        Board.SelectedIds.Clear();
-        foreach (var clone in clones) Board.SelectedIds.Add(clone.Id);   // hand the copies to the user's cursor
-        Board.InvalidateVisual();
+        // the loose half offsets by the same tile; one already sitting on the target tile keeps it (as a paste)
+        var skipped = 0;
+        var looseClones = new List<LooseObject>(loose.Count);
+        foreach (var o in loose)
+        {
+            if (_doc.LooseAt(o.X + 1, o.Y + 1) is not null) { skipped++; continue; }
+            looseClones.Add(new LooseObject
+            {
+                DefName = o.DefName, X = o.X + 1, Y = o.Y + 1, Rot = o.Rot, Quantity = o.Quantity,
+                Cargo = Cargo.CloneForest(o.Cargo),
+            });
+        }
+
+        var cmds = clones.Select(c => (IDocCommand)new PlaceCommand(c)).ToList();
+        cmds.AddRange(looseClones.Select(c => (IDocCommand)new PlaceLooseCommand(c)));
+        if (cmds.Count == 0) { ReportLooseSkipped(skipped); return; }
+        _stack.Push(_doc, new CompositeCommand(cmds));
+        Board.SetSelection(clones, looseClones);   // hand the copies to the user's cursor
+        ReportLooseSkipped(skipped);
         UpdateInspector();
     }
 
@@ -2676,6 +2770,43 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
+    /// Clear every loose item off the whole ship, in one undo step. The whole-ship counterpart of selecting them
+    /// and pressing Delete, and the answer to the commonest reason anyone wants that: a template or save import
+    /// brought a deck's worth of clutter in, and the decision to keep it is one you only make once you have seen
+    /// the ship. The import dialog's "Items lying on the deck" option is the same choice taken beforehand.
+    ///
+    /// <para>Only items lying on the floor go. Cargo inside containers is not loose, it is contents, and it stays
+    /// with the container that holds it.</para>
+    /// </summary>
+    private void RemoveAllLooseItems()
+    {
+        if (_doc is null) return;
+        var loose = _doc.LooseObjects.ToList();
+        if (loose.Count == 0)
+        {
+            Dlg.Info(this, "Remove All Loose Items",
+                "There is nothing lying on this ship's decks.\n\n" +
+                "This clears items dropped on the floor. Cargo inside containers is not loose — it is the "
+                + "container's contents, and it travels with the container.");
+            return;
+        }
+
+        var n = loose.Count;
+        var kinds = loose.Select(o => o.DefName).Distinct(StringComparer.Ordinal).Count();
+        var stacked = loose.Sum(o => o.Quantity);
+        var stackNote = stacked > n ? $", {stacked} counting stacks" : "";
+        if (!Dlg.Confirm(this, DlgKind.Warning, "Remove All Loose Items",
+                $"Remove {n} item{(n == 1 ? "" : "s")} lying on the decks ({kinds} kind{(kinds == 1 ? "" : "s")}{stackNote}).\n\n" +
+                "Cargo inside containers is untouched — only what is lying on the floor goes. This is one undo step.",
+                $"Remove {n}"))
+            return;
+
+        _stack.Push(_doc, new CompositeCommand(loose.Select(o => (IDocCommand)new RemoveLooseCommand(o)).ToList()));
+        Board.ClearLooseSelection();
+        UpdateInspector();
+    }
+
+    /// <summary>
     /// Replace the (unlocked) selection with a compatible buildable part — same render layer and body
     /// size — chosen from a picker, keeping each part's tile and rotation. One undo step; the
     /// swapped-in parts become the selection. Illegal results aren't blocked, just flagged by the
@@ -2795,13 +2926,19 @@ public partial class MainWindow : Window
     {
         if (_doc is null) return;
         var selected = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
-        if (selected.Count == 0) return;
-        var minX = selected.Min(p => p.X);
-        var minY = selected.Min(p => p.Y);
+        var loose = Board.SelectedLooseObjects();
+        if (selected.Count == 0 && loose.Count == 0) return;
+        // One origin over both halves, so a paste puts the clutter back where it sat relative to the structure
+        // rather than re-anchoring the two independently.
+        var minX = Math.Min(selected.Count > 0 ? selected.Min(p => p.X) : int.MaxValue,
+                            loose.Count > 0 ? loose.Min(o => o.X) : int.MaxValue);
+        var minY = Math.Min(selected.Count > 0 ? selected.Min(p => p.Y) : int.MaxValue,
+                            loose.Count > 0 ? loose.Min(o => o.Y) : int.MaxValue);
         _clipOrigin = (minX, minY);
         // snapshot the container contents too (cargo is immutable, so the reference is a valid snapshot) — each
         // paste deep-clones it with fresh ids, so a copied container pastes with its contents
         _clip = selected.Select(p => (p.DefName, p.X - minX, p.Y - minY, p.Rot, p.Cargo)).ToList();
+        _clipLoose = loose.Select(o => (o.DefName, o.X - minX, o.Y - minY, o.Rot, o.Quantity, o.Cargo)).ToList();
     }
 
     /// <summary>
@@ -2822,6 +2959,33 @@ public partial class MainWindow : Window
         }).ToList();
 
     /// <summary>
+    /// The clipboard's loose items as fresh <see cref="LooseObject"/>s anchored at <paramref name="anchor"/>, with
+    /// the ones that have nowhere to go left out: a tile already holding a loose item cannot take a second, and the
+    /// copy is not entitled to displace what is already there.
+    ///
+    /// <para>Unlike a group move, this places what fits rather than refusing outright. A move has to be all or
+    /// nothing because it relocates the items themselves, and a half-done one strands them; a paste creates new
+    /// ones, so the ones that land are simply the ones that landed, and the caller reports the rest.</para>
+    /// </summary>
+    private List<LooseObject> ClipboardLooseClones((int X, int Y) anchor, out int skipped)
+    {
+        var clones = new List<LooseObject>(_clipLoose.Count);
+        var taken = new HashSet<(int, int)>();
+        skipped = 0;
+        foreach (var c in _clipLoose)
+        {
+            var (x, y) = (anchor.X + c.X, anchor.Y + c.Y);
+            if (_doc!.LooseAt(x, y) is not null || !taken.Add((x, y))) { skipped++; continue; }
+            clones.Add(new LooseObject
+            {
+                DefName = c.Def, X = x, Y = y, Rot = c.Rot, Quantity = c.Quantity,
+                Cargo = Cargo.CloneForest(c.Cargo),
+            });
+        }
+        return clones;
+    }
+
+    /// <summary>
     /// Paste the clipboard at the cursor, selecting the copies. Pastes into whichever design is on screen, which
     /// need not be the one it was copied from, and lands in the same place either way: where you are pointing.
     ///
@@ -2832,13 +2996,30 @@ public partial class MainWindow : Window
     /// </summary>
     private void PasteClipboard((int X, int Y)? at = null)
     {
-        if (_doc is null || _clip.Count == 0) return;
-        var clones = ClipboardClones(_clip, at ?? Board.PasteCell ?? _clipOrigin);
-        _stack.Push(_doc, new CompositeCommand(clones.Select(c => (IDocCommand)new PlaceCommand(c)).ToList()));
-        Board.SelectedIds.Clear();
-        foreach (var clone in clones) Board.SelectedIds.Add(clone.Id);
-        Board.InvalidateVisual();
+        if (_doc is null || _clip.Count + _clipLoose.Count == 0) return;
+        var anchor = at ?? Board.PasteCell ?? _clipOrigin;
+        var clones = ClipboardClones(_clip, anchor);
+        var looseClones = ClipboardLooseClones(anchor, out var skipped);
+
+        var cmds = clones.Select(c => (IDocCommand)new PlaceCommand(c)).ToList();
+        cmds.AddRange(looseClones.Select(c => (IDocCommand)new PlaceLooseCommand(c)));
+        if (cmds.Count == 0) { ReportLooseSkipped(skipped); return; }
+        _stack.Push(_doc, new CompositeCommand(cmds));
+
+        // hand the copies to the user's cursor, both halves, so the paste can be dragged into place as one thing
+        Board.SetSelection(clones, looseClones);
+        if (skipped > 0) ReportLooseSkipped(skipped);
         UpdateInspector();
+    }
+
+    /// <summary>Say in the status bar how many deck items a paste or duplicate had nowhere to put. Silence would
+    /// read as "everything came through", and the count is the difference between a copy and most of one.</summary>
+    private void ReportLooseSkipped(int skipped)
+    {
+        if (skipped <= 0) return;
+        TxtGhost.Text = skipped == 1
+            ? "⛔ 1 deck item left out — that tile already holds a loose item"
+            : $"⛔ {skipped} deck items left out — those tiles already hold loose items";
     }
 
     private void OnContextMenuRequested((int X, int Y) cell)
@@ -2858,33 +3039,43 @@ public partial class MainWindow : Window
         var menu = new ContextMenu { PlacementTarget = Board };
 
         var selected = Board.SelectedPlacements();
+        var selectedLoose = Board.SelectedLooseObjects();
         var unlocked = selected.Where(p => !_doc.IsLocked(p)).ToList();
-        var multi = selected.Count > 1;
+        var multi = Board.SelectionCount > 1;
 
         if (multi)
         {
-            // a box selection: header + a layer filter to narrow it to one layer, so you can
+            // a box selection: header + a layer filter to narrow it to one kind, so you can
             // (e.g.) drag a section, "Select only ▸ Walls & doors", then delete just those.
             // The per-tile stacked picker is skipped here — it would collapse the whole
             // selection to a single tile (the earlier bug).
             menu.Items.Add(new MenuItem
             {
-                Header = $"{selected.Count} parts selected",
+                Header = SelectionSummary(selected.Count, selectedLoose.Count) + " selected",
                 IsEnabled = false,
                 FontWeight = FontWeights.SemiBold,
             });
-            var byLayer = selected
+            // The rows: one per render layer in the catch, then the loose items as a row of their own. Loose items
+            // are not a render layer (they are an overlay that shares the one draw order), but they are exactly the
+            // kind of thing a catch wants narrowing to — clearing an imported deck's clutter without touching the
+            // deck is the whole point — so they get a row alongside the layers.
+            var rows = selected
                 .GroupBy(p => _catalog!.RenderLayer(_doc.Part(p)))
-                .Where(g => g.Count() < selected.Count)   // a group that IS the whole selection changes nothing
                 .OrderBy(g => g.Key)
+                .Select(g => (Label: LayerName(g.Key), Parts: g.ToList(), Loose: new List<LooseObject>()))
                 .ToList();
-            if (byLayer.Count > 1)
+            if (selectedLoose.Count > 0)
+                rows.Add(("Loose items", [], selectedLoose));
+            // a row that IS the whole selection changes nothing, so it is not offered
+            rows = rows.Where(r => r.Parts.Count + r.Loose.Count < Board.SelectionCount).ToList();
+            if (rows.Count > 1)
             {
                 var pick = new MenuItem { Header = "Select only" };
-                foreach (var g in byLayer)
+                foreach (var row in rows)
                 {
-                    var group = g.ToList();
-                    pick.Items.Add(Item($"{LayerName(g.Key)} ({group.Count})", "", (_, _) => Board.SetSelection(group)));
+                    var (label, parts, loose) = row;
+                    pick.Items.Add(Item($"{label} ({parts.Count + loose.Count})", "",
+                        (_, _) => Board.SetSelection(parts, loose)));
                 }
                 menu.Items.Add(pick);
             }
@@ -2924,16 +3115,19 @@ public partial class MainWindow : Window
             });
         }
 
-        // actions on the current selection
-        var canAct = unlocked.Count > 0;
+        // actions on the current selection. Loose items count towards every one of them: nothing loose is ever
+        // locked (it is cargo on the floor rather than part of the ship), so each one is always actionable.
+        var movable = unlocked.Count + selectedLoose.Count;
+        var canAct = movable > 0;
         // a multi-selection always rotates as a group (even sheet walls/floors move); a lone
         // part rotates in place only if it isn't a sheet item (walls/floors auto-tile instead)
-        var canRotate = unlocked.Count > 1 || unlocked.Any(p => _doc.Part(p)?.Item.HasSpriteSheet != true);
-        var suffix = unlocked.Count > 1 ? $" ({unlocked.Count})" : "";
+        var canRotate = movable > 1 || unlocked.Any(p => _doc.Part(p)?.Item.HasSpriteSheet != true)
+                        || (unlocked.Count == 0 && selectedLoose.Count == 1);
+        var suffix = movable > 1 ? $" ({movable})" : "";
 
         // "Use as brush" (the eyedropper — formerly double-click): arm the part this menu is about, at its own
         // rotation, if it is buildable. Uses the lone selected part, else the topmost part on the tile.
-        var brushPart = selected.Count == 1 ? selected[0] : stack[0];
+        var brushPart = selected.Count == 1 ? selected[0] : stack[0];   // stack is non-empty: the menu returned early otherwise
         var brushDef = _allParts.Any(v => v.Part.DefName == brushPart.DefName) ? brushPart.DefName : null;
         var brushRot = brushPart.Rot;
 
@@ -3194,46 +3388,68 @@ public partial class MainWindow : Window
 
     /// <summary>
     /// Filter chips after a Shift+drag rectangle select: one checkable row per render layer in the
-    /// catch, toggled live against the full band result — so a drag over a hull section can keep,
-    /// say, just the walls without the floors beneath them. Skipped when the catch is one layer
-    /// (nothing to filter). Unlike the right-click "Select only", chips combine (walls + conduits).
+    /// catch, plus one for the loose items lying in it, toggled live against the full band result —
+    /// so a drag over a hull section can keep, say, just the walls without the floors beneath them,
+    /// or just the clutter without any of the ship. Skipped when the catch is one kind (nothing to
+    /// filter). Unlike the right-click "Select only", chips combine (walls + conduits).
     /// </summary>
     private void OnBandFilterRequested()
     {
         if (_doc is null || _catalog is null) return;
         var all = Board.SelectedPlacements();
+        var allLoose = Board.SelectedLooseObjects();
         var byLayer = all
             .GroupBy(p => _catalog.RenderLayer(_doc.Part(p)))
             .OrderBy(g => g.Key)
             .ToList();
-        if (byLayer.Count < 2) return;
+        // The loose items ride as one more chip, keyed off the end of the layer numbering so the same
+        // include-set drives both halves. They are not a render layer (see the "Select only" filter), but they
+        // filter like one, and a deck's worth of imported clutter is the commonest thing a catch wants rid of.
+        var looseKey = int.MaxValue;
+        var chips = byLayer.Select(g => (Key: g.Key, Label: LayerName(g.Key), Count: g.Count())).ToList();
+        if (allLoose.Count > 0) chips.Add((looseKey, "Loose items", allLoose.Count));
+        if (chips.Count < 2) return;
 
         var menu = new ContextMenu { PlacementTarget = Board };
         menu.Items.Add(new MenuItem
         {
-            Header = $"{all.Count} parts selected — keep:",
+            Header = SelectionSummary(all.Count, allLoose.Count) + " selected — keep:",
             IsEnabled = false,
             FontWeight = FontWeights.SemiBold,
         });
-        var included = byLayer.Select(g => g.Key).ToHashSet();
-        foreach (var g in byLayer)
+        var included = chips.Select(c => c.Key).ToHashSet();
+        foreach (var c in chips)
         {
-            var layer = g.Key;
+            var key = c.Key;
             var chip = new MenuItem
             {
-                Header = $"{LayerName(layer)} ({g.Count()})",
+                Header = $"{c.Label} ({c.Count})",
                 IsCheckable = true,
                 IsChecked = true,
                 StaysOpenOnClick = true,   // toggle several chips before dismissing (Esc / click away)
             };
             chip.Click += (_, _) =>
             {
-                if (chip.IsChecked) included.Add(layer); else included.Remove(layer);
-                Board.SetSelection(all.Where(p => included.Contains(_catalog.RenderLayer(_doc.Part(p)))));
+                if (chip.IsChecked) included.Add(key); else included.Remove(key);
+                Board.SetSelection(
+                    all.Where(p => included.Contains(_catalog.RenderLayer(_doc.Part(p)))),
+                    included.Contains(looseKey) ? allLoose : []);
             };
             menu.Items.Add(chip);
         }
         menu.IsOpen = true;
+    }
+
+    /// <summary>How a mixed selection reads in a header: "12 parts", "5 loose items", or both. The two halves are
+    /// named apart because they are not the same kind of thing — one is the ship, the other is what is lying on
+    /// it — and the count is what tells you whether the filter you just applied did what you meant.</summary>
+    private static string SelectionSummary(int parts, int loose)
+    {
+        var partText = parts == 1 ? "1 part" : $"{parts} parts";
+        var looseText = loose == 1 ? "1 loose item" : $"{loose} loose items";
+        if (parts == 0) return looseText;
+        if (loose == 0) return partText;
+        return $"{partText}, {looseText}";
     }
 
     /// <summary>Friendly name for a render layer, for the context-menu layer filter.</summary>
@@ -3476,13 +3692,19 @@ public partial class MainWindow : Window
     private void UpdateInspector()
     {
         var selected = Board.SelectedPlacements();
+        // One selected thing gets the full PART block; anything more gets the count line below. The test is the
+        // whole selection, not one half of it: a wall plus the crate lying against it is two things selected, and
+        // showing the wall's stats there would describe half of what is about to be deleted.
+        var lone = Board.SelectionCount == 1;
         var part = Board.ArmedPart
-                   ?? (selected.Count == 1 ? _doc?.Part(selected[0]) : null)
-                   ?? (Board.SelectedLoose is { } lo ? _catalog?.Lookup(lo.DefName) : null);   // a selected loose floor item
+                   ?? (lone && selected.Count == 1 ? _doc?.Part(selected[0]) : null)
+                   ?? (lone && Board.SelectedLoose is { } lo ? _catalog?.Lookup(lo.DefName) : null);   // a selected loose floor item
 
         if (part is null)
         {
-            SetPartNameRow(selected.Count > 1 ? $"{selected.Count} parts selected" : "—", null, null);
+            SetPartNameRow(Board.SelectionCount > 1
+                ? SelectionSummary(selected.Count, Board.SelectedLooseIds.Count) + " selected"
+                : "—", null, null);
             InsInternal.Text = "";
             DescBlock.Visibility = Visibility.Collapsed;
             InsCategory.Text = "";
@@ -3498,15 +3720,15 @@ public partial class MainWindow : Window
 
         // The lone selected placement, when that is what this is: an armed palette part is a def rather than a
         // placement of one, and a multi-selection has no single one. Everything per-placement below keys off it.
-        var lone = Board.ArmedPart is null && selected.Count == 1 ? selected[0] : null;
-        var lockedNote = lone is not null && _doc?.IsLocked(lone) == true ? "  · fixed to the ship" : "";
+        var lonePart = Board.ArmedPart is null && lone && selected.Count == 1 ? selected[0] : null;
+        var lockedNote = lonePart is not null && _doc?.IsLocked(lonePart) == true ? "  · fixed to the ship" : "";
         // a selected loose floor item shows its stacked count
-        var looseNote = Board.ArmedPart is null && Board.SelectedLoose is { Quantity: > 1 } sl ? $"  · ×{sl.Quantity}" : "";
+        var looseNote = Board.ArmedPart is null && lone && Board.SelectedLoose is { Quantity: > 1 } sl ? $"  · ×{sl.Quantity}" : "";
         // A named part leads with its own name; the stock one moves alongside so the row still says what the thing
         // actually is. The name row is the rename box (#30), so both notes ride on the dim line under it rather
         // than inside the text the user is about to type over.
-        var named = lone?.CustomName;
-        SetPartNameRow(named ?? part.Friendly, lone, part);
+        var named = lonePart?.CustomName;
+        SetPartNameRow(named ?? part.Friendly, lonePart, part);
         InsInternal.Text = (named is null ? part.DefName : $"{part.Friendly}  ·  {part.DefName}") + lockedNote + looseNote;
         if (part.Desc is { Length: > 0 } desc)
         {
@@ -3527,7 +3749,7 @@ public partial class MainWindow : Window
         InsInputs.Text = part.Inputs.Length == 0 ? "none" : string.Join("\n", part.Inputs);
         // A tank's contents belong to the placed part, not the def, so only a lone selected placement has any
         // (an armed palette part is a def and holds whatever the def holds).
-        PopulateStats(part, lone);
+        PopulateStats(part, lonePart);
     }
 
     // ---- the PART name row: renaming in place, the way the game's own object panel does (#30) ----
@@ -4117,6 +4339,9 @@ public partial class MainWindow : Window
         // the menu is built before the document is walked, and walking every part to label a menu item would run on
         // every menu open. RepairAll reports it in the confirmation instead.
         m.Items.Add(MenuAction("Repair All…", RepairAll, enabled: _doc is not null));
+        // Whole-ship like the two above, and the after-the-fact version of the import dialog's loose-items option.
+        // The count goes in the confirmation rather than the header, for the same reason Repair All's does.
+        m.Items.Add(MenuAction("Remove All Loose Items…", RemoveAllLooseItems, enabled: _doc is not null));
         m.Items.Add(new Separator());
         m.Items.Add(MenuAction("Snapshot…", () => OnSnapshotClick(this, e)));
         m.Items.Add(MenuAction("Bill of Materials…", () => OnMaterialsClick(this, e), gesture: "Ctrl+B"));
@@ -5112,14 +5337,15 @@ public partial class MainWindow : Window
             ("Hollow box", "Ctrl + Shift + drag", "With a part armed: place only the outline — walls, in practice."),
             ("Select", "LMB", "Select a part. Ctrl+click adds/removes; drag empty space to box-select."),
             ("Filter box-select", "Shift + drag", "With nothing armed: box-select even when starting on a part, then filter chips let you keep only some layers (e.g. the walls without the floors)."),
+            ("Select loose items", "Box-select, then filter", "A box-select catches loose deck items along with the structure, and the filter it offers (right-click ▸ Select only, or the chips after a Shift+drag) has a Loose items row: keep only those to clear a deck without touching the ship, or drop them to leave the clutter where it is. Ctrl+click a loose item to add or remove it by hand. Design ▸ Remove All Loose Items… does the whole ship at once."),
             ("Flood-select", "Double-click", "On a part: select every touching tile of the same type (bulk delete or re-skin). Ctrl+double-click adds the region."),
             ("Fill a compartment", "Double-click empty space, then Enter", "Double-click enclosed (sealed) empty space to highlight the whole compartment, then arm a part and press Enter to fill it (Esc to cancel). Areas open to space can't be selected, so a fill never leaks."),
             ("Use as brush", "Alt + click", "Eyedropper: arm the part under the cursor, at its own rotation, so you can keep painting it. Also on the right-click menu."),
             ("Replace with…", "Ctrl+R", "Swap the selection for a compatible part (same layer + footprint) via a picker. Also on the right-click menu."),
-            ("Move", "Drag selection", "Move the selected parts."),
+            ("Move", "Drag selection", "Move the selected parts, and any loose deck items caught with them."),
             ("Step down a stack", "`", "Select the next thing down the pile under the cursor, wrapping at the bottom — the quick way to reach a part drawn underneath another without going through the right-click list. Loose items are in the pile too."),
             ("Re-stack", "Ctrl+[ / Ctrl+]", "Move the selected part or loose item one step back / forward through the pile sharing its tile, when the automatic draw order isn't what you want. Reset order (right-click) hands that pile back to it. Both stay inside the render layer, so nothing lands under a deck plate or over a conduit run, and the choice is saved with the design."),
-            ("Context menu", "RMB", "Use as brush · Replace with… · Find and Replace All… · Make Loose Item / Install item · Repair · Move Back / Move Forward / Reset order · pick a buried layer on stacked tiles · Select only (after a box-select) · Close/Open door. Also cancels placement while armed."),
+            ("Context menu", "RMB", "Use as brush · Replace with… · Find and Replace All… · Make Loose Item / Install item · Repair · Move Back / Move Forward / Reset order · pick a buried layer on stacked tiles · Select only, including the loose items in the catch (after a box-select) · Close/Open door. Also cancels placement while armed."),
             ("Rotate part", "R / Shift+R", "CW / CCW — the armed part, a selected part in place, or a whole selection about its centre (walls & floors auto-tile rather than turn). The brush keeps its angle when you arm another part; the ghost draws a needle towards its leading edge and the status bar reads out the angle."),
             ("Flip selection", "H / Shift+H", "Mirror the selection about its centre — H horizontal (left↔right), Shift+H vertical (up↔down); each part reflects and snaps to a real rotation."),
             ("Symmetry", "M", "Cycle Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on. While on, it also drives editing: selecting a part grabs its mirror partner(s), and moving, rotating, or deleting the group keeps it symmetric (the far side tracks in the mirrored direction)."),

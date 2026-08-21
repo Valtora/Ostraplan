@@ -12,6 +12,31 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Loose items are part of the selection now, so a deck's clutter can be dealt with in one go.**
+  A box-select catches the items lying on the floor along with the structure, and the filter it
+  offers has a **Loose items** row alongside the layers: right-click ▸ **Select only ▸ Loose items**,
+  or tick its chip after a **Shift+drag**. Keep only those and press **Del** and the deck is clear
+  with the ship untouched; drop the row instead and the clutter stays where it is while you work on
+  the walls. That answers the room-by-room question too, since the count in the header tells you what
+  is actually lying in the area you just dragged over.
+  - **Everything else that acts on a selection now acts on them as well.** Move, rotate, flip,
+    copy/paste, duplicate and delete all take the two halves together, in one undo step, so dragging
+    a room across brings what is standing on its floor. Ctrl+click a loose item to add or remove it
+    by hand, the same as a part.
+  - **Design ▸ Remove All Loose Items…** does the whole ship at once, with the count in the
+    confirmation and one undo step to reverse it. This is the one to reach for after an import: it is
+    the same choice as the import dialog's "Items lying on the deck", taken once you can see the ship
+    rather than before. Cargo inside containers is not loose and is never touched.
+  - **Two places they behave differently from structure**, both because a tile holds one loose item
+    where parts stack freely. A move, rotate or flip that would put one on a tile another already
+    holds is refused for the deck items only, the structure still moves and the status bar says what
+    stayed; a paste or duplicate places the ones that fit and reports the rest. And symmetry stays a
+    structure feature: a selection holding any loose item is transformed about its own centre rather
+    than mirrored about the axes.
+  - **Ctrl+click on a loose item now adds it to the selection** rather than reaching the structure
+    underneath it. To get at what is under one, press **`** to step down the pile, use the right-click
+    stacked picker, or turn on **Surfaces** mode, which puts clutter out of the way of clicks entirely.
+  - Thanks to nighoggDatatype for the request.
 - **Simulate: fire a micrometeoroid or a weapon at the design and see what breaks.** A new
   **Simulate ▾** menu with **Micrometeoroid Strike…** and **Weapon Impact…**. **Drag a line across
   the plan** to say where the strike comes in and where it leaves, and it fires along it: every part

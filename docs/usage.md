@@ -144,7 +144,9 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
 
 ## Selecting & editing
 
-- **Select:** left-click a part. **Box-select:** drag over empty space.
+- **Select:** left-click a part. **Box-select:** drag over empty space. A box catches
+  loose items lying on the deck as well as structure, and everything below (delete,
+  move, rotate, flip, copy) then acts on both halves as one.
 - **Flood-select:** **double-click** a 1×1 part to grab every connected tile of
   the same kind (a whole wall run, a floor). **Ctrl+double-click** adds to the
   selection.
@@ -166,6 +168,16 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   its rotation to the nearest buildable orientation; walls and floors move but autotile
   rather than turn. (There's no "flipped" state in Ostranauts, so a single asymmetric
   part can't be truly mirrored — flip a *group* to mirror a whole room or subassembly.)
+- **Narrow a box-select:** right-click inside it for **Select only ▸** one kind, or use
+  the filter chips offered after a **Shift+drag** (which combine, where "Select only"
+  picks one). Both list the render layers in the catch plus a **Loose items** row, so a
+  drag over a room can keep just its walls, or just the clutter on its floor. Keeping only
+  the loose items and pressing **Del** clears a deck without touching the ship. To clear
+  every deck at once, use **Design ▸ Remove All Loose Items…**.
+- **Ctrl+click** a loose item to add it to (or take it out of) the selection by hand, the
+  same as Ctrl+click on a part. To reach the structure *under* a loose item, press **`**
+  to step down the pile, use the right-click stacked picker, or turn on **Surfaces** mode,
+  which puts clutter out of the way of clicks entirely.
 - **Right-click** for the context menu: Duplicate (**Ctrl+D**), Copy
   (**Ctrl+C**) / Paste (**Ctrl+V**), Rotate, Flip Horizontal / Vertical, Delete
   (**Del**), **Use as brush** (**Alt+click**, the eyedropper — arm the part you clicked, at its
@@ -1155,6 +1167,24 @@ container under the cursor if one accepts it. Right-click a placed loose item fo
 **Change Quantity** (stackable items, up to the item's stack limit) and **Delete**.
 Loose cargo carries no structure, so it takes no part in the Law; it just renders and
 travels with the ship through **Export** and save write-back.
+
+Loose items select like anything else: a box-select catches them, **Ctrl+click** adds or
+removes one, and the box-select filter (**Select only**, or the chips after a
+**Shift+drag**) has a **Loose items** row for keeping or dropping the whole catch of them.
+Once selected they move, rotate, flip, copy, duplicate and delete with the structure
+around them, all in one undo step. Two things behave differently from structure, because
+loose items are one per tile where parts stack freely:
+
+- A transform that would land one deck item on a tile another already holds is refused for
+  the deck items only — the structure still moves, and the status bar says what stayed.
+  A **paste** or **duplicate** instead places the ones that fit and reports the rest.
+- **Symmetry** doesn't apply to them. A selection holding any loose item is transformed as
+  a plain group about its own centre rather than mirrored about the symmetry axes.
+
+**Design ▸ Remove All Loose Items…** clears every item lying on the ship's decks in one
+undo step — the after-the-fact version of the import dialog's **Items lying on the deck**
+option, for when you decide once you can see the ship. Cargo inside containers is not
+loose and is untouched.
 
 ### What draws on top of what
 

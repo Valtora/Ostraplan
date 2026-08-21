@@ -320,10 +320,29 @@ public sealed class ShipCanvas : FrameworkElement
     private bool _armedLoose;                                  // the armed brush is an Items-tab loose item, not structure (single-click drop, no CheckFit)
     private bool _bandFilter;                                  // the current band select was Shift-initiated (offer the layer filter chips on release)
 
-    /// <summary>The selected loose floor item (see <see cref="LooseObject"/>), or null. Distinct from the
-    /// placement selection (<see cref="SelectedIds"/>): a loose item is a non-structural overlay, so it carries its
-    /// own single-select highlight and Delete handling.</summary>
-    public LooseObject? SelectedLoose { get; private set; }
+    /// <summary>
+    /// The selected loose floor items (see <see cref="LooseObject"/>), by id. These sit in the selection
+    /// <b>alongside</b> <see cref="SelectedIds"/> rather than instead of it: a box-select catches both kinds, and
+    /// the group actions (delete, move, rotate, flip, copy) act on the two halves together. They stay two sets
+    /// because the halves are not interchangeable — structure is indexed by tile coverage and answers to the
+    /// placement law, symmetry and the rating, while a loose item is one-per-tile overlay that answers to none of
+    /// them.
+    /// </summary>
+    public HashSet<Guid> SelectedLooseIds { get; } = [];
+
+    /// <summary>The selected loose items themselves, in document order (the set holds ids, as
+    /// <see cref="SelectedIds"/> does, so a deleted item cannot linger in it).</summary>
+    public List<LooseObject> SelectedLooseObjects() =>
+        Doc is null ? [] : Doc.LooseObjects.Where(o => SelectedLooseIds.Contains(o.Id)).ToList();
+
+    /// <summary>The lone selected loose item, or null when none or several are. The single-item actions (Change
+    /// Quantity, the inspector's stack count, the re-stack nudge) are about one item by nature, so they read this
+    /// rather than the set — the same shape as <see cref="SelectedIds"/>.Count == 1 on the structural side.</summary>
+    public LooseObject? SelectedLoose => SelectedLooseIds.Count == 1 ? SelectedLooseObjects().FirstOrDefault() : null;
+
+    /// <summary>How many things are selected in total, of both kinds — what the context menu's header counts and
+    /// what decides whether an action is about "a selection" or about the one thing under the cursor.</summary>
+    public int SelectionCount => SelectedIds.Count + SelectedLooseIds.Count;
 
     /// <summary>True while the armed palette brush is a loose item (Items tab) rather than buildable structure.</summary>
     public bool ArmedLoose => _armedLoose;
@@ -336,7 +355,9 @@ public sealed class ShipCanvas : FrameworkElement
 
     public event Action<IReadOnlyList<IDocCommand>>? StrokeCommitted;
     public event Action? SymmetryChanged;
-    public event Action<IReadOnlyList<Placement>, int, int>? MoveRequested;
+    // a move drag landed: the placements, the loose items' destination poses (empty when there are none, NULL when
+    // the loose half will not fit and the window should say so), and the delta the placements move by
+    public event Action<IReadOnlyList<Placement>, IReadOnlyList<(LooseObject Obj, int X, int Y, int Rot)>?, int, int>? MoveRequested;
     public event Action? SelectionChanged;
     public event Action? LooseSelectionChanged;   // the selected loose floor item changed (update the inspector)
     public event Action<(int X, int Y)?>? HoverChanged;
@@ -381,7 +402,9 @@ public sealed class ShipCanvas : FrameworkElement
         Doc = doc;
         doc.Changed += OnContentChanged;
         SelectedIds.Clear();
+        SelectedLooseIds.Clear();   // ids from the previous document are stale, both halves alike
         SelectionChanged?.Invoke();
+        LooseSelectionChanged?.Invoke();
         ActiveZoneId = null;   // a zone id from the previous document is stale
         _zoneWorking = null;
         _staticShip = null;
@@ -473,8 +496,9 @@ public sealed class ShipCanvas : FrameworkElement
     /// <summary>Clear the loose-item selection (if any) and repaint.</summary>
     public void ClearLooseSelection()
     {
-        if (SelectedLoose is null) return;
-        SelectedLoose = null;
+        if (SelectedLooseIds.Count == 0) return;
+        SelectedLooseIds.Clear();
+        LooseSelectionChanged?.Invoke();
         InvalidateVisual();
     }
 
@@ -780,6 +804,7 @@ public sealed class ShipCanvas : FrameworkElement
         {
             ArmedPart = null;
             SelectedIds.Clear();
+            ClearLooseSelection();
             SelectionChanged?.Invoke();
             ShowZones = true;
             ShowZonesChanged?.Invoke();
@@ -926,6 +951,10 @@ public sealed class ShipCanvas : FrameworkElement
     public bool SelectionIsSymmetric()
     {
         if (Doc is null || SymMode == SymmetryMode.Off) return false;
+        // Symmetry is a structure feature: a loose item has no mirror partner to pair with and takes no part in the
+        // law the mirroring exists to satisfy. Rather than transform the two halves by different rules and let them
+        // drift apart, a selection holding any loose item takes the plain group transform for all of it.
+        if (SelectedLooseIds.Count > 0) return false;
         var parts = SelectedPlacements();
         if (parts.Count == 0) return false;
         var items = parts
@@ -934,21 +963,41 @@ public sealed class ShipCanvas : FrameworkElement
         return Symmetry.IsSymmetricSet(items, SymCenter.X, SymCenter.Y, SymVertical, SymHorizontal);
     }
 
+    /// <summary>Start dragging the current selection from <paramref name="cell"/>. Both halves move together, so
+    /// this is the one place that decides the drag is on.</summary>
+    private void BeginMoveDrag((int X, int Y) cell)
+    {
+        _drag = Drag.Move;
+        _dragStartCell = cell;
+        _moveDelta = (0, 0);
+        _symMove = SelectionIsSymmetric();
+        CaptureMouse();
+    }
+
     /// <summary>Replace the selection with a single placement (the layer picker's row click).</summary>
     public void SelectOnly(Placement p)
     {
+        ClearLooseSelection();   // "only" means only: the loose half goes with the rest of the old selection
         SelectedIds.Clear();
         SelectedIds.Add(p.Id);
         SelectionChanged?.Invoke();
         InvalidateVisual();
     }
 
-    /// <summary>Replace the selection with a set of placements (the context-menu layer filter).</summary>
-    public void SetSelection(IEnumerable<Placement> ps)
+    /// <summary>Replace the selection with a set of placements (the context-menu layer filter). Drops the loose
+    /// half: picking "only the walls" out of a mixed catch means only the walls.</summary>
+    public void SetSelection(IEnumerable<Placement> ps) => SetSelection(ps, []);
+
+    /// <summary>Replace the whole selection, both halves at once — what the layer filter and the band-filter chips
+    /// push, since either can include the loose row.</summary>
+    public void SetSelection(IEnumerable<Placement> ps, IEnumerable<LooseObject> loose)
     {
         SelectedIds.Clear();
         foreach (var p in ps) SelectedIds.Add(p.Id);
+        SelectedLooseIds.Clear();
+        foreach (var lo in loose) SelectedLooseIds.Add(lo.Id);
         SelectionChanged?.Invoke();
+        LooseSelectionChanged?.Invoke();
         InvalidateVisual();
     }
 
@@ -958,7 +1007,8 @@ public sealed class ShipCanvas : FrameworkElement
     {
         SelectedIds.Clear();
         SelectionChanged?.Invoke();
-        SelectedLoose = lo;
+        SelectedLooseIds.Clear();
+        SelectedLooseIds.Add(lo.Id);
         LooseSelectionChanged?.Invoke();
         InvalidateVisual();
     }
@@ -1368,15 +1418,17 @@ public sealed class ShipCanvas : FrameworkElement
             // Surfaces mode ghosts clutter and steps it out of the way of a click, the left button's rule, so the
             // deck under the item is what the menu is about there. The exception is a tile with no structure at
             // all: nothing would open, and a right-click that does nothing is worse than one on the clutter.
+            // A box selection always keeps the main menu, though, wherever inside it you click: collapsing a
+            // hundred-part catch to the one item under the cursor throws away the thing the menu is for (the same
+            // rule the placement path below has kept since the layer filter arrived). The exception is again a tile
+            // with no structure under the item — an import can leave one on bare ground — where the main menu has
+            // nothing to open on and this is the only menu there is.
             if (Doc is not null && TopLooseAt(rmbCell) is { } looseRmb
+                && (SelectionCount <= 1 || Doc.HitTestStack(rmbCell.X, rmbCell.Y).Count == 0)
                 && (!SurfaceMode || Doc.HitTestStack(rmbCell.X, rmbCell.Y).Count == 0))
             {
                 if (ArmedPart is not null) { SetArmed(null); Disarmed?.Invoke(); }
-                SelectedIds.Clear();
-                SelectionChanged?.Invoke();
-                SelectedLoose = looseRmb;
-                LooseSelectionChanged?.Invoke();
-                InvalidateVisual();
+                SelectOnlyLoose(looseRmb);
                 LooseContextMenuRequested?.Invoke(rmbCell);
                 e.Handled = true;
                 return;
@@ -1391,10 +1443,11 @@ public sealed class ShipCanvas : FrameworkElement
                 var stack = Doc.HitTestStack(rmbCell.X, rmbCell.Y);
                 if (stack.Count > 0)
                 {
-                    // this menu is about structure, so drop any loose item still selected from an earlier click —
-                    // the left-click path already keeps the two selections mutually exclusive, and the re-stack
-                    // actions read whichever one is live to decide what they move
-                    ClearLooseSelection();
+                    // A lone loose item still selected from an earlier click is dropped: this menu is about the
+                    // structure under the cursor, and the re-stack actions read whichever half is live to decide
+                    // what they move. A box selection is left alone — its loose half is part of the catch the
+                    // menu's filter and group actions are about.
+                    if (SelectionCount <= 1) ClearLooseSelection();
                     // if nothing in this stack is already selected, grab the part a click would land on so a
                     // plain right-click + Delete still acts on the visible part — but keep an
                     // existing box selection (>1) intact so its layer filter / group actions
@@ -1404,7 +1457,7 @@ public sealed class ShipCanvas : FrameworkElement
                     // (Rename, View contents, Delete) reads the selection, so picking the topmost part here made
                     // every one of them act on the fixture standing over the tile. A tile with nothing in focus on
                     // it falls back to the topmost, so the menu still opens on a ghosted stack.
-                    if (SelectedIds.Count <= 1 && !stack.Any(p => SelectedIds.Contains(p.Id)))
+                    if (SelectionCount <= 1 && !stack.Any(p => SelectedIds.Contains(p.Id)))
                     {
                         SelectedIds.Clear();
                         SelectedIds.Add((SurfaceAwareHit(rmbCell.X, rmbCell.Y) ?? stack[0]).Id);
@@ -1473,7 +1526,7 @@ public sealed class ShipCanvas : FrameworkElement
             seed ??= SurfaceAwareHit(cell.X, cell.Y);
             if (seed is not null)
             {
-                if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) SelectedIds.Clear();
+                if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) { SelectedIds.Clear(); ClearLooseSelection(); }
                 foreach (var p in FloodSelect.Collect(Doc, seed)) SelectedIds.Add(p.Id);
                 ExtendSelectionAcrossSymmetry();
                 SelectionChanged?.Invoke();
@@ -1532,11 +1585,11 @@ public sealed class ShipCanvas : FrameworkElement
         // On release the window offers layer filter chips to prune the catch (walls without floors, …).
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
         {
-            ClearLooseSelection();
             if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
             {
                 SelectedIds.Clear();
                 SelectionChanged?.Invoke();
+                ClearLooseSelection();   // Ctrl+Shift adds to the catch, so it keeps both halves
             }
             _drag = Drag.Band;
             _bandFilter = true;
@@ -1549,19 +1602,36 @@ public sealed class ShipCanvas : FrameworkElement
         }
 
         // Unarmed left-click on a tile whose TOPMOST drawable is a loose item selects it, so it can be inspected
-        // and deleted. Ctrl-click falls through to the placement logic (reach the structure beneath), as does a
-        // loose item that has been pushed under a fixture — click order follows draw order.
-        if (!SurfaceMode && !Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && TopLooseAt(cell) is { } looseHit)
+        // and deleted. A loose item pushed under a fixture is not the topmost thing there and falls through to the
+        // placement logic — click order follows draw order.
+        if (!SurfaceMode && TopLooseAt(cell) is { } looseHit)
         {
-            SelectedIds.Clear();
-            SelectionChanged?.Invoke();
-            SelectedLoose = looseHit;
-            LooseSelectionChanged?.Invoke();
-            InvalidateVisual();
+            // Ctrl adds or removes it, the same as Ctrl on a part, so a mixed selection can be built up (or pruned)
+            // by hand. Without a modifier it replaces the selection outright.
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
+            {
+                if (!SelectedLooseIds.Remove(looseHit.Id)) SelectedLooseIds.Add(looseHit.Id);
+                LooseSelectionChanged?.Invoke();
+                InvalidateVisual();
+                e.Handled = true;
+                return;
+            }
+            // Clicking one that is already part of a box selection starts a drag of the whole catch, the same rule
+            // the structural half has below: a click inside the selection moves it rather than re-picking.
+            if (SelectedLooseIds.Contains(looseHit.Id) && SelectionCount > 1)
+            {
+                BeginMoveDrag(cell);
+                e.Handled = true;
+                InvalidateVisual();
+                return;
+            }
+            SelectOnlyLoose(looseHit);
             e.Handled = true;
             return;
         }
-        ClearLooseSelection();
+        // The loose half is NOT dropped here: the drag test below has to see the whole selection, or grabbing a
+        // mixed catch by one of its parts would leave the deck items behind. It is dropped where a fresh pick is
+        // actually made, below, alongside the structural half.
 
         // A plain left-click on a tile the CURRENT selection covers drags that selection —
         // it does NOT re-hit-test to the topmost part. Without this, a part reached via the
@@ -1571,16 +1641,12 @@ public sealed class ShipCanvas : FrameworkElement
         if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
         {
             var selected = SelectedPlacements();
-            if (selected.Any(p => Doc.Covers(p, cell.X, cell.Y)))
+            // The loose half counts too: a click on a selected deck item inside a box catch drags the whole catch.
+            // Loose items are hit exactly on their own tile, the same as the picker reaches them.
+            if (selected.Any(p => Doc.Covers(p, cell.X, cell.Y))
+                || SelectedLooseObjects().Any(o => o.X == cell.X && o.Y == cell.Y))
             {
-                if (selected.Any(p => !Doc.IsLocked(p)))
-                {
-                    _drag = Drag.Move;
-                    _dragStartCell = cell;
-                    _moveDelta = (0, 0);
-                    _symMove = SelectionIsSymmetric();
-                    CaptureMouse();
-                }
+                if (selected.Any(p => !Doc.IsLocked(p)) || SelectedLooseIds.Count > 0) BeginMoveDrag(cell);
                 e.Handled = true;
                 InvalidateVisual();
                 return;
@@ -1593,7 +1659,7 @@ public sealed class ShipCanvas : FrameworkElement
             var additive = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
             if (!SelectedIds.Contains(hit.Id))
             {
-                if (!additive) SelectedIds.Clear();
+                if (!additive) { SelectedIds.Clear(); ClearLooseSelection(); }   // a fresh pick replaces both halves
                 SelectedIds.Add(hit.Id);
                 ExtendSelectionAcrossSymmetry();   // grab the mirror partner(s) too
             }
@@ -1604,19 +1670,14 @@ public sealed class ShipCanvas : FrameworkElement
             }
             SelectionChanged?.Invoke();
             if (SelectedPlacements().Any(p => !Doc.IsLocked(p)))   // the primary airlock never drags
-            {
-                _drag = Drag.Move;
-                _dragStartCell = cell;
-                _moveDelta = (0, 0);
-                _symMove = SelectionIsSymmetric();
-                CaptureMouse();
-            }
+                BeginMoveDrag(cell);
         }
         else
         {
             if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control))
             {
                 SelectedIds.Clear();
+                ClearLooseSelection();   // clicking bare space clears the selection, both halves of it
                 SelectionChanged?.Invoke();
             }
             _drag = Drag.Band;
@@ -1736,7 +1797,14 @@ public sealed class ShipCanvas : FrameworkElement
         {
             var moving = SelectedPlacements().Where(p => !Doc.IsLocked(p)).ToList();
             if (!_symMove)
-                MoveRequested?.Invoke(moving, _moveDelta.X, _moveDelta.Y);
+            {
+                // The loose half rides the same delta (a mixed selection never takes the symmetric path, see
+                // SelectionIsSymmetric). One item per tile is the one thing that can refuse it, and the window
+                // reports that: the parts still move rather than the whole drag doing nothing.
+                var loose = LooseTransform.Poses(Doc, SelectedLooseObjects(),
+                    o => (o.X + _moveDelta.X, o.Y + _moveDelta.Y, o.Rot));
+                MoveRequested?.Invoke(moving, loose, _moveDelta.X, _moveDelta.Y);
+            }
             else
                 // per-part mirrored deltas keep a symmetric selection symmetric — commit as explicit poses
                 PosesRequested?.Invoke(moving.Select(p => { var (ox, oy) = MoveDeltaFor(p); return (p, p.X + ox, p.Y + oy, p.Rot); }).ToList());
@@ -1754,9 +1822,17 @@ public sealed class ShipCanvas : FrameworkElement
                 if (bx <= x1 && bx + bw - 1 >= x0 && by <= y1 && by + bh - 1 >= y0)
                     SelectedIds.Add(p.Id);
             }
+            // Loose items are caught by the same box. They are what a box over a room is often about — an import
+            // brings a deck's worth of clutter in, and this is how it is picked back out — and the layer filter on
+            // release can drop them again (or keep only them). Ghosting applies as it does to structure: in
+            // Surfaces mode the clutter is out of the way of the deck the box is about.
+            foreach (var lo in Doc.LooseObjects)
+                if (!IsGhosted(new RenderItem(null, lo)) && lo.X >= x0 && lo.X <= x1 && lo.Y >= y0 && lo.Y <= y1)
+                    SelectedLooseIds.Add(lo.Id);
             ExtendSelectionAcrossSymmetry();   // a box-select grabs the mirrored cluster too
             SelectionChanged?.Invoke();
-            if (_bandFilter && SelectedIds.Count > 0) BandFilterRequested?.Invoke();
+            LooseSelectionChanged?.Invoke();
+            if (_bandFilter && SelectionCount > 0) BandFilterRequested?.Invoke();
             _bandFilter = false;
         }
 
@@ -2543,9 +2619,9 @@ public sealed class ShipCanvas : FrameworkElement
         {
             // No composite to lean on (Light Viz off, or not yet baked): a Move drags selected parts (offset per
             // frame) and a Paint adds parts live, so both draw straight through, bypassing the cached drawing.
-            DrawItems(dc, [.. Doc.RenderOrder()],
-                i => _drag == Drag.Move && i.Placement is { } p && SelectedIds.Contains(p.Id) && !Doc.IsLocked(p)
-                     ? MoveDeltaFor(p) : (0, 0));
+            DrawItems(dc, [.. Doc.RenderOrder()], i => _drag != Drag.Move ? (0, 0)
+                : i.Placement is { } p ? (SelectedIds.Contains(p.Id) && !Doc.IsLocked(p) ? MoveDeltaFor(p) : (0, 0))
+                : SelectedLooseIds.Contains(i.Id) ? _moveDelta : (0, 0));
         }
         else
         {
@@ -2565,7 +2641,7 @@ public sealed class ShipCanvas : FrameworkElement
             if (_drag is Drag.Move or Drag.Paint) DrawInFluxParts(dc);   // the moving selection / live paint stroke, over the lit backdrop
         }
 
-        DrawLooseSelection(dc);   // the outline on the selected loose item; the item itself draws with the ship
+        DrawLooseSelection(dc);   // the outlines on the selected loose items; the items themselves draw with the ship
         DrawIllegalCells(dc);
         DrawLeakCells(dc);
         DrawAirSelection(dc);
@@ -3502,6 +3578,10 @@ public sealed class ShipCanvas : FrameworkElement
             foreach (var p in Doc.DrawOrder())
                 if (SelectedIds.Contains(p.Id) && !Doc.IsLocked(p))
                     DrawPlacement(dc, p, MoveDeltaFor(p));
+            // the loose half of the selection, live at the cursor over the baked composite (as the parts above)
+            foreach (var lo in SelectedLooseObjects())
+                if (Doc.Catalog.Lookup(lo.DefName) is { } part)
+                    DrawSprite(dc, part, lo.X + _moveDelta.X, lo.Y + _moveDelta.Y, lo.Rot, ghost: false);
         }
         else if (_drag == Drag.Paint)
         {
@@ -3515,14 +3595,20 @@ public sealed class ShipCanvas : FrameworkElement
         }
     }
 
-    /// <summary>Outline the selected loose item. The sprites themselves draw with the rest of the ship (loose
+    /// <summary>Outline the selected loose items. The sprites themselves draw with the rest of the ship (loose
     /// items share the one render order), so only the selection marker is left as an overlay — it must stay on
-    /// top, and it must survive the Light Viz path, where the item is baked into the composite.</summary>
+    /// top, and it must survive the Light Viz path, where the item is baked into the composite. The outline tracks
+    /// a move drag, so a mixed selection's two halves travel as one thing on screen.</summary>
     private void DrawLooseSelection(DrawingContext dc)
     {
-        if (SelectedLoose is not { } sel || Doc!.Catalog.Lookup(sel.DefName) is not { } part) return;
-        var (w, h) = GridMath.Size(part.Item.Width, part.Item.Height, sel.Rot);
-        dc.DrawRectangle(null, SelectPen, CellRect(sel.X, sel.Y, w, h));
+        if (SelectedLooseIds.Count == 0) return;
+        var offset = _drag == Drag.Move ? _moveDelta : (X: 0, Y: 0);
+        foreach (var sel in SelectedLooseObjects())
+        {
+            if (Doc!.Catalog.Lookup(sel.DefName) is not { } part) continue;
+            var (w, h) = GridMath.Size(part.Item.Width, part.Item.Height, sel.Rot);
+            dc.DrawRectangle(null, SelectPen, CellRect(sel.X + offset.X, sel.Y + offset.Y, w, h));
+        }
     }
 
     /// <summary>Preview the armed loose item at the hover tile: the semi-transparent sprite plus a green/red
