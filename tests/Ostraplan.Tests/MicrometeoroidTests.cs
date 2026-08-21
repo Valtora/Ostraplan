@@ -359,6 +359,47 @@ public class MicrometeoroidTests
         }
     }
 
+    // ---- the collider follows the form ----
+
+    /// <summary>
+    /// A part that has broken presents its NEW form's sprite to the next ray, because the game replaces the object
+    /// outright: <c>CondOwner.ModeSwitch</c> swaps in a fresh <c>CondOwner</c> carrying its own <c>Item</c>, and
+    /// <c>Item.ResetTransforms</c> scales that item's quad by its own <c>vScale</c>.
+    ///
+    /// <para>Game-gated because the effect needs two defs whose sprites differ, and a synthetic fixture has no
+    /// texture on disk so every part in one is 1×1. <c>ItmCanisterLHe02</c> is the clearest case in stock data:
+    /// a 3×3 tank that breaks straight into <c>ItmScrapAluminum</c>, 1×1.</para>
+    /// </summary>
+    [SkippableFact]
+    public void A_broken_part_shields_with_its_new_form_not_its_old_one()
+    {
+        var g = TestData.RequireGame();
+        var doc = Fixtures.Doc(g.Catalog, Fixtures.P("ItmCanisterLHe02", 10, 10));
+        Skip.IfNot(doc.Placements.Count == 1, "ItmCanisterLHe02 not in this install");
+        var tank = doc.Placements[0];
+
+        // Footprint 7×7 anchored at (10,10) puts the transform, and so the collider centre, on (13,13). The 3×3
+        // sprite reaches to 14.5 and the 1×1 scrap only to 13.5, so y = 14 grazes the tank and clears the scrap.
+        const double grazing = 14.0;
+
+        var pristine = MicrometeoroidStrike.Fire(doc, (0.0, grazing), (30.0, grazing), 7700, new DamageState());
+        Assert.Single(pristine.Hits);
+
+        var broken = new DamageState();
+        broken.Apply(tank, "ItmCanisterLHe02", g.Catalog.Health("ItmCanisterLHe02"), g.Catalog);
+        Assert.Equal("ItmScrapAluminum", broken.CurrentDef(tank));
+
+        // Same line, same ship, but the tank is a heap of scrap now and the ray goes over it. Reading the
+        // placement's original def instead left the wreck shielding the compartment behind it at full size.
+        var after = MicrometeoroidStrike.Fire(doc, (0.0, grazing), (30.0, grazing), 7700, broken);
+        Assert.Empty(after.Hits);
+
+        // Straight through the middle still finds it, so this is the collider shrinking rather than the part
+        // dropping out of the raycast altogether.
+        var centred = MicrometeoroidStrike.Fire(doc, (0.0, 13.0), (30.0, 13.0), 7700, broken);
+        Assert.Single(centred.Hits);
+    }
+
     // ---- helpers ----
 
     /// <summary>A straight path across a placement, from one tile before it to one tile after — the line a user

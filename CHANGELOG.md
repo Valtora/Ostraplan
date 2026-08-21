@@ -55,6 +55,11 @@ each release was verified against is recorded in
     each shot went off. That is how you answer "how many of these would it take to reach the middle".
     A shot that found nothing left to set it off says so rather than counting itself, and the tally
     counts only the shots that landed.
+  - **A wreck is a smaller target than the thing it used to be.** Breaking a part replaces it, so a
+    later micrometeoroid meets whatever is there now: an LHe tank is three tiles of target while it
+    stands and one once it is scrap. A line that grazed the tank passes over the scrap and reaches
+    what is behind it, rather than the wreck shielding the compartment at full size for the rest of
+    the run.
   - **You can draw paths the game itself cannot fire.** In Ostranauts every micrometeoroid runs
     through one fixed point, which the plan marks with a crosshair. Draw through it to see what
     really happens to your hull; draw anywhere else to ask what a hit *there* would cost, which is

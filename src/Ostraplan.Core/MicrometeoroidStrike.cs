@@ -160,7 +160,7 @@ public static class MicrometeoroidStrike
         var hits = new List<StrikeHit>();
         var remaining = pool;
 
-        foreach (var (placement, distance) in Along(doc, geom))
+        foreach (var (placement, distance) in Along(doc, geom, state))
         {
             if (remaining <= 0) break;
             // A destroyed part is not on the tile any more, so it neither absorbs nor shields. Without this it
@@ -272,8 +272,15 @@ public static class MicrometeoroidStrike
     /// <summary>
     /// Every placement whose collider the ray crosses, nearest first — the ordered <c>Physics.RaycastAll</c> hit
     /// list. One entry per part however many tiles it spans, because a raycast returns one hit per collider.
+    ///
+    /// <para><b>The target is the form the part is in now, not the one the design names.</b> A break replaces the
+    /// object outright (<c>CondOwner.ModeSwitch</c> swaps in a new <c>CondOwner</c> with its own <c>Item</c>), so
+    /// the next ray meets the new form's collider. It matters because the change can be drastic: an
+    /// <c>ItmCanisterLHe02</c> ends its chain as <c>ItmScrapAluminum</c>, 3×3 down to 1×1, and reading the
+    /// original def would leave a heap of scrap shielding the compartment behind it as though the tank were still
+    /// standing. 140 of the 1152 stock break pairs change sprite size this way.</para>
     /// </summary>
-    private static List<(Placement Part, double Distance)> Along(ShipDocument doc, Ray ray)
+    private static List<(Placement Part, double Distance)> Along(ShipDocument doc, Ray ray, DamageState state)
     {
         var hits = new List<(Placement, double)>();
         if (ray.Length <= 0) return hits;   // a path of no length hits nothing
@@ -286,9 +293,12 @@ public static class MicrometeoroidStrike
             var (fw, fh) = GridMath.Size(def.Item.Width, def.Item.Height, p.Rot);
             var centreX = p.X + fw / 2.0 - 0.5;
             var centreY = p.Y + fh / 2.0 - 0.5;
-            var (sw, sh) = SpriteExtent.Tiles(def);
+            // The centre comes from the ORIGINAL footprint and the extent from the CURRENT form. ModeSwitch hands
+            // the replacement the outgoing object's transform position verbatim, so a part that breaks shrinks
+            // about the point it already stood on rather than moving.
+            var (sw, sh) = SpriteExtent.Tiles(doc.Catalog.Lookup(state.CurrentDef(p)) ?? def);
             // The collider turns with the transform, and every rotation is a right angle, so a turned box is just
-            // the swapped extents.
+            // the swapped extents. Rotation survives a break: ModeSwitch carries fLastRotation across.
             if (p.Rot is 90 or 270) (sw, sh) = (sh, sw);
 
             if (SlabHit(ray, centreX, centreY, sw / 2.0, sh / 2.0) is { } d) hits.Add((p, d));

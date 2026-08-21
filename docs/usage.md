@@ -368,6 +368,10 @@ and it fires along that line. Drag another to fire again. Damage builds up acros
   a wall it only cracks costs it that wall's damage and no more. The rest carries on into the
   compartment behind, which is why you will see interior damage under a hull that is still
   standing. That is the game's own rule, not an approximation here.
+- **A wreck is a smaller target than the thing it used to be.** Breaking a part replaces it, so
+  what a later strike meets is whatever is there now. An LHe tank presents three tiles of
+  target while it stands and one once it is a heap of scrap, and a line that grazed the tank
+  will pass straight over the scrap and reach whatever is behind it.
 - **Two very different things can hit you**, and the game treats them nothing alike:
   - a **micrometeoroid** advances a part exactly one stage, so it cracks a wall and can never
     finish it in one strike;

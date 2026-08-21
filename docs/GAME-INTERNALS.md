@@ -2732,6 +2732,17 @@ Two consequences fall out of the z arithmetic:
 - `Physics.RaycastAll` returns **one hit per collider**, so a multi-tile part absorbs once
   per strike no matter how many of its tiles the ray crosses.
 
+> **The collider is the form the part is in now, so a wreck shrinks.** A break does not edit
+> the object, it replaces it: `DestCheck.DamageCheck` fires the break interaction, which runs
+> `CondOwner.ModeSwitch(coNew, tf.position)`, and that swaps in a whole new `CondOwner` with
+> its own `Item`. The replacement takes the outgoing object's transform position verbatim, and
+> `Item.ResetTransforms` then scales its quad by its own `vScale`, so the collider keeps its
+> centre and changes its size. 140 of the 1152 stock break pairs change sprite size, and the
+> jumps are large: `ItmCanisterLHe02` goes 3×3 to 1×1 as `ItmScrapAluminum`, `ItmDoor02Closed`
+> 8×8 to 1×1. Only one of the 140 is a break into another still-installed form
+> (`ItmHeater02` 8×8 to `ItmHeater02Dmg` 2×2); the rest are the end of a chain, where what
+> remains is loose debris on the deck rather than the fitting that was there.
+
 #### Consuming the pool
 
 Hits are sorted by distance and walked in order. A hit with a `Destructable` component
