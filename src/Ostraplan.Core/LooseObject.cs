@@ -7,8 +7,13 @@ namespace Ostraplan.Core;
 /// personal effect), as opposed to a <see cref="Placement"/> (installed structure) or a <see cref="CargoItem"/>
 /// (an item inside a container). Loose objects are a <b>non-structural overlay</b>: like <see cref="ShipZone"/>s
 /// they carry no tile conditions and take no part in the socket law, room flood-fill, airtightness, or rating —
-/// they only render and export. At most one sits on a tile (the design model is one-per-tile), so its
-/// <see cref="X"/>/<see cref="Y"/> identify it. Immutable; a move is a remove-then-place.
+/// they only render and export. At most one sits on a tile (the design model is one-per-tile), which is the one
+/// invariant a mover has to respect: <see cref="ShipDocument.LooseFreeAt"/> is how it asks.
+///
+/// <para>Its pose is mutable, the same as <see cref="Placement"/>'s, so a move keeps the object's identity and the
+/// selection pointing at it survives being dragged, turned or flipped. Go through
+/// <see cref="ShipDocument.MoveLooseTo"/> rather than assigning the fields: the document indexes loose items by
+/// tile, and a pose written behind its back leaves the index pointing at the old one.</para>
 /// </summary>
 public sealed class LooseObject
 {
@@ -18,12 +23,16 @@ public sealed class LooseObject
     /// <see cref="PartDef"/> via <see cref="Catalog.Lookup"/> for its sprite, footprint and friendly name.</summary>
     public required string DefName { get; init; }
 
-    public required int X { get; init; }
-    public required int Y { get; init; }
+    /// <summary>The tile it lies on. Settable only through <see cref="ShipDocument.MoveLooseTo"/>, which keeps the
+    /// document's tile index in step (see the class remarks).</summary>
+    public required int X { get; set; }
+
+    /// <inheritdoc cref="X"/>
+    public required int Y { get; set; }
 
     /// <summary>Ostraplan rotation in {0,90,180,270}. Loose items are almost always dropped un-rotated; kept so a
     /// design can face an item and the export can bake its <c>fRotation</c>.</summary>
-    public int Rot { get; init; }
+    public int Rot { get; set; }
 
     /// <summary>How many of this item sit stacked on the tile (a stackable item like ammo or rations). 1 for a
     /// single. Mutable so "Change Quantity" can retune it in place (keeping the object's identity for selection);

@@ -1,3 +1,5 @@
+using System;
+using System.Collections.Generic;
 using System.Linq;
 using Ostraplan.Core;
 using Xunit;
@@ -234,5 +236,100 @@ public class LooseObjectTests
         Assert.All(members, m => Assert.True(m.BForceLoad == true));   // members keep their strIDs so the stack rebuilds
         var co = Assert.Single(ship.ACOs!, c => c.StrID == head.StrID);
         Assert.Equal(qty - 1, co.AStack!.Length);              // head lists its members
+    }
+
+    // ---- moving loose items as a group (#34): the pose is mutable, the tile index follows it, and one item per
+    // tile is the only thing that can refuse a transform ----
+
+    [SkippableFact]
+    public void Moving_a_loose_item_keeps_its_identity_and_reindexes_the_tile()
+    {
+        var (doc, _) = FloorAt(0, 0);
+        var stack = new CommandStack();
+        var obj = new LooseObject { DefName = Cargo, X = 0, Y = 0 };
+        new PlaceLooseCommand(obj).Do(doc);
+
+        stack.Push(doc, new SetLoosePosesCommand([(obj, 3, 4, 90)]));
+
+        Assert.Null(doc.LooseAt(0, 0));                       // the old tile is free again
+        Assert.Same(obj, doc.LooseAt(3, 4));                  // the same object, not a copy — the selection survives
+        Assert.Equal((3, 4, 90), (obj.X, obj.Y, obj.Rot));
+
+        stack.Undo(doc);
+        Assert.Same(obj, doc.LooseAt(0, 0));
+        Assert.Equal((0, 0, 0), (obj.X, obj.Y, obj.Rot));
+    }
+
+    [SkippableFact]
+    public void A_group_move_that_shuffles_within_itself_loses_nothing()
+    {
+        // two items in a row sliding one tile east: the first lands on the tile the second is still on, which is
+        // exactly the case a move-one-at-a-time implementation drops an item in
+        var (doc, _) = FloorAt(0, 0);
+        var a = new LooseObject { DefName = Cargo, X = 0, Y = 0 };
+        var b = new LooseObject { DefName = Cargo, X = 1, Y = 0 };
+        new PlaceLooseCommand(a).Do(doc);
+        new PlaceLooseCommand(b).Do(doc);
+
+        var poses = LooseTransform.Poses(doc, [a, b], o => (o.X + 1, o.Y, o.Rot));
+        Assert.NotNull(poses);   // a mover never blocks itself: b is vacating the tile a wants
+
+        var stack = new CommandStack();
+        stack.Push(doc, new SetLoosePosesCommand(poses!));
+
+        Assert.Equal(2, doc.LooseObjects.Count);
+        Assert.Same(a, doc.LooseAt(1, 0));
+        Assert.Same(b, doc.LooseAt(2, 0));
+
+        stack.Undo(doc);
+        Assert.Equal(2, doc.LooseObjects.Count);
+        Assert.Same(a, doc.LooseAt(0, 0));
+        Assert.Same(b, doc.LooseAt(1, 0));
+    }
+
+    [SkippableFact]
+    public void A_transform_onto_a_tile_something_else_holds_is_refused_whole()
+    {
+        var (doc, _) = FloorAt(0, 0);
+        var moving = new LooseObject { DefName = Cargo, X = 0, Y = 0 };
+        var sitting = new LooseObject { DefName = Cargo, X = 1, Y = 0 };
+        new PlaceLooseCommand(moving).Do(doc);
+        new PlaceLooseCommand(sitting).Do(doc);
+
+        // the item sitting there is not part of the move, so it blocks it — and blocks all of it, rather than the
+        // move going half through and stranding what could not land
+        Assert.Null(LooseTransform.Poses(doc, [moving], o => (o.X + 1, o.Y, o.Rot)));
+        Assert.Same(moving, doc.LooseAt(0, 0));   // nothing was touched by the asking
+
+        // two movers landing on the same tile is refused for the same reason
+        Assert.Null(LooseTransform.Poses(doc, [moving, sitting], _ => (5, 5, 0)));
+    }
+
+    [SkippableFact]
+    public void Loose_free_at_exempts_the_movers()
+    {
+        var (doc, _) = FloorAt(0, 0);
+        var obj = new LooseObject { DefName = Cargo, X = 2, Y = 2 };
+        new PlaceLooseCommand(obj).Do(doc);
+
+        Assert.False(doc.LooseFreeAt(2, 2));                          // occupied
+        Assert.True(doc.LooseFreeAt(2, 2, new HashSet<Guid> { obj.Id }));   // occupied by something about to leave
+        Assert.True(doc.LooseFreeAt(7, 7));                           // bare tile
+    }
+
+    [SkippableFact]
+    public void Removing_every_loose_item_is_one_undo_step()
+    {
+        var (doc, _) = FloorAt(0, 0);
+        for (var x = 0; x < 4; x++) new PlaceLooseCommand(new LooseObject { DefName = Cargo, X = x, Y = 0 }).Do(doc);
+        Assert.Equal(4, doc.LooseObjects.Count);
+
+        var stack = new CommandStack();
+        stack.Push(doc, new CompositeCommand(
+            doc.LooseObjects.ToList().Select(o => (IDocCommand)new RemoveLooseCommand(o)).ToList()));
+        Assert.Empty(doc.LooseObjects);
+
+        stack.Undo(doc);
+        Assert.Equal(4, doc.LooseObjects.Count);   // one press puts the whole deck back
     }
 }

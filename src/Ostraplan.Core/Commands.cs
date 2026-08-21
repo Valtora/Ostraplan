@@ -391,6 +391,50 @@ public sealed class RemoveLooseCommand(LooseObject obj) : IDocCommand, IAuditDes
         $"Remove loose {AuditFmt.Name(f, obj.DefName)} {AuditFmt.At(obj.X, obj.Y)}";
 }
 
+/// <summary>
+/// Reposition loose items as one undo step — the loose twin of <see cref="SetPosesCommand"/>, and what a group
+/// move, rotate or flip pushes for the loose half of a mixed selection. Poses are set in place, so each object
+/// keeps its identity and the selection still points at it when the drag lands.
+///
+/// <para>The caller clears the destinations first (see <see cref="ShipDocument.LooseFreeAt"/>): one loose item per
+/// tile is the overlay's one hard invariant, and a transform that would break it is refused before it is pushed
+/// rather than half-applied here.</para>
+/// </summary>
+public sealed class SetLoosePosesCommand : IDocCommand, IAuditDescribable
+{
+    private readonly LooseObject[] _objs;
+    private readonly (int X, int Y, int Rot)[] _after;
+    private readonly (int X, int Y, int Rot)[] _before;
+
+    public string Describe(Func<string, string?> f) =>
+        _objs.Length == 1
+            ? $"Move loose {AuditFmt.Name(f, _objs[0].DefName)} {AuditFmt.At(_after[0].X, _after[0].Y)} → r{_after[0].Rot}"
+            : $"Transform loose {AuditFmt.Batch(_objs.Select(o => o.DefName), f)}";
+
+    public SetLoosePosesCommand(IReadOnlyList<(LooseObject Obj, int X, int Y, int Rot)> poses)
+    {
+        _objs = new LooseObject[poses.Count];
+        _after = new (int, int, int)[poses.Count];
+        _before = new (int, int, int)[poses.Count];
+        for (var i = 0; i < poses.Count; i++)
+        {
+            _objs[i] = poses[i].Obj;
+            _after[i] = (poses[i].X, poses[i].Y, poses[i].Rot);
+            _before[i] = (poses[i].Obj.X, poses[i].Obj.Y, poses[i].Obj.Rot);
+        }
+    }
+
+    public void Do(ShipDocument doc) => doc.SetLoosePoses(Batch(_after));
+    public void Undo(ShipDocument doc) => doc.SetLoosePoses(Batch(_before));
+
+    private List<(LooseObject, int, int, int)> Batch((int X, int Y, int Rot)[] poses)
+    {
+        var batch = new List<(LooseObject, int, int, int)>(_objs.Length);
+        for (var i = 0; i < _objs.Length; i++) batch.Add((_objs[i], poses[i].X, poses[i].Y, poses[i].Rot));
+        return batch;
+    }
+}
+
 /// <summary>Change a loose item's stacked quantity (Change Quantity). Set in place, so the object's identity — and
 /// thus the selection pointing at it — survives.</summary>
 /// <summary>

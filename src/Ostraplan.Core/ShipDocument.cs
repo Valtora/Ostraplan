@@ -352,6 +352,16 @@ public sealed class ShipDocument
     /// <summary>The loose item on a tile, or null.</summary>
     public LooseObject? LooseAt(int x, int y) => _looseByTile.GetValueOrDefault((x, y));
 
+    /// <summary>
+    /// Whether a loose item may land on a tile: true when nothing loose is there, or when the only thing there is
+    /// one of the items in <paramref name="moving"/> (which is about to vacate it). One-per-tile is the loose
+    /// overlay's single hard invariant, and this is how a group move, a paste or a duplicate asks about it before
+    /// committing — without the <paramref name="moving"/> exemption, sliding a room one tile east would refuse
+    /// itself, every item in it blocked by the one behind it.
+    /// </summary>
+    public bool LooseFreeAt(int x, int y, IReadOnlySet<Guid>? moving = null) =>
+        LooseAt(x, y) is not { } lo || (moving is not null && moving.Contains(lo.Id));
+
     /// <summary>The signal connections between devices (see <see cref="DeviceLink"/>). Like zones/loose items these
     /// are a non-structural overlay — they carry no tile conditions and take no part in CheckFit/rooms/rating; they
     /// only render, persist and export. Held by <see cref="Placement.Id"/>. All mutation goes through the command
@@ -731,6 +741,50 @@ public sealed class ShipDocument
             _order.Remove(o.Id);
             RaiseChanged();
         }
+    }
+
+    /// <summary>
+    /// Reposition a loose item, keeping its identity — the loose twin of <see cref="MoveTo"/>. The tile index is
+    /// keyed by position, so the old key has to go before the new one is written; everything else about the object
+    /// (its quantity, its contents, its draw-order bias and its place in the insertion order) rides along, which is
+    /// what lets the selection keep pointing at it across a drag.
+    ///
+    /// <para>Nothing structural is re-analysed, because a loose item contributes no tile conditions and takes no
+    /// part in the law. There is no given-ness to clear either: only structure carries that.</para>
+    /// </summary>
+    internal void MoveLooseTo(LooseObject o, int x, int y, int rot)
+    {
+        if (_looseByTile.TryGetValue((o.X, o.Y), out var cur) && ReferenceEquals(cur, o)) _looseByTile.Remove((o.X, o.Y));
+        o.X = x;
+        o.Y = y;
+        o.Rot = GridMath.Norm(rot);
+        _looseByTile[(o.X, o.Y)] = o;
+        RaiseChanged();
+    }
+
+    /// <summary>
+    /// Reposition several loose items as one step (a group move, rotate or flip, and the undo of any of them).
+    /// Every mover is lifted out of the tile index <b>before</b> any of them lands, so a set that shuffles within
+    /// itself — two items swapping tiles, a room sliding one tile along — does not have the first mover overwrite
+    /// the tile the second is still sitting on.
+    ///
+    /// <para>The caller is expected to have cleared the destinations with <see cref="LooseFreeAt"/>, exempting the
+    /// movers. This does not re-check: like <see cref="MoveCommand"/> for structure, the command layer decides
+    /// whether a transform is allowed and this one carries it out.</para>
+    /// </summary>
+    internal void SetLoosePoses(IReadOnlyList<(LooseObject Obj, int X, int Y, int Rot)> poses)
+    {
+        foreach (var lift in poses)
+            if (_looseByTile.TryGetValue((lift.Obj.X, lift.Obj.Y), out var cur) && ReferenceEquals(cur, lift.Obj))
+                _looseByTile.Remove((lift.Obj.X, lift.Obj.Y));
+        foreach (var (o, x, y, rot) in poses)
+        {
+            o.X = x;
+            o.Y = y;
+            o.Rot = GridMath.Norm(rot);
+            _looseByTile[(o.X, o.Y)] = o;
+        }
+        RaiseChanged();
     }
 
     /// <summary>Set the stacked quantity of a loose item in place (keeps its identity for selection).</summary>
