@@ -81,10 +81,21 @@ public static class MicrometeoroidStrike
     /// half-strength strikes.</summary>
     public const double MultiplierFloor = 0.5;
 
-    /// <summary>The fastest closing speed any authored micrometeoroid shell can produce, to the nearest 100 m/s:
+    /// <summary>The fastest impact velocity any authored micrometeoroid shell can produce, to the nearest 100 m/s:
     /// circular orbit at Earth's stratosphere shell, the innermost with a non-zero chance. Used to clamp the
     /// speed input, since nothing in the game reaches beyond it.</summary>
     public const double MaxClosingSpeedMs = 7700.0;
+
+    /// <summary>The slowest impact velocity worth asking about, <c>750 × 0.5</c>. The multiplier floors at
+    /// <see cref="MultiplierFloor"/>, so every speed below this produces exactly the same strike and a slider
+    /// that ran to zero would be offering a range the game cannot tell apart.</summary>
+    public const double MinClosingSpeedMs = AtcSpeedLimit * MultiplierFloor;
+
+    /// <summary>The impact velocity a micrometeoroid arrives at when the <b>tension beat</b> spawns it rather than
+    /// an atmosphere shell: <c>BeatManager.Micrometeoroid</c> passes <c>fMult: 1f</c> outright, which is the ATC
+    /// limit exactly. That path fires anywhere in the system, so it is the one speed a ship is exposed to no
+    /// matter where it is, and the sensible default to open on.</summary>
+    public const double TensionBeatSpeedMs = AtcSpeedLimit;
 
     /// <summary>The strength multiplier for a closing speed: <c>max(v / 750, 0.5)</c>, the game's
     /// <c>Mathf.Max(|v_body − v_ship| / ATC_SPEED_LIMIT, 0.5f)</c>.</summary>

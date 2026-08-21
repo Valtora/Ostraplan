@@ -4072,31 +4072,35 @@ public partial class MainWindow : Window
     /// <summary>The Design ▾ dropdown: ship identity, wall/floor re-skin, snapshot, the bill of materials, and the
     /// atmospheric flight report.</summary>
     /// <summary>
-    /// The Simulate ▾ dropdown. Both entries open the same window on a different tab, because the two solvers share
-    /// a heat overlay and an aiming cursor even though they share no code path (§26).
+    /// The Simulate ▾ dropdown, and the only place either solver is chosen. The window itself carries no switch,
+    /// so picking the other entry while it is open re-points the one window rather than opening a second (§26).
     ///
     /// <para>One window at a time per design: the damage state is a run against <i>this</i> ship, and a second
-    /// window would silently be measuring a different one.</para>
+    /// window would be measuring a different one with no sign of it. Re-pointing keeps that run, because it
+    /// belongs to the ship rather than to whichever solver is aimed at it.</para>
     /// </summary>
     private void OnSimulateMenuClick(object sender, RoutedEventArgs e)
     {
         var m = new ContextMenu();
-        m.Items.Add(MenuAction("Micrometeoroid Strike…", () => OpenSimulate(0), enabled: _doc is not null));
-        m.Items.Add(MenuAction("Weapon Impact…", () => OpenSimulate(1), enabled: _doc is not null));
+        m.Items.Add(MenuAction("Micrometeoroid Strike…",
+            () => OpenSimulate(SimulateMode.Micrometeoroid), enabled: _doc is not null));
+        m.Items.Add(MenuAction("Weapon Impact…",
+            () => OpenSimulate(SimulateMode.WeaponImpact), enabled: _doc is not null));
         OpenMenuUnder(m, BtnSimulateMenu);
     }
 
-    private void OpenSimulate(int tab)
+    private void OpenSimulate(SimulateMode mode)
     {
         if (_doc is null) return;
         if (_simulate is { } open)
         {
+            open.SetMode(mode);
             open.Activate();
             return;
         }
         var window = new SimulateWindow(Board, _doc) { Owner = this };
         if (_index is not null && _catalog is not null) window.SetAttacks(_catalog.ShipAttacks);
-        window.SelectTab(tab);
+        window.SetMode(mode);
         window.Closed += (_, _) => _simulate = null;
         _simulate = window;
         window.Show();

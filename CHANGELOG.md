@@ -35,6 +35,13 @@ each release was verified against is recorded in
     really happens to your hull; draw anywhere else to ask what a hit *there* would cost, which is
     the question you are usually trying to answer. Everything the strike does once drawn is the
     game's own arithmetic.
+  - **The Simulate menu is the only switch between the two.** The window shows the one you opened
+    and has no tabs of its own, so picking the other entry from the menu re-points the window and
+    keeps the damage run you have built up.
+  - **Impact velocity only offers speeds the game can deliver**, 375 m/s to 7.7 km/s. It opens on
+    750 m/s, which is the speed every ship is exposed to: micrometeoroids arrive anywhere in the
+    system as a random event and always hit at exactly that. Earth's upper atmosphere and orbits
+    are the only places the faster ones come from, and they hit about ten times as hard.
   - **Import from your save to measure the ship you are flying.** That marked point belongs to the
     ship's own grid anchor, so a design you drew here is marked where one Ostraplan exports will
     sit rather than where your existing hull has it. The window tells you which it is using.

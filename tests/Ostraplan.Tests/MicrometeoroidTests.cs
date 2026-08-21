@@ -36,6 +36,23 @@ public class MicrometeoroidTests
     }
 
     [Fact]
+    public void The_offered_speed_range_is_the_one_the_game_can_actually_deliver()
+    {
+        // The bottom of the range is where the floor takes over. Below it every speed is the same strike, so a
+        // slider running to zero would be offering positions the game cannot tell apart.
+        Assert.Equal(MicrometeoroidStrike.MultiplierFor(0),
+                     MicrometeoroidStrike.MultiplierFor(MicrometeoroidStrike.MinClosingSpeedMs), 6);
+        Assert.True(MicrometeoroidStrike.MultiplierFor(MicrometeoroidStrike.MinClosingSpeedMs + 1)
+                    > MicrometeoroidStrike.MultiplierFor(MicrometeoroidStrike.MinClosingSpeedMs));
+
+        // The tension beat spawns anywhere in the system and always passes fMult: 1f, so this is the one speed a
+        // ship is exposed to wherever it is, and it has to sit inside the offered range.
+        Assert.Equal(1.0, MicrometeoroidStrike.MultiplierFor(MicrometeoroidStrike.TensionBeatSpeedMs), 6);
+        Assert.InRange(MicrometeoroidStrike.TensionBeatSpeedMs,
+                       MicrometeoroidStrike.MinClosingSpeedMs, MicrometeoroidStrike.MaxClosingSpeedMs);
+    }
+
+    [Fact]
     public void The_worst_case_pool_is_fifty_five_times_the_multiplier()
     {
         // The roll is pinned to 1: in game it is Rand(0,1,Mid), so this is the ceiling rather than the expectation.

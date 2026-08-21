@@ -2594,8 +2594,26 @@ break whose loot does not resolve to exactly one condowner.
 
 #### Where a strike comes from
 
-`Ship.UpdateGravAndAtmo` rolls for one on every atmosphere update, which is throttled to
-one per `0.33` of epoch time, and only when the ship has a gravity point of reference:
+**Two spawn sites, and the atmosphere one is the narrower of them.** A third call exists on
+the `Mmoid` button in `CrewSim`'s debug panel and is not gameplay.
+
+**The tension beat** is the one that reaches everywhere. `BeatManager.Micrometeoroid` rolls
+`tension_micrometeoroid`, authored at `0.025` in `data/plot_manager/pm_settings.json`, and
+spawns against the player's ship anywhere in the system:
+
+```
+if (fRoll < chance && !bOnStation && !bDockedWithStation && !IsUsingTorchDrive && !IsInAtmo)
+        StarSystem.SpawnMicroMeteoroid(CrewSim.coPlayer.ship, 1f, ...)
+```
+
+It passes `fMult: 1f` outright, so a beat strike always arrives at exactly the ATC speed
+limit whatever the ship is doing. Being on a station, docked, running the torch drive or
+inside an atmosphere all suppress it, and that last exclusion is what makes the two sites
+mutually exclusive rather than cumulative.
+
+**The atmosphere roll** is the other. `Ship.UpdateGravAndAtmo` rolls on every atmosphere
+update, which is throttled to one per `0.33` of epoch time, and only when the ship has a
+gravity point of reference:
 
 ```
 if (atmosphere.fMicrometeoroidChance > 0 && ptPORGrav != zero
@@ -2604,7 +2622,8 @@ if (atmosphere.fMicrometeoroidChance > 0 && ptPORGrav != zero
 ```
 
 `fMicrometeoroidChance` is authored per atmosphere shell in `data/star_systems`. In stock
-1.0.0.11 **only Earth declares a non-zero value anywhere in the system**:
+1.0.0.11 **only Earth declares a non-zero value**, so this site alone is an Earth
+phenomenon and it is the only one that can exceed `fMult: 1`:
 
 | Shell | `fMaxAltitude` (km from centre) | chance | orbital v (m/s) | `fMult` |
 |---|---|---|---|---|
@@ -2628,6 +2647,10 @@ a ship matching the body's velocity still takes half-strength strikes while one 
 circular orbit at the shells above takes roughly ten times that. The orbital velocities in
 the table are `sqrt(GM/r)` for Earth's authored `fMassKG` of `5.97e24`, which is what a
 ship actually holding one of those orbits is doing.
+
+Putting both sites together, the whole authored range of `fMult` is `0.5` to `10.23`, with
+`1.0` the only value reachable away from Earth. That is what bounds the speed input in
+Ostraplan: `375` to `7700` m/s, opening on `750`.
 
 #### The attack
 

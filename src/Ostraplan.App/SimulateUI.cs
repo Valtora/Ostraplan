@@ -6,20 +6,22 @@ using Ostraplan.Core;
 
 namespace Ostraplan.App;
 
+/// <summary>Which of the game's two damage systems the window is pointed at. Chosen from the Simulate menu and
+/// nowhere else, so there is one switch rather than two that can disagree.</summary>
+public enum SimulateMode { Micrometeoroid, WeaponImpact }
+
 /// <summary>
 /// Simulate: fire a strike at the design and see what it breaks.
 ///
-/// <para>Two solvers behind one window, because the game has two unrelated damage systems (§26). A
+/// <para>Two solvers, one at a time, because the game has two unrelated damage systems (§26). A
 /// <b>micrometeoroid</b> raycasts the sprite colliders and advances each part exactly one break stage; a
 /// <b>weapon impact</b> walks the tile grid and prices each cell against the whole break chain, so a missile can
-/// take a wall from whole to gone where no micrometeoroid ever will. Sharing a window is a UI convenience; the
-/// two never share a code path.</para>
+/// take a wall from whole to gone where no micrometeoroid ever will. The two never share a code path.</para>
 ///
-/// <para><b>The pivot is not yours to place.</b> The game aims every micrometeoroid at world origin rather than at
-/// the ship, so the approach angle is the only free parameter and the convergence point falls out of the ship's
-/// own grid anchor. The window draws that point and lets you swing the ghost path about it. The weapon side is
-/// the opposite: its aim point is yours, constrained to the bounding-box crossing the game's own
-/// <c>FindIntersection</c> computes.</para>
+/// <para><b>The Simulate menu is the only switch.</b> The window shows the solver it was opened on and offers no
+/// way to change it, so there is one place that decides rather than two disagreeing. Picking the other entry from
+/// the menu re-points the window in place and keeps the damage run, because that run is a property of the ship
+/// rather than of the solver being pointed at it.</para>
 ///
 /// <para>Damage accumulates across strikes and lives in a <see cref="DamageState"/> beside the document, never in
 /// it. Closing the window throws it away, which is what makes "start over" free.</para>
@@ -34,21 +36,27 @@ public sealed class SimulateWindow : Window
     private readonly ShipDocument _doc;
     private readonly DamageState _state = new();
 
-    private readonly TabControl _tabs = new();
     private readonly TextBlock _pathLabel = new();
+    // Floored at the speed below which the multiplier stops moving and capped at the fastest shell the game
+    // authors, so every position on the track is a strike the game can actually deliver.
     private readonly Slider _speed = new()
     {
-        Minimum = 0, Maximum = MicrometeoroidStrike.MaxClosingSpeedMs, Value = 750,
+        Minimum = MicrometeoroidStrike.MinClosingSpeedMs,
+        Maximum = MicrometeoroidStrike.MaxClosingSpeedMs,
+        Value = MicrometeoroidStrike.TensionBeatSpeedMs,
     };
     private readonly TextBlock _speedLabel = new();
     private readonly ComboBox _attackBox = new();
     private readonly TextBlock _frameLine = new();
     private readonly TextBlock _resultLine = new();
     private readonly TextBlock _tallyLine = new();
+    private readonly StackPanel _meteoroidPanel = new() { Margin = new Thickness(12, 8, 12, 0) };
+    private readonly StackPanel _weaponPanel = new() { Margin = new Thickness(12, 8, 12, 0) };
 
     private StrikeAnchor _anchor;
     private ((double X, double Y) Start, (double X, double Y) End)? _path;
     private int _shots;
+    private SimulateMode _mode = SimulateMode.Micrometeoroid;
 
     public SimulateWindow(ShipCanvas board, ShipDocument doc)
     {
@@ -56,7 +64,6 @@ public sealed class SimulateWindow : Window
         _doc = doc;
         _anchor = MicrometeoroidStrike.AnchorFor(doc);
 
-        Title = "Simulate";
         Width = 420;
         SizeToContent = SizeToContent.Height;
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
@@ -64,9 +71,9 @@ public sealed class SimulateWindow : Window
         ResizeMode = ResizeMode.NoResize;
 
         Content = BuildBody();
+        SetMode(_mode);
 
         _speed.ValueChanged += (_, _) => UpdateLabels();
-        _tabs.SelectionChanged += (_, _) => UpdateLabels();
         _board.StrikePathDrawn += OnPathDrawn;
 
         Loaded += (_, _) =>
@@ -82,39 +89,32 @@ public sealed class SimulateWindow : Window
         };
     }
 
-    private bool IsMicrometeoroid => _tabs.SelectedIndex == 0;
+    private bool IsMicrometeoroid => _mode == SimulateMode.Micrometeoroid;
 
-    /// <summary>Open on a given solver: 0 micrometeoroid, 1 weapon impact.</summary>
-    public void SelectTab(int index) => _tabs.SelectedIndex = Math.Clamp(index, 0, _tabs.Items.Count - 1);
+    /// <summary>
+    /// Point the window at one solver. Called on open and again whenever the Simulate menu is used while the
+    /// window is up, which is the only way to change it: the damage run survives the change, because it belongs
+    /// to the ship rather than to whatever is being fired at it.
+    /// </summary>
+    public void SetMode(SimulateMode mode)
+    {
+        _mode = mode;
+        _meteoroidPanel.Visibility = IsMicrometeoroid ? Visibility.Visible : Visibility.Collapsed;
+        _weaponPanel.Visibility = IsMicrometeoroid ? Visibility.Collapsed : Visibility.Visible;
+        Title = IsMicrometeoroid ? "Simulate — Micrometeoroid strike" : "Simulate — Weapon impact";
+        UpdateLabels();
+    }
 
     // ---- layout ----
 
     private UIElement BuildBody()
     {
-        var mm = new StackPanel { Margin = new Thickness(12) };
-        mm.Children.Add(Label("Closing speed"));
-        mm.Children.Add(_speed);
-        mm.Children.Add(_speedLabel);
-        mm.Children.Add(new TextBlock
-        {
-            Text = "Only Earth's stratosphere, mesosphere and orbital shells produce micrometeoroids at all, "
-                 + "and a circular orbit there closes at about 7.4 km/s. Matching the body's velocity still takes "
-                 + "half-strength strikes.",
-            Foreground = Dim, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0), FontSize = 11,
-        });
+        _meteoroidPanel.Children.Add(Label("Impact velocity"));
+        _meteoroidPanel.Children.Add(_speed);
+        _meteoroidPanel.Children.Add(_speedLabel);
 
-        var wp = new StackPanel { Margin = new Thickness(12) };
-        wp.Children.Add(Label("Weapon"));
-        wp.Children.Add(_attackBox);
-        wp.Children.Add(new TextBlock
-        {
-            Text = "Draw the path the same way. A missile still detonates on the first structural tile it meets "
-                 + "along it, and the blast falls off from there.",
-            Foreground = Dim, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0), FontSize = 11,
-        });
-
-        _tabs.Items.Add(new TabItem { Header = "Micrometeoroid", Content = mm });
-        _tabs.Items.Add(new TabItem { Header = "Weapon impact", Content = wp });
+        _weaponPanel.Children.Add(Label("Weapon"));
+        _weaponPanel.Children.Add(_attackBox);
 
         var fire = new Button { Content = "Fire", Padding = new Thickness(18, 4, 18, 4), IsDefault = true };
         fire.Click += (_, _) => Fire();
@@ -157,7 +157,8 @@ public sealed class SimulateWindow : Window
 
         var root = new StackPanel();
         root.Children.Add(_pathLabel);
-        root.Children.Add(_tabs);
+        root.Children.Add(_meteoroidPanel);
+        root.Children.Add(_weaponPanel);
         root.Children.Add(_frameLine);
         root.Children.Add(_resultLine);
         root.Children.Add(_tallyLine);
@@ -209,17 +210,14 @@ public sealed class SimulateWindow : Window
 
         _board.SetAiming(true, IsMicrometeoroid ? new Point(_anchor.DocX, _anchor.DocY) : null);
 
-        _frameLine.Text = IsMicrometeoroid
-            ? "You may draw any path, including ones the game itself cannot produce: in Ostranauts every "
-            + "micrometeoroid runs through the single marked point, so a part no line through it reaches is one "
-            + "the game will never chip. Draw through the marker to see what really happens to this hull, and "
-            + "anywhere else to ask what a hit there would cost."
-            + (_anchor.Frame == StrikeFrame.AsImported
-                ? ""
-                : " This design has no anchor of its own yet, so the marker is where one Ostraplan exports will "
-                + "sit. Import the ship from your save to measure the hull you are actually flying.")
-            : "The path is yours to draw. The game would only ever start an impact on the hull line, but what "
-            + "happens along the path once drawn is its own arithmetic.";
+        // The only note left in the window, because without it the marker is quietly the wrong one: a design with
+        // no anchor of its own is being measured in the frame it would be exported into, not the frame it flies in.
+        var borrowed = IsMicrometeoroid && _anchor.Frame != StrikeFrame.AsImported;
+        _frameLine.Text = borrowed
+            ? "This design has no anchor of its own yet, so the marker is where one Ostraplan exports will sit. "
+            + "Import the ship from your save to measure the hull you are actually flying."
+            : "";
+        _frameLine.Visibility = borrowed ? Visibility.Visible : Visibility.Collapsed;
     }
 
     // ---- firing ----

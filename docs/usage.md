@@ -358,7 +358,7 @@ and it fires along that line. Drag another to fire again. Damage builds up acros
 
 ### Micrometeoroid
 
-Draw the path, set the **closing speed**, and it fires on release.
+Draw the path, set the **impact velocity**, and it fires on release.
 
 - **You can draw paths the game itself cannot fire, and that is deliberate.** In Ostranauts every
   micrometeoroid runs through one fixed point, marked with a crosshair on the plan. That is the
@@ -373,11 +373,12 @@ Draw the path, set the **closing speed**, and it fires on release.
   just outside the top-left corner. The window says which it is using. If you want to know
   whether the ship you are *flying* is vulnerable, import it from your save rather than
   measuring the copy you drew.
-- **Speed is a real speed.** It is your closing speed against the body, and the readout shows
-  what it works out to: 750 m/s is the reference, and a circular orbit in the shells that
-  actually produce micrometeoroids closes at about 7.4 km/s, which hits ten times as hard.
-  Matching the body's velocity still leaves you taking half-strength strikes. Only Earth's
-  upper atmosphere and orbits produce them at all in the base game.
+- **Speed is a real speed**, and the slider only offers what the game can actually deliver.
+  The floor is 375 m/s, below which the game stops distinguishing, and the top is 7.7 km/s,
+  a circular orbit in Earth's stratosphere shell. It opens on 750 m/s because that is the
+  one every ship is exposed to: micrometeoroids arrive anywhere in the system as a random
+  event, always at exactly that speed. Only Earth's upper atmosphere and orbits produce the
+  faster ones, and they hit about ten times as hard.
 
 ### Weapon impact
 
