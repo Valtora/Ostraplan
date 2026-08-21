@@ -56,6 +56,27 @@ data. It stopped being a blocker five days later, when the **SPECIAL palette tab
 in v0.66.0 and made every recipe-less installed fitting placeable. The feature was declined
 for a reason that a neighbouring feature then removed, and nobody noticed for a release.
 
+### Naming loose items
+
+A loose item can be named here, the same as a placed part. This reverses the line drawn in
+commit `ac88233`, and the reversal is worth recording because the original reasoning read
+well and was still wrong.
+
+The argument then was that a name belongs to *structure*: loose cargo is contents rather
+than ship, an overlay that takes no part in the Law, so it carries no name of its own any
+more than it carries tile conditions. Two things sink that. The first is the game, which
+renames **anything that is not a person** and keeps the name on the object's own `Rename`
+panel whether the object is bolted down or lying on the floor, so a design that cannot name
+a deck item says less about the ship than the game itself does. The second is that the loose form is often the
+design intent: a stack of Ablative Core Liner Replacements is deck cargo that is *meant* to
+be there, and a crate labelled "Electrical" or a SuperHandy labelled with the section it
+belongs to is a plan for a ship rather than clutter on one
+([issue #38](https://github.com/Valtora/Ostraplan/issues/38)).
+
+A name also costs the model nothing the overlay was not already paying: it rides on the
+loose item exactly as a part's does, through the `.oplan`, the export and a save write-back,
+and an import reads it back. Tile conditions were the real line, and they still are.
+
 ### Often the honest answer is "that's a mod"
 
 A request that wants a station fitting *buildable*, as against placeable, is still asking
@@ -85,6 +106,8 @@ tool nothing.
   shopping rather than designing.
 - **Carrying what belongs to the ship** through those writes: zones, container cargo,
   loose items, device wiring, and a wear level.
+- **Naming what the ship is made of**, placed parts and loose deck items alike (see
+  [Naming loose items](#naming-loose-items)).
 
 ## Out of scope
 
@@ -110,10 +133,6 @@ Each of these is a deliberate no, not a backlog item.
 - **More than one ship per document.** One design, one ship. Having several documents
   open at once, a tab each, is a different thing and is fine: each tab is still one
   design holding one ship.
-- **Naming loose items.** The game lets you rename anything that is not a person, a tool on
-  the deck included, and every *placed part* can be named here for that reason. Loose cargo
-  cannot: it is contents rather than structure, an overlay that takes no part in the Law, and
-  it carries no name of its own in a design any more than it carries tile conditions.
 - **Managing your mods.** Ostraplan never writes `loading_order.json`. Registration,
   load order, and conflict patching are
   [Ostrasort](https://github.com/Valtora/Ostrasort) and ModTools' job, and Ostraplan
