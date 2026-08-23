@@ -221,6 +221,45 @@ public sealed record LightDef(string Name, string Color, string? Img, double Pos
 /// alpha channel encodes intensity (the game multiplies it through to the shader as <c>_LightColor</c>), so
 /// Ostraplan reads <see cref="A"/>/255 as the light's strength. Referenced by name from a <see cref="LightDef"/>.
 /// </summary>
+/// <summary>
+/// A condition the game shows as a figure on an object's mega tool tip — one declaring <c>nDisplayType == 1</c>.
+/// Its <c>NumberModule</c> prints <c>fCount × fConversionFactor</c> to three decimals, appends
+/// <see cref="DisplayBonus"/> as the unit, and labels it with <see cref="Friendly"/>.
+/// </summary>
+/// <param name="Name">The condition's own name (<c>StatGasTemp</c>, …).</param>
+/// <param name="Friendly">What the game calls it ("Temperature (Gas)").</param>
+/// <param name="Desc">The line under it. Carries the game's <c>[us]</c> grammar token, which the game inflects
+/// against the object and Ostraplan leaves alone.</param>
+/// <param name="DisplayBonus">The unit suffix ("K", "kg"), appended verbatim.</param>
+/// <param name="ConversionFactor">Multiplies the raw amount before display. 1.0 for all four stock entries, but
+/// read rather than assumed, since a mod may not.</param>
+/// <param name="Color">Name into the colour table, for the figure's own colour.</param>
+public sealed record CondDisplayDef(
+    string Name, string? Friendly, string? Desc, string? DisplayBonus, double ConversionFactor, string? Color)
+{
+    /// <summary>The one display type the item tool tip renders. The game's <c>NumberModule</c> tests it exactly.</summary>
+    public const int NumberDisplayType = 1;
+
+    /// <summary>Parse a condition def, or null when it is not one the tool tip shows as a figure.</summary>
+    public static CondDisplayDef? Parse(string name, JsonElement e) =>
+        Json.Int(e, "nDisplayType") == NumberDisplayType
+            ? new CondDisplayDef(
+                name,
+                Json.Str(e, "strNameFriendly"),
+                Json.Str(e, "strDesc"),
+                Json.Str(e, "strDisplayBonus"),
+                Json.Dbl(e, "fConversionFactor", 1.0),
+                Json.Str(e, "strColor"))
+            : null;
+
+    /// <summary>The figure as the game prints it: the amount times the factor to three decimals, with the unit
+    /// appended. Temperature is the game's one special case, which it renders through its own helper — left as a
+    /// plain kelvin figure here rather than reproducing a formatter that has nothing to do with a design.</summary>
+    public string Format(double amount) =>
+        (amount * ConversionFactor).ToString("N3", System.Globalization.CultureInfo.InvariantCulture)
+        + (string.IsNullOrEmpty(DisplayBonus) ? "" : DisplayBonus);
+}
+
 public sealed record ColorDef(string Name, byte R, byte G, byte B, byte A)
 {
     public static ColorDef Parse(JsonElement e) => new(

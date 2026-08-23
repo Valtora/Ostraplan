@@ -217,6 +217,26 @@ public sealed class Catalog
         return _condFriendly.GetValueOrDefault(cond);
     }
 
+    private IReadOnlyDictionary<string, CondDisplayDef>? _condDisplay;
+
+    /// <summary>
+    /// The conditions the game puts on an object's mega tool tip as a figure — those declaring
+    /// <c>nDisplayType == 1</c>, which its <c>NumberModule</c> is the whole of. Keyed by condition name.
+    ///
+    /// <para><b>There are four of them on stock data</b> (gas temperature and the three liquids), which is worth
+    /// knowing before building anything on top: an ordinary crate's tool tip carries none, and a panel that fills
+    /// itself with every <c>Stat*</c> the def declares is showing something the game does not.</para>
+    ///
+    /// <para>Empty in synthetic test catalogs.</para>
+    /// </summary>
+    public IReadOnlyDictionary<string, CondDisplayDef> CondDisplay =>
+        _condDisplay ??= Index is { } idx
+            ? idx.Type("conditions")
+                 .Select(kv => CondDisplayDef.Parse(kv.Key, kv.Value.El))
+                 .OfType<CondDisplayDef>()
+                 .ToDictionary(d => d.Name, d => d, StringComparer.Ordinal)
+            : new Dictionary<string, CondDisplayDef>(StringComparer.Ordinal);
+
     /// <summary>GUI-prop-map templates by name (from <c>data/guipropmaps</c>) — the <c>dictGUIPropMap</c> array
     /// each named map (e.g. "Electrical", "AirPump") expands to. Used to bake a new device's <c>aGPMSettings</c>
     /// so it wires up on load. Empty in synthetic test catalogs.</summary>
