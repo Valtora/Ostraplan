@@ -9,7 +9,11 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.11**).
 
-## [Unreleased]
+## [1.1.0] 2026-08-23, a strike that says what it broke, and a manifest by location
+
+The first pass of player feedback since 1.0. Most of it is the Simulate window, which was
+reporting a strike in terms nobody could read and resolving it half a tile from the line
+that was drawn.
 
 ### Added
 - **The plan shows where a fitting is worked from.** A new **Access** overlay (the toolbar button
