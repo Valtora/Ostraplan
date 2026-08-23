@@ -35,7 +35,9 @@ public sealed record StrikeAnchor(double DocX, double DocY, StrikeFrame Frame);
 public sealed record StrikeHit(
     Guid PlacementId, string FromDef, double Absorbed, bool Broke, string? ToDef, double Distance);
 
-/// <summary>The result of one strike: the path it took and what it cost the ship.</summary>
+/// <summary>The result of one strike. <see cref="StartDoc"/> and <see cref="EndDoc"/> are the line as it was
+/// drawn; the strike itself runs along that heading until it leaves the design, so a hit past
+/// <see cref="EndDoc"/> is expected rather than a fault (see <see cref="MicrometeoroidStrike.Fire"/>).</summary>
 public sealed record StrikeResult(
     double SpeedMs,
     double Multiplier,
@@ -222,6 +224,13 @@ public static class MicrometeoroidStrike
     /// not answer "what if it came in here instead", which is the question a designer actually has. What the ray
     /// does once it is drawn is the game's own arithmetic, exactly.</para>
     ///
+    /// <para><b>The line is an aim, not a segment.</b> It sets a start and a heading, and the ray then runs far
+    /// enough to leave the design whatever the drag was. Stopping it where the mouse came up made the answer turn
+    /// on how far someone happened to pull, so the same strike down the same line reached a part or did not
+    /// according to a gesture. The game's own rays are sized to cross the whole grid rather than to any drawn
+    /// distance, so a pointer is the closer reading of them. Only the <b>direction</b> and the start come from the
+    /// drag; <see cref="StrikeResult.EndDoc"/> still reports where it was released.</para>
+    ///
     /// <para><b>The path is in the centre frame</b> (<see cref="TileFrame"/>): an integer is a tile's centre, not
     /// its corner, because that is the frame the colliders below are built in. A caller holding canvas coordinates
     /// converts with <see cref="TileFrame.CornerToCentre"/> first.</para>
@@ -240,7 +249,7 @@ public static class MicrometeoroidStrike
         var mult = MultiplierFor(speed);
         var pool = WorstCasePool(speed);
 
-        var geom = RayThrough(startDoc, endDoc);
+        var geom = RayThrough(startDoc, endDoc, Reach(doc, startDoc));
         var hits = new List<StrikeHit>();
         var remaining = pool;
 
@@ -281,14 +290,41 @@ public static class MicrometeoroidStrike
         return (g.StartDoc, g.EndDoc);
     }
 
-    /// <summary>A ray straight from one document point to another: the path the user drew.</summary>
-    private static Ray RayThrough((double X, double Y) startDoc, (double X, double Y) endDoc)
+    /// <summary>
+    /// A ray from one document point through another. <paramref name="length"/> overrides how far it travels,
+    /// which is what turns a drawn segment into an aim; leave it null to run exactly to <paramref name="endDoc"/>,
+    /// as the game's own reference ray does (<see cref="Geometry"/> sizes that one itself).
+    /// </summary>
+    private static Ray RayThrough(
+        (double X, double Y) startDoc, (double X, double Y) endDoc, double? length = null)
     {
         double dx = endDoc.X - startDoc.X, dy = endDoc.Y - startDoc.Y;
         var len = Math.Sqrt(dx * dx + dy * dy);
+        // A drag that never moved describes no heading, so there is nothing to aim along and the strike misses.
+        // That is separate from the length override, which only says how far a real heading runs.
         return len <= 1e-9
             ? new Ray(startDoc.X, startDoc.Y, 0, 0, 0, startDoc, endDoc)
-            : new Ray(startDoc.X, startDoc.Y, dx / len, dy / len, len, startDoc, endDoc);
+            : new Ray(startDoc.X, startDoc.Y, dx / len, dy / len, length ?? len, startDoc, endDoc);
+    }
+
+    /// <summary>How far a ray must run from <paramref name="start"/> to be certain of leaving the design: the
+    /// distance to the furthest corner of the padded bounding box. Bounded by the ship rather than literally
+    /// infinite, so the slab tests keep working in finite numbers and a hit's <c>Distance</c> stays meaningful.
+    /// Zero for an empty design, where a ray has nothing to cross and nothing to hit.</summary>
+    private static double Reach(ShipDocument doc, (double X, double Y) start)
+    {
+        if (doc.Bounds() is not { } b) return 0;
+        var far = 0.0;
+        foreach (var (cx, cy) in new[]
+                 {
+                     (b.MinX - 1.0, b.MinY - 1.0), (b.MaxX + 1.0, b.MinY - 1.0),
+                     (b.MinX - 1.0, b.MaxY + 1.0), (b.MaxX + 1.0, b.MaxY + 1.0),
+                 })
+        {
+            var d = Math.Sqrt((cx - start.X) * (cx - start.X) + (cy - start.Y) * (cy - start.Y));
+            if (d > far) far = d;
+        }
+        return far;
     }
 
     // ---- geometry ----

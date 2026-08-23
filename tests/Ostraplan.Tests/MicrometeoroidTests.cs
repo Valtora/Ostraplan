@@ -330,11 +330,11 @@ public class MicrometeoroidTests
         var state = new DamageState();
         var outer = doc.Placements[0];
 
-        // Drive the near wall to nothing, then fire again: the strike must arrive at the far wall with its pool
-        // untouched, because there is no longer anything at the near tile to soak it.
-        MicrometeoroidStrike.Fire(doc, (-3.0, 0.0), (-1.0, 0.0), 750, state);   // a short path, near wall only
-        MicrometeoroidStrike.Fire(doc, (-3.0, 0.0), (1.0, 0.0), 750, state);
-        MicrometeoroidStrike.Fire(doc, (-3.0, 0.0), (1.0, 0.0), 750, state);
+        // Drive the near wall to nothing, then fire: the strike must arrive at the far wall with its pool
+        // untouched, because there is no longer anything at the near tile to soak it. Spent directly rather than
+        // by firing a short line at it, since a drawn line is an aim and would carry on into the far wall too.
+        state.Apply(outer, "Wall", 10, cat);
+        state.Apply(outer, "WallDmg", 20, cat);
         Assert.True(state.IsDestroyed(outer));
 
         var through = MicrometeoroidStrike.Fire(doc, (-3.0, 0.0), (10.0, 0.0), 750, state);
@@ -509,5 +509,34 @@ public class MicrometeoroidTests
         Assert.True(fastest > MicrometeoroidStrike.StandardSpeedMs);
         // The silent band sits lower still, so counting it would have produced a faster figure than this.
         Assert.True(fastest < 7900);
+    }
+
+    [Fact]
+    public void A_drawn_line_is_an_aim_and_reaches_past_where_the_drag_ended()
+    {
+        // The drag sets a start and a heading. Ending the ray where the mouse came up made the answer turn on how
+        // far someone happened to pull, so the same strike down the same line reached a part or did not according
+        // to a gesture rather than to the hull.
+        var cat = WallCat();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 20, 0));
+
+        // Released two tiles in, twenty short of the far wall.
+        var r = MicrometeoroidStrike.Fire(doc, (-3.0, 0.0), (-1.0, 0.0), 7700, new DamageState());
+
+        Assert.Equal(2, r.Hits.Count);
+        Assert.Equal(doc.Placements[0].Id, r.Hits[0].PlacementId);   // nearest first, as ever
+        Assert.Equal(doc.Placements[1].Id, r.Hits[1].PlacementId);
+        // The drag is still reported as drawn, so the readout says where the line was put.
+        Assert.Equal((-1.0, 0.0), r.EndDoc);
+    }
+
+    [Fact]
+    public void A_drag_that_never_moved_still_describes_no_strike()
+    {
+        // An aim needs a heading. A click without a drag has none, and must not be turned into one.
+        var cat = WallCat();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0));
+
+        Assert.True(MicrometeoroidStrike.Fire(doc, (0.0, 0.0), (0.0, 0.0), 750, new DamageState()).Missed);
     }
 }

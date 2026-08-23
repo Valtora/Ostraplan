@@ -386,8 +386,8 @@ public sealed class SimulateWindow : Window
     /// what makes the tool feel like aiming rather than filling in a form.</summary>
     private void OnPathDrawn(Point start, Point end, bool committed)
     {
-        // A weapon's line is an aim rather than a path, so the canvas carries it on past the drag.
-        _board.SetGhostPath((start, end), extend: !IsMicrometeoroid);
+        // Both solvers read a drawn line as an aim rather than a path, so the canvas carries it on past the drag.
+        _board.SetGhostPath((start, end), extend: true);
         _path = ((start.X, start.Y), (end.X, end.Y));
         UpdateLabels();
         if (committed) Fire();
@@ -416,16 +416,13 @@ public sealed class SimulateWindow : Window
         _speedLabel.Foreground = Dim;
         _damageReset.IsEnabled = Math.Abs(_damage.Value - MicrometeoroidStrike.StandardDamage) >= 0.5;
 
+        // A drawn line sets a heading, not a distance: it carries on to the far side of the ship, so how far you
+        // drag decides the angle and nothing else. Both solvers read it that way.
         _pathLabel.Text = _path is { } p
-            ? $"{(IsMicrometeoroid ? "Path" : "Aim")}: ({p.Start.X:0.0}, {p.Start.Y:0.0}) → "
-              + $"({p.End.X:0.0}, {p.End.Y:0.0}).  Press Fire to hit it again, or drag a new one."
-            : IsMicrometeoroid
-                ? "Drag a line across the plan to set the path a strike takes, from where it comes in to where it "
-                  + "leaves. Releasing fires it."
-                // A weapon's line sets a heading, not a distance: it carries on to the far side of the ship, so
-                // how far you drag decides the angle and nothing else.
-                : "Drag a line across the plan to aim. The shot carries on along it until it hits something or "
-                  + "leaves the ship, however short the drag. Releasing fires it.";
+            ? $"Aim: ({p.Start.X:0.0}, {p.Start.Y:0.0}) → ({p.End.X:0.0}, {p.End.Y:0.0}).  "
+              + "Press Fire to hit it again, or drag a new one."
+            : "Drag a line across the plan to aim. It carries on along that line until it hits something or "
+              + "leaves the ship, however short the drag. Releasing fires it.";
 
         _board.SetAiming(true, IsMicrometeoroid ? PivotForCanvas() : null);
     }

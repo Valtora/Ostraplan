@@ -416,8 +416,11 @@ design and mark every part they damage. Both open the same window on
 a different tab. **Simulate ▸ Damage Brush…** is the other half of the menu and works the other
 way round: it paints condition onto the design and keeps it.
 
-**Drag a line across the plan** to say where the strike comes in and where it goes out. Let go
-and it fires along that line. Drag another to fire again. Damage builds up across strikes and is
+**Drag a line across the plan** to aim. The line sets where the strike comes in and the heading
+it travels on, and it carries on along that heading until it hits something or leaves the ship,
+however short the drag. So how far you pull decides the angle and nothing else, and the aim past
+the end of the drag is drawn faintly so a hit landing beyond it is not a surprise. Let go and it
+fires. Drag another to fire again. Damage builds up across strikes and is
 **never saved**: it lives beside the design, not in it, so closing the window or pressing
 **Start over** puts the ship back to pristine. Your `.oplan` is untouched throughout.
 
@@ -459,7 +462,7 @@ and it fires along that line. Drag another to fire again. Damage builds up acros
 
 ### Micrometeoroid
 
-Draw the path, set the **strike strength**, and it fires on release.
+Draw the aim, set the **strike strength**, and it fires on release.
 
 - **You can draw paths the game itself cannot fire, and that is deliberate.** In Ostranauts every
   micrometeoroid runs through one fixed point, marked with a crosshair on the plan. That is the
@@ -488,10 +491,6 @@ fire up to the heaviest missile — then draw the path the same way.
 - **Missiles detonate on the hull**, not in the middle: they trigger on the first tile along
   the line carrying one of the attack's own trigger conditions (for the missiles, a wall, a
   rigid object or a portal), and the blast falls off with distance from there.
-- **The line you draw is an aim, not a path.** The shot carries on along it until it hits
-  something or leaves the ship, however short the drag. How far you drag decides the angle and
-  nothing else, so the same line always gives the same answer. The aim past the end of the drag
-  is drawn faintly on the plan, so a blast landing beyond where you released is not a surprise.
 - **A wall stops a missile whenever there is a wall there.** The game itself is fussier: it
   looks at the first part on a tile that still has anything left to give and then stops looking,
   so a wall sharing its tile with a floor stops a missile only when the ship's own item list

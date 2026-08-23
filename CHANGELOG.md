@@ -9,6 +9,16 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.11**).
 
+## [Unreleased]
+
+### Changed
+- **A micrometeoroid path is an aim too, matching a weapon's.** 1.1.0 made a weapon's drawn line a
+  heading that carries on until it hits something or leaves the ship, and left the micrometeoroid
+  line as a bounded segment that stopped where the mouse came up. Both now read the same way, so a
+  strike reaches a part or does not according to the hull rather than according to how far someone
+  happened to drag. The aim past the end of the drag is drawn on the plan for both. A click that
+  never moved still describes no heading, and still hits nothing.
+
 ## [1.1.0] 2026-08-23, a strike that says what it broke, and a manifest by location
 
 The first pass of player feedback since 1.0. Most of it is the Simulate window, which was

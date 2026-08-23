@@ -726,9 +726,9 @@ public sealed class ShipCanvas : FrameworkElement
     }
 
     /// <summary>The ghost strike path to draw, in document coords, or null for none.</summary>
-    /// <param name="extend">Carry the line on past the end of the drag, faintly, to the edge of the view. The
-    /// weapon solver treats a drawn line as an aim rather than a path, so a shot goes on until it leaves the ship;
-    /// without the extension a blast landing past the drag looks like it went somewhere nobody pointed.</param>
+    /// <param name="extend">Carry the line on past the end of the drag, faintly, to the edge of the view. Both
+    /// solvers treat a drawn line as an aim rather than a path, so a strike goes on until it leaves the ship;
+    /// without the extension a hit landing past the drag looks like it went somewhere nobody pointed.</param>
     public void SetGhostPath((Point Start, Point End)? path, bool extend = false)
     {
         _ghostPath = path;
