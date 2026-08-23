@@ -64,6 +64,16 @@ public sealed record ItemDef(
     /// </summary>
     public WearFields Wear { get; init; } = WearFields.Unset;
 
+    /// <summary>The item's damaged-overlay image (<c>strImgDamaged</c>) — the second texture the wear shader
+    /// blends in where the noise has worn through, on the 293 core items that name one. Null/"blank"/empty means
+    /// the part wears to a flat <see cref="DmgColor"/> instead, which is the majority.</summary>
+    public string? ImgDamaged { get; init; }
+
+    /// <summary>The item's wear tint (<c>strDmgColor</c>), a name into the colour table. <c>DamageTintNone</c> is
+    /// white and so tints nothing, which is what the 296 items carrying it mean. Null means the def named none,
+    /// and <see cref="WearShader.WearColor"/> decides what that resolves to.</summary>
+    public string? DmgColor { get; init; }
+
     public static ItemDef Parse(JsonElement e) => new(
         Json.Str(e, "strName") ?? "",
         Json.Str(e, "strImg") ?? "",
@@ -81,6 +91,8 @@ public sealed record ItemDef(
         IsWallForLight = Json.StrArray(e, "aSocketAdds").Contains("TILWallAdds"),
         ZScale = Json.Dbl(e, "fZScale", 1.0),
         Wear = WearFields.Parse(e),
+        ImgDamaged = Json.Str(e, "strImgDamaged"),
+        DmgColor = Json.Str(e, "strDmgColor"),
     };
 }
 
@@ -275,6 +287,14 @@ public sealed record InteractionDef(string Name, string? Title, string? TargetPo
 public sealed record CoOverlayDef(
     string Name, string? NameFriendly, string? Img, string? COBase, string[] GpmNames, string[] ModeSwitches)
 {
+    /// <summary>The skin's own damaged-overlay image and wear tint. <c>COOverlay.Init</c> passes both to
+    /// <c>Item.SetAlt</c> alongside <c>strImg</c>, so a branded wall wears in its own colours rather than the
+    /// base's. Null where the skin names none, in which case the base item's stand.</summary>
+    public string? ImgDamaged { get; init; }
+
+    /// <inheritdoc cref="ImgDamaged"/>
+    public string? DmgColor { get; init; }
+
     /// <summary>Interaction substitutions this skin applies over its base condowner's <c>aInteractions</c>
     /// (<c>aInteractionsReplace</c>, flat <c>[from, to]</c> pairs — the game's <c>JsonCOOverlay.mapIAReplaces</c>,
     /// applied by <c>COOverlay.Init</c>). Empty for a skin that keeps the base's interactions.</summary>
@@ -299,6 +319,8 @@ public sealed record CoOverlayDef(
     {
         CondLoot = Json.Str(e, "strCondLoot"),
         InteractionReplacements = Pairs(Json.StrArray(e, "aInteractionsReplace")),
+        ImgDamaged = Json.Str(e, "strImgDamaged"),
+        DmgColor = Json.Str(e, "strDmgColor"),
     };
 
     /// <summary>Read a flat alternating <c>[from, to, from, to, …]</c> array as pairs, dropping a trailing odd

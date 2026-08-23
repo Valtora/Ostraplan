@@ -35,6 +35,12 @@ public sealed record PartDef(
     /// only <c>strImg</c>).</summary>
     public string? SpriteNormAbs { get; init; }
 
+    /// <summary>The item's damaged-overlay PNG resolved on disk (<c>strImgDamaged</c>), or null when it names
+    /// none/"blank" or the file is missing — which is the majority, and which the wear shader reads as
+    /// <c>_DmgPresent = 0</c>. Unlike the normal map, a cooverlay skin CAN override this (see
+    /// <see cref="ItemDef.ImgDamaged"/>).</summary>
+    public string? SpriteDamagedAbs { get; init; }
+
     /// <summary>Resolved GUI-prop-map declarations — (instance, template) name pairs from the def's
     /// <c>mapGUIPropMaps</c> (base condowner + cooverlay). Drives the <c>aGPMSettings</c> baked onto a
     /// newly-injected device so it wires to power/panels on load (see <see cref="Catalog.GpmSettingsFor"/>).
@@ -1219,6 +1225,13 @@ public sealed class Catalog
         var item = ItemDef.Parse(rawItem.El);
         if (!string.IsNullOrWhiteSpace(overlay?.Img))
             item = item with { Img = overlay!.Img! };
+        // The skin's wear textures override the base's the same way its sprite does — COOverlay.Init hands all
+        // four to Item.SetAlt in one call — so a branded wall wears in its own colours. A skin that names neither
+        // keeps the base item's, which is why each is guarded separately rather than as a pair.
+        if (!string.IsNullOrWhiteSpace(overlay?.ImgDamaged))
+            item = item with { ImgDamaged = overlay!.ImgDamaged! };
+        if (!string.IsNullOrWhiteSpace(overlay?.DmgColor))
+            item = item with { DmgColor = overlay!.DmgColor! };
 
         var friendly =
             !string.IsNullOrWhiteSpace(overlay?.NameFriendly) ? overlay!.NameFriendly! :
@@ -1271,6 +1284,7 @@ public sealed class Catalog
             co?.MapPoints ?? new Dictionary<string, (double, double)>())
         {
             SpriteNormAbs = item.ImgNorm is { Length: > 0 } and not "blank" ? index.ResolveImage(item.ImgNorm) : null,
+            SpriteDamagedAbs = item.ImgDamaged is { Length: > 0 } and not "blank" ? index.ResolveImage(item.ImgDamaged) : null,
             Gpm = ResolveGpm(co?.GpmNames, overlay?.GpmNames),
             Desc = co?.Desc,
             TickerNames = co?.TickerNames ?? [],

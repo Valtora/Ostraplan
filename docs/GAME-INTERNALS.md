@@ -1176,6 +1176,61 @@ A canister is whatever satisfies the game's own **`TIsVessel`** trigger (an OR o
 / `IsVesselN2`), read from the data rather than from a def-name list, so a modded
 canister ranks with the rest.
 
+### Wear is a shader, not a sprite (`Sprites/AlbedoPass`)
+
+A part's condition changes how it looks, and none of the rule is in the assembly or the
+data. `strImgDamaged` is **not** a sprite the game swaps to: it is a second texture blended
+in by a procedural pass, and the 640-odd defs that name no such texture still wear.
+
+The fragment path, for the ordinary ship view (`_OverlayMode == 0`, i.e. no PDA visualiser):
+
+```
+if (_OverlayAmount >= 0.2) {              // nothing wears above 80% condition
+    q  = frac(uv * (_Columns, _Rows))     // cell-local for a sheet item
+    px = trunc(_Aspect.xy * 16 / _MainTex_ST.xy)
+    q  = floor(q * px) / px               // snap to the material's texel grid
+    p  = (q + _PositionOffset.xy) * _Complexity * _Aspect.xy
+
+    n = fbm(p.x, p.y, _PositionOffset.z)
+    n = _Sinew ? abs(n - _Cut) * _Intensity + _Trim
+               :    (n - _Cut) * _Intensity + _Trim
+
+    if (n >= 1 - _OverlayAmount) {        // this texel has worn through
+        wear = _DmgPresent ? tex2D(_DmgTex, uv) * _WearCol : _WearCol
+        rgb  = _Lerp ? lerp(rgb, wear, saturate(n)) : wear
+    }
+}
+```
+
+`fbm` is 8 octaves of trilinear value noise, frequency doubling from `0.005` and amplitude
+halving from `25`, hashed by `frac(sin(i.x + 157·i.y + 113·i.z) * _Seed)`. The normaliser
+sums the **halved** amplitude, so the field runs 0–2 rather than 0–1; that factor of two is
+what lifts it over a default `_Cut` of 0.8 at all.
+
+Three things about it that are easy to get wrong:
+
+- **`_PositionOffset` is the part's world position** (`Item.RefreshShaderVariables`:
+  `(tf.position.x, tf.position.y, ZScale, 0)`), which is §7's item centre. The in-world
+  renderer shares one material per texture set and so **never assigns `_Seed`** — every
+  part on every ship runs the shader default `453.5453186`. World position is therefore the
+  only thing decorrelating two identical walls, which is what makes the pattern
+  reproducible rather than random. (`Item.SetUpInventoryMaterial` *does* set `_Seed`, per
+  object, from the `strID` hash — that is the inventory material, not this one.)
+- **The def's tuning fields are sentinels, not values.** `Item.SetData` pushes each only
+  when the def set one, and `JsonItemDef`'s constructor pre-sets `fDmgCut`/`fDmgTrim` to
+  `-999` and `bLerp`/`bSinew` to **`true`**. Reading `bLerp` with the usual false fallback
+  flips the ~800 core defs that omit it.
+- **`Item.GetWearColor` has three rungs**: a named `strDmgColor` wins; failing that, a def
+  naming a damaged texture gets plain white so its own art shows through unrecoloured; only
+  a def naming neither falls to `DamageTintDefault`.
+
+> **Ported in Ostraplan:** `WearShader` (the noise, the slice, the threshold, the tuning
+> resolution and `GetWearColor`), `ItemDef.Wear`/`WearFields` for the def fields, and
+> `SpriteCache.WornSprite`/`WornSheetCell` for the bake the canvas draws. Behind the
+> **Simulate ▸ Damage Brush**. **Re-verify on a major game version by re-extracting the
+> shader** — every constant here lives in compiled GPU code, so no data check can see it
+> drift, and `--wearsmoke` is what catches it. Extraction follows §1's shader route.
+
 ### Autotiling (`Item.SetSpriteSheetIndex`)
 
 Sheet items (`bHasSpriteSheet` + `ctSpriteSheet`) pick a sheet cell from the 4 cardinal

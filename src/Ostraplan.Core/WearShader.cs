@@ -127,6 +127,38 @@ public static class WearShader
             Math.Max(1, Math.Truncate(AspectH * 16.0 / (ScaleY == 0 ? 1.0 : ScaleY))));
     }
 
+    /// <summary>The colour <c>DamageTintNone</c> resolves to. White, because the tint is a multiply and white is
+    /// how 296 core defs say "wear me but do not recolour me".</summary>
+    public const string NoTint = "DamageTintNone";
+
+    /// <summary>The tint a def with no <c>strDmgColor</c> of its own falls back to when it also names no damaged
+    /// texture — a near-black that reads as soot.</summary>
+    public const string DefaultTint = "DamageTintDefault";
+
+    /// <summary>
+    /// The shader's <c>_WearCol</c>, a port of <c>Item.GetWearColor</c>.
+    ///
+    /// <para>The fallback chain has three rungs and the middle one is easy to miss: a def that names <b>no</b>
+    /// tint but <b>does</b> name a damaged texture gets plain white, so its second texture shows through
+    /// unrecoloured. Only a def naming neither falls to <see cref="DefaultTint"/>. Collapsing those two would
+    /// smear soot over every part that ships its own damaged art.</para>
+    /// </summary>
+    /// <returns>Straight RGB in 0..1. Alpha is not part of the multiply.</returns>
+    public static (double R, double G, double B) WearColor(
+        string? dmgColor, string? imgDamaged, IReadOnlyDictionary<string, ColorDef> colors)
+    {
+        ArgumentNullException.ThrowIfNull(colors);
+        if (dmgColor is { Length: > 0 } and not "blank") return Rgb(colors, dmgColor);
+        if (imgDamaged is { Length: > 0 } and not "blank") return (1.0, 1.0, 1.0);
+        return Rgb(colors, DefaultTint);
+    }
+
+    /// <summary>A colour-table entry as 0..1 RGB, falling back to white (no tint) when the table does not carry
+    /// it — a synthetic catalog has no colours at all, and a missing tint should leave the sprite alone rather
+    /// than blacken it.</summary>
+    private static (double R, double G, double B) Rgb(IReadOnlyDictionary<string, ColorDef> colors, string name) =>
+        colors.TryGetValue(name, out var c) ? (c.R / 255.0, c.G / 255.0, c.B / 255.0) : (1.0, 1.0, 1.0);
+
     /// <summary>
     /// The shader's <c>_PositionOffset</c> for a part: the world coordinates of its footprint <b>centre</b>, plus
     /// its draw-order scalar as the third noise axis.
