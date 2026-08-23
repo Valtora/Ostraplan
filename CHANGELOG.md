@@ -9,7 +9,10 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.11**).
 
-## [0.100.0] 2026-08-23, Simulate, the Damage Brush, and an item manifest
+## [1.0.0] 2026-08-23, Simulate, the Damage Brush, and an item manifest
+
+Ostraplan reaches 1.0 because most of what it was planned to do is now in it. Releases from
+here come at a slower cadence.
 
 ### Added
 - **An Item Manifest: everything the ship carries, wherever it is.** **Design ▸ Item Manifest…** lists
