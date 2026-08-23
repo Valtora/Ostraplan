@@ -15,6 +15,9 @@ public enum DlgKind { Info, Success, Warning, Danger }
 /// neither a reflexive <kbd>Enter</kbd> nor a reflexive click on the highlighted button ever performs a
 /// destructive action; the user has to deliberately click the plainly-labelled action button.
 ///
+/// <para>Its height is capped (see the ctor). A message is only as long as the list it has to name, and some
+/// of them name a long one, so past the cap the body scrolls with the title and the buttons still on screen.</para>
+///
 /// <para>Use the static <see cref="Dlg"/> helpers, not this class directly.</para>
 /// </summary>
 public sealed class MessageDialog : Window
@@ -33,6 +36,10 @@ public sealed class MessageDialog : Window
         Title = title;
         Width = 486;
         SizeToContent = SizeToContent.Height;
+        // A message is only as long as what it has to name, and some of them name a list: a design can depend on
+        // forty mods. Past this the body scrolls instead of the window growing off the screen. UiScale scales the
+        // cap with the rest of the chrome and clamps it to the work area, so it holds on a small panel too.
+        MaxHeight = 600;
         ResizeMode = ResizeMode.NoResize;
         ShowInTaskbar = false;
         Background = ThemeManager.WindowBg;
@@ -50,7 +57,9 @@ public sealed class MessageDialog : Window
     {
         var (accent, glyph) = StyleFor(kind);
 
-        var content = new StackPanel { Margin = new Thickness(22, 20, 22, 18) };
+        // Docked rather than stacked: the header and the buttons keep their space and the body takes what is
+        // left, so a message too long for the window scrolls with both of them still on screen.
+        var content = new DockPanel { Margin = new Thickness(22, 20, 22, 18) };
 
         // header: severity badge + title
         var header = new StackPanel { Orientation = Orientation.Horizontal };
@@ -82,13 +91,8 @@ public sealed class MessageDialog : Window
             Margin = new Thickness(12, 0, 0, 0),
             MaxWidth = 404,
         });
+        DockPanel.SetDock(header, Dock.Top);
         content.Children.Add(header);
-
-        content.Children.Add(new Border
-        {
-            Margin = new Thickness(38, 12, 0, 0),
-            Child = BuildBody(body),
-        });
 
         // Buttons. The primary action is accent-filled ONLY when the message is benign (info / success) — a risky
         // confirm keeps every button plain so nothing invites a reflexive click; the severity strip carries the
@@ -119,7 +123,17 @@ public sealed class MessageDialog : Window
             row.Children.Add(btn);
             if (last) safe = btn;
         }
+        DockPanel.SetDock(row, Dock.Bottom);
         content.Children.Add(row);
+
+        // Last, so it fills whatever the header and the buttons leave.
+        content.Children.Add(new ScrollViewer
+        {
+            Margin = new Thickness(38, 12, 0, 0),
+            Padding = new Thickness(0, 0, 12, 0),   // keep the text clear of the scrollbar, which draws over it
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = BuildBody(body),
+        });
 
         // accent strip down the left edge
         var rootDock = new DockPanel { Background = ThemeManager.WindowBg };

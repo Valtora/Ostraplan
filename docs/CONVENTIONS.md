@@ -77,6 +77,32 @@ Accent and severity colours come from the `ThemeManager` brushes (`AccentBg`/`Ac
 is the Ship Rating button look). Reference them with `DynamicResource` so a light/dark
 switch re-resolves them.
 
+## A window that sizes to its content must be bounded
+
+`SizeToContent` has no ceiling of its own, and `UiScale` cannot supply one: it scales and
+clamps `Width`/`Height`/`Min*`/`Max*` to the work area, but a dimension that sizes to content
+has no declared size to clamp, and it only touches `MaxHeight` when one is already set. A
+window that sizes to its content and shows anything list-shaped therefore grows until it runs
+off the screen. The missing-mods warning names one bullet per unresolved part and one per mod
+dependency, so a design leaning on forty mods produced a dialog taller than the monitor with
+its OK button below the bottom edge; the Arrange-screen tray does the same on a console
+carrying a lot of modules.
+
+Where content is as long as the data makes it, cap the height and let it scroll:
+
+- **`MaxHeight` on the window**, not on the panel, so `UiScale` scales it with the rest of the
+  chrome and clamps it to the work area.
+- **A `DockPanel`, not a `StackPanel`**, wherever something has to stay on screen. Dock the
+  header `Top` and the buttons `Bottom`, then add the scrolling body last so it fills what is
+  left. A `StackPanel` gives every child its desired height whatever the space it is arranged
+  into, so the buttons go off the bottom instead of the body scrolling.
+- **`VerticalScrollBarVisibility.Auto`**, so a message short enough to fit looks exactly as it
+  did before.
+
+`MessageDialog.BuildLayout` and `MissingPartsDialog` are the working examples. The `--dlgsmoke`
+preview renders the capped case as `dlg-warning-scroll-dark.png`, which is how to eyeball it
+without a design that actually names forty mods.
+
 ## Tunable parameters are user controls, not constants
 
 When a visual or behavioural parameter is a **feel** knob (a display level, a brightness

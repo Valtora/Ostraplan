@@ -105,6 +105,10 @@ public sealed class NavArrangeWindow : Window
         {
             BorderBrush = PanelBorder, BorderThickness = new Thickness(1), Background = ThemeManager.FieldBg,
             Width = 240, Margin = new Thickness(12, 0, 0, 0), Padding = new Thickness(8),
+            // Held to the board's own outer height (its border adds 1 either side). The window sizes to its
+            // content and nothing else here bounds it, so without this a console carrying a lot of modules
+            // grows the window off the screen instead of scrolling the tray.
+            MaxHeight = BoardH + 2,
             Child = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = _tray },
         };
         columns.Children.Add(_trayBox);

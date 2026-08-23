@@ -9,6 +9,18 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.11**).
 
+## [Unreleased]
+
+### Fixed
+- **A long warning scrolls instead of running off the screen.** A message dialog is as long as
+  the list it has to name, and the missing-mods warning names one line per unresolved part and
+  one per mod dependency. On a design leaning on a few dozen mods it grew taller than the
+  monitor, with the OK button below the bottom edge and no way to reach it. The card is now
+  capped: the title and the buttons stay put and the message scrolls between them. Short
+  messages are unchanged.
+- **The Arrange screen's module tray scrolls too.** Same cause, on a console carrying more
+  modules than the board is tall.
+
 ## [1.0.0] 2026-08-23, Simulate, the Damage Brush, and an item manifest
 
 Ostraplan reaches 1.0 because most of what it was planned to do is now in it. Releases from

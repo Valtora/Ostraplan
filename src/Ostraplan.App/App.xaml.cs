@@ -47,15 +47,19 @@ public partial class App : Application
             var dir = e.Args.SkipWhile(a => a != "--dlgsmoke").Skip(1).FirstOrDefault() ?? AppContext.BaseDirectory;
             Directory.CreateDirectory(dir);
 
-            void Render(string mode, DlgKind kind, string title, string body, (string, MessageDialog.Choice)[] buttons, string file)
+            // height: 0 renders the card as tall as the message needs, which is what a short one gets. Pass the
+            // dialog's own MaxHeight instead to see what a long one does: the body scrolls inside it while the
+            // header and the buttons stay put.
+            void Render(string mode, DlgKind kind, string title, string body, (string, MessageDialog.Choice)[] buttons, string file, double height = 0)
             {
                 ThemeManager.Apply(mode);
                 var (root, _) = MessageDialog.BuildLayout(kind, title, body, buttons, _ => { });
                 root.Width = 486;
-                root.Measure(new Size(486, double.PositiveInfinity));
-                root.Arrange(new Rect(0, 0, 486, root.DesiredSize.Height));
+                root.Measure(new Size(486, height > 0 ? height : double.PositiveInfinity));
+                var tall = height > 0 ? height : root.DesiredSize.Height;
+                root.Arrange(new Rect(0, 0, 486, tall));
                 root.UpdateLayout();
-                var bmp = new RenderTargetBitmap(486, (int)Math.Ceiling(root.DesiredSize.Height), 96, 96, PixelFormats.Pbgra32);
+                var bmp = new RenderTargetBitmap(486, (int)Math.Ceiling(tall), 96, 96, PixelFormats.Pbgra32);
                 bmp.Render(root);
                 var enc = new PngBitmapEncoder();
                 enc.Frames.Add(BitmapFrame.Create(bmp));
@@ -82,6 +86,17 @@ public partial class App : Application
                           "Until then the design is read only, so saving is disabled.";
             Render("dark", DlgKind.Warning, "This design is missing mods", missing,
                 [("OK", MessageDialog.Choice.Cancel)], "dlg-warning-dark.png");
+
+            // The same warning for a design that leans on a lot of mods. A message is as long as the list it has
+            // to name, so this is the case the card is capped for.
+            var manyMods = string.Join("\n", Enumerable.Range(1, 30).Select(i => $"•   Some Mod Or Other {i} [37{i:0000}00{i}]"));
+            var longMissing = "Raven uses 2 part(s) that aren't in your current game and mods data.\n" +
+                              "They were left out, so this design is incomplete.\n\n" +
+                              "•   ItmWaterTankMedium\n•   ItmWaterTankWasteMedium\n\n" +
+                              "It depends on these mods.\n\n" + manyMods + "\n\n" +
+                              "To get them back: install or subscribe to those mods and enable them, then reopen this design.";
+            Render("dark", DlgKind.Warning, "This design is missing mods", longMissing,
+                [("OK", MessageDialog.Choice.Cancel)], "dlg-warning-scroll-dark.png", 600);
 
             Render("dark", DlgKind.Info, "Save changes?", "Vagabond+ has unsaved changes.",
                 [("Save", MessageDialog.Choice.Primary), ("Don't save", MessageDialog.Choice.Secondary), ("Cancel", MessageDialog.Choice.Cancel)],
