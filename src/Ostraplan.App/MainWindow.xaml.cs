@@ -4534,7 +4534,13 @@ public partial class MainWindow : Window
             return;
         }
         var window = new SimulateWindow(Board, _doc) { Owner = this };
-        if (_index is not null && _catalog is not null) window.SetAttacks(_catalog.ShipAttacks);
+        if (_index is not null && _catalog is not null)
+        {
+            window.SetAttacks(_catalog.ShipAttacks);
+            // The strike-strength ceiling is derived from the authored atmosphere bands rather than hard-coded, so
+            // it needs the same game data the flight report reads.
+            window.SetBodies(Atmosphere.LoadBodies(_index));
+        }
         window.SetMode(mode);
         window.Closed += (_, _) => _simulate = null;
         _simulate = window;

@@ -45,11 +45,30 @@ public class MicrometeoroidTests
         Assert.True(MicrometeoroidStrike.MultiplierFor(MicrometeoroidStrike.MinClosingSpeedMs + 1)
                     > MicrometeoroidStrike.MultiplierFor(MicrometeoroidStrike.MinClosingSpeedMs));
 
-        // The tension beat spawns anywhere in the system and always passes fMult: 1f, so this is the one speed a
-        // ship is exposed to wherever it is, and it has to sit inside the offered range.
-        Assert.Equal(1.0, MicrometeoroidStrike.MultiplierFor(MicrometeoroidStrike.TensionBeatSpeedMs), 6);
-        Assert.InRange(MicrometeoroidStrike.TensionBeatSpeedMs,
+        // The spawn site that reaches normal play always passes fMult: 1f, so this is the one speed a ship is
+        // exposed to wherever it is, and it has to sit inside the offered range.
+        Assert.Equal(1.0, MicrometeoroidStrike.MultiplierFor(MicrometeoroidStrike.StandardSpeedMs), 6);
+        Assert.InRange(MicrometeoroidStrike.StandardSpeedMs,
                        MicrometeoroidStrike.MinClosingSpeedMs, MicrometeoroidStrike.MaxClosingSpeedMs);
+    }
+
+    [Fact]
+    public void Damage_and_speed_are_the_same_control_read_two_ways()
+    {
+        // The window works in damage and the solver in velocity, so the two have to agree exactly at the default
+        // or the figure on screen is not the figure being fired.
+        Assert.Equal(55.0, MicrometeoroidStrike.StandardDamage, 6);
+        Assert.Equal(MicrometeoroidStrike.StandardSpeedMs,
+                     MicrometeoroidStrike.SpeedForDamage(MicrometeoroidStrike.StandardDamage), 6);
+
+        // Round-trip across the whole offered range.
+        foreach (var damage in new[] { MicrometeoroidStrike.MinDamage, 100.0, 300.0, 560.0 })
+            Assert.Equal(damage, MicrometeoroidStrike.WorstCasePool(MicrometeoroidStrike.SpeedForDamage(damage)), 6);
+
+        // Under the floor is not a weaker strike, it is one the game does not have: the multiplier stops moving,
+        // so asking for less than the minimum gets the minimum.
+        Assert.Equal(MicrometeoroidStrike.MinClosingSpeedMs, MicrometeoroidStrike.SpeedForDamage(1), 6);
+        Assert.Equal(MicrometeoroidStrike.MaxClosingSpeedMs, MicrometeoroidStrike.SpeedForDamage(99999), 6);
     }
 
     [Fact]
@@ -400,6 +419,47 @@ public class MicrometeoroidTests
         Assert.Single(centred.Hits);
     }
 
+    // ---- the canvas frame ----
+
+    [Fact]
+    public void A_path_drawn_across_a_tile_hits_the_part_standing_on_that_tile()
+    {
+        // The canvas reports a continuous position in its own CORNER frame, where tile (x, y) covers [x, x+1), so
+        // anywhere from y=3.0 to y=4.0 is inside the row the user can see their line crossing. The solver reads an
+        // integer as a tile CENTRE. Handing a canvas point straight over aimed half a tile up and to the left of
+        // the drawn line, which put the answer on the wrong row for the lower half of every tile.
+        var cat = WallCat();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 2, 3), Fixtures.P("Wall", 2, 4));
+        var wall3 = doc.Placements[0];
+
+        var start = TileFrame.CornerToCentre((0.0, 3.9));
+        var end = TileFrame.CornerToCentre((6.0, 3.9));
+        var r = MicrometeoroidStrike.Fire(doc, start, end, 750, new DamageState());
+
+        var hit = Assert.Single(r.Hits);
+        Assert.Equal(wall3.Id, hit.PlacementId);
+
+        // The same line unconverted lands on the row below, which is the bug this guards.
+        var raw = MicrometeoroidStrike.Fire(doc, (0.0, 3.9), (6.0, 3.9), 750, new DamageState());
+        Assert.Equal(doc.Placements[1].Id, Assert.Single(raw.Hits).PlacementId);
+    }
+
+    [Fact]
+    public void The_two_tile_frames_round_trip_and_agree_on_which_cell_a_point_is_in()
+    {
+        (double X, double Y) middleOfTile = (2.5, 3.5);
+        Assert.Equal((2, 3), TileFrame.CellOf(middleOfTile));
+        // The middle of a tile in the corner frame is the tile's own index in the centre frame, which is the whole
+        // of the difference between them.
+        Assert.Equal((2.0, 3.0), TileFrame.CornerToCentre(middleOfTile));
+        Assert.Equal(middleOfTile, TileFrame.CentreToCorner(TileFrame.CornerToCentre(middleOfTile)));
+
+        // A point anywhere inside a tile stays inside it, which is what makes the conversion safe to apply to a
+        // drag position rather than only to a snapped one.
+        Assert.Equal((14, 1), TileFrame.CellOf((14.8, 1.6)));
+        Assert.Equal((14, 1), TileFrame.CellOf(TileFrame.CentreToCorner(TileFrame.CornerToCentre((14.8, 1.6)))));
+    }
+
     // ---- helpers ----
 
     /// <summary>A straight path across a placement, from one tile before it to one tile after — the line a user
@@ -415,5 +475,39 @@ public class MicrometeoroidTests
         if (len2 < 1e-12) return Math.Sqrt(Math.Pow(p.X - a.X, 2) + Math.Pow(p.Y - a.Y, 2));
         var t = Math.Clamp(((p.X - a.X) * dx + (p.Y - a.Y) * dy) / len2, 0, 1);
         return Math.Sqrt(Math.Pow(p.X - (a.X + t * dx), 2) + Math.Pow(p.Y - (a.Y + t * dy), 2));
+    }
+
+    [Fact]
+    public void The_ceiling_comes_from_the_data_because_the_code_has_none()
+    {
+        // StarSystem.SpawnMicroMeteoroid passes fMult straight through and the only clamp on the path is the 0.5
+        // floor, so how hard a strike can be is decided by the fastest band that declares a chance at all.
+        var noBands = new List<CelestialBody>
+        {
+            new("Sol", "Ceres", RadiusKm: 470, MassKg: 9.4e20, Bands: []),
+        };
+        // Nothing declares one, so the atmosphere site cannot fire and the standard strike is the only strike.
+        Assert.Equal(MicrometeoroidStrike.StandardSpeedMs, MicrometeoroidStrike.FastestClosingSpeed(noBands), 6);
+        Assert.Equal(MicrometeoroidStrike.StandardDamage, MicrometeoroidStrike.MaxDamageFor(noBands), 6);
+
+        // A band that declares one raises the ceiling; a faster (lower) band raises it further. A band with a zero
+        // chance never fires, so it must not count however fast a ship would be moving through it.
+        var earthish = new List<CelestialBody>
+        {
+            new("Sol", "Earth", RadiusKm: 6371, MassKg: 5.97e24, Bands:
+            [
+                new AtmosphereBand("Low", 6771, 250, new Dictionary<string, double>(), MicrometeoroidChance: 0.1),
+                new AtmosphereBand("High", 7600, 250, new Dictionary<string, double>(), MicrometeoroidChance: 0.01),
+                new AtmosphereBand("Silent", 6400, 250, new Dictionary<string, double>(), MicrometeoroidChance: 0),
+            ]),
+        };
+        var fastest = MicrometeoroidStrike.FastestClosingSpeed(earthish);
+
+        // Circular orbit at the lowest band that can actually fire, which is a real orbital velocity rather than a
+        // round number: near 7.7 km/s for a shell 400 km up.
+        Assert.InRange(fastest, 7600, 7750);
+        Assert.True(fastest > MicrometeoroidStrike.StandardSpeedMs);
+        // The silent band sits lower still, so counting it would have produced a faster figure than this.
+        Assert.True(fastest < 7900);
     }
 }

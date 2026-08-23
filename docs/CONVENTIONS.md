@@ -38,6 +38,31 @@ Two rules that are easy to get wrong, both of which cost a design's work when th
   `session.LastProblems` whichever tab is on screen. Only the *shared* chrome (the toolbar,
   the PROBLEMS list, the title) is guarded on `ReferenceEquals(session, _active)`.
 
+## A fractional tile coordinate is ambiguous, so say which frame it is in
+
+Integer tile coordinates are unambiguous. A **continuous** one is not, and the two halves of the app had picked
+opposite answers without either saying so.
+
+- **Corner frame.** An integer is a tile's top-left corner, so tile `(x, y)` covers `[x, x+1)` and its middle is
+  `(x + 0.5, y + 0.5)`. The canvas uses this, because it is the inverse of its own screen transform
+  (`CellRect` and `DocPointAt` are a matched pair), and `GridMath.MapPoint` already documents it for a footprint.
+- **Centre frame.** An integer is a tile's *centre*. The damage solvers use this, because it is the frame the
+  game's item transforms are in: a collider is centred on the item's position, which is why
+  `MicrometeoroidStrike` builds one as `p.X + w/2 - 0.5`.
+
+Both are right for what they describe and neither should move. What was missing was the conversion, so every
+strike drawn on the canvas was resolved against a hull sitting half a tile up and to the left of the one on
+screen. It shipped in 1.0 and the tests could not catch it: they are written in the solver's own frame, where they
+were correct, and no test crossed the boundary.
+
+**Cross between them through `TileFrame`, never through a bare `± 0.5`.** `TileFrame.CornerToCentre` on the way
+in, `CentreToCorner` on the way out, and `CellOf` to floor a corner-frame point onto its tile. The names are the
+point: an unexplained half-tile offset in the middle of a method reads like a rounding fudge and gets "cleaned up"
+by the next person through. `SimulateWindow` is the working example, and it converts in exactly two places.
+
+If you add anything that takes a position from the canvas and hands it to Core, decide which frame the Core side
+is in and say so in its doc comment.
+
 ## Theming and control styles
 
 The app themes its chrome with WPF's **Fluent `ThemeMode`**, set in `ThemeManager.Apply`

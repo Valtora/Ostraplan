@@ -2742,6 +2742,20 @@ Putting both sites together, the whole authored range of `fMult` is `0.5` to `10
 `1.0` the only value reachable away from Earth. That is what bounds the speed input in
 Ostraplan: `375` to `7700` m/s, opening on `750`.
 
+> **The atmosphere site is unreachable in normal play, and the table above is not a menu of
+> options.** Only Earth's shells declare `fMicrometeoroidChance`, and reaching one means
+> flying inside Earth's atmosphere. Ostranauts is played out at Ceres, Venus and the Jovian
+> stations, so in every place a player actually is, the beat site is the only one that can
+> fire and a micrometeoroid arrives at exactly `750` m/s for exactly **55 damage**.
+>
+> This is recorded because the data above is accurate and still led a design astray: the
+> figures were read as a set of situations worth offering the user a choice between, and
+> built into a preset list, when they describe one place nobody goes. Anything reading this
+> section for a **user-facing** decision wants the single 55, with the rest offered as an
+> explicit "what if it hit harder" and not as scenery. And none of the vocabulary here
+> (`fMult`, the ATC speed limit, the beat) is a word the game says to a player: the only one
+> it uses is "micrometeoroid". See `memories/ostranauts-terminology` in the skills repo.
+
 #### The attack
 
 `AModeMicrometeoroid` is a plain `JsonAttackMode`:
@@ -2970,6 +2984,84 @@ cellDamage = fTotalDamage * (1 − distance / max(1, fRadius))
 > **The impact cell is damaged twice.** The list is seeded with `(impact, 0.0)` and the
 > square scan then adds the same cell again at distance 0, so the centre of every blast
 > takes two full-strength applications.
+
+> **Why a missile flies over a wall, and why "it only detonates on exterior hull" is the
+> wrong reading.** Two separate mechanisms, both faithfully reproduced, and neither is a
+> rule about the hull.
+>
+> **1. A tile is judged on one part, and it is whichever comes first.** `FindPointsOfImpact`
+> walks a cell's parts, `continue`s past any at max health, and then `break`s
+> **unconditionally** after the first one it does not skip — whether or not that part carried
+> a trigger cond:
+>
+> ```csharp
+> foreach (DataCOWrapper item2 in list2) {
+>     if (Math.Abs(item2.CurrentDamage - item2.DataCO.GetMaxHealth()) < 0.01) continue;
+>     if (triggerConds != null) { /* match → add, flag = false */ }
+>     else { list.Add(item); flag = false; }
+>     break;                       // ← regardless
+> }
+> ```
+>
+> `MissileAttack03` declares `aTriggerConds: ["IsWall", "IsRigid", "IsPortal"]`, and interior
+> walls carry `IsWall` exactly as exterior ones do (`ItmWallMSSLFWhite`, `ItmWallCAYL05`,
+> `ItmWall1x1` all do). But a wall usually shares its tile with a floor, and a floor carries
+> none of the three. List the floor first and the missile examines the floor, finds no match,
+> breaks, and moves on **over a tile with a wall on it**.
+>
+> **Measured on a real ship** (a save-imported *Dancing Jack*, 5863 parts), firing straight
+> down column 22:
+>
+> | Tile | Contents, in the ship's own order | Missile |
+> |---|---|---|
+> | `(22,2)` | Whipple Framework `[IsWall]` — **alone on the tile** | detonates |
+> | `(22,46)` | Wall `[IsWall]` (idx 631) │ Floor (idx 1228) │ Conduit | detonates |
+> | `(22,23)` | Floor (idx 2802) │ Wall `[IsWall]` (idx 5613) │ Conduit | **passes over** |
+> | `(22,22)` | Floor │ Auto Air Vent `[IsRigid]` | **passes over** |
+>
+> So it is not that exterior walls have no floor under them — `(22,46)` has one. It is that
+> the outermost hull course is often wall-*only* (46% of that ship's trigger-carrying tiles
+> have the trigger alone on them), and where a hull tile does share, the wall happens to come
+> first in the ship's item list. Ship-wide: **1543** tiles carry a trigger part, **85%** have
+> it first and the missile stops, **15%** (232 tiles) have one present but not first and the
+> missile goes over. That is why the behaviour reads as "only the outside stops them".
+>
+> **Ostraplan deliberately does not reproduce this.** `ImpactPoint` asks whether the *tile*
+> holds a trigger that still has capacity, not whether its *first* part does.
+>
+> The reason is that the game's rule makes the impact point depend on the order parts appear
+> in the ship's item list, which is not a property of the design, is not visible on the plan,
+> and is not something a designer can reason about or change. Two plans identical on screen
+> gave different answers. A planner whose whole job is "what would a hit here break" cannot
+> usefully answer "it depends how the file was written", and there is no tie-break to port
+> because the game does not have one. The effect of the deviation is that a wall stops a
+> missile whenever there is a wall there, which is also what someone reading the plan expects.
+>
+> Everything downstream of the impact point is still the game's arithmetic exactly: the blast
+> falloff, the doubled centre, the soft-edge cap, and what each cell absorbs. Spent parts are
+> still skipped, so successive shots still walk the impact point inward.
+>
+> **2. The walk point-samples, so a diagonal steps over cells.** Both `FindPointsOfImpact`
+> and `RunRayPattern` advance by one unit of the **normalised** direction and round:
+> `point += normalizedDirection; item = RoundToInt(point)`. That is not a grid traversal. On
+> a path that is not axis-aligned a single step can cross a column boundary and a row
+> boundary at once, and the cell between them is never sampled. A freehand path of
+> `(11.9, −4.4) → (34.9, 45.7)` takes 57 steps and makes **20** such jumps, any of which a
+> one-tile wall can fall into.
+>
+> Ostraplan lets the user draw any line, where the game only ever fires from a bounding-box
+> edge with ±10° scatter, so near-diagonal paths are far more reachable here than in play.
+> A supercover traversal would fix the geometry and break the parity; the parity is what is
+> shipped. `WeaponImpactTests` pins both mechanisms.
+>
+> **A third difference, also deliberate: the drawn line is an aim, not a path.** The walk is
+> bounded by the grid rather than by the length of the drag, so a shot runs along its heading
+> until it finds something or leaves the ship. Bounding it at the release point made the same
+> shot down the same line hit or miss according to how far someone happened to drag, which is
+> a property of the gesture rather than of the hull. The game does not bound a projectile by a
+> distance either — it enters at the grid edge and runs — so a pointer is closer to it than a
+> segment. The canvas draws the aim past the end of the drag so a blast landing beyond it is
+> not a surprise.
 
 **Point** (`RunPointPattern`) gives each starting tile its own impact point via the same
 walk, and applies the full `fTotalDamage` at each.

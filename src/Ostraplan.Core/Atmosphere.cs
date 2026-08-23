@@ -11,7 +11,11 @@ namespace Ostraplan.Core;
 /// its surface. Venus's 48-52 km band has a ceiling of 6104, which is its 6052 km radius plus 52.</param>
 /// <param name="TempK"><c>fTemp</c> in kelvin. Zero means the band is unauthored and weighs nothing.</param>
 /// <param name="Gases">Partial pressure in kPa per gas name, only for the gases the band declares.</param>
-public sealed record AtmosphereBand(string Name, double CeilingKm, double TempK, IReadOnlyDictionary<string, double> Gases)
+/// <param name="MicrometeoroidChance"><c>fMicrometeoroidChance</c>: the per-update odds that a ship in this band
+/// is struck (§26). Zero on all but a handful of bands, and this is the <b>only</b> spawn site whose strength
+/// varies, so a band declaring it is a band where a strike can be harder than the standard one.</param>
+public sealed record AtmosphereBand(string Name, double CeilingKm, double TempK,
+    IReadOnlyDictionary<string, double> Gases, double MicrometeoroidChance = 0)
 {
     /// <summary>Total pressure, kPa — <c>JsonAtmosphere.GetTotalKPA</c>.</summary>
     public double PressureKPa => Gases.Values.Sum();
@@ -204,7 +208,8 @@ public static class Atmosphere
                 if (kpa != 0) gases[gas] = kpa;
             }
             bands.Add(new AtmosphereBand(
-                Json.Str(a, "strName") ?? "", Json.Dbl(a, "fMaxAltitude"), Json.Dbl(a, "fTemp"), gases));
+                Json.Str(a, "strName") ?? "", Json.Dbl(a, "fMaxAltitude"), Json.Dbl(a, "fTemp"), gases,
+                Json.Dbl(a, "fMicrometeoroidChance")));
         }
         // The game walks the array in file order and takes the first band whose ceiling the point is under, so a
         // table authored out of order would read wrong. Sorting is the one liberty taken, and it is a no-op on

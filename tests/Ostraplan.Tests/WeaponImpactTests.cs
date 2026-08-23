@@ -200,11 +200,11 @@ public class WeaponImpactTests
     }
 
     [Fact]
-    public void A_strike_stops_at_the_end_of_the_line_it_was_drawn_along()
+    public void A_drawn_line_is_an_aim_and_carries_on_past_where_the_drag_ended()
     {
         var cat = Cat();
-        // Outer wall at x=0, then a long gap, then an inner wall far away at x=30. The drawn line stops at x=5,
-        // well short of the inner wall.
+        // Outer wall at x=0, then a long gap, then an inner wall far away at x=30. The drag stops at x=5, well
+        // short of the inner wall.
         var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 30, 0));
         var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (5.0, 0.0))!;
         var state = new DamageState();
@@ -213,31 +213,73 @@ public class WeaponImpactTests
         WeaponImpact.Fire(doc, missile, entry, state);
         Assert.True(state.IsDestroyed(doc.Placements[0]));
 
-        // The outer wall is now gone, so nothing along the drawn line can be detonated against. The missile must
-        // MISS rather than fly on to the inner wall thirty tiles further in — which is what a walk bounded by the
-        // grid instead of by the path does, and it puts the blast somewhere the user never aimed.
+        // The outer wall is gone, so the next thing along the heading is the inner wall thirty tiles further in.
+        // The line sets a direction and nothing else: bounding the shot at the release point made the same shot
+        // down the same line hit or miss according to how far someone happened to drag.
         var second = WeaponImpact.Fire(doc, missile, entry, state);
 
-        Assert.True(second.Missed);
-        Assert.False(state.IsDestroyed(doc.Placements[1]));
+        Assert.False(second.Missed);
+        Assert.Equal((30, 0), second.Centre);
+        Assert.True(state.IsDestroyed(doc.Placements[1]));
     }
 
     [Fact]
-    public void Only_the_first_surviving_part_on_a_tile_decides_whether_it_detonates()
+    public void A_line_aimed_away_from_the_ship_still_misses()
     {
+        // The backstop: an aim is unbounded, but only along itself. A heading that never meets the hull has to
+        // terminate rather than run to the step cap looking for something.
         var cat = Cat();
-        // A floor and a wall sharing one tile, floor first. The game's FindPointsOfImpact looks at the first
-        // surviving part and breaks, so a missile flies over this tile rather than triggering on the buried wall.
-        var doc = Fixtures.Doc(cat,
-            Fixtures.P("Floor", 0, 0), Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 3, 0));
-        var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (8.0, 0.0))!;
+        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0));
+        var missile = Attack("Missile", ImpactType.Circular, 15, radius: 0, triggers: ["IsWall"]);
+        var entry = WeaponImpact.EntryAlong(doc, (-3.0, -8.0), (5.0, -8.0))!;
+
+        Assert.True(WeaponImpact.Fire(doc, missile, entry, new DamageState()).Missed);
+    }
+
+    [Fact]
+    public void A_tile_holding_a_wall_detonates_whatever_order_its_parts_are_in()
+    {
+        // A floor and a wall sharing one tile. The game looks at the first surviving part and breaks, so in game
+        // this turns on which of the two the ship's item list happens to name first. That is not a property of the
+        // design and nothing a designer can see, so this asks whether the TILE holds a trigger instead.
+        // Deliberate deviation; see ImpactPoint and §26.
+        var cat = Cat();
         var missile = Attack("Missile", ImpactType.Circular, 15, radius: 0, triggers: ["IsWall"]);
 
-        var r = WeaponImpact.Fire(doc, missile, entry, new DamageState());
+        foreach (var floorFirst in new[] { true, false })
+        {
+            var parts = floorFirst
+                ? new[] { Fixtures.P("Floor", 0, 0), Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 3, 0) }
+                : [Fixtures.P("Wall", 0, 0), Fixtures.P("Floor", 0, 0), Fixtures.P("Wall", 3, 0)];
+            var doc = Fixtures.Doc(cat, parts);
+            var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (8.0, 0.0))!;
 
-        // It detonated on the clean wall at x=3, not on the one hiding under the floor at x=0.
-        Assert.Contains(r.Cells, c => c == (3, 0));
-        Assert.DoesNotContain(r.Cells, c => c == (0, 0));
+            var r = WeaponImpact.Fire(doc, missile, entry, new DamageState());
+
+            // The near wall stops it either way, so two plans identical on screen give the same answer.
+            Assert.Equal((0, 0), r.Centre);
+        }
+    }
+
+    [Fact]
+    public void A_tile_whose_trigger_is_spent_is_passed_over()
+    {
+        // The order-independence must not cost the walk-inward behaviour: a tile counts only while something on
+        // it carrying a trigger cond still has capacity left. 40 is enough to spend the whole tile in one go (the
+        // floor's 10 plus the wall's 30-deep chain), which is what makes the second shot move on.
+        var cat = Cat();
+        var doc = Fixtures.Doc(cat,
+            Fixtures.P("Floor", 0, 0), Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 3, 0));
+        var missile = Attack("Missile", ImpactType.Circular, 40, radius: 0, triggers: ["IsWall"]);
+        var state = new DamageState();
+
+        Assert.Equal((0, 0), WeaponImpact.Fire(doc, missile,
+            WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (8.0, 0.0))!, state).Centre);
+
+        // The near wall is spent now. The floor beside it carries no trigger, so the shot moves on to x=3.
+        var second = WeaponImpact.Fire(doc, missile,
+            WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (8.0, 0.0))!, state);
+        Assert.Equal((3, 0), second.Centre);
     }
 
     // ---- what counts as still worth hitting ----
@@ -398,5 +440,76 @@ public class WeaponImpactTests
         Assert.Equal(ImpactType.Point, attacks["PointDefenseImpact"].Type);
 
         Assert.DoesNotContain("AModeMicrometeoroid", attacks.Keys);
+    }
+
+    // ---- why a missile flies past a wall (§26) ----
+
+    [Fact]
+    public void The_impact_point_does_not_depend_on_a_tiles_part_order()
+    {
+        // What the game does: FindPointsOfImpact walks a cell's parts, skips the spent ones, and BREAKS after the
+        // first it does not skip, whether or not that part matched a trigger. On a real hull that left 15% of
+        // trigger-carrying tiles unable to stop a missile purely because a floor was named first in the ship's
+        // item list (§26). Ostraplan asks about the tile, so the same plan always gives the same answer.
+        var cat = Cat();
+        var missile = Attack("M", ImpactType.Circular, 300, radius: 2, range: 30,
+                             triggers: ["IsWall", "IsRigid", "IsPortal"]);
+
+        var floorFirst = Fixtures.Doc(cat, Fixtures.P("Floor", 5, 0), Fixtures.P("Wall", 5, 0));
+        var wallFirst = Fixtures.Doc(cat, Fixtures.P("Wall", 5, 0), Fixtures.P("Floor", 5, 0));
+
+        var a = WeaponImpact.Fire(floorFirst, missile,
+            WeaponImpact.EntryAlong(floorFirst, (0, 0), (12, 0))!, new DamageState());
+        var b = WeaponImpact.Fire(wallFirst, missile,
+            WeaponImpact.EntryAlong(wallFirst, (0, 0), (12, 0))!, new DamageState());
+
+        Assert.Equal((5, 0), a.Centre);
+        Assert.Equal(a.Centre, b.Centre);
+    }
+
+    [Fact]
+    public void A_wall_alone_on_its_tile_always_stops_a_missile()
+    {
+        // The control for the test above: with nothing else on the tile there is no order to get wrong, which is
+        // why exterior hull (usually wall-only) reads as "the only thing missiles detonate on".
+        var cat = Cat();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 5, 0));
+        var missile = Attack("M", ImpactType.Circular, 300, radius: 2, range: 30,
+                             triggers: ["IsWall", "IsRigid", "IsPortal"]);
+
+        var r = WeaponImpact.Fire(doc, missile, WeaponImpact.EntryAlong(doc, (0, 0), (12, 0))!, new DamageState());
+
+        Assert.Equal((5, 0), r.Centre);
+    }
+
+    [Fact]
+    public void A_diagonal_path_steps_over_cells_the_line_crosses()
+    {
+        // The second reason a projectile can pass through a wall, and a separate one from the tile ordering above.
+        // The game advances by one UNIT of the normalised direction and rounds
+        // (`point += normalizedDirection; RoundToInt(point)`), which is point sampling rather than a grid
+        // traversal: on a diagonal a single step can cross both a column and a row boundary at once, and the cell
+        // between them is never looked at. Reproduced, so a plan agrees with the game rather than with geometry.
+        var cat = Cat();
+        // A solid diagonal wall line. Every cell of it is on the path; the sampling visits only some.
+        var doc = Fixtures.Doc(cat, [.. Enumerable.Range(0, 12).Select(i => Fixtures.P("Wall", i, i))]);
+        var missile = Attack("M", ImpactType.Circular, 300, radius: 0, range: 30,
+                             triggers: ["IsWall", "IsRigid", "IsPortal"]);
+
+        // A path that runs alongside the wall line at a shallow angle, so it crosses it without being parallel.
+        var entry = WeaponImpact.EntryAlong(doc, (-4.0, 0.0), (11.0, 9.0))!;
+        var walked = new List<(int X, int Y)>();
+        double px = Math.Round(entry.DocX), py = Math.Round(entry.DocY);
+        for (var i = 0; i < (int)Math.Ceiling(entry.Length) + 1; i++)
+        {
+            walked.Add(((int)Math.Round(px), (int)Math.Round(py)));
+            px += entry.DirX;
+            py += entry.DirY;
+        }
+
+        // At least one step moves diagonally, which is exactly a cell the line enters and the walk never samples.
+        var jumps = walked.Zip(walked.Skip(1))
+            .Count(p => Math.Abs(p.Second.X - p.First.X) == 1 && Math.Abs(p.Second.Y - p.First.Y) == 1);
+        Assert.True(jumps > 0, "no diagonal step on this path, so it does not exercise the gap");
     }
 }

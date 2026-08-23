@@ -140,6 +140,49 @@ public sealed class DamageState
         return Math.Clamp(1 - TotalDamage(p, catalog) / max, 0, 1);
     }
 
+    /// <summary>
+    /// The ship as this run of strikes has left it: an independent document with each broken part replaced by the
+    /// form it is in now, and each destroyed part gone.
+    ///
+    /// <para><b>Why this exists.</b> A strike's own report can only count parts, and a count cannot tell a dent
+    /// from a hole. What a designer actually asked was whether the hit opened a compartment to vacuum or cut a
+    /// device off from the crew, and those are the questions the ordinary design checks already answer: they are
+    /// static properties of a layout, so asking them of the damaged layout needs no simulation at all. This is the
+    /// layout to ask.</para>
+    ///
+    /// <para><b>It is a projection, not an edit.</b> Nothing here touches the document the user is working on, and
+    /// nothing produced here can reach the <c>.oplan</c>. A design carries no wear (§12), and the scope line that
+    /// admits a single impact is about <i>measuring</i> a layout rather than storing a damaged one: what follows a
+    /// strike over time is still a simulation and still out of scope. Answering "what would be broken about this
+    /// ship the instant after" is the same one-off measurement the strike itself is.</para>
+    ///
+    /// <para>A part that broke into a form the catalog does not name is dropped rather than left standing as its
+    /// old self, which would have the wreck go on sealing a compartment it no longer seals.</para>
+    /// </summary>
+    public ShipDocument Project(ShipDocument doc)
+    {
+        ArgumentNullException.ThrowIfNull(doc);
+        var copy = new ShipDocument(doc.Catalog);
+        foreach (var p in doc.Placements)
+        {
+            var d = _parts.GetValueOrDefault(p.Id);
+            if (d?.Destroyed == true) continue;
+            var def = d?.Def ?? p.DefName;
+            // A form the catalog cannot resolve is not a part any more. Keeping the original in its place would
+            // make the projection claim structure the strike removed.
+            if (doc.Catalog.Lookup(def) is null) continue;
+            copy.Add(new Placement
+            {
+                DefName = def, X = p.X, Y = p.Y, Rot = p.Rot, IsGiven = p.IsGiven,
+                OriginStrID = p.OriginStrID, SwappedFromStrID = p.SwappedFromStrID, SwappedFromDef = p.SwappedFromDef,
+            });
+        }
+        // Zones ride along: a Forbid zone changes what the walk analysis admits, so dropping them would make the
+        // damaged ship answer a different question from the intact one.
+        foreach (var z in doc.Zones) copy.AddZone(z);
+        return copy;
+    }
+
     /// <summary>Everything this part has absorbed across every stage, in the original form's terms.</summary>
     public double TotalDamage(Placement p, Catalog catalog)
     {

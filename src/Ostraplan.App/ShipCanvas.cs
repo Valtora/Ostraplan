@@ -726,11 +726,17 @@ public sealed class ShipCanvas : FrameworkElement
     }
 
     /// <summary>The ghost strike path to draw, in document coords, or null for none.</summary>
-    public void SetGhostPath((Point Start, Point End)? path)
+    /// <param name="extend">Carry the line on past the end of the drag, faintly, to the edge of the view. The
+    /// weapon solver treats a drawn line as an aim rather than a path, so a shot goes on until it leaves the ship;
+    /// without the extension a blast landing past the drag looks like it went somewhere nobody pointed.</param>
+    public void SetGhostPath((Point Start, Point End)? path, bool extend = false)
     {
         _ghostPath = path;
+        _ghostExtends = extend;
         InvalidateVisual();
     }
+
+    private bool _ghostExtends;
 
     /// <summary>Push the damage heat map. Cheap and unbaked: it is a handful of parts, not a station's worth of
     /// room cells, and it changes only when the user fires.</summary>
@@ -3030,8 +3036,19 @@ public sealed class ShipCanvas : FrameworkElement
     }
 
     /// <summary>
-    /// The damage heat map: every part a run of strikes has touched, tinted green through amber to red by what it
-    /// has left. Only damaged parts are drawn, so the eye goes to what took the hit rather than to a wash of green.
+    /// The damage overlay: every part a run of strikes has touched, drawn by <b>which of the game's three outcomes
+    /// it is in</b> rather than by a position on a scale.
+    ///
+    /// <para><b>Each state gets its own mark as well as its own colour</b>, because colour alone cannot carry this.
+    /// A tint is alpha-composited over whatever the hull happens to be, and Ostranauts hulls are painted every
+    /// colour there is: the same amber that reads as a warning over grey deck plate is invisible over an orange
+    /// one. So the tiles are first knocked back to a known dark ground, and the state is then said three times
+    /// over (fill, outline weight, and hatching) so that none of it depends on the sprite underneath or on the
+    /// reader distinguishing two hues.</para>
+    ///
+    /// <para>Condition rides along as the fill's strength, which grades within a state without competing with it.
+    /// It is deliberately secondary: a part's condition is a number, but what a designer needs first is whether
+    /// the thing standing there is still the thing they drew.</para>
     ///
     /// <para>Not baked like RoomViz or WalkViz. Those fill hundreds of cells and had to be frozen into geometry to
     /// keep panning smooth; this is a handful of parts, and it changes on every strike, so baking would cost more
@@ -3042,41 +3059,95 @@ public sealed class ShipCanvas : FrameworkElement
         if (_damageOverlay.IsEmpty) return;
         foreach (var part in _damageOverlay.Parts)
         {
-            var fill = DamageBrush(part.Condition);
-            // Every damaged part is outlined, not just tinted. A part that has lost a little is still nearly
-            // green, and green on a dark ship is invisible — so the tint answers "how bad" while the outline
-            // answers "was this hit at all", which is the question you ask first.
-            var pen = part.Destroyed ? DestroyedPen : TouchedPen;
-            foreach (var (x, y) in part.Tiles)
-            {
-                var r = CellRect(x, y, 1, 1);
-                dc.DrawRectangle(fill, null, r);
-                dc.DrawRectangle(null, pen, r);
-            }
+            var (x, y, w, h) = part.Body;
+            var rect = CellRect(x, y, w, h);
+
+            // The scrim first. Without a known ground underneath, every colour below is at the mercy of the sprite
+            // it lands on, and that is the whole reason the old ramp could not be read over an orange deck.
+            dc.DrawRectangle(DamageScrim, null, rect);
+            dc.DrawRectangle(DamageFill(part.Grade, part.Condition), null, rect);
+            DrawDamageHatch(dc, part.Grade, rect);
+            dc.DrawRectangle(null, DamageOutline(part.Grade), rect);
         }
     }
 
-    /// <summary>Green at full health through amber to red at destroyed. Cached per 5% band: a ship of damaged parts
-    /// would otherwise allocate a brush per part per frame.</summary>
-    private static Brush DamageBrush(double condition)
+    /// <summary>Diagonal hatching over a damaged part: none while it is still the part the design names, one way
+    /// once it has broken into something else, both ways once it is gone. This is the channel that survives a
+    /// reader who cannot separate the two warm hues, and the one that survives a screenshot.</summary>
+    private void DrawDamageHatch(DrawingContext dc, DamageGrade grade, Rect rect)
     {
-        var band = Math.Clamp((int)Math.Round(condition * 20), 0, 20);
-        if (_damageBrushes[band] is { } cached) return cached;
-        var t = band / 20.0;
-        // Through amber rather than straight green-to-red, so the middle of the scale stays legible: the upper
-        // half fades red out of a steady green, the lower half fades green out of a steady red.
-        var (r, g) = t >= 0.5
-            ? ((byte)(255 * (1 - t) * 2), (byte)200)
-            : ((byte)220, (byte)(200 * t * 2));
-        var brush = new SolidColorBrush(Color.FromArgb(150, r, g, 40));
-        brush.Freeze();
-        return _damageBrushes[band] = brush;
+        if (grade == DamageGrade.Chipped) return;
+        var pen = DamageHatchPen(grade);
+        var step = Math.Max(6.0, Zoom / 3.0);
+
+        dc.PushClip(new RectangleGeometry(rect));
+        // Offset along the top and left edges so the 45° lines cover the whole box from either direction.
+        for (var d = -rect.Height; d < rect.Width; d += step)
+        {
+            dc.DrawLine(pen, new Point(rect.X + d, rect.Y), new Point(rect.X + d + rect.Height, rect.Bottom));
+            if (grade == DamageGrade.Destroyed)
+                dc.DrawLine(pen, new Point(rect.X + d, rect.Bottom), new Point(rect.X + d + rect.Height, rect.Y));
+        }
+        dc.Pop();
     }
 
-    private static readonly Brush?[] _damageBrushes = new Brush?[21];
+    /// <summary>The knock-back the state colours are read against. Dark and mostly opaque, but not entirely: the
+    /// sprite has to stay legible enough to recognise the part that took the hit.</summary>
+    private static readonly Brush DamageScrim = Frozen(Color.FromArgb(178, 10, 10, 12));
 
-    private static readonly Pen DestroyedPen = FrozenPen(Color.FromArgb(230, 190, 30, 30), 2);
-    private static readonly Pen TouchedPen = FrozenPen(Color.FromArgb(140, 250, 230, 150), 1);
+    /// <summary>
+    /// The three state colours. Distinct in hue <i>and</i> in lightness, so they separate in greyscale as well as
+    /// in colour, and none of them is a hull colour the game paints ships with.
+    /// </summary>
+    private static readonly Color ChippedColor = Color.FromRgb(120, 200, 255);   // cool: nothing has changed yet
+    private static readonly Color BrokenColor = Color.FromRgb(255, 176, 48);     // warm: it is something else now
+    private static readonly Color DestroyedColor = Color.FromRgb(240, 64, 64);   // hot: it is not there at all
+
+    private static Color GradeColor(DamageGrade grade) => grade switch
+    {
+        DamageGrade.Destroyed => DestroyedColor,
+        DamageGrade.Broken => BrokenColor,
+        _ => ChippedColor,
+    };
+
+    /// <summary>The state's colour as a fill, strengthened by how much of the part's chain is spent. Cached per
+    /// state per 5% band: a ship of damaged parts would otherwise allocate a brush per part per frame.</summary>
+    private static Brush DamageFill(DamageGrade grade, double condition)
+    {
+        var band = Math.Clamp((int)Math.Round(Math.Clamp(condition, 0, 1) * 20), 0, 20);
+        var key = (int)grade * 21 + band;
+        if (_damageFills[key] is { } cached) return cached;
+        var c = GradeColor(grade);
+        // 40 at untouched through 110 at spent. Kept low across the whole range: the fill is the secondary reading
+        // and the outline and hatch are what carry the state.
+        var alpha = (byte)(40 + 70 * (1 - band / 20.0));
+        return _damageFills[key] = Frozen(Color.FromArgb(alpha, c.R, c.G, c.B));
+    }
+
+    private static Pen DamageOutline(DamageGrade grade) =>
+        _damageOutlines[(int)grade] ??= FrozenPen(GradeColor(grade), grade == DamageGrade.Chipped ? 1.25 : 2.5);
+
+    private static Pen DamageHatchPen(DamageGrade grade) =>
+        _damageHatches[(int)grade] ??= FrozenPen(
+            Color.FromArgb(150, GradeColor(grade).R, GradeColor(grade).G, GradeColor(grade).B), 1.5);
+
+    /// <summary>A state's swatch for the Simulate window's key, taken from the same source as the plan's own marks
+    /// so the two can never drift into describing different things.</summary>
+    public static Brush LegendFill(DamageGrade grade) => DamageFill(grade, 0.5);
+
+    /// <summary>The outline colour for that key. Full strength: a 20px swatch has no room for the plan's alpha.</summary>
+    public static Brush LegendStroke(DamageGrade grade) => Frozen(GradeColor(grade));
+
+    private static readonly Brush?[] _damageFills = new Brush?[3 * 21];
+    private static readonly Pen?[] _damageOutlines = new Pen?[3];
+    private static readonly Pen?[] _damageHatches = new Pen?[3];
+
+    private static Brush Frozen(Color c)
+    {
+        var b = new SolidColorBrush(c);
+        b.Freeze();
+        return b;
+    }
 
     /// <summary>The strike being aimed: the pivot every micrometeoroid converges on, and the ghost path through it.
     /// Drawn while a Simulate dialog owns the cursor and never otherwise.</summary>
@@ -3088,6 +3159,18 @@ public sealed class ShipCanvas : FrameworkElement
         {
             var a = new Point(_pan.X + path.Start.X * Zoom, _pan.Y + path.Start.Y * Zoom);
             var b = new Point(_pan.X + path.End.X * Zoom, _pan.Y + path.End.Y * Zoom);
+            // The aim beyond the drag, drawn first so the drag itself stays the brighter of the two. Run far
+            // enough to leave any view: the shot stops when it leaves the ship, not when the line runs out.
+            if (_ghostExtends)
+            {
+                double dx = b.X - a.X, dy = b.Y - a.Y;
+                var len = Math.Sqrt(dx * dx + dy * dy);
+                if (len > 1e-6)
+                {
+                    var far = (ActualWidth + ActualHeight) * 2 + 1000;
+                    dc.DrawLine(GhostAimPen, b, new Point(b.X + dx / len * far, b.Y + dy / len * far));
+                }
+            }
             dc.DrawLine(GhostPen, a, b);
         }
 
@@ -3104,6 +3187,8 @@ public sealed class ShipCanvas : FrameworkElement
     }
 
     private static readonly Pen GhostPen = FrozenDashedPen(Color.FromArgb(220, 255, 240, 120), 2, 6, 4);
+    /// <summary>The aim past the end of the drag: the same line, said more quietly.</summary>
+    private static readonly Pen GhostAimPen = FrozenDashedPen(Color.FromArgb(90, 255, 240, 120), 1.5, 3, 7);
     private static readonly Pen PivotPen = FrozenPen(Color.FromArgb(230, 255, 240, 120), 1.5);
 
     private static Pen FrozenPen(Color c, double thickness)

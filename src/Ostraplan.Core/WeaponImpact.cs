@@ -7,10 +7,10 @@ public enum EntryEdge { Top, Bottom, Left, Right }
 /// <summary>Where an impact begins and the unit direction it travels, in <b>document</b> tile coords. This is the
 /// path the user drew: the game itself would only ever start one on the bounding box
 /// (<c>DamageSystem.FindIntersection</c>), but what happens along the path once drawn is its arithmetic exactly.</summary>
-/// <param name="Length">How far the drawn line runs, in tiles. The strike travels this far and no further: a
-/// projectile that finds nothing to detonate against within the path the user drew has missed, rather than
-/// carrying on across the rest of the ship. Without this a second shot down a corridor the first one blasted open
-/// would keep going until it met a surviving wall, however far past the drawn line that was.</param>
+/// <param name="Length">How far the drawn line runs, in tiles. Reported for the readout and used to derive the
+/// direction; it does <b>not</b> bound the shot. The line is an aim rather than a path, so a projectile travels
+/// along it until it finds something or leaves the ship, however short the drag that set the heading (see
+/// <see cref="WeaponImpact.Steps"/>).</param>
 public sealed record ImpactEntry(
     double DocX, double DocY, double DirX, double DirY, EntryEdge Edge, double Length);
 
@@ -65,6 +65,11 @@ public static class WeaponImpact
     /// heading that way.</para>
     ///
     /// <para>Null only for a path of no length, which describes nothing.</para>
+    ///
+    /// <para><b>The path is in the centre frame</b> (<see cref="TileFrame"/>), the same as the micrometeoroid
+    /// solver's: <see cref="StartingCells"/> rounds to the nearest tile, which is only the right answer when an
+    /// integer already means a tile's middle. A caller holding canvas coordinates converts with
+    /// <see cref="TileFrame.CornerToCentre"/> first.</para>
     /// </summary>
     public static ImpactEntry? EntryAlong(ShipDocument doc, (double X, double Y) startDoc, (double X, double Y) endDoc)
     {
@@ -216,7 +221,7 @@ public static class WeaponImpact
         var range = (int)attack.MaxRange;
         var bounds = Bounds(grid);
         var entered = false;
-        var steps = Steps(entry, bounds, px, py);
+        var steps = Steps(bounds, px, py);
 
         while (range >= 0 && budget > 0 && steps-- > 0)
         {
@@ -246,8 +251,27 @@ public static class WeaponImpact
         return spent;
     }
 
-    /// <summary>The first cell along the trajectory that can be hit — and, for an attack with trigger conds, the
-    /// first holding one of them. This is what makes a missile detonate on the hull rather than at the centre.</summary>
+    /// <summary>
+    /// The first cell along the trajectory that can be hit — and, for an attack with trigger conds, the first
+    /// holding one of them. This is what makes a missile detonate on the hull rather than at the centre.
+    ///
+    /// <para><b>Every part on a tile is tested, which is a deliberate deviation from the game.</b> The game's
+    /// <c>FindPointsOfImpact</c> walks a cell's parts, skips any that are spent, and then <c>break</c>s
+    /// unconditionally after examining the first one it does not skip — whether or not that part matched a trigger
+    /// cond. So in game a wall sharing a tile with a floor triggers a missile only when the wall happens to be the
+    /// first of the two, and listed the other way round the missile sails over a tile with a wall on it. Measured
+    /// on a real hull, 15% of trigger-carrying tiles are in that state (§26).</para>
+    ///
+    /// <para>Reproducing it made the answer depend on the order parts appear in the ship's item list, which is not
+    /// a property of the design and is not something a designer can see, reason about or change. Two plans
+    /// identical on screen gave different impact points. A planner whose job is "what would a hit here break"
+    /// cannot answer "it depends how the file was written", so this asks whether the <b>tile</b> holds a trigger
+    /// rather than whether its first part does. The effect is that a wall stops a missile whenever there is a wall
+    /// there, which is also what a user reading the plan expects.</para>
+    ///
+    /// <para><b>Deliberate deviation, not a port.</b> Everything after the impact point (the blast falloff, the
+    /// doubled centre, what each cell absorbs) is the game's arithmetic exactly.</para>
+    /// </summary>
     private static (int X, int Y)? ImpactPoint(
         ShipDocument doc, Dictionary<(int X, int Y), List<Placement>> grid, (int X, int Y) start,
         ImpactEntry entry, ShipAttackDef attack, DamageState state)
@@ -255,18 +279,20 @@ public static class WeaponImpact
         double px = start.X, py = start.Y;
         var bounds = Bounds(grid);
         var entered = false;
-        var steps = Steps(entry, bounds, px, py);
+        var steps = Steps(bounds, px, py);
         while (steps-- > 0)
         {
             var cell = ((int)Math.Round(px), (int)Math.Round(py));
-            if (grid.TryGetValue(cell, out var parts) && FirstStanding(doc, parts, state) is { } p)
+            if (grid.TryGetValue(cell, out var parts))
             {
-                // Only the FIRST part on a tile with anything left to give is ever considered — the game's
-                // FindPointsOfImpact breaks out after it, so a wall sharing a tile with a floor is not what a
-                // missile triggers on. Spent parts are skipped rather than examined, which is what walks the
-                // impact point inward as successive shots chew through the outer hull.
-                if (!attack.DetonatesOnContact) return cell;
-                if (doc.Part(p) is { } def && attack.TriggerConds.Any(def.StartingConds.Contains)) return cell;
+                // Spent parts are skipped rather than examined, which is what walks the impact point inward as
+                // successive shots chew through the outer hull.
+                if (!attack.DetonatesOnContact)
+                {
+                    // No trigger conds: anything with something left to give is enough, so order never mattered.
+                    if (FirstStanding(doc, parts, state) is not null) return cell;
+                }
+                else if (Triggers(doc, parts, attack, state)) return cell;
             }
             px += entry.DirX;
             py += entry.DirY;
@@ -400,21 +426,40 @@ public static class WeaponImpact
         return null;
     }
 
+    /// <summary>Whether anything still standing on this tile carries one of the attack's trigger conditions. See
+    /// <see cref="ImpactPoint"/> for why this asks about the tile rather than about its first part.</summary>
+    private static bool Triggers(
+        ShipDocument doc, List<Placement> parts, ShipAttackDef attack, DamageState state)
+    {
+        foreach (var p in parts)
+        {
+            if (state.IsSpent(p, doc.Catalog)) continue;
+            if (doc.Part(p) is { } def && attack.TriggerConds.Any(def.StartingConds.Contains)) return true;
+        }
+        return false;
+    }
+
     /// <summary>
-    /// How many one-tile steps a walk may take: the length of the line the user drew, which is the whole point of
-    /// drawing one. A strike goes where it was aimed and stops there, so a second shot down a corridor the first
-    /// blasted open cannot wander off past the end of the path looking for something to hit.
+    /// How many one-tile steps a walk may take: enough to cross the whole ship from wherever the line starts.
     ///
-    /// <para>The grid extent is only a backstop, for a path aimed away from the ship that never enters and so would
-    /// never trip the "left the grid" test.</para>
+    /// <para><b>The drawn line is an aim, not a path, and that is a deliberate deviation.</b> A shot travels along
+    /// the direction it was given until it leaves the ship, however short the drag that set it. The alternative —
+    /// stopping at the point the mouse was released — made the answer depend on how far someone happened to drag,
+    /// so the same shot down the same line hit or missed according to a gesture rather than according to the hull.
+    /// Nothing in the game bounds a projectile by a distance either: it enters at the grid edge and runs until it
+    /// finds something or leaves. Treating the drag as a pointer is closer to that than treating it as a
+    /// segment.</para>
+    ///
+    /// <para>The walk still stops the moment it leaves the ship (see the <c>entered</c> tests in the callers), so
+    /// "infinite" costs nothing: this is only the backstop that keeps a line aimed away from the ship, which never
+    /// enters and so never trips that test, from running forever.</para>
     /// </summary>
-    private static int Steps(ImpactEntry entry, (int MinX, int MaxX, int MinY, int MaxY)? bounds, double startX, double startY)
+    private static int Steps((int MinX, int MaxX, int MinY, int MaxY)? bounds, double startX, double startY)
     {
         if (bounds is not { } b) return 0;
         var span = (b.MaxX - b.MinX) + (b.MaxY - b.MinY);
         var reach = Math.Abs(startX - b.MinX) + Math.Abs(startX - b.MaxX)
                   + Math.Abs(startY - b.MinY) + Math.Abs(startY - b.MaxY);
-        var backstop = Math.Min(8192, span + reach + 8);
-        return (int)Math.Min(backstop, Math.Ceiling(entry.Length) + 1);
+        return (int)Math.Min(8192, span + reach + 8);
     }
 }

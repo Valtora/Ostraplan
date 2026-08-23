@@ -18,6 +18,9 @@ public enum StrikeFrame
 /// <summary>
 /// The fixed point every micrometeoroid ray passes through, in <b>document</b> tile coords, plus where that came
 /// from. See <see cref="MicrometeoroidStrike"/> for why a strike has one at all.
+///
+/// <para>Centre frame, like the rest of the solver (<see cref="TileFrame"/>): drawing this on the canvas takes a
+/// <see cref="TileFrame.CentreToCorner"/> first, or the marker lands half a tile off the point it names.</para>
 /// </summary>
 public sealed record StrikeAnchor(double DocX, double DocY, StrikeFrame Frame);
 
@@ -81,21 +84,86 @@ public static class MicrometeoroidStrike
     /// half-strength strikes.</summary>
     public const double MultiplierFloor = 0.5;
 
-    /// <summary>The fastest impact velocity any authored micrometeoroid shell can produce, to the nearest 100 m/s:
-    /// circular orbit at Earth's stratosphere shell, the innermost with a non-zero chance. Used to clamp the
-    /// speed input, since nothing in the game reaches beyond it.</summary>
+    /// <summary>
+    /// The fallback ceiling, used only when the game's own bodies cannot be read (no install, or a data layout
+    /// this cannot parse). Prefer <see cref="FastestClosingSpeed"/>, which derives it from the authored shells.
+    ///
+    /// <para>7700 is the old hard-coded figure, kept as the fallback because it is safely above every stock
+    /// shell rather than because it is one of them. It is <b>not</b> a speed the game produces.</para>
+    /// </summary>
     public const double MaxClosingSpeedMs = 7700.0;
+
+    /// <summary>
+    /// The fastest strike the loaded game data can actually deliver, in m/s.
+    ///
+    /// <para><b>The game imposes no ceiling of its own.</b> <c>StarSystem.SpawnMicroMeteoroid</c> passes
+    /// <c>fMult</c> straight through, and the only clamp anywhere on the path is the <see cref="MultiplierFloor"/>
+    /// at the bottom. So the top comes from the data rather than from the code: a strike is only ever harder than
+    /// the standard one at the <b>atmosphere</b> spawn site, that site only fires in a band declaring
+    /// <c>fMicrometeoroidChance</c>, and the strength is the ship's speed relative to the body it is orbiting.
+    /// Fastest such band, therefore fastest strike.</para>
+    ///
+    /// <para>Circular orbit is the bound taken, being the speed a ship actually holding one of those shells is
+    /// doing. A ship on a hyperbolic pass through the same band would be quicker and the game would let it, but
+    /// nothing in the data says how much quicker, so inventing a margin would put positions on the control that
+    /// nothing in the game stands behind.</para>
+    ///
+    /// <para>Derived from the bodies rather than hard-coded, so a mod that gives Ceres a micrometeoroid band is
+    /// picked up like any other data. Falls back to <see cref="StandardSpeedMs"/> when nothing declares one at
+    /// all: with no atmosphere site reachable, the standard strike is the only strike there is.</para>
+    /// </summary>
+    public static double FastestClosingSpeed(IReadOnlyList<CelestialBody> bodies)
+    {
+        ArgumentNullException.ThrowIfNull(bodies);
+        var fastest = StandardSpeedMs;
+        foreach (var body in bodies)
+            foreach (var band in body.Bands)
+            {
+                if (band.MicrometeoroidChance <= 0) continue;
+                // v = sqrt(g·r) at the band's ceiling, using the game's own gravity so the figure agrees with
+                // every other acceleration the tool reports.
+                var altitude = band.CeilingKm - body.RadiusKm;
+                var speed = Math.Sqrt(body.GravityAt(altitude) * band.CeilingKm * 1000.0);
+                if (speed > fastest) fastest = speed;
+            }
+        return fastest;
+    }
 
     /// <summary>The slowest impact velocity worth asking about, <c>750 × 0.5</c>. The multiplier floors at
     /// <see cref="MultiplierFloor"/>, so every speed below this produces exactly the same strike and a slider
     /// that ran to zero would be offering a range the game cannot tell apart.</summary>
     public const double MinClosingSpeedMs = AtcSpeedLimit * MultiplierFloor;
 
-    /// <summary>The impact velocity a micrometeoroid arrives at when the <b>tension beat</b> spawns it rather than
-    /// an atmosphere shell: <c>BeatManager.Micrometeoroid</c> passes <c>fMult: 1f</c> outright, which is the ATC
-    /// limit exactly. That path fires anywhere in the system, so it is the one speed a ship is exposed to no
-    /// matter where it is, and the sensible default to open on.</summary>
-    public const double TensionBeatSpeedMs = AtcSpeedLimit;
+    /// <summary>
+    /// The impact velocity of the strike a ship is exposed to <b>anywhere it is actually flown</b>, and so the
+    /// default: <see cref="AtcSpeedLimit"/> exactly.
+    ///
+    /// <para>The game spawns micrometeoroids from two places and only one of them reaches normal play.
+    /// <c>BeatManager.Micrometeoroid</c> fires anywhere in the system, at any ship not docked, not on a station,
+    /// not running the torch and not inside an atmosphere, and it passes <c>fMult: 1f</c> outright. The other site
+    /// rolls per atmosphere shell on <c>fMicrometeoroidChance</c>, and in stock data <b>only Earth's shells declare
+    /// a non-zero one</b>, so it needs the ship to be inside Earth's atmosphere: the game is played out at Ceres,
+    /// Venus and the Jovian stations, where it can never fire at all.</para>
+    ///
+    /// <para>Which is why this is not one option among several. In every place a player will be, a micrometeoroid
+    /// arrives at exactly this speed and does exactly <see cref="StandardDamage"/>, and the rest of the range
+    /// below describes Earth's atmosphere and nothing else.</para>
+    /// </summary>
+    public const double StandardSpeedMs = AtcSpeedLimit;
+
+    /// <summary>What a strike does at <see cref="StandardSpeedMs"/>, worst case: 55 damage. The one figure worth
+    /// designing a hull against, since it is the only one reachable away from Earth.</summary>
+    public const double StandardDamage = DamageEnv;
+
+    /// <summary>The weakest strike the game can produce, as damage rather than as a speed. The damage is what a
+    /// hull meets; the velocity is the parameter the game happens to express it through. Exact: the multiplier
+    /// floor is in the game's own code.</summary>
+    public static double MinDamage => WorstCasePool(MinClosingSpeedMs);
+
+    /// <summary>The strongest strike the loaded data can produce, as damage. See
+    /// <see cref="FastestClosingSpeed"/> for where the ceiling comes from, since the code has none.</summary>
+    public static double MaxDamageFor(IReadOnlyList<CelestialBody> bodies) =>
+        WorstCasePool(FastestClosingSpeed(bodies));
 
     /// <summary>The strength multiplier for a closing speed: <c>max(v / 750, 0.5)</c>, the game's
     /// <c>Mathf.Max(|v_body − v_ship| / ATC_SPEED_LIMIT, 0.5f)</c>.</summary>
@@ -109,6 +177,18 @@ public static class MicrometeoroidStrike
     /// against, and the one the request asked for.
     /// </summary>
     public static double WorstCasePool(double closingSpeedMs) => DamageEnv * MultiplierFor(closingSpeedMs);
+
+    /// <summary>
+    /// The inverse of <see cref="WorstCasePool"/>: the closing speed that delivers a given worst-case damage,
+    /// clamped to the range the game can actually produce.
+    ///
+    /// <para>It exists so a caller can work in damage, which is what a hull meets and what every other figure in
+    /// the tool is denominated in, and hand the solver the velocity it wants without either side having to know
+    /// the multiplier in between. Damage below <see cref="MinDamage"/> is not a weaker strike, it is no strike the
+    /// game has: the multiplier floors, so every speed under the floor delivers the same 27.5.</para>
+    /// </summary>
+    public static double SpeedForDamage(double damage) =>
+        Math.Clamp(damage / DamageEnv * AtcSpeedLimit, MinClosingSpeedMs, MaxClosingSpeedMs);
 
     /// <summary>
     /// Where this design's rays converge, in document tile coords.
@@ -141,6 +221,10 @@ public static class MicrometeoroidStrike
     /// (see <see cref="AnchorFor"/> and <see cref="GameRayFor"/>), but a planner that could only show those could
     /// not answer "what if it came in here instead", which is the question a designer actually has. What the ray
     /// does once it is drawn is the game's own arithmetic, exactly.</para>
+    ///
+    /// <para><b>The path is in the centre frame</b> (<see cref="TileFrame"/>): an integer is a tile's centre, not
+    /// its corner, because that is the frame the colliders below are built in. A caller holding canvas coordinates
+    /// converts with <see cref="TileFrame.CornerToCentre"/> first.</para>
     /// </summary>
     /// <param name="doc">The design. Never modified: accumulated damage lives in <paramref name="state"/>, because
     /// wear is not part of a design (§12) and must not reach the .oplan.</param>
