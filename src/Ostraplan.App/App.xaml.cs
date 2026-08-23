@@ -220,6 +220,61 @@ public partial class App : Application
             return;
         }
 
+        // preview render: draw the item manifest off a real save's ship to PNGs, collapsed and expanded, so the
+        // table's columns can be held against each other without driving the window. Needs the game install.
+        if (e.Args.Contains("--mansmoke"))
+        {
+            var dir = e.Args.SkipWhile(a => a != "--mansmoke").Skip(1).FirstOrDefault() ?? AppContext.BaseDirectory;
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var env = GameEnv.Locate(null);
+                var catalog = Catalog.Build(DataIndex.Load(env));
+
+                void RenderManifest(string file, ShipDocument doc, int expand)
+                {
+                    var win = new ManifestWindow(doc, new CommandStack(), _ => { });
+                    if (expand > 0) win.PreviewOpen(expand);
+                    if (win.PreviewContent is not { } panel) return;
+                    panel.Background = ThemeManager.WindowBg;
+                    const int w = 700, h = 820;   // the window's own default size, so this is what the user sees
+                    panel.Measure(new Size(w, h));
+                    panel.Arrange(new Rect(0, 0, w, h));
+                    panel.UpdateLayout();
+                    var bmp = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+                    bmp.Render(panel);
+                    var enc = new PngBitmapEncoder();
+                    enc.Frames.Add(BitmapFrame.Create(bmp));
+                    using var fs = File.Create(Path.Combine(dir, file));
+                    enc.Save(fs);
+                }
+
+                // Find the ship first and render second. A render that throws is OUR bug and has to reach the error
+                // file; folding it into the "not a player-ship save" catch hid a re-parenting crash behind a
+                // half-written set of PNGs.
+                ShipDocument? subject = null;
+                foreach (var save in SaveImport.ListSaves(env))
+                {
+                    try
+                    {
+                        var doc = SaveEditImport.ImportForEditing(save, catalog).Doc;
+                        if (ItemManifest.Build(doc).IsEmpty) continue;   // a ship carrying nothing proves nothing here
+                        subject = doc;
+                        break;
+                    }
+                    catch { /* not a player-ship save */ }
+                }
+                if (subject is not null)
+                {
+                    RenderManifest("manifest-closed.png", subject, 0);
+                    RenderManifest("manifest-open.png", subject, 3);
+                }
+            }
+            catch (Exception ex) { File.WriteAllText(Path.Combine(dir, "mansmoke-error.txt"), ex.ToString()); }
+            Shutdown(0);
+            return;
+        }
+
         // preview render: draw the nav console's arrange board (a console stocked with the standard set) to a PNG
         // for eyeballing the screen layout against the game's own. Needs the game install.
         if (e.Args.Contains("--navsmoke"))

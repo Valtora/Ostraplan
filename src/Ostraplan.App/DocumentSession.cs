@@ -67,6 +67,11 @@ internal sealed class DocumentSession
     public DiagnosticsWindow? DiagnosticsReport { get; set; }
     public FlightWindow? FlightReport { get; set; }
 
+    /// <summary>The item manifest held open beside the editor, on the same terms as the reports above. It is an
+    /// edit route as well as a list — its rows rename and delete — so it belongs to one design as firmly as they
+    /// do, and closing the tab takes it with them.</summary>
+    public ManifestWindow? Manifest { get; set; }
+
     /// <summary>Which untitled auto-save bucket this session rotates in while it has no file of its own. Assigned
     /// by <c>MainWindow.FreeUntitledSlot</c> and meaningless once the design has been saved somewhere. See
     /// <see cref="AutoSaveStore.KeyFor"/>.</summary>

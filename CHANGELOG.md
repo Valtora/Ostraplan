@@ -12,6 +12,30 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **An Item Manifest: everything the ship carries, wherever it is.** **Design ▸ Item Manifest…** lists
+  every item on the design in one place — lying on a deck, inside a container, or nested any depth
+  inside either. Grouped by item type the way a shop window is, and each row opens onto the individual
+  items with where each one actually sits, which is the thing the plan itself cannot show you: a
+  container renders as a closed box, and a stray dropped on a deck years ago looks like every other
+  sprite.
+  - **Scope it to the whole ship or to one zone**, matching what a shop window does when it lists a
+    counter. Any zone, not only a Haul or Barter one. A container is in a zone when any part of its
+    body is, and everything inside it comes along.
+  - **Three things per item, each one undo step.** **Show** selects it and centres the plan on it.
+    **Rename** is the game's own rename, the same one the inspector and the container view use.
+    **Delete** removes it, and a container takes its contents with it.
+  - **A filter box** narrows the list by an item's name, the name you gave it, or where it is, so
+    finding one crate among forty is typing rather than scrolling.
+  - **It sits beside the Bill of Materials rather than in it.** The bill counts install kits for
+    structure you build, so an installed locker is priced there and what is inside it is here. A
+    container *lying on a deck* is an item, so it and everything in it are listed.
+  - **A host's own pockets and pouches are listed and say so.** They are part of the design and they
+    are written into the game, because a garment that arrives with no pockets cannot hold anything,
+    but nobody put them there. They stay out of the bill of materials and the edit cost, since you do
+    not buy a coat's pockets separately.
+  - **Copy list** puts the lot on the clipboard as text with every row expanded. Adding items is still
+    done where it was: a container's **View contents…** and the **ITEMS** palette tab.
+  - Thanks to nighoggDatatype for the request.
 - **Name anything inside a container, and see what it is.** The contents view now answers both halves of
   what an item is. **Alt+click any item** (or **right-click ▸ Info…**) for the panel the game shows for
   an object: its name, its description, the factions it belongs to, and its value. **Any item can be

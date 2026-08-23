@@ -63,6 +63,7 @@ The app takes a few developer flags, each of which renders something and exits:
 | `--smoke` | Shows and closes a native-backed WPF window. `scripts\publish.ps1` uses it to prove a published build loads its native DLLs. |
 | `--dlgsmoke <dir>` | The standard dialogs, light and dark, as PNGs. |
 | `--invsmoke <dir>` | The inventory viewer: a synthesized backpack, an editable one, rotation, the first real save container, and an item's info panel. Needs the install. |
+| `--mansmoke <dir>` | The item manifest off a real save's ship, collapsed and expanded, so the table's columns can be held against each other. Needs the install. |
 | `--navsmoke <dir>` | The nav console arrange board, at rest and mid-drag, so the screen layout can be eyeballed against the game's. Needs the install. |
 | `--svgsmoke <dir>` | A real ship's room map to SVG, validated as XML. Needs the install. |
 | `--wearsmoke <dir>` | A strip of four real parts at descending condition, for holding the wear port up against the game. Needs the install. |

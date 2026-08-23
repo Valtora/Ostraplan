@@ -315,6 +315,35 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
     changes hands, but you still pay the uninstall and re-install jobs. Non-buildable
     structure (raw hull, fixed systems, the primary airlock) is reported as a count on
     each side rather than as lines, since you cannot buy it either way.
+- **Item Manifest…** (Design): every **item** the design carries, wherever it is — lying
+  on a deck, inside a container, or nested any depth inside either. Grouped by item type
+  the way a shop window is; click a row to open it onto the individual items, each with
+  where it actually sits.
+  - **Scope it to the whole ship or to one zone**, which is what a shop window does when
+    it lists a counter. Any zone, not only a Haul or Barter one. A container counts as
+    being in a zone when any part of its body is, and everything inside it comes with it.
+  - **Three things per item.** **Show** selects it and centres the plan on it, so a stray
+    on a deck you never look at is one click from found. **Rename** is the game's own
+    rename, the same one the inspector and the container view use. **Delete** removes it,
+    and a container takes its contents with it. Each of them is one undo step.
+  - **Type in the filter box** to narrow the list by an item's name, the name you gave it,
+    or where it is. The figures at the top always describe the whole scope.
+  - **It is not the bill of materials, and is not meant to be.** The bill counts install
+    kits for structure you build, so an installed locker is priced there and what is
+    inside it is here. A container *lying on a deck* is an item, so it is listed and so is
+    everything in it; an installed one is not.
+  - **A host's own pockets and pouches are listed**, and each row says "part of it".
+    They are part of the design and they are written into the game — a garment that
+    arrives with no pockets cannot hold anything — but nobody put them there, so a row
+    that stayed quiet about it would read as a stray. They are still left out of the bill
+    of materials and the edit cost, because you do not buy a coat's pockets separately.
+  - **Value is the game's own base price**, not what a broker would pay for it. **Copy
+    list** puts the whole thing on the clipboard as text, every row expanded.
+  - **Adding items is still done where it was**: a container's own **View contents…**, and
+    the **ITEMS** palette tab for the decks. The manifest is for seeing what is aboard and
+    tidying it.
+  - It stays open while you work, like the other reports, and re-walks the design whenever
+    you change it.
 - **Flight Dynamics…** (Design): what the design does **in air**. The game shows this
   only on a flying ship, in the nav console's own Flight Dynamics module, and only for
   wherever that ship happens to be. Here the place is an input.
@@ -969,6 +998,10 @@ undo step:
 The name is the game's own rename, so it goes into the game through **Export** and **Update
 Ship in Save…**, and comes back when you import a ship carrying one. A stack is named as a
 stack.
+
+To see everything the ship carries at once rather than one container at a time, use
+**Design ▸ Item Manifest…** (above). It lists every item wherever it is, nested containers
+included, and each row can be shown on the grid, renamed or deleted.
 
 ### Moving things around the grid
 

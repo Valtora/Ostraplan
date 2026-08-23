@@ -103,6 +103,7 @@ public partial class MainWindow : Window
             {
                 if (s.RatingReport is not null) s.RatingReport.IsEnabled = !frozen;
                 if (s.DiagnosticsReport is not null) s.DiagnosticsReport.IsEnabled = !frozen;
+                if (s.Manifest is not null) s.Manifest.IsEnabled = !frozen;
             }
         });
 
@@ -858,6 +859,10 @@ public partial class MainWindow : Window
         // so rather than going on showing figures for a ship that no longer exists (see ReportWindow).
         session.RatingReport?.MarkStale();
         session.DiagnosticsReport?.MarkStale();
+        // The manifest refreshes instead of going stale. It is one walk of the cargo trees rather than a full
+        // analysis, and it is a tidying tool: a list that says "an item you just deleted may still be here" would
+        // be worse than useless while you are working down it.
+        session.Manifest?.Refresh();
         if (!ReferenceEquals(session, _active)) { RefreshDocTabs(); return; }
 
         var bounds = _doc?.Bounds();
@@ -876,6 +881,7 @@ public partial class MainWindow : Window
         session.RatingReport?.Close();
         session.DiagnosticsReport?.Close();
         session.FlightReport?.Close();   // read-only, but a flight profile for a design that is no longer open is noise
+        session.Manifest?.Close();
     }
 
     /// <summary>
@@ -1235,6 +1241,34 @@ public partial class MainWindow : Window
         var whole = selection.Count > 0 ? BillOfMaterials.ComputeAll(_doc) : bom;
         new MaterialsReportWindow(bom, scope, whole, _catalog is null ? null : PickRetrofitSource) { Owner = this }
             .ShowDialog();
+    }
+
+    /// <summary>
+    /// Open the item manifest, or bring the one already open back to the front and re-walk it (#36). Modeless and
+    /// one per design, like the analysis reports: it lists what the design carries while you work down it, and its
+    /// Show buttons point the canvas at a row, which is only worth anything if the canvas is still there.
+    /// </summary>
+    private void ShowManifest()
+    {
+        if (_doc is null) return;
+        // The session and the document, not the shims: the window outlives this method, so its Closed handler and
+        // its reveal callback must act on the design that opened it rather than on whichever tab is active when the
+        // user gets round to using them. A document swap closes the window through CloseReports first.
+        var session = _active;
+        var doc = _doc;
+
+        if (session.Manifest is { } already) { already.Refresh(); already.Activate(); return; }
+
+        void Reveal(RenderItem item)
+        {
+            session.Board.SelectItem(item);
+            session.Board.FocusTiles(ItemManifest.TilesOf(doc, item));
+        }
+
+        var window = new ManifestWindow(doc, session.Stack, Reveal) { Owner = this };
+        window.Closed += (_, _) => session.Manifest = null;
+        session.Manifest = window;
+        window.Show();
     }
 
     /// <summary>
@@ -4466,6 +4500,9 @@ public partial class MainWindow : Window
         m.Items.Add(new Separator());
         m.Items.Add(MenuAction("Snapshot…", () => OnSnapshotClick(this, e)));
         m.Items.Add(MenuAction("Bill of Materials…", () => OnMaterialsClick(this, e), gesture: "Ctrl+B"));
+        // Beside the bill rather than in it: the bill counts install kits for structure you build, the manifest
+        // counts the items aboard. See ManifestWindow for why mixing the two would break the bill.
+        m.Items.Add(MenuAction("Item Manifest…", ShowManifest, enabled: _doc is not null));
         // Atmospheric flight on a design with no drive and no rotors is not a report, it is a column of zeroes.
         m.Items.Add(MenuAction("Flight Dynamics…", () => OnFlightClick(this, e),
             enabled: _doc is not null && !_doc.IsResidence));
