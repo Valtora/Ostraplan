@@ -723,22 +723,7 @@ public partial class MainWindow : Window
     {
         if (_syncingPalette || sender is not ListBox { SelectedItem: PartVM vm } origin) return;
 
-        // Surfaces mode with slot B armed: this pick is the pattern's second brush, not a new brush in hand. It has
-        // to match what is already armed — same 1×1 wall/floor class — or there is no pattern to make of the pair,
-        // in which case the pick falls through and arms normally rather than being swallowed.
-        if (_slotBArmed && Board.SurfaceMode && _catalog is not null)
-        {
-            _slotBArmed = false;
-            if (SurfacePaint.IsSurfaceBrush(_catalog, vm.Part) && Board.ArmedPart is { } primary
-                && _catalog.RenderLayer(primary) == _catalog.RenderLayer(vm.Part))
-            {
-                Board.SetPatternB(vm.Part);
-                SyncPaletteHighlightToArmed();   // the highlight belongs to what is in hand, which hasn't changed
-                UpdateSurfaceBar();
-                Board.Focus();
-                return;
-            }
-        }
+        if (TryFillSlotB(vm.Part)) { Board.Focus(); return; }
 
         _syncingPalette = true;
         foreach (var list in _paletteLists.Where(l => !ReferenceEquals(l, origin)))
@@ -776,11 +761,21 @@ public partial class MainWindow : Window
     /// arming is logged at the angle it actually lands on. Selecting its palette entry (when visible) both arms
     /// it and syncs the highlight; if it is filtered out by the search, arm directly. A part with no palette row
     /// at all (the primary airlock, a closed door) is ignored — nothing to paint.
+    ///
+    /// <para><b>It fills slot B on the same terms the palette does</b>, through the one decision both routes share
+    /// (<see cref="TryFillSlotB"/>). Before this it had a second arming path of its own, and that path only reached
+    /// the slot logic by side effect: selecting the palette row re-entered <see cref="OnPaletteSelection"/>, so a
+    /// pick landed in B when the part happened to be visible in the palette and in A when the search box had
+    /// filtered it out. Same click, two answers, decided by a text box on the other side of the window.</para>
     /// </summary>
     private void OnArmFromTile(string defName, int rot)
     {
         var vm = _allParts.FirstOrDefault(v => v.Part.DefName == defName);
         if (vm is null) return;
+
+        // Ahead of the rotation, because a B pick is the pattern's second brush and must not turn what is in hand.
+        if (TryFillSlotB(vm.Part)) { Board.Focus(); return; }
+
         Board.SetArmedRot(rot);
         foreach (var list in _paletteLists)
             if (list.Items.Contains(vm)) { list.SelectedItem = vm; break; }
@@ -2159,12 +2154,69 @@ public partial class MainWindow : Window
     /// click never leaves the palette quietly wired to the wrong place.</summary>
     private bool _slotBArmed;
 
+    /// <summary>
+    /// One line of guidance about something that has already happened and leaves no trace in the state the bar is
+    /// drawn from. A refused slot B pick is the case: it ends with a brush in hand and an empty B, which on its own
+    /// looks exactly like nothing having happened.
+    ///
+    /// <para>Cleared by the next gesture rather than by the next redraw, and the difference matters: arming a brush
+    /// raises <c>ArmedChanged</c>, so a single pick redraws the bar two or three times before it settles and a
+    /// message that cleared on read would be gone before the eye reached it. Every gesture that could supersede it
+    /// clears it, which is the picks (through <see cref="TryFillSlotB"/>, which they all pass) and the bar's own
+    /// controls.</para>
+    /// </summary>
+    private string? _surfaceNoteOnce;
+
     private void OnSurfaceModeChanged()
     {
         SyncViewToggles();
         UpdateModeHint();
         if (!Board.SurfaceMode) _slotBArmed = false;
+        _surfaceNoteOnce = null;
         UpdateSurfaceBar();
+    }
+
+    /// <summary>
+    /// Take a pick for the pattern's second brush, if that is what the Surfaces bar is waiting for. True when the
+    /// pick was consumed and the caller should do nothing else with it.
+    ///
+    /// <para><b>Every route that arms a brush goes through here</b>, the palette and the Alt+click eyedropper
+    /// alike, so which slot a pick lands in is decided in one place rather than by which route happened to reach
+    /// the slot logic. It is a one-shot: the pending state is spent whether or not the part turned out to be
+    /// usable, so a stray slot click never leaves the next pick quietly wired to the wrong place.</para>
+    ///
+    /// <para>A pattern needs a matching pair (two 1×1 skins of the <b>same</b> layer), since a checkerboard of a
+    /// wall and a floor is not a pattern but two different edits. A pick that cannot pair falls through and arms
+    /// normally rather than being swallowed, and says so on the bar, because arming silently is what makes a
+    /// refused pick read as a dead click.</para>
+    /// </summary>
+    private bool TryFillSlotB(PartDef part)
+    {
+        _surfaceNoteOnce = null;   // a new pick supersedes whatever the last one had to say
+        if (!_slotBArmed || !Board.SurfaceMode || _catalog is null) return false;
+        _slotBArmed = false;
+
+        if (!SurfacePaint.IsSurfaceBrush(_catalog, part))
+        {
+            _surfaceNoteOnce = $"“{part.Friendly}” is not a wall or floor skin, so it went in hand instead of into B.";
+            return false;
+        }
+        if (Board.ArmedPart is not { } primary)
+        {
+            _surfaceNoteOnce = "There was no brush in hand to pattern with, so this one went in hand instead of into B.";
+            return false;
+        }
+        if (_catalog.RenderLayer(primary) != _catalog.RenderLayer(part))
+        {
+            _surfaceNoteOnce = $"B has to be another {LayerWord(primary)} to pattern with A, so "
+                             + $"“{part.Friendly}” went in hand instead.";
+            return false;
+        }
+
+        Board.SetPatternB(part);
+        SyncPaletteHighlightToArmed();   // the highlight belongs to what is in hand, which hasn't changed
+        UpdateSurfaceBar();
+        return true;
     }
 
     private void OnSurfaceToggleClick(object sender, RoutedEventArgs e) => Board.ToggleSurfaceMode();
@@ -2174,6 +2226,7 @@ public partial class MainWindow : Window
     private void OnSurfaceSlotClick(object sender, RoutedEventArgs e)
     {
         _slotBArmed = ReferenceEquals(sender, SlotB);
+        _surfaceNoteOnce = null;
         UpdateSurfaceBar();
     }
 
@@ -2182,6 +2235,7 @@ public partial class MainWindow : Window
         Board.SetPatternB(null);
         Board.SetPattern(SurfacePattern.Solid);   // nothing left to alternate with
         _slotBArmed = false;
+        _surfaceNoteOnce = null;
         UpdateSurfaceBar();
     }
 
@@ -2189,6 +2243,7 @@ public partial class MainWindow : Window
     {
         if (sender is ToggleButton { Tag: string tag } && Enum.TryParse<SurfacePattern>(tag, out var pattern))
             Board.SetPattern(pattern);
+        _surfaceNoteOnce = null;
         UpdateSurfaceBar();
     }
 
@@ -2200,6 +2255,7 @@ public partial class MainWindow : Window
             _settings.SurfacePaintMode = mode.ToString();
             _settings.Save();
         }
+        _surfaceNoteOnce = null;
         UpdateSurfaceBar();
     }
 
@@ -2211,6 +2267,7 @@ public partial class MainWindow : Window
             _settings.SurfaceFocus = focus.ToString();
             _settings.Save();
         }
+        _surfaceNoteOnce = null;
         UpdateSurfaceBar();
     }
 
@@ -2254,10 +2311,11 @@ public partial class MainWindow : Window
         ModeBoth.IsChecked = Board.PaintMode == SurfacePaintMode.ReplaceAndFill;
         ModeFill.IsChecked = Board.PaintMode == SurfacePaintMode.Fill;
 
-        // The line answers whatever is most in the way, in the order it would actually block you: no brush, then a
-        // half-set pattern, then the mode you are painting in (which is the one that explains a stroke doing
-        // nothing at all).
+        // The line answers whatever is most in the way, in the order it would actually block you: something that
+        // just happened and left no trace, then no brush, then a half-set pattern, then the mode you are painting
+        // in (which is the one that explains a stroke doing nothing at all).
         TxtSurfaceNote.Text =
+            _surfaceNoteOnce ?? (
             a is null ? "Arm a wall or floor from the palette to paint with. Other parts still place as usual."
             : _slotBArmed ? $"Now pick the second {LayerWord(a)} from the palette."
             : !pairOk && b is not null ? "A and B are different layers — pick a matching pair to pattern with."
@@ -2265,7 +2323,7 @@ public partial class MainWindow : Window
                 ? $"Re-skinning {LayerWord(a)}s only — bare tiles are left alone. Switch to Both or Fill to lay new ones."
             : Board.PaintMode == SurfacePaintMode.Fill
                 ? $"Laying new {LayerWord(a)}s on bare tiles only — what is already there is left alone."
-            : $"Re-skinning {LayerWord(a)}s and laying new ones on bare tiles.";
+            : $"Re-skinning {LayerWord(a)}s and laying new ones on bare tiles.");
     }
 
     /// <summary>"wall" or "floor", for the Surfaces bar's guidance line.</summary>
