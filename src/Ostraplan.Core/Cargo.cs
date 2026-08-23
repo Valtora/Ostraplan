@@ -82,6 +82,36 @@ public sealed record CargoItem(
     /// </summary>
     public bool Intrinsic { get; init; }
 
+    /// <summary>
+    /// A name the user gave this item, replacing its stock one everywhere the item is named. Null (and omitted
+    /// from the <c>.oplan</c>) when it carries the name its def came with.
+    ///
+    /// <para>The same game rename a <see cref="Placement"/> and a <see cref="LooseObject"/> carry (see
+    /// <see cref="Rename"/>), and it belongs here for the same reason: the game renames anything that is not a
+    /// person, a round in a locker included, and a labelled item is often the design intent. It is what lets a
+    /// crate of nested pouches say what each one is for (#37).</para>
+    ///
+    /// <para>It travels as the item's own <c>Rename</c> GPM panel on export and on a save write-back, and an
+    /// import reads it back. A <b>stack</b> carries one name for the pile, on the head, exactly as a loose deck
+    /// stack does.</para>
+    /// </summary>
+    public string? CustomName { get; init; }
+
+    /// <summary>
+    /// The factions this item belongs to, verbatim from its condition owner's <c>aFactions</c>, or empty for the
+    /// great majority that belong to none.
+    ///
+    /// <para><b>Per-instance save state, not a property of the def.</b> The game only ever writes it onto a
+    /// spawned condition owner (<c>CondOwner.AddFaction</c>), so an item Ostraplan authors has none and an
+    /// imported one carries whatever the ship it came off gave it. That is what makes it worth showing: a pouch
+    /// out of a Ceres station reads as that station's, which is the question the container view is being asked.</para>
+    ///
+    /// <para>These are raw faction ids. Their friendly names live in the save's own system block and are carried
+    /// on the document (<see cref="ShipDocument.FactionNames"/>), because a save invents factions at runtime and
+    /// no static data file lists them.</para>
+    /// </summary>
+    public IReadOnlyList<string> Factions { get; init; } = [];
+
     /// <summary>This item's <see cref="StrID"/> plus every descendant's, depth-first — the whole subtree.</summary>
     public IEnumerable<string> SubtreeIds()
     {
@@ -144,6 +174,12 @@ public static class Cargo
                 var isSlotted = slotted || heal;
                 result.Add(new CargoItem(id, defName, def?.Friendly, isSlotted, sub)
                 {
+                    // The game's own rename, off the item's GPM panels, exactly as a placed part's is read. Before
+                    // this a name a player gave a pouch in game was dropped on import and then written back as a
+                    // no-op that erased it.
+                    CustomName = Rename.FromItem(item),
+                    // Faction membership rides on the CO rather than the item, and only an imported one has any.
+                    Factions = FactionsOf(co),
                     GridX = isSlotted ? 0 : Int(co, "inventoryX"),
                     GridY = isSlotted ? 0 : Int(co, "inventoryY"),
                     GridRot = GridMath.Norm((int)Math.Round(Dbl(item, "fRotation"))),   // inventory rotation rides on the item's fRotation
@@ -233,6 +269,18 @@ public static class Cargo
         if (Str(co, "strSlotName") is { Length: > 0 } saved) { taken.Add(saved); return saved; }
         if (FreeSlotFor(parentDef, childDef, taken) is { } free) { taken.Add(free); return free; }
         return childDef is { SlotKeys.Length: > 0 } ? childDef.SlotKeys[0] : null;
+    }
+
+    /// <summary>A condition owner's <c>aFactions</c>, or empty. Verbatim ids: resolving them to names needs the
+    /// save's own faction table (see <see cref="CargoItem.Factions"/>).</summary>
+    private static IReadOnlyList<string> FactionsOf(JsonNode? co)
+    {
+        if ((co as JsonObject)?["aFactions"] is not JsonArray arr || arr.Count == 0) return [];
+        var result = new List<string>(arr.Count);
+        foreach (var f in arr)
+            if (f is JsonValue v && v.TryGetValue<string>(out var s) && !string.IsNullOrEmpty(s))
+                result.Add(s);
+        return result;
     }
 
     private static string? Str(JsonNode? n, string prop) =>

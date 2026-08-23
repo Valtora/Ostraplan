@@ -48,6 +48,12 @@ public sealed class OplanFile
     /// <summary>Problem-warning keys the user dismissed (see <see cref="ShipDocument.DismissedAlerts"/>). Additive
     /// at format v1, like <see cref="Zones"/>.</summary>
     [JsonPropertyName("dismissedAlerts")] public List<string> DismissedAlerts { get; set; } = [];
+    /// <summary>Friendly names for the factions this design's cargo belongs to (see
+    /// <see cref="ShipDocument.FactionNames"/>), raw id → name. A document-level table rather than a name repeated
+    /// on every item, because a hold's worth of cargo off one station shares three ids between hundreds of items.
+    /// Null — and omitted — for a design whose cargo belongs to no faction, which is every design drawn from
+    /// scratch. Additive at format v1, like <see cref="Zones"/>.</summary>
+    [JsonPropertyName("factions")] public Dictionary<string, string>? Factions { get; set; }
     /// <summary>Extra mass (kg) the design is expected to haul, for the propulsion figures only (see
     /// <see cref="ShipDocument.ExtraMassKg"/>). Additive at format v1, like <see cref="Zones"/>: an older build
     /// ignores it and round-trips it via <see cref="Extra"/>, so no version bump. Omitted when zero.</summary>
@@ -127,6 +133,17 @@ public sealed class OplanFile
             if (indexById.TryGetValue(l.Source, out var si) && indexById.TryGetValue(l.Target, out var ti))
                 file.Links.Add(new OplanLink { Src = si, Tgt = ti });
         file.DismissedAlerts = doc.DismissedAlerts.OrderBy(k => k, StringComparer.Ordinal).ToList();
+        // Only the factions this design's cargo actually references, sorted for a readable diff. A save carries a
+        // few hundred, nearly all of them the per-person ones the game mints as it goes, and writing those into
+        // every design would bloat the file with names nothing in it names.
+        var referenced = doc.Placements.SelectMany(p => p.Cargo).SelectMany(AllFactions)
+            .Concat(doc.LooseObjects.SelectMany(l => l.Cargo).SelectMany(AllFactions))
+            .ToHashSet(StringComparer.Ordinal);
+        var factionNames = doc.FactionNames
+            .Where(kv => referenced.Contains(kv.Key))
+            .OrderBy(kv => kv.Key, StringComparer.Ordinal)
+            .ToDictionary(kv => kv.Key, kv => kv.Value, StringComparer.Ordinal);
+        file.Factions = factionNames.Count > 0 ? factionNames : null;
         file.Meta.Modified = DateTime.UtcNow;
         return file;
     }
@@ -196,6 +213,7 @@ public sealed class OplanFile
                 && byIndex[l.Src] is { } src && byIndex[l.Tgt] is { } tgt)
                 doc.AddLink(new DeviceLink(src.Id, tgt.Id));
         doc.LoadDismissedAlerts(DismissedAlerts);
+        if (Factions is { Count: > 0 }) doc.LoadFactionNames(Factions);
         foreach (var z in Zones) doc.AddZone(FromOplanZone(z));
         // Restore loose floor items whose def still resolves (a missing def is dropped, like a missing part). One
         // per tile: a later duplicate at the same tile simply overwrites, matching the in-editor invariant.
@@ -249,6 +267,10 @@ public sealed class OplanFile
 
     /// <summary>Persist a cargo node's identity, authored-ness, grid position and stack — the display/footprint
     /// fields (friendly name, size) are re-resolved from the def on load, so only what can't be re-derived is stored.</summary>
+    /// <summary>Every faction id in a cargo subtree, this item's and its descendants'.</summary>
+    private static IEnumerable<string> AllFactions(CargoItem c) =>
+        c.Factions.Concat(c.Children.SelectMany(AllFactions));
+
     private static OplanCargo ToOplanCargo(CargoItem c) => new()
     {
         Def = c.DefName,
@@ -263,6 +285,8 @@ public sealed class OplanFile
         Stack = c.Stack,
         IsStack = c.IsStack,
         Children = c.Children.Count > 0 ? c.Children.Select(ToOplanCargo).ToList() : null,
+        Name = c.CustomName,
+        Factions = c.Factions.Count > 0 ? [.. c.Factions] : null,
     };
 
     /// <summary>
@@ -305,6 +329,10 @@ public sealed class OplanFile
             SlotName = slotName,
             Authored = o.Authored,
             Intrinsic = o.Intrinsic,
+            // Verbatim, exactly as a part's name is: an imported name must survive a reopen unchanged, or a no-op
+            // write-back would rewrite what the player typed in game.
+            CustomName = Rename.OrNull(o.Name),
+            Factions = o.Factions is { Count: > 0 } f ? [.. f] : [],
         };
     }
 }
@@ -419,6 +447,15 @@ public sealed class OplanCargo
     [JsonPropertyName("stack")] public int Stack { get; set; } = 1;
     [JsonPropertyName("isStack")] public bool IsStack { get; set; }
     [JsonPropertyName("children")] public List<OplanCargo>? Children { get; set; }
+    /// <summary>A name the user gave this item (see <see cref="CargoItem.CustomName"/>), on the same terms as a
+    /// part's <see cref="OplanPart.Name"/>. Null — and omitted — for an item carrying its def's stock name.
+    /// Additive at format v1: an older build ignores it and round-trips it through <see cref="Extra"/>.</summary>
+    [JsonPropertyName("name")] public string? Name { get; set; }
+    /// <summary>The factions this item belongs to (see <see cref="CargoItem.Factions"/>), raw ids. Null — and
+    /// omitted — for the great majority that belong to none. Their friendly names live in the file's root
+    /// <see cref="OplanFile.Factions"/> table, because a save mints factions at runtime and nothing in the
+    /// install lists them.</summary>
+    [JsonPropertyName("factions")] public List<string>? Factions { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }
 

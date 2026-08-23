@@ -243,6 +243,9 @@ public static class SaveEdit
                     // module's page comes from its GPM, and a save load restores these from the file rather than
                     // rebuilding them from the def. Null for inert cargo (a tool, a shirt, a can).
                     if (GpmSettings(catalog, c.DefName) is { } cgpm) citem["aGPMSettings"] = cgpm;
+                    // A name the user gave it, after the def's own panels so it lands alongside them rather than
+                    // replacing them (#37). ApplyRename creates the array when the def brought none.
+                    ApplyRename(citem, c.CustomName);
                     outItems.Add(citem);
                     outItemsById[cid] = citem;
                     var cco = SynthesizeCo(c.DefName, cid, catalog, ctx.Source.RegId, ctx.Epoch);
@@ -262,6 +265,9 @@ public static class SaveEdit
                     var origItem = ctx.ItemsById.GetValueOrDefault(c.StrID);
                     if (origItem is null || GridMath.Norm((int)Math.Round(Dbl(origItem, "fRotation"))) != c.GridRot)
                         orig["fRotation"] = (double)c.GridRot;                                // inventory rotation
+                    // The name, only when it actually moved. A kept item is written back verbatim, so touching its
+                    // panels unconditionally would rewrite a name the player typed in game as a no-op edit.
+                    if (Rename.FromItem(origItem) != c.CustomName) ApplyRename(orig, c.CustomName);
                     outCosById.TryGetValue(c.StrID, out var co);
                     if (co is not null)
                     {

@@ -229,6 +229,9 @@ public static class ShipExport
                 ACondOverrides = PristineMarker, BForceLoad = true,
             };
             if (c.Slotted) item.StrSlotParentID = parentStrID; else item.StrParentID = parentStrID;
+            // A name the user gave this item, on its own GPM panel exactly as a placed part's is. A stack head
+            // carries the pile's name and its members carry none, which is where the game keeps it.
+            if (c.CustomName is { } cargoName) item.AGPMSettings = [RenameGpm(cargoName)];
             items.Add(item);
 
             var childIds = c.Children.Select(child => EmitContained(child, cid, fx, fy)).ToList();

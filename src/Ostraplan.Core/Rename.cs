@@ -118,6 +118,30 @@ public static class Rename
         return found;
     }
 
+    /// <summary>
+    /// <see cref="FromItem(JsonElement)"/> against a mutable node, which is the shape the save reader works in.
+    /// Same rules: the flat key/value array, the last <c>Rename</c> panel winning, the value verbatim.
+    /// </summary>
+    public static string? FromItem(JsonNode? item)
+    {
+        if ((item as JsonObject)?["aGPMSettings"] is not JsonArray panels) return null;
+
+        string? found = null;
+        foreach (var panel in panels)
+        {
+            if (panel is not JsonObject p) continue;
+            if (p["strName"] is not JsonValue nameValue
+                || !nameValue.TryGetValue<string>(out var panelName) || panelName != Panel) continue;
+            if (p["dictGUIPropMap"] is not JsonArray map) continue;
+
+            // The pair loop drops a trailing unpaired key, exactly as ConvertStringArrayToDict does.
+            for (var i = 0; i + 1 < map.Count; i += 2)
+                if (map[i] is JsonValue k && k.TryGetValue<string>(out var key) && key == NameKey)
+                    found = OrNull(map[i + 1] is JsonValue v && v.TryGetValue<string>(out var s) ? s : null);
+        }
+        return found;
+    }
+
     /// <summary>The <c>Rename</c> panel for a name, in the game's flat key/value shape, as a mutable JSON node for
     /// the save-edit writer.</summary>
     public static JsonObject PanelNode(string name) => new()

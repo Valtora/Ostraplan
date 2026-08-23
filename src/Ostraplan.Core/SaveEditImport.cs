@@ -75,6 +75,9 @@ public static class SaveEditImport
         // One read of the session record, not three: it is the biggest thing in a save (tens of MB), and this
         // needs the player CO, the epoch, and — for the cost deduction — which ship the player is standing on.
         var session = SaveImport.ReadSession(zip);
+        // The names behind each item's faction ids. Read here rather than resolved later, because they exist only
+        // in this save's own system block and the design has to carry its own copy to stay readable without it.
+        if (session is { FactionNames.Count: > 0 } named) import.Doc.LoadFactionNames(named.FactionNames);
         var context = BuildContext(source, zipPath, shipNode, import.Doc, catalog, session, zip, regId);
 
         // Build ran before BuildContext hung the cargo on the placements (this path attaches from the retained

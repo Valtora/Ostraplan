@@ -37,7 +37,15 @@ public sealed record SaveShipChoice(string RegId, string Name, string Sub, bool 
 /// (<c>strShip</c>), their character CO id (<c>strPlayerCO</c>, the CO carrying the money balance and the owned-
 /// ship list), the current game epoch, and the record's own zip entry name — which a writer needs, because
 /// ownership lives in that record and nowhere else.</summary>
-internal sealed record SessionRecord(string ShipRegId, string? PlayerCoId, double Epoch, string EntryName);
+internal sealed record SessionRecord(string ShipRegId, string? PlayerCoId, double Epoch, string EntryName)
+{
+    /// <summary>The save's faction table (<c>objSystem.aFactions</c>), raw id → friendly name. A save carries a
+    /// few hundred, most of them the per-person factions the game mints as it goes, and nothing under the install
+    /// lists any of them — which is why an imported design has to carry its own copy (see
+    /// <see cref="ShipDocument.FactionNames"/>).</summary>
+    public IReadOnlyDictionary<string, string> FactionNames { get; init; } =
+        new Dictionary<string, string>(StringComparer.Ordinal);
+}
 
 /// <summary>
 /// Imports the <b>player's own ship</b> from a save game — layout only. A save folder holds a
@@ -153,6 +161,21 @@ public static class SaveImport
     /// authoritative <c>StatUSD</c> money balance. Shared with <see cref="SaveEditImport"/>.</summary>
     internal static string? PlayerCoId(ZipArchive zip) => ReadSession(zip)?.PlayerCoId;
 
+    /// <summary>Raw id → friendly name from <c>objSystem.aFactions</c>. An entry naming no friendly name is
+    /// skipped, since the id is the fallback anyway.</summary>
+    private static IReadOnlyDictionary<string, string> ReadFactionNames(JsonElement system)
+    {
+        var names = new Dictionary<string, string>(StringComparer.Ordinal);
+        if (!system.TryGetProperty("aFactions", out var arr) || arr.ValueKind != JsonValueKind.Array) return names;
+        foreach (var f in arr.EnumerateArray())
+        {
+            if (f.ValueKind != JsonValueKind.Object) continue;
+            if (Json.Str(f, "strName") is not { Length: > 0 } id) continue;
+            if (Json.Str(f, "strNameFriendly") is { Length: > 0 } friendly) names[id] = friendly;
+        }
+        return names;
+    }
+
     /// <summary>The save's current game epoch (<c>objSystem.dfEpoch</c> on the session record), or 0.</summary>
     internal static double SessionEpoch(ZipArchive zip) => ReadSession(zip)?.Epoch ?? 0;
 
@@ -199,10 +222,14 @@ public static class SaveImport
                     rejected.Add($"{e.FullName}: parsed, but carries no strShip naming a ship");
                     continue;
                 }
-                var epoch = el.TryGetProperty("objSystem", out var sys)
+                var hasSystem = el.TryGetProperty("objSystem", out var sys);
+                var epoch = hasSystem
                     && sys.TryGetProperty("dfEpoch", out var ep) && ep.TryGetDouble(out var v) ? v : 0;
                 why = null;
-                return new SessionRecord(ship, Json.Str(el, "strPlayerCO"), epoch, e.FullName);
+                return new SessionRecord(ship, Json.Str(el, "strPlayerCO"), epoch, e.FullName)
+                {
+                    FactionNames = hasSystem ? ReadFactionNames(sys) : new Dictionary<string, string>(StringComparer.Ordinal),
+                };
             }
             catch (JsonException ex)
             {

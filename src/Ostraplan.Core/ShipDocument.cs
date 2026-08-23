@@ -429,6 +429,37 @@ public sealed class ShipDocument
         foreach (var k in keys) _dismissedAlerts.Add(k);
     }
 
+    private readonly Dictionary<string, string> _factionNames = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Friendly names for the factions this design's cargo belongs to (see <see cref="CargoItem.Factions"/>),
+    /// raw id → the name a player would recognise.
+    ///
+    /// <para><b>It has to live on the document, because there is nowhere else it could.</b> A save invents
+    /// factions at runtime — a stock playthrough carries 404 of them, one per person among the rest — and no data
+    /// file under the install lists them, so this cannot be resolved from the catalog the way every other name is.
+    /// It is read off the save's own system block at import and then carried in the <c>.oplan</c>, which is what
+    /// keeps a design self-contained after it stopped belonging to a save.</para>
+    ///
+    /// <para>Display-only. Nothing about the layout, the rating, the cost or the export reads it, so it does not
+    /// raise <see cref="Changed"/>.</para>
+    /// </summary>
+    public IReadOnlyDictionary<string, string> FactionNames => _factionNames;
+
+    /// <summary>The friendly name for a faction id, or the id itself when the design never learned one — which is
+    /// the honest answer for a design drawn from scratch, and better than showing nothing.</summary>
+    public string FactionName(string id) => _factionNames.GetValueOrDefault(id, id);
+
+    /// <summary>Replace the faction name table (an import, or restoring the <c>.oplan</c> snapshot on open).
+    /// Entries with no friendly name are skipped, since the id is already the fallback.</summary>
+    public void LoadFactionNames(IEnumerable<KeyValuePair<string, string>> names)
+    {
+        _factionNames.Clear();
+        foreach (var (id, friendly) in names)
+            if (!string.IsNullOrEmpty(id) && !string.IsNullOrWhiteSpace(friendly))
+                _factionNames[id] = friendly;
+    }
+
     /// <summary>
     /// An independent copy for off-thread analysis: the same placements (poses + given-ness) with
     /// their own accumulated tile conditions, sharing the catalog. Safe to read on a background

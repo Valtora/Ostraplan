@@ -158,6 +158,43 @@ public static class CargoEdit
         return ReplaceChildren(rootCargo, containerId, newKids);
     }
 
+    /// <summary>
+    /// Give the item with <paramref name="itemId"/> a name of its own, or clear it back to the def's
+    /// (<paramref name="name"/> null). Returns the new tree, or null when nothing changed — no such item, or it
+    /// already carries this name — so a caller can skip pushing an undo step for a no-op.
+    ///
+    /// <para>Searches the whole tree rather than one container's children, because the item being renamed may be
+    /// nested several containers deep and the caller has an id rather than a path. A <b>stack</b> is named on its
+    /// head and its members are left alone, which is where the game keeps a stack's name.</para>
+    /// </summary>
+    public static IReadOnlyList<CargoItem>? Rename(
+        IReadOnlyList<CargoItem> rootCargo, string itemId, string? name)
+    {
+        ArgumentNullException.ThrowIfNull(rootCargo);
+        var cleaned = Core.Rename.Clean(name);
+        var changed = false;
+
+        IReadOnlyList<CargoItem> Walk(IReadOnlyList<CargoItem> items)
+        {
+            var result = new List<CargoItem>(items.Count);
+            foreach (var it in items)
+            {
+                if (it.StrID == itemId)
+                {
+                    if (it.CustomName == cleaned) { result.Add(it); continue; }
+                    changed = true;
+                    result.Add(it with { CustomName = cleaned });
+                    continue;
+                }
+                result.Add(it.Children.Count == 0 ? it : it with { Children = Walk(it.Children) });
+            }
+            return result;
+        }
+
+        var next = Walk(rootCargo);
+        return changed ? next : null;
+    }
+
     /// <summary>Detach the node with <paramref name="id"/> from anywhere in the tree: yields the node and the tree
     /// without it. False if no such node exists.</summary>
     private static bool TryDetach(IReadOnlyList<CargoItem> root, string id, out CargoItem node, out IReadOnlyList<CargoItem> without)
