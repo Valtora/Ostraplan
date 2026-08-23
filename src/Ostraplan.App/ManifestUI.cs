@@ -44,6 +44,21 @@ public sealed class ManifestWindow : ReportWindow
     /// <summary>What the filter box holds. Matched against an item's name, the name it was given, and where it is.</summary>
     private string _filter = "";
 
+    /// <summary>
+    /// Whether the list is arranged by what things are or by where they are.
+    ///
+    /// <para>Two questions, and one shape cannot answer both. By type is the stock list: how many of these does the
+    /// ship carry and what are they worth, which is what you ask before buying or selling. By location is the
+    /// ship's own organisation: a rack in an engineering bay holding a backpack holding conduits is three
+    /// deliberate decisions, and a flat list with a location string against each row has thrown all three away.
+    /// Neither replaces the other, so both are here and by type stays the default.</para>
+    /// </summary>
+    private bool _byLocation;
+
+    /// <summary>Which location-tree nodes are open, by their path from the root. Kept across a rebuild for the same
+    /// reason <see cref="_open"/> is: an edit must not fold the tree up under whoever just made it.</summary>
+    private readonly HashSet<string> _openNodes = new(StringComparer.Ordinal);
+
     /// <summary>Which def rows are open, by def name. Kept across a rebuild so an edit does not fold the list up
     /// under the person who just made it.</summary>
     private readonly HashSet<string> _open = new(StringComparer.Ordinal);
@@ -75,6 +90,13 @@ public sealed class ManifestWindow : ReportWindow
     internal void PreviewOpen(int count)
     {
         foreach (var line in _manifest.Lines.Take(count)) _open.Add(line.DefName);
+        Rebuild();
+    }
+
+    /// <summary>Switch the preview render to the location tree. Preview only: the window itself has a picker.</summary>
+    internal void PreviewByLocation()
+    {
+        _byLocation = true;
         Rebuild();
     }
 
@@ -203,9 +225,27 @@ public sealed class ManifestWindow : ReportWindow
         box.Children.Add(filter);
         box.Children.Add(hint);
 
+        var grouping = new ComboBox { MinWidth = 130, VerticalContentAlignment = VerticalAlignment.Center };
+        grouping.Items.Add("By type");
+        grouping.Items.Add("By location");
+        grouping.SelectedIndex = _byLocation ? 1 : 0;
+        grouping.ToolTip = "By type counts what the ship carries. By location keeps the nesting: zone, then what "
+                         + "it is in, then what that is in.";
+        // Attached after the initial selection, exactly as the scope picker is, so setting it up cannot re-enter a
+        // redraw part-way through building the body it is going into.
+        grouping.SelectionChanged += (_, _) =>
+        {
+            _byLocation = grouping.SelectedIndex == 1;
+            Rebuild();   // the column headings differ between the two, so this is more than a redraw of the list
+        };
+
         var row = new DockPanel { Margin = new Thickness(0, 0, 0, 4) };
         DockPanel.SetDock(scope, Dock.Left);
+        DockPanel.SetDock(grouping, Dock.Left);
+        grouping.Margin = new Thickness(0, 0, 0, 0);
+        scope.Margin = new Thickness(0, 0, 8, 0);
         row.Children.Add(scope);
+        row.Children.Add(grouping);
         row.Children.Add(box);
         return row;
     }
@@ -218,8 +258,10 @@ public sealed class ManifestWindow : ReportWindow
     private UIElement ColumnHeader()
     {
         var grid = Columns("mWhere", "mCount", "mValue");
-        Put(grid, Heading("ITEM", TextAlignment.Left, 18), 0);
-        Put(grid, Heading("WHERE", TextAlignment.Right, 12), 1);
+        Put(grid, Heading(_byLocation ? "WHERE IT IS" : "ITEM", TextAlignment.Left, 18), 0);
+        // The middle column carries a different figure in each view: how a type is spread about, against what is
+        // inside the level on that row.
+        Put(grid, Heading(_byLocation ? "INSIDE" : "WHERE", TextAlignment.Right, 12), 1);
         Put(grid, Heading("QTY", TextAlignment.Right, 12), 2);
         Put(grid, Heading("VALUE", TextAlignment.Right, 12), 3);
         // Inset to match a row: the buttons' own padding and border on the left, and the same plus the scroll
@@ -259,10 +301,123 @@ public sealed class ManifestWindow : ReportWindow
                     : "Nothing matches the filter.",
                 Foreground = Dim, Margin = new Thickness(9, 8, 0, 6),
             });
+        else if (_byLocation)
+            // The same lines the by-type view is showing, rearranged — so the filter and the scope mean exactly
+            // one thing whichever way the list happens to be grouped.
+            foreach (var node in ItemManifest.ByLocation(lines)) list.Children.Add(NodeRow(node, "", 0));
         else
             foreach (var line in lines) list.Children.Add(LineRow(line));
 
         _listHost.Content = list;
+    }
+
+    // ---- the location tree ----
+
+    /// <summary>
+    /// One level of the location tree and everything under it, indented by depth.
+    ///
+    /// <para>Built eagerly rather than on first open, unlike the by-type rows: a tree's shape <i>is</i> the answer
+    /// here, so a level that has not been expanded yet has not told you anything. The cost is bounded by the same
+    /// walk the flat list already does.</para>
+    /// </summary>
+    private UIElement NodeRow(ManifestNode node, string parentPath, int depth)
+    {
+        var path = parentPath + "/" + node.Label;
+        // The top level opens by default and nothing below it does. A tree that starts fully closed shows nothing
+        // at all; one that opens two levels floods the view, which on a real ship meant sixty-eight identical
+        // pill boxes with their contents hanging off each. One level in is the summary, and the rest is a click.
+        var open = _openNodes.Contains(path) || (depth == 0 && !_openNodes.Contains("!" + path));
+
+        var chevron = new TextBlock
+        {
+            Text = node.Children.Count == 0 ? "" : Chevron(open), Foreground = Dim,
+            VerticalAlignment = VerticalAlignment.Center, Width = 14,
+        };
+        var label = new TextBlock
+        {
+            Text = node.OwnCount > 1 ? $"{node.Label}  ×{node.OwnCount}" : node.Label,
+            Foreground = node.Kind == ManifestNodeKind.Zone ? Accent
+                       : node.Entry?.CustomName is not null ? Accent : Ink,
+            FontWeight = node.Kind is ManifestNodeKind.Zone or ManifestNodeKind.Host
+                ? FontWeights.SemiBold : FontWeights.Normal,
+            VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis,
+        };
+        var inside = new TextBlock
+        {
+            // What is under a container, said on the container's own row: the figure that makes a collapsed level
+            // worth reading, and the reason a tree beats a list of locations.
+            Text = node.ContainedCount > 0 ? $"{node.ContainedCount} inside" : "",
+            Foreground = Dim, FontSize = 11, VerticalAlignment = VerticalAlignment.Center,
+            TextAlignment = TextAlignment.Right, Margin = new Thickness(12, 0, 0, 0),
+        };
+        var count = new TextBlock
+        {
+            Text = $"×{node.Count}", Foreground = Accent, FontWeight = FontWeights.SemiBold,
+            VerticalAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Right,
+            Margin = new Thickness(12, 0, 0, 0),
+        };
+        var value = new TextBlock
+        {
+            Text = Credits(node.Value), Foreground = Dim, FontSize = 11,
+            VerticalAlignment = VerticalAlignment.Center, TextAlignment = TextAlignment.Right,
+            Margin = new Thickness(12, 0, 0, 0),
+        };
+
+        var grid = Columns("mWhere", "mCount", "mValue");
+        var head = new StackPanel { Orientation = Orientation.Horizontal };
+        head.Children.Add(chevron);
+        head.Children.Add(label);
+        Put(grid, head, 0);
+        Put(grid, inside, 1);
+        Put(grid, count, 2);
+        Put(grid, value, 3);
+
+        var kids = new StackPanel { Visibility = open ? Visibility.Visible : Visibility.Collapsed };
+        foreach (var child in node.Children) kids.Children.Add(NodeRow(child, path, depth + 1));
+
+        var header = new Button
+        {
+            Content = grid, Cursor = Cursors.Hand,
+            HorizontalAlignment = HorizontalAlignment.Stretch,
+            HorizontalContentAlignment = HorizontalAlignment.Stretch,
+            Padding = new Thickness(8, 4, 8, 4),
+            ToolTip = node.Entry is null ? null : "Show it on the plan, or right-click to rename or remove it",
+        };
+        header.Click += (_, _) =>
+        {
+            if (node.Children.Count == 0) { if (node.Entry is { } e) _reveal(e.Host); return; }
+            var nowOpen = kids.Visibility != Visibility.Visible;
+            // Two marks rather than one: a default-open level needs somewhere to record having been closed, or it
+            // springs back open the next time anything redraws.
+            if (nowOpen) { _openNodes.Add(path); _openNodes.Remove("!" + path); }
+            else { _openNodes.Remove(path); _openNodes.Add("!" + path); }
+            kids.Visibility = nowOpen ? Visibility.Visible : Visibility.Collapsed;
+            chevron.Text = Chevron(nowOpen);
+        };
+        if (node.Entry is { } entry) header.ContextMenu = NodeMenu(entry);
+
+        var host = new StackPanel { Margin = new Thickness(depth == 0 ? 0 : 14, 1, 0, 1) };
+        host.Children.Add(header);
+        host.Children.Add(kids);
+        return host;
+    }
+
+    /// <summary>The per-item actions, on the right button rather than as three buttons per row: a tree is mostly
+    /// structure, and a column of buttons at every depth would bury it.</summary>
+    private ContextMenu NodeMenu(ManifestEntry entry)
+    {
+        var menu = new ContextMenu();
+        var show = new MenuItem { Header = "Show on the plan" };
+        show.Click += (_, _) => _reveal(entry.Host);
+        var rename = new MenuItem { Header = entry.CustomName is null ? "Rename…" : "Rename or clear…" };
+        rename.Click += (_, _) => RenameEntry(entry);
+        var delete = new MenuItem { Header = "Remove" };
+        delete.Click += (_, _) => DeleteEntry(entry);
+        menu.Items.Add(show);
+        menu.Items.Add(rename);
+        menu.Items.Add(new Separator());
+        menu.Items.Add(delete);
+        return menu;
     }
 
     /// <summary>The lines the filter leaves. A line survives when its own name matches or any of its items does,
@@ -354,8 +509,16 @@ public sealed class ManifestWindow : ReportWindow
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Padding = new Thickness(8, 5, 8, 5),
-            ToolTip = "Show each one, and where it is",
+            ToolTip = $"Show each one, and where it is. Right-click to remove all ×{line.Count}.",
         };
+        // The bulk removal lives on the right button rather than in a column of its own: it is destructive and
+        // scoped to the whole ship, and a permanent button for it would sit a few pixels from the disclosure click
+        // that every row invites. The tooltip above is what makes it findable.
+        var menu = new ContextMenu();
+        var removeAll = new MenuItem { Header = $"Remove all ×{line.Count} from {ReachLabel}" };
+        removeAll.Click += (_, _) => DeleteLine(line);
+        menu.Items.Add(removeAll);
+        header.ContextMenu = menu;
         header.Click += (_, _) =>
         {
             var nowOpen = !_open.Contains(line.DefName);
@@ -515,7 +678,13 @@ public sealed class ManifestWindow : ReportWindow
     /// <summary>
     /// Remove one item from the design. A deck item goes as a whole object; an item inside something takes its own
     /// contents with it, because a crate you delete does not leave its cargo behind in the container that held it.
-    /// Both are one undo step, and both say what is going before they do it.
+    /// Both are one undo step.
+    ///
+    /// <para><b>It only asks when the delete does more than the row says it will.</b> Confirming an ordinary
+    /// removal was friction charged for nothing: the dialog's own closing line was "this is one undo step", which
+    /// is the argument against showing it. Undo is the confirmation. What survives is the two cases where the row
+    /// on screen is not the whole story: a container that takes cargo down with it, and a host's own pocket, whose
+    /// removal leaves the thing holding it with nowhere to keep anything.</para>
     /// </summary>
     private void DeleteEntry(ManifestEntry entry)
     {
@@ -523,9 +692,9 @@ public sealed class ManifestWindow : ReportWindow
         {
             if (entry.Host.Loose is not { } lo) return;
             var nested = lo.Cargo.Sum(c => c.SubtreeCount);
-            if (!Dlg.Confirm(this, DlgKind.Warning, "Remove item",
+            if (nested > 0 && !Dlg.Confirm(this, DlgKind.Warning, "Remove item",
                     $"Remove {Describe(entry.Name, entry.Count)} from the deck at {lo.X}, {lo.Y}."
-                    + (nested > 0 ? $"\n\nIt is holding {nested} item{Plural(nested)}, which go with it." : "")
+                    + $"\n\nIt is holding {nested} item{Plural(nested)}, which go with it."
                     + "\n\nThis is one undo step.",
                     "Remove"))
                 return;
@@ -537,19 +706,81 @@ public sealed class ManifestWindow : ReportWindow
         if (ItemManifest.Resolve(entry.Host, id) is not { } item) { Refresh(); return; }
         // A stack's children are copies of itself, so only a real container has contents to warn about.
         var contents = item.IsStack ? 0 : item.Children.Sum(c => c.SubtreeCount);
-        var note = contents > 0 ? $"\n\nIt is holding {contents} item{Plural(contents)}, which go with it." : "";
-        // Removing a host's own pocket is legal but rarely meant: without it the garment reaches the game with
-        // nowhere to keep anything. Say so rather than let it read like clearing a stray.
-        var intrinsic = entry.Intrinsic
-            ? "\n\nThis one comes with whatever holds it rather than being cargo put there, so removing it leaves "
-              + "that item with one less place to keep things."
-            : "";
-        if (!Dlg.Confirm(this, DlgKind.Warning, "Remove item",
-                $"Remove {Describe(entry.Name, entry.Count)} {entry.Where}.{note}{intrinsic}\n\nThis is one undo step.",
-                "Remove"))
-            return;
+        if (contents > 0 || entry.Intrinsic)
+        {
+            var note = contents > 0 ? $"\n\nIt is holding {contents} item{Plural(contents)}, which go with it." : "";
+            // Removing a host's own pocket is legal but rarely meant: without it the garment reaches the game with
+            // nowhere to keep anything. Say so rather than let it read like clearing a stray.
+            var intrinsic = entry.Intrinsic
+                ? "\n\nThis one comes with whatever holds it rather than being cargo put there, so removing it "
+                  + "leaves that item with one less place to keep things."
+                : "";
+            if (!Dlg.Confirm(this, DlgKind.Warning, "Remove item",
+                    $"Remove {Describe(entry.Name, entry.Count)} {entry.Where}.{note}{intrinsic}"
+                    + "\n\nThis is one undo step.",
+                    "Remove"))
+                return;
+        }
 
         _stack.Push(_doc, CargoCommand(entry.Host, CargoEdit.RemoveWhole(HostCargo(entry.Host), id)));
+        Refresh();
+    }
+
+    /// <summary>
+    /// Remove every item of one type in scope, wherever on the ship it is, as a single undo step.
+    ///
+    /// <para>The manifest is the only view that can offer this, because it is the only one that sees all of them at
+    /// once: sixty-eight loose floor panels spread across a dozen containers are sixty-eight separate errands
+    /// anywhere else. It <b>does</b> confirm, unlike a single delete, and for the reason a single delete does not:
+    /// the scale is the part that is not on screen, and undo being one step is exactly what makes a mis-click
+    /// expensive to notice rather than expensive to reverse.</para>
+    ///
+    /// <para>Grouped by host, and each host's removals chained onto one tree, because two items of the same def in
+    /// the same container are two edits to one cargo tree and issuing them independently would have the second
+    /// overwrite the first.</para>
+    /// </summary>
+    private void DeleteLine(ManifestLine line)
+    {
+        var entries = Filtered().FirstOrDefault(l => l.DefName == line.DefName)?.Entries;
+        if (entries is null || entries.Count == 0) return;
+
+        var count = entries.Sum(e => e.Count);
+        var places = entries.Select(e => e.Where).Distinct(StringComparer.Ordinal).Count();
+        var nested = entries.Sum(e =>
+            e.ItemId is { } eid && ItemManifest.Resolve(e.Host, eid) is { IsStack: false } it
+                ? it.Children.Sum(c => c.SubtreeCount)
+                : e.Host.Loose is { } lo && e.ItemId is null ? lo.Cargo.Sum(c => c.SubtreeCount) : 0);
+        var intrinsic = entries.Count(e => e.Intrinsic);
+
+        if (!Dlg.Confirm(this, DlgKind.Warning, "Remove every one",
+                $"Remove all ×{count} “{line.Friendly}” from {ReachLabel}, across {places} place{Plural(places)}."
+                + (nested > 0 ? $"\n\nThey are holding {nested} item{Plural(nested)}, which go with them." : "")
+                + (intrinsic > 0
+                    ? $"\n\n{intrinsic} of them {(intrinsic == 1 ? "is a host's own pocket" : "are hosts' own pockets")}"
+                      + " rather than cargo put there, so removing them leaves those items with nowhere to keep things."
+                    : "")
+                + "\n\nThis is one undo step.",
+                $"Remove all ×{count}"))
+            return;
+
+        var commands = new List<IDocCommand>();
+
+        // Deck objects go whole, one command each.
+        foreach (var e in entries.Where(e => e.ItemId is null))
+            if (e.Host.Loose is { } lo) commands.Add(new RemoveLooseCommand(lo));
+
+        // Cargo is per host: chain this def's ids onto that host's tree so the last edit carries all of them. An id
+        // already taken out by an ancestor's removal simply is not found, and the rewrite leaves the tree alone.
+        foreach (var group in entries.Where(e => e.ItemId is not null).GroupBy(e => e.Host))
+        {
+            var before = HostCargo(group.Key);
+            var after = before;
+            foreach (var e in group) after = CargoEdit.RemoveWhole(after, e.ItemId!);
+            if (!ReferenceEquals(after, before)) commands.Add(CargoCommand(group.Key, after));
+        }
+
+        if (commands.Count == 0) return;
+        _stack.Push(_doc, commands.Count == 1 ? commands[0] : new CompositeCommand(commands));
         Refresh();
     }
 
@@ -567,6 +798,12 @@ public sealed class ManifestWindow : ReportWindow
     // ---- the trimmings ----
 
     private string ScopeLabel => _zone is null ? "whole ship" : $"zone “{ZoneLabel(_zone)}”";
+
+    /// <summary>What a bulk action would actually reach. The filter narrows the list, so a row's count is what the
+    /// filter left rather than what the scope holds, and a removal that said "the whole ship" while acting on a
+    /// filtered subset would be describing the wrong operation.</summary>
+    private string ReachLabel =>
+        _filter.Trim().Length == 0 ? ScopeLabel : $"{ScopeLabel}, matching “{_filter.Trim()}”";
 
     private static string ZoneLabel(ShipZone z) => string.IsNullOrWhiteSpace(z.Name) ? "unnamed zone" : z.Name;
 
@@ -599,14 +836,28 @@ public sealed class ManifestWindow : ReportWindow
             + $"{lines.Sum(l => l.OnDeckCount)} on the decks, {lines.Sum(l => l.ContainedCount)} in containers, "
             + Credits(lines.Sum(l => l.Value)));
         sb.AppendLine();
-        foreach (var line in lines)
-        {
-            sb.AppendLine($"{line.Count,6}x  {line.Friendly,-48}  {Credits(line.Value),12}");
-            foreach (var e in line.Entries)
-                sb.AppendLine($"          {(e.Count > 1 ? $"x{e.Count} " : "")}{e.Name} — {e.Where}"
-                    + (e.Intrinsic ? " (part of it)" : "") + $"  {Credits(e.Value)}");
-        }
+        if (_byLocation)
+            // Indented, because the nesting IS the content of this view: flattening it on the way to the clipboard
+            // would paste the list the other grouping already gives.
+            foreach (var node in ItemManifest.ByLocation(lines)) AppendNode(sb, node, 0);
+        else
+            foreach (var line in lines)
+            {
+                sb.AppendLine($"{line.Count,6}x  {line.Friendly,-48}  {Credits(line.Value),12}");
+                foreach (var e in line.Entries)
+                    sb.AppendLine($"          {(e.Count > 1 ? $"x{e.Count} " : "")}{e.Name} — {e.Where}"
+                        + (e.Intrinsic ? " (part of it)" : "") + $"  {Credits(e.Value)}");
+            }
         try { Clipboard.SetText(sb.ToString()); } catch { /* clipboard may be locked by another app */ }
+    }
+
+    /// <summary>One location-tree node and everything under it, as indented text.</summary>
+    private static void AppendNode(StringBuilder sb, ManifestNode node, int depth)
+    {
+        var indent = new string(' ', depth * 2);
+        var own = node.OwnCount > 1 ? $" x{node.OwnCount}" : "";
+        sb.AppendLine($"{indent}- {node.Label}{own}  ({node.Count} item{Plural(node.Count)}, {Credits(node.Value)})");
+        foreach (var child in node.Children) AppendNode(sb, child, depth + 1);
     }
 
     private static string Plural(int n) => n == 1 ? "" : "s";

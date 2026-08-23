@@ -1,5 +1,9 @@
 namespace Ostraplan.Core;
 
+/// <summary>One container on the way to an item: what it is called, and which one it is. The name is what a
+/// person reads and the id is what tells two identically named crates apart, and a location view needs both.</summary>
+public sealed record ManifestStep(string Id, string Name);
+
 /// <summary>
 /// One item on the manifest: a single deck object, or one node of one container's cargo tree.
 ///
@@ -19,6 +23,15 @@ namespace Ostraplan.Core;
 /// <param name="ItemId">The <see cref="CargoItem.StrID"/> this stands for, or null when the entry is the deck
 /// object itself. It is the only stable handle across a cargo edit, since the tree is immutable and every edit
 /// replaces nodes.</param>
+/// <param name="Zone">The zone the entry's host stands in, or null when it stands in none. A <i>label</i> rather
+/// than a filter: scoping the whole report to one zone was the only thing zones did here, which cannot express
+/// "show me everything, arranged by where it is".</param>
+/// <param name="HostLabel">The deck object or placed part the entry belongs to, named as the design names it. The
+/// root of the entry's location, and for a deck object's own entry, itself.</param>
+/// <param name="Path">The containers between the host and this entry, outermost first, excluding the host. Empty
+/// for something sitting directly in the host. <see cref="Where"/> is this same chain written out for reading; this
+/// is the form something can be arranged by, and it carries each container's id as well as its name because two
+/// crates called the same thing in the same locker are still two crates.</param>
 public sealed record ManifestEntry(
     string DefName,
     string Name,
@@ -29,8 +42,14 @@ public sealed record ManifestEntry(
     bool OnDeck,
     string Where,
     RenderItem Host,
-    string? ItemId)
+    string? ItemId,
+    string? Zone = null,
+    string HostLabel = "",
+    IReadOnlyList<ManifestStep>? Path = null)
 {
+    /// <summary>The containers between the host and this entry, never null.</summary>
+    public IReadOnlyList<ManifestStep> Nesting => Path ?? [];
+
     /// <summary>What this entry is worth at the game's base price, across its whole stack.</summary>
     public double Value => UnitValue * Count;
 
@@ -90,6 +109,57 @@ public sealed record Manifest(
     public static Manifest Empty { get; } = new([], 0, 0, 0, 0, 0);
 }
 
+/// <summary>What a node in the location tree stands for, so a UI can draw the levels differently without
+/// re-deriving which is which from its depth.</summary>
+public enum ManifestNodeKind
+{
+    /// <summary>A painted zone, or the bucket for everything standing in none.</summary>
+    Zone,
+
+    /// <summary>The deck object or installed part an item ultimately sits in.</summary>
+    Host,
+
+    /// <summary>A container inside the host, at any depth.</summary>
+    Container,
+
+    /// <summary>An item that holds nothing.</summary>
+    Item,
+}
+
+/// <summary>
+/// One level of the manifest arranged <b>by where things are</b> rather than by what they are.
+///
+/// <para>The by-type grouping answers "what does this ship carry, and how much of it": a stock list, and the right
+/// shape for that question. It cannot answer the other one. A ship's organisation <i>is</i> its nesting — a rack in
+/// an engineering bay holding a backpack holding conduits is three deliberate decisions, and a flat list of
+/// conduits with a location string against each has thrown all three away. This keeps them.</para>
+/// </summary>
+/// <param name="Label">What to call this level.</param>
+/// <param name="Kind">Which level it is.</param>
+/// <param name="Entry">The item this node stands for, or null for a zone (which is not a thing you can hold).
+/// An interior node usually has one: a container is an item as well as a place.</param>
+/// <param name="Children">What is inside, zones first by document order, then by name.</param>
+/// <param name="Count">Everything at or under this node, so a zone's figure is its whole contents.</param>
+/// <param name="Value">The same, in credits.</param>
+public sealed record ManifestNode(
+    string Label,
+    ManifestNodeKind Kind,
+    ManifestEntry? Entry,
+    IReadOnlyList<ManifestNode> Children,
+    int Count,
+    double Value)
+{
+    /// <summary>What this node is in its own right, not counting what is inside it. A rack holding 40 conduits is
+    /// one rack: without the two figures apart, a container's row either hides its contents or double-counts
+    /// itself.</summary>
+    public int OwnCount => Entry?.Count ?? 0;
+
+    public double OwnValue => Entry?.Value ?? 0;
+
+    /// <summary>Items under this node, excluding the node itself.</summary>
+    public int ContainedCount => Count - OwnCount;
+}
+
 /// <summary>
 /// Walks a design for every item it carries, wherever it is: lying on a deck, inside an installed container, or
 /// nested any depth inside either (#36).
@@ -127,9 +197,14 @@ public static class ItemManifest
         var catalog = doc.Catalog;
         var entries = new List<ManifestEntry>();
 
-        void Walk(IReadOnlyList<CargoItem> items, RenderItem host, List<string> path)
+        void Walk(IReadOnlyList<CargoItem> items, RenderItem host, List<string> path, List<ManifestStep> steps,
+                  string? zone)
         {
             var where = "in " + string.Join(PathSep, path);
+            // path[0] is the host; steps holds only what is between it and the item, which is what the location
+            // view arranges by. Kept beside the display path rather than derived from it, because a name is not an
+            // identity: two crates called "Electrical" in one locker are two places, and only the ids say so.
+            var nesting = steps.ToArray();
             foreach (var item in items)
             {
                 var name = item.CustomName ?? item.Friendly ?? item.DefName;
@@ -141,13 +216,29 @@ public static class ItemManifest
                     OnDeck: false,
                     Where: where,
                     Host: host,
-                    ItemId: item.StrID));
+                    ItemId: item.StrID,
+                    Zone: zone,
+                    HostLabel: path[0],
+                    Path: nesting));
 
                 if (item.IsStack || item.Children.Count == 0) continue;   // a stack holds copies of itself, not cargo
                 path.Add(name);
-                Walk(item.Children, host, path);
+                steps.Add(new ManifestStep(item.StrID, name));
+                Walk(item.Children, host, path, steps, zone);
                 path.RemoveAt(path.Count - 1);
+                steps.RemoveAt(steps.Count - 1);
             }
+        }
+
+        // Which zone a host stands in, for labelling. First match wins where zones overlap: a thing is listed
+        // somewhere rather than twice, and the document's own order is the tie-break a user can see and change.
+        string? ZoneOf(RenderItem host)
+        {
+            var tiles = TilesOf(doc, host);
+            foreach (var z in doc.Zones)
+                if (tiles.Any(z.Tiles.Contains))
+                    return string.IsNullOrWhiteSpace(z.Name) ? "unnamed zone" : z.Name;
+            return null;
         }
 
         // Deck items first, and in a fixed reading order. LooseObjects comes off a tile-keyed dictionary, whose
@@ -159,6 +250,7 @@ public static class ItemManifest
             var def = catalog.Lookup(lo.DefName);
             var name = Rename.Display(lo, def);
             var host = new RenderItem(null, lo);
+            var zone = ZoneOf(host);
             entries.Add(new ManifestEntry(
                 lo.DefName, name, lo.CustomName,
                 Count: Math.Max(1, lo.Quantity),
@@ -167,15 +259,21 @@ public static class ItemManifest
                 OnDeck: true,
                 Where: "on the deck",
                 Host: host,
-                ItemId: null));
-            if (lo.Cargo.Count > 0) Walk(lo.Cargo, host, [name]);
+                ItemId: null,
+                Zone: zone,
+                // A deck object is its own host: it sits on the deck rather than inside anything, so the location
+                // view hangs it directly off its zone instead of under a container that does not exist.
+                HostLabel: name,
+                Path: []));
+            if (lo.Cargo.Count > 0) Walk(lo.Cargo, host, [name], [], zone);
         }
 
         foreach (var p in doc.Placements)
         {
             if (p.Cargo.Count == 0) continue;
             if (zoneTiles is not null && !TilesOf(doc, p).Any(zoneTiles.Contains)) continue;
-            Walk(p.Cargo, new RenderItem(p, null), [Rename.Display(p, doc.Part(p))]);
+            var host = new RenderItem(p, null);
+            Walk(p.Cargo, host, [Rename.Display(p, doc.Part(p))], [], ZoneOf(host));
         }
 
         var lines = entries
@@ -197,6 +295,108 @@ public static class ItemManifest
             ContainedCount: entries.Where(e => !e.OnDeck).Sum(e => e.Count),
             IntrinsicCount: entries.Where(e => e.Intrinsic).Sum(e => e.Count),
             TotalValue: entries.Sum(e => e.Value));
+    }
+
+    /// <summary>The bucket for everything standing in no zone at all. Named rather than left blank, because a
+    /// list that ends in an unlabelled heap reads as a rendering fault.</summary>
+    public const string NoZone = "Not in a zone";
+
+    /// <summary>
+    /// Rearrange a set of manifest lines into the location tree: zone, then the thing it is in, then whatever that
+    /// nests inside, then the items.
+    ///
+    /// <para>Takes lines rather than a <see cref="Manifest"/> so the caller can hand in a filtered set and get a
+    /// tree of exactly what is on screen. Both views then answer for the same items, which is what stops a filter
+    /// meaning two different things depending on how the list happens to be grouped.</para>
+    /// </summary>
+    public static IReadOnlyList<ManifestNode> ByLocation(IEnumerable<ManifestLine> lines)
+    {
+        ArgumentNullException.ThrowIfNull(lines);
+
+        // Built mutably and frozen on the way out: a tree assembled by inserting paths cannot be built from the
+        // leaves up, and every alternative is a lot of re-allocation for a shape nothing looks at until it is done.
+        var roots = new List<Builder>();
+
+        foreach (var entry in lines.SelectMany(l => l.Entries))
+        {
+            // Zones are keyed by name because a name is all a zone is. Everything below is keyed by id, so two
+            // crates called the same thing in one locker stay two crates.
+            var zone = Find(roots, entry.Zone ?? NoZone, ManifestNodeKind.Zone, entry.Zone ?? NoZone);
+            var node = Find(zone.Children, entry.HostLabel, ManifestNodeKind.Host, entry.Host.Id.ToString());
+
+            // A deck object's own entry IS its host node, so it lands on the node rather than under it. Anything
+            // else walks the containers between the host and itself before taking its own place.
+            if (entry.OnDeck && entry.ItemId is null) { node.Entry = entry; continue; }
+
+            foreach (var step in entry.Nesting)
+                node = Find(node.Children, step.Name, ManifestNodeKind.Container, step.Id);
+
+            // The same key the walk above uses, which is what makes a container and the path through it one node.
+            // Keying the two differently put every non-empty crate on the tree twice: once as the place its cargo
+            // was reached through, and once as the item it also is.
+            var leaf = Find(node.Children, entry.Name, ManifestNodeKind.Item, entry.ItemId!);
+            leaf.Entry = entry;
+            // A container met as an item first and walked through later (or the other way round) is one node, and
+            // it is a place as soon as anything is found inside it.
+            if (leaf.Children.Count > 0) leaf.Kind = ManifestNodeKind.Container;
+        }
+
+        var tree = Freeze(roots);
+        // A design with no zones at all would otherwise open on a single "Not in a zone" heading holding the entire
+        // ship: a level that separates nothing, indents everything, and has to be opened before the view says
+        // anything. Drop it and start at what things are in. The bucket stays wherever it is one of several,
+        // because there it does separate something.
+        return tree is [{ Kind: ManifestNodeKind.Zone, Label: NoZone } only] ? only.Children : tree;
+
+        static Builder Find(List<Builder> among, string label, ManifestNodeKind kind, string id)
+        {
+            var found = among.FirstOrDefault(b => b.Id == id);
+            if (found is not null)
+            {
+                // Reached as a place before it was reached as an item: keep the label the item gave it, since that
+                // is the one carrying a custom name.
+                if (kind == ManifestNodeKind.Container) found.Kind = kind;
+                return found;
+            }
+            var made = new Builder { Label = label, Kind = kind, Id = id };
+            among.Add(made);
+            return made;
+        }
+
+        static IReadOnlyList<ManifestNode> Freeze(List<Builder> nodes)
+        {
+            var made = nodes.Select(n =>
+            {
+                var kids = Freeze(n.Children);
+                var own = n.Entry?.Count ?? 0;
+                var ownValue = n.Entry?.Value ?? 0;
+                // A container is one item AND a place, so its figure is itself plus everything under it. Counting
+                // only the contents loses the crate; counting only the crate loses the point.
+                return new ManifestNode(n.Label, n.Kind, n.Entry, kids,
+                    own + kids.Sum(k => k.Count), ownValue + kids.Sum(k => k.Value));
+            }).ToList();
+
+            // Fullest first, then by name. The rollup is the whole point of arranging by location, so the level
+            // holding most of the ship should be the one the eye lands on: sorting by name alone opened a
+            // 1377-item hold on forty coffee machines, each holding two drink pouches, and buried every store that
+            // mattered below the fold. Name is the tie-break, so equal levels stay in a stable, findable order.
+            // Sorted after building rather than before, because the figure being sorted on is the subtree's.
+            made.Sort((a, b) =>
+            {
+                var byBulk = b.Count.CompareTo(a.Count);
+                return byBulk != 0 ? byBulk : string.Compare(a.Label, b.Label, StringComparison.OrdinalIgnoreCase);
+            });
+            return made;
+        }
+    }
+
+    private sealed class Builder
+    {
+        public string Label = "";
+        public ManifestNodeKind Kind;
+        public string Id = "";
+        public ManifestEntry? Entry;
+        public List<Builder> Children { get; } = [];
     }
 
     /// <summary>

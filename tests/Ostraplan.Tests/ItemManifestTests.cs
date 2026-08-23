@@ -393,4 +393,156 @@ public class ItemManifestTests
         Assert.Same(locker, Assert.Single(Line(m, Round).Entries).Host.Placement);
         Assert.Same(crate, Assert.Single(Line(m, Crate).Entries).Host.Loose);
     }
+
+    // ---- the location tree ----
+
+    private static ManifestNode Node(IEnumerable<ManifestNode> among, string label) =>
+        Assert.Single(among, n => n.Label == label);
+
+    [Fact]
+    public void The_location_tree_keeps_the_nesting_a_flat_list_throws_away()
+    {
+        // The shape RedTwinkleToes asked for: zone, then the thing it is in, then what that is in, then the items.
+        var doc = new ShipDocument(Cat());
+        Container(doc, 1, 1, Item(Crate, "Electrical", Stack(Round, 4), Item(Pouch, "Spares", Stack(Round, 2))));
+        var zone = Zone(doc, (1, 1));
+        zone.Name = "Engineering";
+
+        var roots = ItemManifest.ByLocation(ItemManifest.Build(doc).Lines);
+
+        var eng = Node(roots, "Engineering");   // a real zone, so the level stays
+        Assert.Equal(ManifestNodeKind.Zone, eng.Kind);
+        var locker = Node(eng.Children, Locker);
+        Assert.Equal(ManifestNodeKind.Host, locker.Kind);
+        var crate = Node(locker.Children, "Electrical");
+        var pouch = Node(crate.Children, "Spares");
+
+        // Four rounds beside the pouch, two inside it: the depth is the answer, not an accident of the walk order.
+        Assert.Equal(4, Node(crate.Children, Round).Count);
+        Assert.Equal(2, Node(pouch.Children, Round).Count);
+
+        // A container is one item and a place at once, so its own figure and its subtree total are both readable.
+        Assert.Equal(1, crate.OwnCount);
+        Assert.Equal(8, crate.Count);          // the crate, 4 rounds, the pouch, 2 rounds
+        Assert.Equal(7, crate.ContainedCount);
+        Assert.Equal(8, locker.Count);
+        Assert.Equal(8, eng.Count);
+    }
+
+    [Fact]
+    public void Things_standing_in_no_zone_get_a_bucket_of_their_own()
+    {
+        var doc = new ShipDocument(Cat());
+        Drop(doc, Crate, 1, 1, cargo: Stack(Round, 3));
+        Drop(doc, Round, 9, 9);
+        var zone = Zone(doc, (1, 1));
+        zone.Name = "Hold";
+
+        var roots = ItemManifest.ByLocation(ItemManifest.Build(doc).Lines);
+
+        Assert.Equal(4, Node(roots, "Hold").Count);            // the crate and its three rounds
+        Assert.Equal(1, Node(roots, ItemManifest.NoZone).Count);
+    }
+
+    [Fact]
+    public void A_deck_object_is_its_own_host_rather_than_sitting_inside_a_container_that_does_not_exist()
+    {
+        var doc = new ShipDocument(Cat());
+        Drop(doc, Crate, 4, 4, name: "Odds and ends", cargo: Stack(Round, 2));
+
+        var roots = ItemManifest.ByLocation(ItemManifest.Build(doc).Lines);
+
+        var crate = Node(roots, "Odds and ends");   // no zones on this design, so the bucket is not a level
+        Assert.Equal(ManifestNodeKind.Host, crate.Kind);
+        Assert.NotNull(crate.Entry);                 // it is an item as well as a place
+        Assert.Equal(1, crate.OwnCount);
+        Assert.Equal(3, crate.Count);
+        Assert.Equal(2, Node(crate.Children, Round).Count);
+    }
+
+    [Fact]
+    public void Both_groupings_answer_for_exactly_the_same_items()
+    {
+        // The tree is built from the lines the other view is showing, so a filter or a scope cannot mean one thing
+        // in one grouping and something else in the other.
+        var doc = new ShipDocument(Cat());
+        Container(doc, 1, 1, Item(Crate, null, Stack(Round, 6)), Item(Pouch));
+        Drop(doc, Round, 9, 9, quantity: 3);
+
+        var m = ItemManifest.Build(doc);
+        var roots = ItemManifest.ByLocation(m.Lines);
+
+        Assert.Equal(m.TotalCount, roots.Sum(r => r.Count));
+        Assert.Equal(m.TotalValue, roots.Sum(r => r.Value), 6);
+    }
+
+    [Fact]
+    public void A_container_is_one_node_whether_it_is_met_as_an_item_or_walked_through()
+    {
+        // A crate is both a thing you own and a place things are. Keying the two differently put every non-empty
+        // crate on the tree twice: once as the route to its cargo, once as the item it also is.
+        var doc = new ShipDocument(Cat());
+        Container(doc, 1, 1, Item(Crate, "Electrical", Stack(Round, 3)));
+
+        var roots = ItemManifest.ByLocation(ItemManifest.Build(doc).Lines);
+        var locker = Node(roots, Locker);
+
+        var crate = Node(locker.Children, "Electrical");   // Single(): two would fail here
+        Assert.Equal(ManifestNodeKind.Container, crate.Kind);
+        Assert.NotNull(crate.Entry);
+        Assert.Equal(1, crate.OwnCount);
+        Assert.Equal(4, crate.Count);
+    }
+
+    [Fact]
+    public void Two_containers_sharing_a_name_stay_two_places()
+    {
+        // The location path is written with names for reading, but identity is what the tree is keyed on, or a
+        // pair of crates both called "Spares" would pool their contents into one row that describes neither.
+        var doc = new ShipDocument(Cat());
+        Container(doc, 1, 1,
+            Item(Crate, "Spares", Stack(Round, 2)),
+            Item(Crate, "Spares", Stack(Round, 5)));
+
+        var roots = ItemManifest.ByLocation(ItemManifest.Build(doc).Lines);
+        var locker = Node(roots, Locker);
+
+        var crates = locker.Children.Where(c => c.Label == "Spares").ToList();
+        Assert.Equal(2, crates.Count);
+        Assert.Equal([3, 6], crates.Select(c => c.Count).OrderBy(n => n));
+    }
+
+    [Fact]
+    public void The_fullest_level_leads_at_every_depth()
+    {
+        // The rollup is the point of this view, so the thing holding most of the ship should be what the eye lands
+        // on. Sorted by name alone, a hold opened on whatever happened to start with an A.
+        var doc = new ShipDocument(Cat());
+        Container(doc, 1, 1, Stack(Round, 2));
+        Container(doc, 5, 5, Stack(Round, 9));
+
+        var roots = ItemManifest.ByLocation(ItemManifest.Build(doc).Lines);
+
+        Assert.Equal([9, 2], roots.Select(r => r.Count));
+    }
+
+    [Fact]
+    public void A_design_with_no_zones_does_not_open_on_an_empty_heading()
+    {
+        // One "Not in a zone" root holding the whole ship separates nothing and indents everything, so it is
+        // dropped. It stays wherever it is one bucket among several, because there it does separate something.
+        var doc = new ShipDocument(Cat());
+        Drop(doc, Crate, 1, 1, cargo: Stack(Round, 2));
+
+        var roots = ItemManifest.ByLocation(ItemManifest.Build(doc).Lines);
+
+        Assert.Equal(ManifestNodeKind.Host, Assert.Single(roots).Kind);
+
+        var zoned = new ShipDocument(Cat());
+        Drop(zoned, Crate, 1, 1, cargo: Stack(Round, 2));
+        Drop(zoned, Round, 9, 9);
+        Zone(zoned, (1, 1));
+        Assert.Contains(ItemManifest.ByLocation(ItemManifest.Build(zoned).Lines),
+                        r => r.Label == ItemManifest.NoZone);
+    }
 }

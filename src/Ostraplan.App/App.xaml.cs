@@ -246,10 +246,11 @@ public partial class App : Application
                 var env = GameEnv.Locate(null);
                 var catalog = Catalog.Build(DataIndex.Load(env));
 
-                void RenderManifest(string file, ShipDocument doc, int expand)
+                void RenderManifest(string file, ShipDocument doc, int expand, bool byLocation = false)
                 {
                     var win = new ManifestWindow(doc, new CommandStack(), _ => { });
-                    if (expand > 0) win.PreviewOpen(expand);
+                    if (byLocation) win.PreviewByLocation();
+                    else if (expand > 0) win.PreviewOpen(expand);
                     if (win.PreviewContent is not { } panel) return;
                     panel.Background = ThemeManager.WindowBg;
                     const int w = 700, h = 820;   // the window's own default size, so this is what the user sees
@@ -283,6 +284,9 @@ public partial class App : Application
                 {
                     RenderManifest("manifest-closed.png", subject, 0);
                     RenderManifest("manifest-open.png", subject, 3);
+                    // The other grouping, which is a different table rather than the same one rearranged: its
+                    // columns and indentation are the thing worth holding against the by-type render.
+                    RenderManifest("manifest-location.png", subject, 0, byLocation: true);
                 }
             }
             catch (Exception ex) { File.WriteAllText(Path.Combine(dir, "mansmoke-error.txt"), ex.ToString()); }
