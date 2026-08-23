@@ -11,7 +11,111 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **The plan shows where a fitting is worked from.** A new **Access** overlay (the toolbar button
+  or **J**): point at a fitting and the tile a crew member would stand on to use it is marked with
+  a pair of feet, the way the game marks it on the deck. The plan alone could not tell you an
+  arcade cabinet is usable from one side only, or which side, and the answer changes what you can
+  put beside it. One tile, the nearest, which is the one the game settles on.
+  Selecting a part pins its mark; with nothing selected it follows the cursor. Amber instead of
+  blue means it can only be reached from outside the hull, which is normal for hull-mounted kit
+  rather than a fault. It reads the same analysis the Walk overlay does, so the **View ▸ Walk
+  overlay** switches apply to it too.
+- **The Item Manifest can be arranged by location.** A second grouping beside the existing one:
+  zone, then the thing it is in, then whatever that is in, down to the items, with the totals
+  rolled up at every level. The by-type list answers "what does this ship carry"; this answers
+  "how is it organised", which is a different question and the one a flat list with a location
+  against each row throws away. Both groupings answer for exactly the same items, so the scope
+  and the filter mean one thing whichever you are in, and **Copy list** follows the grouping. A
+  design with no zones starts at the containers rather than under an empty heading.
+- **A strike says what it did to the ship, not only to the parts.** After every strike the
+  ordinary design checks re-run against the hull as the strike left it, and anything they say now
+  that they did not say before is reported: a compartment opened to vacuum, a device the crew can
+  no longer reach. That is the difference between a reactor with a dent in it and a reactor
+  running in a vacuum. Still a measurement of one instant: what happens next is a simulation and
+  is out of scope, exactly as it was.
+- **Remove every one of an item type from the Item Manifest**, wherever on the ship they are, as
+  a single undo step. Right-click a type row. Sixty-eight loose floor panels spread across a dozen
+  containers were sixty-eight errands before this.
+- **Shift+Del removes a whole stack** in the container view, matching the right-click menu's
+  "Remove all", which was the only route to it.
+
+### Changed
+- **The damage overlay marks three states instead of shading one scale.** Damaged (still the part
+  you drew), broken (a different part stands there now) and destroyed (gone) each get their own
+  colour, outline weight and hatching, with a key in the Simulate window. The old green-to-amber-red
+  ramp had no thresholds to read, because the thing it described has none: the game replaces a part
+  outright when its pool fills rather than degrading it smoothly. It was also a tint composited over
+  whatever the hull happened to be painted, so on an orange deck it said nothing at all. The marks
+  now sit on a darkened patch and each state is said three times over, so none of it depends on the
+  sprite underneath or on telling two shades apart. How far through its life a part is rides along
+  as the strength of the fill. The Simulate window is taller and resizable to go with it, so the
+  list of what changed and the list of what it did to the ship have room rather than a fixed sliver
+  each, and the key names the three states without a clause of explanation after each.
+  Thanks to RedTwinkleToes.
+- **A strike's result counts the three states apart**, and lists what each changed part turned
+  into. "4 parts damaged" was two unrelated outcomes wearing one word: a part carrying damage has
+  cost you headroom, and a part that filled its pool has been replaced by something else.
+- **Strike strength is set in damage, with a figure to type and a Reset.** It was a velocity
+  slider labelled with a multiple of a speed limit the tool never explained and the game never
+  names to a player. Neither number is one a hull meets. It opens on 55 damage, which is what a
+  micrometeoroid does at every spawn reachable away from a planet's atmosphere.
+  - **The range is read out of your install rather than hard-coded.** The game clamps `fMult` only
+    at the bottom, so the ceiling is not in the code at all: it is the fastest strike any authored
+    atmosphere band can deliver. Derived from those bands, so a mod that adds one moves it, and the
+    top of the track is a strike the game can actually produce rather than a figure rounded up past
+    every real one.
+  - Thanks to RedTwinkleToes.
+- **Deleting an item from the Item Manifest no longer asks.** It is one undo step, which the
+  dialog itself used to say, and undo is the confirmation. You are still asked in the two cases
+  where the row is not the whole story: a container that takes cargo down with it, and a host's own
+  pocket.
+
+### Changed
+- **A weapon's drawn line is an aim, not a path.** The shot now carries on along it until it hits
+  something or leaves the ship, however short the drag; before, it stopped where the mouse was
+  released. The same shot down the same line therefore hit or missed according to how far someone
+  happened to drag, which is a property of the gesture rather than of the hull. The aim past the
+  end of the drag is drawn faintly on the plan, so a blast landing beyond it is not a surprise.
+  Micrometeoroid paths are unchanged: there the line is a real trajectory with two ends.
+- **A wall stops a missile whenever there is a wall on the tile.** The game looks at the first
+  part on a tile that still has anything left to give and then stops looking, so a wall sharing
+  its tile with a floor stops a missile only when the ship's own item list names the wall first.
+  On a real hull that left 15% of trigger-carrying tiles unable to stop anything, purely because
+  of the order the file was written in: not a property of the design, not visible on the plan,
+  and not something a designer can change. Ostraplan now asks whether the tile holds a trigger.
+  A **deliberate deviation** from the port, recorded as one in §26; everything downstream of the
+  impact point is still the game's arithmetic exactly, and spent parts are still skipped so
+  successive shots still walk inward. Thanks to RedTwinkleToes.
+
+### Documented
+- **Why a missile flies over a wall.** Two behaviours of the game's own projectile solver,
+  neither previously written down, now recorded in §26 of GAME-INTERNALS with measurements off a
+  real hull, in the code, in usage.md, and pinned by tests. The first (a tile judged on its first
+  surviving part alone) is the one Ostraplan now deviates from, above. The second is reproduced:
+  the trajectory is point-sampled rather than traced, so a diagonal path can cross a column and a
+  row in one step and skip the cell between them. Bare hull is usually wall-*only*, with no floor
+  to get in the way, which is why the behaviour read as "missiles only detonate on the outside";
+  that was never the rule. Thanks to RedTwinkleToes.
+
 ### Fixed
+- **A strike now hits what you drew the line through.** The canvas and the damage solvers disagreed
+  about what a fractional tile coordinate means, by exactly half a tile: the canvas reads an integer
+  as a tile's corner and the solvers read it as a tile's centre. Every micrometeoroid and weapon
+  impact was therefore resolved against a hull sitting half a tile up and to the left of the one on
+  screen, and the convergence marker was drawn half a tile off the point it names. The tests could
+  not catch it because they are written in the solver's own frame, where they were correct, and
+  nothing crossed the boundary. Thanks to RedTwinkleToes.
+- **Alt+clicking a tile fills the pattern's B slot.** With the B slot armed in Surfaces mode, the
+  eyedropper had a second arming path of its own that did not know about it, and only reached the
+  slot logic by side effect: a pick landed in B when the part happened to be visible in the palette
+  and in A when the search box had filtered it out. Same click, two answers, decided by a text box
+  on the other side of the window. Both routes now go through one decision, so B can be filled from
+  the plan as well as the palette, and a pick that cannot pair with A says why instead of appearing
+  to do nothing.
+- **Del keeps the selection in the container view.** Taking one off a stack left nothing selected
+  even though the stack was still there, so every press had to be preceded by another click and
+  emptying a stack of five cost ten actions.
 - **A long warning scrolls instead of running off the screen.** A message dialog is as long as
   the list it has to name, and the missing-mods warning names one line per unresolved part and
   one per mod dependency. On a design leaning on a few dozen mods it grew taller than the

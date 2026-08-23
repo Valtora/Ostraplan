@@ -296,6 +296,22 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   - Under **View ▸ Walk overlay** you can **count spacewalks** (include routes over the
     hull, off by default so interior routes are what you see) and choose whether
     **Forbid zones** apply. Both settings are remembered.
+- **Access overlay** — the **Access** toolbar button or **J**. Point at a fitting and it
+  marks the tile a crew member would work it from, with a pair of feet, the way the game
+  marks it on the deck. The plan on its own cannot tell you an arcade cabinet is usable
+  from one side only, or which side that is, and the answer changes what you can put next
+  to it.
+  - **One tile, the nearest**, which is the one the game settles on. Painting every tile in
+    range answers a question nobody asked and reads as a smear around the part.
+  - **One part at a time**, because the question is asked about a particular thing.
+    Selecting a part pins its mark so you can look elsewhere; with nothing selected it
+    follows the cursor.
+  - **Nothing marked means nothing can reach it**, which the Walk overlay is where to
+    read about.
+  - **Amber instead of blue** means it can only be reached from outside the hull. That is
+    normal for hull-mounted kit, not a fault, exactly as it is in the Walk overlay.
+  - It reads the same analysis the Walk overlay does, so the **View ▸ Walk overlay**
+    switches apply to it too, and turning either one on computes it.
 - **Problems** (inspector): live blocking/warning issues for placement and
   airlock-envelope. Each entry expands for the detail, and a **View** button pans and
   zooms the canvas straight to the offending tiles so it's easy to find on a big ship.
@@ -322,10 +338,27 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   - **Scope it to the whole ship or to one zone**, which is what a shop window does when
     it lists a counter. Any zone, not only a Haul or Barter one. A container counts as
     being in a zone when any part of its body is, and everything inside it comes with it.
+  - **Arrange it by type or by location.** By type is the stock list: how many of these
+    does the ship carry and what are they worth. **By location** keeps the ship's own
+    organisation instead — zone, then the thing it is in, then whatever that is in, down
+    to the items — with the totals rolled up at every level, so a hold's whole contents
+    are one figure on its own row. Neither replaces the other, and both answer for exactly
+    the same items, so the scope and the filter mean one thing whichever you are in. A
+    design with no zones starts at the containers rather than under an empty heading.
   - **Three things per item.** **Show** selects it and centres the plan on it, so a stray
     on a deck you never look at is one click from found. **Rename** is the game's own
     rename, the same one the inspector and the container view use. **Delete** removes it,
-    and a container takes its contents with it. Each of them is one undo step.
+    and a container takes its contents with it. Each of them is one undo step. In the
+    location view these are on the right-click menu, since a tree is mostly structure and
+    a column of buttons at every depth would bury it.
+  - **Deleting does not ask.** It is one undo step and undo is the confirmation. You are
+    still asked in the two cases where the row is not the whole story: a container that
+    takes cargo down with it, and a host's own pocket, whose removal leaves the thing
+    holding it with nowhere to keep anything.
+  - **Right-click a type row to remove every one of them**, wherever on the ship they are,
+    as a single undo step. Sixty-eight loose floor panels spread across a dozen containers
+    are one action here and sixty-eight errands anywhere else. This one *does* ask, because
+    the scale is the part that is not on screen.
   - **Type in the filter box** to narrow the list by an item's name, the name you gave it,
     or where it is. The figures at the top always describe the whole scope.
   - **It is not the bill of materials, and is not meant to be.** The bill counts install
@@ -379,7 +412,7 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
 ## Simulate — what a hit would break, and wear you put there yourself
 
 **Simulate ▸ Micrometeoroid Strike…** and **Simulate ▸ Weapon Impact…** fire something at the
-design and tint every part it damages, green through amber to red. Both open the same window on
+design and mark every part they damage. Both open the same window on
 a different tab. **Simulate ▸ Damage Brush…** is the other half of the menu and works the other
 way round: it paints condition onto the design and keeps it.
 
@@ -388,12 +421,28 @@ and it fires along that line. Drag another to fire again. Damage builds up acros
 **never saved**: it lives beside the design, not in it, so closing the window or pressing
 **Start over** puts the ship back to pristine. Your `.oplan` is untouched throughout.
 
-- **The heat scale is the part's whole life.** Green is untouched, red is gone, and the middle
-  is how far through its break chain it has been driven. A wall takes 15 damage to crack and 30
-  more to destroy, so a cracked wall reads two thirds rather than jumping back to full. Anything
-  that was hit at all is outlined, so a part that only lost a little is still easy to find. The
-  tint covers the object itself, not the clearance around it, so a dead LHe tank colours the
-  tank rather than the deck it stands on.
+- **Three marks, three different things**, keyed in the window itself so nothing has to be
+  guessed at:
+  - **Damaged** (blue, thin outline) — still the part you drew, with less left in it. Nothing
+    about the ship has changed.
+  - **Broken** (amber, hatched) — it filled its pool and a *different part* stands there now.
+    This is the one that changes a design, and the window lists what each one turned into.
+  - **Destroyed** (red, cross-hatched) — gone, the tile is empty.
+
+  These are states rather than points on a scale, because that is how the game works: a part is
+  replaced outright when its pool fills, not degraded smoothly. How far through its life it is
+  rides along as the strength of the fill, which grades within a state without competing with it.
+  The marks sit on a darkened patch so they read the same over any hull colour, and each state
+  has its own hatching as well as its own colour, so none of it depends on telling two shades
+  apart. The mark covers the object itself, not the clearance around it, so a dead LHe tank
+  marks the tank rather than the deck it stands on.
+- **It tells you what the hit did to the ship, not only to the parts.** After every strike the
+  ordinary design checks are re-run against the hull as the strike left it, and anything they
+  say now that they did not say before is reported: a compartment opened to vacuum, a device the
+  crew can no longer reach. That is the difference between a reactor with a dent in it and a
+  reactor running in a vacuum, which a count of damaged parts cannot express. It is still a
+  measurement of one instant: what happens *next* (fire, venting, a reactor cooking off over
+  time) is a simulation and is out of scope.
 - **Nothing has to breach to get inside.** A strike is a damage budget spent along its line, and
   a wall it only cracks costs it that wall's damage and no more. The rest carries on into the
   compartment behind, which is why you will see interior damage under a hull that is still
@@ -410,7 +459,7 @@ and it fires along that line. Drag another to fire again. Damage builds up acros
 
 ### Micrometeoroid
 
-Draw the path, set the **impact velocity**, and it fires on release.
+Draw the path, set the **strike strength**, and it fires on release.
 
 - **You can draw paths the game itself cannot fire, and that is deliberate.** In Ostranauts every
   micrometeoroid runs through one fixed point, marked with a crosshair on the plan. That is the
@@ -422,23 +471,37 @@ Draw the path, set the **impact velocity**, and it fires on release.
 - **Where the marker sits depends on where the ship came from.** A design imported from a save
   or a template keeps its own, which for most ships is somewhere inside the hull. A design you
   authored here has none yet, so the window uses the one it will get when Ostraplan exports it,
-  just outside the top-left corner. The window says which it is using. If you want to know
-  whether the ship you are *flying* is vulnerable, import it from your save rather than
-  measuring the copy you drew.
-- **Speed is a real speed**, and the slider only offers what the game can actually deliver.
-  The floor is 375 m/s, below which the game stops distinguishing, and the top is 7.7 km/s,
-  a circular orbit in Earth's stratosphere shell. It opens on 750 m/s because that is the
-  one every ship is exposed to: micrometeoroids arrive anywhere in the system as a random
-  event, always at exactly that speed. Only Earth's upper atmosphere and orbits produce the
-  faster ones, and they hit about ten times as hard.
+  just outside the top-left corner. If you want to know whether the ship you are *flying* is
+  vulnerable, import it from your save rather than measuring the copy you drew.
+- **Strike strength is measured in damage**, because damage is what a hull meets, and the range
+  is the one the game allows for a micrometeoroid. It is read out of your install rather than
+  hard-coded: the bottom is the floor the game clamps to, and the top is the fastest strike any
+  authored atmosphere band can deliver, so a mod that adds one moves it. It opens on **55**,
+  which is what a micrometeoroid does at every spawn the game can reach away from a planet's
+  atmosphere. **Type a figure** for an exact one, and **Reset** puts 55 back.
 
 ### Weapon impact
 
 Pick the weapon — every attack your install and your mods declare, from 20 mm point-defence
 fire up to the heaviest missile — then draw the path the same way.
 
-- **Missiles detonate on the hull**, not in the middle: they trigger on the first structural
-  tile they meet along the line, and the blast falls off with distance from there.
+- **Missiles detonate on the hull**, not in the middle: they trigger on the first tile along
+  the line carrying one of the attack's own trigger conditions (for the missiles, a wall, a
+  rigid object or a portal), and the blast falls off with distance from there.
+- **The line you draw is an aim, not a path.** The shot carries on along it until it hits
+  something or leaves the ship, however short the drag. How far you drag decides the angle and
+  nothing else, so the same line always gives the same answer. The aim past the end of the drag
+  is drawn faintly on the plan, so a blast landing beyond where you released is not a surprise.
+- **A wall stops a missile whenever there is a wall there.** The game itself is fussier: it
+  looks at the first part on a tile that still has anything left to give and then stops looking,
+  so a wall sharing its tile with a floor stops a missile only when the ship's own item list
+  happens to name the wall first. That makes the answer depend on how the file was written
+  rather than on the design, which is no use to a planner, so Ostraplan asks about the tile.
+  This is one of the few places the tool deliberately does not match the game.
+- **You may still see a shot slip past a wall on a diagonal.** That one *is* the game's rule:
+  a shot steps one tile at a time along its heading and rounds to the nearest cell, so a
+  diagonal can cross a column and a row in the same step and miss the cell in between. Drawing
+  a line straight along a row or a column samples every cell it crosses and avoids it.
 - **Keep firing to see how deep a hull really is.** Anything with nothing left to give is
   passed over on the next shot, so the impact point walks inward as you go and the readout
   says where each one went off. Watching that number move in is how you answer "how many of
@@ -968,6 +1031,11 @@ drill into nested containers. On an editable design you can also **add, remove a
 rearrange** loose cargo; contents travel with the ship through **Export** and save
 write-back.
 
+**Removing.** **Del** takes one off the selected stack and **Shift+Del** takes the whole
+stack, matching the right-click menu's two entries. The selection stays on the tile while
+anything is still there, so emptying a stack of five is one click and five presses rather
+than five clicks and five presses.
+
 ### What an item is, and naming it
 
 **Alt+click any item** in the container view for its info panel, or use **right-click ▸
@@ -1409,8 +1477,13 @@ exactly as with the ship-wide re-skin.
 
 The **Surfaces bar** (top-left of the canvas, while the mode is on) holds two brushes.
 **A** is whatever is armed from the palette. To set **B**, click the B slot and then
-pick a second skin of the same kind from the palette. With both set, choose
+pick a second skin of the same kind — from the palette, or by **Alt+clicking a tile on
+the plan**, which picks up whatever is already there. With both set, choose
 **Checker**, **Rows** or **Columns** and every stroke alternates between them.
+
+If the pick cannot pair with A (it is not a wall or floor skin, or it is the other
+layer), it arms as an ordinary brush instead and the bar says so, rather than the click
+appearing to do nothing.
 
 The pattern is keyed to the ship's own tile grid rather than to where a stroke starts,
 so two passes over neighbouring tiles continue one checkerboard instead of each
