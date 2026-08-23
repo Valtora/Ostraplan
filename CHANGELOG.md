@@ -11,6 +11,48 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Fixed
+- **A branded part written into a save keeps its brand.** An MSS wall came back reading 21 credits
+  instead of 86, weighing the base 24 kg instead of 20, and carrying none of its brand tags; a
+  software textbook came back unreadable, offering only a study action it could never satisfy. The
+  branded walls, floors, textbooks, films and clothing are all one shared part plus a list of
+  adjustments, and Ostraplan was recording the part and leaving the game to look the adjustments up.
+  The game cannot: it locks an item's conditions the moment it reads one out of a save, and it
+  applies the adjustments after that, so they were dropped every time and the item arrived wearing
+  the shared part's plain stats. Every one is now written out in full, in a save, in a granted ship,
+  and in a mod ship's container contents. Thanks to Skookum_kamooks.
+- **A canister written into a save keeps its instrument rules.** The same records were missing the
+  field the game restores a part's condition rules from, so anything written fresh — every canister,
+  tank, reactor core and fire extinguisher — loaded with none of them.
+- **An authored tank or canister fill survives being flown.** A fill written back into a save was
+  recorded in the place the game reads to price a ship it has not loaded, and only there. It read
+  correctly at a broker and in every report, then the ship came up holding whatever its part ships
+  with the moment the save was actually played. The amounts are now recorded in both places, which
+  is what the game does with its own.
+- **Painted condition holds on ore and minerals.** Those are the only parts that roll their own
+  damage when they spawn, and a freshly written one rolled over the condition the design asked for.
+- **A part written into a save can be damaged, blown up and repaired at the right speed.** The game
+  hands every part a short list of properties on the day it is built rather than reading them off
+  the part's definition, and a part written straight into a save never got that far. It arrived
+  unable to take a hit, invisible to explosions, and repairing in a single tick. It could still be
+  bashed, which was the one part of the list that survived. This is why a wall or a poster written
+  back could read correctly and still not behave like the one beside it.
+- **A poster or cargo pod written into a save can still be installed and uninstalled.** Both jobs
+  identify what they are working on by the brand markings, and those were among the tags being
+  dropped, so the crew no longer recognised the item as something they could fit.
+- **A worn ship quotes the condition it is actually in.** The game records a part's damage in two
+  places: one the ship reads when you load it, one a broker reads without loading it. A write-back
+  was setting the first and leaving the second at whatever it said before, so a ship worn or
+  repaired in Ostraplan was priced on its old condition until it was flown. Both are written now,
+  and repairing a part clears both.
+- **Writing to a save now repairs the parts an older Ostraplan left in it.** Everything above stops
+  the damage happening again, which does nothing for a ship that already has it, so a write-back
+  also mends what it finds on the way past. Only ever by adding what is missing: anything the save
+  or the game already had a view on is left exactly as it was, including a part deliberately made
+  indestructible in play. Nothing it restores affects what a ship is worth. The review step and the
+  summary say how many parts were mended, and on a ship Ostraplan has never written to the answer
+  is none.
+
 ### Changed
 - **A micrometeoroid path is an aim too, matching a weapon's.** 1.1.0 made a weapon's drawn line a
   heading that carries on until it hits something or leaves the ship, and left the micrometeoroid

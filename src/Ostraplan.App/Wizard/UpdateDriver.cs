@@ -371,6 +371,9 @@ public sealed class UpdateDriver : ExportDriver
         };
         if (_report.PowerFixed > 0)
             facts.Add(new ReviewFact("Power", $"{_report.PowerFixed} device(s) rearmed after losing their power ticker"));
+        if (_report.BehaviourFixed > 0)
+            facts.Add(new ReviewFact("Repairs", $"{_report.BehaviourFixed} part(s) written by an older Ostraplan "
+                                                + "restored to something that can be damaged and repaired"));
         if (plan.Update.InPlace)
             facts.Add(new ReviewFact("Backup", plan.Update.Backup
                 ? "the original is copied to a separate save first"
@@ -459,6 +462,9 @@ public sealed class UpdateDriver : ExportDriver
                       "(parts vary, none below 10%), replacing any existing damage.");
         if (report.PowerFixed > 0)
             lines.Add($"Rearmed {report.PowerFixed} powered device(s) that had lost their power ticker.");
+        if (report.BehaviourFixed > 0)
+            lines.Add($"Repaired {report.BehaviourFixed} part(s) an older Ostraplan wrote into this save without "
+                      + "the properties that let the game damage and repair them.");
         lines.Add("The ship refills with breathable atmosphere when you load it.");
         lines.Add("");
         lines.Add($"Written to the save {writtenName}.");

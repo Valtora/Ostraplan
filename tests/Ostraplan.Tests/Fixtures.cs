@@ -155,6 +155,10 @@ public sealed class Fixtures
             SlotsWeHave = slotsWeHave ?? [],
             SlotKeys = slotKeys ?? [],
             DefaultLoot = defaultLoot,
+            // What Catalog.ResolveDef works out for a real def. A fixture carries no cooverlay, so the base view
+            // and the folded view are the same one and the rule can be read off directly.
+            BehaviourConds = [.. PartDef.BehaviourBackfill(startingConds ?? [], values)
+                .Select(kv => FormattableString.Invariant($"{kv.Key}=1.0x{kv.Value}"))],
         };
         _parts.Add(part);
         _byName[name] = part;

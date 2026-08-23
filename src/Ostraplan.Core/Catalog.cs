@@ -61,6 +61,101 @@ public sealed record PartDef(
     /// save-edit cost estimate (see <see cref="EditCost"/>) and shown in the inspector.</summary>
     public double BasePrice => StartingCondValues.GetValueOrDefault("StatBasePrice");
 
+    /// <summary>The cooverlay cond-loot this def's real conds depend on (<c>strCondLoot</c>), or null when the def
+    /// is not a skin. <see cref="StartingConds"/>/<see cref="StartingCondValues"/> already have its deltas folded
+    /// in; this flag says the fold happened, and it is what tells a <b>save</b> writer it may not fall back on the
+    /// <c>aConds = ["DEFAULT"]</c> marker.
+    ///
+    /// <para>A save load cannot reproduce the fold. <c>CondOwner.SetData</c> sets <c>bFreezeConds</c> as soon as it
+    /// has save data, and <c>DataHandler.GetCondOwner</c> attaches the <c>COOverlay</c> and runs <c>Init</c> →
+    /// <c>Loot.ApplyCondLoot</c> only <i>after</i> that, where every write goes through <c>ParseCondEquation</c> /
+    /// <c>AddCondAmount</c> and both return immediately while frozen. <c>bFreezeConds</c> is not cleared until
+    /// <c>Ship.PostGameLoad</c>, so the deltas are gone for good: the DEFAULT marker resolves through
+    /// <c>GetCondOwnerDef</c> to the <b>base</b> condowner and the part comes up wearing the shared base's flat
+    /// stats. An MSS "Light Framework" wall loads at ItmWall1x1's 21 credits and 24 kg with no <c>IsMSS</c> or
+    /// <c>IsWhite</c>, and a software textbook keeps electrical engineering's conds while the skin's interaction
+    /// swap still happens, leaving it with a study action whose <c>CTTestThem</c> can never pass.</para>
+    ///
+    /// <para>The game's own writer has the same rule from the other side: <c>CondOwner.GetJSON</c> writes every
+    /// cond out in full and collapses to DEFAULT only when the set matches the def exactly.</para></summary>
+    public string? SkinCondLoot { get; init; }
+
+    /// <summary>The <c>aConds</c> to write on a freshly synthesized condition owner for this def in a <b>save</b>
+    /// (or on the save-shaped CO a template gives its contained cargo). <c>["DEFAULT"]</c> for a plain def, which
+    /// is what the game writes for a part whose conds still match its def; the conds in full for a skin, because
+    /// the marker resolves to the base condowner and the skin's deltas can never be applied afterwards (see
+    /// <see cref="SkinCondLoot"/>).
+    ///
+    /// <para>Formatted as the game's own <c>&lt;cond&gt;=&lt;chance&gt;x&lt;amount&gt;</c>, invariant: its parser
+    /// (<c>Loot.ParseCondEquation</c>) splits the amount on <c>'-'</c> to read a range and reads the number with
+    /// the ambient culture, so a comma decimal separator would be mis-parsed and a negative amount read as a
+    /// range. Neither can arise here — the cond fold already drops everything at or below zero.</para></summary>
+    public string[] SavedConds => SkinCondLoot is null ? ["DEFAULT"] : CondEntries;
+
+    /// <summary>Every one of this def's starting conds written out as a game-format entry, skin deltas included.
+    /// This is what the <c>DEFAULT</c> marker stands for, spelled out — needed wherever a writer has to put
+    /// something of its own on a cond the def also declares, because <c>CondOwner.SetData</c> expands the marker by
+    /// <b>appending</b> the def's entries, so the def always has the last word over anything written beside it.
+    /// See <see cref="SavedConds"/> for the format.</summary>
+    public string[] CondEntries =>
+        [.. DeclaredConds.Select(n =>
+            FormattableString.Invariant($"{n}=1.0x{StartingCondValues.GetValueOrDefault(n, 1.0)}"))];
+
+    /// <summary>Every cond name this def declares. Real data parses <see cref="StartingConds"/> and
+    /// <see cref="StartingCondValues"/> out of one <c>aStartingConds</c> array so the two always agree; taking the
+    /// union anyway costs nothing and keeps a def assembled by hand from behaving unlike a real one.</summary>
+    public IEnumerable<string> DeclaredConds =>
+        StartingConds.Concat(StartingCondValues.Keys.Where(k => !StartingConds.Contains(k, StringComparer.Ordinal)));
+
+    /// <summary>Whether this def declares <paramref name="cond"/> itself, and would therefore overrule a writer
+    /// that put its own amount for it beside the <c>DEFAULT</c> marker.</summary>
+    public bool Declares(string cond) => DeclaredConds.Contains(cond, StringComparer.Ordinal);
+
+    /// <summary>
+    /// The conds the game gives a part that its def does not declare — <c>CondOwner.SetUpBehaviours</c>, ported
+    /// rule for rule. A <b>save</b> writer has to record these itself, because that method is the last line of
+    /// <c>SetData</c> and every one of its <c>AddCondAmount</c> calls is frozen out for a CO built from save data.
+    ///
+    /// <para>Nothing declares <c>IsDamageable</c> or <c>IsDestructable</c>: every part in the game gets them here,
+    /// on first spawn, and from then on the save carries them like any other cond — which is why a game-built part
+    /// has them and a def does not. A written part missing them cannot be damaged by a hit or an environmental
+    /// attack (<c>Interaction</c> tests <c>IsDamageable</c> before applying either) and is not picked up as an
+    /// explosion target (<c>TIsExplosionTarget</c> requires <c>IsDestructable</c>). The destroy chain itself
+    /// survives, because the component <c>AddCommand</c> builds is not a condition.</para>
+    ///
+    /// <para>The three progress ceilings matter for a different reason: <c>DestCheck.DamageCheck</c> completes a
+    /// job when progress <c>&gt;=</c> its max, and an absent cond reads as zero, so a missing ceiling makes the
+    /// job finish on its first tick rather than never. 342 of the palette's 359 defs leave
+    /// <c>StatRepairProgressMax</c> to this backfill.</para>
+    ///
+    /// <para>The two early returns are the game's and are load-bearing: a part with no <c>StatDamageMax</c>, or
+    /// carrying <c>IsSystem</c>, stops after the ceilings, and an <c>IsUndamageable</c> part — or one that is
+    /// neither installed nor solid, i.e. has no physical presence to hit — stops before <c>IsDamageable</c>.</para>
+    /// </summary>
+    public string[] BehaviourConds { get; init; } = [];
+
+    /// <summary>
+    /// <c>SetUpBehaviours</c>' rule itself, as cond name → amount, evaluated against the cond set the CO holds
+    /// <b>at the moment the method runs</b>: the base condowner's, before any skin loot. <see cref="Catalog"/>
+    /// applies it there and lets the loot settle on top, which is the game's order and the only one that gets
+    /// <c>ItmConduit04</c> and the 247 damaged/patch floor skins right.
+    /// </summary>
+    public static IReadOnlyDictionary<string, double> BehaviourBackfill(
+        IReadOnlyList<string> declared, IReadOnlyDictionary<string, double> values)
+    {
+        var has = new HashSet<string>(declared, StringComparer.Ordinal);
+        foreach (var k in values.Keys) has.Add(k);
+        var add = new Dictionary<string, double>(StringComparer.Ordinal);
+        if (!has.Contains("StatInstallProgressMax")) add["StatInstallProgressMax"] = 1000;
+        if (!has.Contains("StatUninstallProgressMax")) add["StatUninstallProgressMax"] = 1000;
+        if (!has.Contains("StatRepairProgressMax")) add["StatRepairProgressMax"] = 1000;
+        if (!has.Contains("StatDamageMax") || has.Contains("IsSystem")) return add;
+        if (!has.Contains("IsDestructable") && !has.Contains("IsIndestructable")) add["IsDestructable"] = 1;
+        if (has.Contains("IsUndamageable") || (!has.Contains("IsInstalled") && !has.Contains("IsSolid"))) return add;
+        if (!has.Contains("IsDamageable")) add["IsDamageable"] = 1;
+        return add;
+    }
+
     /// <summary>This item's footprint <b>on an inventory grid</b>, in tiles — the def's
     /// <c>inventoryWidth</c>/<c>inventoryHeight</c> when set, else its map footprint. Drives the size of the
     /// block it occupies in a container's grid (the game's <c>GUIInventoryItem.GetWidthHeightForCO</c>).</summary>
@@ -1234,10 +1329,31 @@ public sealed class Catalog
         // game's COOverlay.Init runs Loot.ApplyCondLoot on every spawn, so e.g. an MSS "Light Framework" wall is
         // ItmWall1x1's 24 kg minus a -StatMass x4 (= 20), plus IsMSS/IsWhite. Fold them in here, or every branded
         // wall/floor reads the shared base's flat stats. Non-skinned parts (no overlay) keep their base conds.
-        var startNames = co?.StartingCondNames ?? [];
-        var startVals = co?.StartingCondValues ?? new Dictionary<string, double>();
+        var baseNames = co?.StartingCondNames ?? [];
+        var baseVals = co?.StartingCondValues ?? new Dictionary<string, double>();
+        var startNames = baseNames;
+        var startVals = baseVals;
         if (overlay is { CondLoot: { Length: > 0 } condLoot })
             (startNames, startVals) = ApplyCondLoot(index, condLoot, startVals);
+
+        // What CondOwner.SetUpBehaviours would add, replayed in the game's own order: it runs on the last line of
+        // SetData, against the BASE conds, and the skin's cond loot lands on the result afterwards in
+        // COOverlay.Init. Reading the guards off the folded conds instead gets 249 defs wrong — 254 skin loots
+        // move StatDamageMax, which is one of the guards, and ItmConduit04's loot drives StatInstallProgressMax
+        // to zero, which the game leaves absent (an instant install) and a naive backfill would restore to 1000.
+        var backfill = PartDef.BehaviourBackfill(baseNames, baseVals);
+        var behaviourConds = Array.Empty<string>();
+        if (backfill.Count > 0)
+        {
+            var withBackfill = new Dictionary<string, double>(baseVals, StringComparer.Ordinal);
+            foreach (var (k, v) in backfill) withBackfill[k] = v;
+            var settled = overlay is { CondLoot: { Length: > 0 } bcl }
+                ? ApplyCondLoot(index, bcl, withBackfill).Values
+                : withBackfill;
+            behaviourConds = [.. backfill.Keys
+                .Where(settled.ContainsKey)   // a delta that drives one to zero leaves it absent, as the game does
+                .Select(k => FormattableString.Invariant($"{k}=1.0x{settled[k]}"))];
+        }
 
         if (!items.TryGetValue(itemName, out var rawItem) && !items.TryGetValue(defName, out rawItem))
             return null;   // no geometry (e.g. a modded def whose mod isn't loaded)
@@ -1307,6 +1423,8 @@ public sealed class Catalog
             SpriteDamagedAbs = item.ImgDamaged is { Length: > 0 } and not "blank" ? index.ResolveImage(item.ImgDamaged) : null,
             Gpm = ResolveGpm(co?.GpmNames, overlay?.GpmNames),
             Desc = co?.Desc,
+            SkinCondLoot = overlay is { CondLoot: { Length: > 0 } skinLoot } ? skinLoot : null,
+            BehaviourConds = behaviourConds,
             TickerNames = co?.TickerNames ?? [],
             InvSize = invSize,
             ContainerGrid = containerGrid,

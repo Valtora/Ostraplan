@@ -363,6 +363,78 @@ public class ContainerFillTests
         Assert.Null(item["aCondOverrides"]);
     }
 
+    /// <summary>
+    /// The item's overrides are the shallow-state channel and cannot carry a fill on their own: on a full load
+    /// <c>ApplyOverrideCondsToCO</c> routes through <c>AddCondAmount</c>, which returns on its first line for any
+    /// CO built from save data (<c>SetData</c> freezes its conds and <c>Ship.PostGameLoad</c> thaws them far
+    /// later). So the fill has to be on the CO as well, and a new part's CO cannot leave the <c>DEFAULT</c> marker
+    /// in place while it does: the marker expands by APPENDING the def's own conds, giving the def's stock 13,373
+    /// mol the last word over anything written beside it.
+    /// </summary>
+    [Fact]
+    public void SaveEdit_writes_a_fill_onto_the_co_expanding_a_default_marker_that_would_outrank_it()
+    {
+        var cat = TankCat();
+        var co = new JsonObject { ["strID"] = "abc", ["aConds"] = new JsonArray("DEFAULT") };
+
+        SaveEdit.SetFillConds(co, new Dictionary<string, double> { [O2] = 1000 }, cat.Lookup("Can"), cat);
+
+        var conds = ((JsonArray)co["aConds"]!).Select(n => (string)n!).ToList();
+        Assert.DoesNotContain("DEFAULT", conds);                     // or the def's stock would win on load
+        Assert.Contains($"{O2}=1.0x1000", conds);
+        Assert.Contains($"{N2}=1.0x0", conds);                       // an emptied line says zero out loud
+        Assert.Single(conds, c => c.StartsWith($"{O2}=", StringComparison.Ordinal));   // exactly one say per cond
+        Assert.Contains("StatVolume=1.0x0.787", conds);              // the rest of the def came through the expansion
+    }
+
+    /// <summary>A kept tank's CO already carries its conds in full, so the fill replaces the save's own amounts
+    /// in place and everything else on the CO is left alone.</summary>
+    [Fact]
+    public void SaveEdit_replaces_a_kept_cos_own_gas_amounts_and_leaves_the_rest()
+    {
+        var cat = TankCat();
+        var co = new JsonObject
+        {
+            ["strID"] = "abc",
+            ["aConds"] = new JsonArray($"{O2}=1.0x99", "StatDamage=1.0x2", "IsAirtight=1.0x1"),
+        };
+
+        SaveEdit.SetFillConds(co, new Dictionary<string, double> { [N2] = 700 }, cat.Lookup("Can"), cat);
+
+        var conds = ((JsonArray)co["aConds"]!).Select(n => (string)n!).ToList();
+        Assert.Contains("StatDamage=1.0x2", conds);      // the save's own wear is untouched
+        Assert.Contains("IsAirtight=1.0x1", conds);
+        Assert.Contains($"{N2}=1.0x700", conds);
+        Assert.Contains($"{O2}=1.0x0", conds);           // the stale 99 emptied, not left behind
+    }
+
+    /// <summary>The mineral defs roll their own <c>StatDamage</c> on spawn, so painting condition on one has the
+    /// same fight as a fill and needs the same expansion. Every other def leaves <c>StatDamage</c> alone, and
+    /// those keep the marker — expanding them all would put twenty entries on every part in the record.</summary>
+    [Fact]
+    public void Painted_wear_expands_the_marker_only_for_a_def_that_rolls_its_own_damage()
+    {
+        var cat = new Fixtures()
+            .Part("Ore", tileConds: [], startingConds: ["StatDamage", "StatDamageMax"],
+                  condValues: new Dictionary<string, double> { ["StatDamage"] = 30, ["StatDamageMax"] = 50 })
+            .Part("Plate", tileConds: [], startingConds: ["StatDamageMax"],
+                  condValues: new Dictionary<string, double> { ["StatDamageMax"] = 15 })
+            .Build();
+
+        var ore = new JsonObject { ["aConds"] = new JsonArray("DEFAULT") };
+        SaveEdit.SetStatDamage(ore, 3, cat.Lookup("Ore"));
+        var oreConds = ((JsonArray)ore["aConds"]!).Select(n => (string)n!).ToList();
+        Assert.DoesNotContain("DEFAULT", oreConds);
+        Assert.Contains("StatDamage=1.0x3", oreConds);
+        Assert.Single(oreConds, c => c.StartsWith("StatDamage=", StringComparison.Ordinal));
+
+        var plate = new JsonObject { ["aConds"] = new JsonArray("DEFAULT") };
+        SaveEdit.SetStatDamage(plate, 3, cat.Lookup("Plate"));
+        var plateConds = ((JsonArray)plate["aConds"]!).Select(n => (string)n!).ToList();
+        Assert.Contains("DEFAULT", plateConds);          // nothing contests it, so it stays compact
+        Assert.Contains("StatDamage=1.0x3", plateConds);
+    }
+
     // ---- against the game's own data ----
 
     [SkippableFact]

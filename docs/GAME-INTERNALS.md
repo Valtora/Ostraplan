@@ -415,6 +415,54 @@ leading `-` (`"-StatMass=…"` returns `-StatMass`), so strip it before keying, 
 > `CondLootOverlayTests`. Retuning per-brand stats means editing the `CNDOLWall*` loots in
 > `data/loot`, not authoring new condowners.
 
+#### The loot runs on every spawn EXCEPT one, and it is the one a writer uses
+
+*Verified against game `1.0.0.11`.* "On every spawn" holds only where the item is being
+spawned from a def. **A CO that comes out of save data never runs its skin's cond loot at
+all**, and nothing anywhere says so.
+
+`CondOwner.SetData` ends with `if (jCOSIn != null) bFreezeConds = true;`, and
+`DataHandler.GetCondOwner` attaches the `COOverlay` and calls `Init` *after* `SetData`
+returns. `Init` reaches the CO only through `Loot.ApplyCondLoot` →
+`ParseCondEquation` / `AddCondAmount`, and **both return on their first line while
+`bFreezeConds` is set**. The flag is cleared in exactly one place, `Ship.PostGameLoad`,
+which runs once the whole ship is up. So the deltas are not deferred, they are dropped.
+
+What survives the freeze is everything in `COOverlay.Init` that is not a condition: the
+sprite (`Item.SetAlt`), `strNameFriendly`, `mapSlotEffects`, `mapAltItemDefs`, the destroy
+swaps, and `aInteractionsReplace`. **That split is the trap**, because a skin whose loot
+swaps a condition its own replacement interaction tests for arrives self-contradictory:
+`ItmBookStudyEngSoftware01` gets `ACTStudySkillEngSoftware` (list swap, survives) while
+keeping `IsStudyMaterialEngElectronic` (cond swap, frozen out), and
+`ACTStudySkillEngSoftware.CTTestThem` is `TIsStudyMaterialEngSoftware`, so the book offers
+no study action at all. It can still be picked up and swung, because the melee charge
+profile is on the base def.
+
+The game's own writer is the other half of the rule and confirms it: `CondOwner.GetJSON`
+writes every cond out in full and collapses to `DEFAULT` **only** when the whole written
+set matches the def's `aStartingConds` (`num > 1 && num == list2.Count`). A real save's MSS
+floor CO carries `IsMSS`, `IsWhite` and `StatBasePrice=1.0x19` literally.
+
+Two consequences for anything that writes a CO:
+
+- **`aConds: ["DEFAULT"]` is wrong for a skin.** It resolves through
+  `GetCondOwnerDef(strCODef)`, which is the *base* condowner by that point, so the part
+  loads with the shared base's flat stats. Write the folded conds instead.
+- **`aCondRules` must be present.** `SetData` takes the rules from `jCOSIn.aCondRules`
+  whenever there is save data, so a CO that omits the field loads with **no** cond rules.
+  60 vanilla condowners declare them (every canister, RTA tank, reactor core, fire
+  extinguisher). `["DEFAULT"]` expands to the def's own set, and to nothing for a def that
+  declares none, so it is always safe to write.
+
+> **Ported in Ostraplan:** `PartDef.SkinCondLoot` (the fold happened) and
+> `PartDef.SavedConds` (what a save writer must record), used by `SaveEdit.SynthesizeCo`
+> — which `SaveGrant` shares — and by `ExportedCondOwnerSave.For` for a template's
+> contained cargo. A **template's top-level** item is the one case that needs none of
+> this: it carries no CO, so the game spawns it with `bLoot: true` and nothing is frozen.
+> Reported by a player against 1.1.0: an MSS wall written back into a save read 21 credits
+> with generic tags, and a textbook could no longer be read. Tests:
+> `CondLootOverlayTests`.
+
 ---
 
 ## 4. Footprints and sprites — two independent sizes
@@ -1683,6 +1731,190 @@ members that actually survive** rather than left as the save wrote it. Writing t
 members but not the list produced the reported "a hundred rounds of ammo arrive as a
 hundred separate bullets"; leaving them out of the descent entirely lost every round
 added to ammo the ship already carried.
+
+### What the game's own writer emits (`Ship.SaveCOs` / `GetJsonItem` / `CondOwner.GetJSONSave`)
+
+*Verified against game `1.0.0.11`.* The routine to copy is `Ship.SaveCOs`, which walks the
+ship's condowners and, for each, rebuilds an **item** entry with `Ship.GetJsonItem` and a
+**CO** entry with `CondOwner.GetJSONSave`. Both are built from scratch on every save, which
+is why the game never has to remove anything: a field it does not write this time simply is
+not there. A writer that edits a record **in place** has to take stale entries out itself.
+
+`GetJsonItem` writes exactly ten fields, and three of them are worth stating:
+
+- **`strName` is `co.strCODef`**, the condowner name — the *skin's* name, because
+  `COOverlay.Init` assigns `component.strCODef = cOOverlay.strName`. Not the item def.
+- **`fRotation` is `item.fLastRotation`**, not the transform's Z euler, whenever there is an
+  `Item`.
+- **`aCondOverrides` gets one entry and only one**: `StatDamage`, and only
+  `if (damage > 0.001)`. Nothing else the game writes ever lands here.
+
+`GetJSONSave` writes the CO. Everything below is either written unconditionally or is empty
+for a freshly-built item, so the shape a writer must produce is small:
+
+| Field | Game writes | Freshly-built item |
+|---|---|---|
+| `strID`, `strCODef`, `bAlive`, `strCondID`, `strIdleAnim` | always | required |
+| `strRegIDLast`, `strFriendlyName` | always | required |
+| `aConds` | every live cond, collapsing to `DEFAULT` only when the set matches the def exactly | see §3 |
+| `aCondRules` | the CO's rules; an **empty array is omitted by the writer**, so an absent field means "none" and is not evidence of who wrote it | `["DEFAULT"]` |
+| `inventoryX` / `inventoryY` | always, including `0` | omit == 0 |
+| `aTickers` | when any | must be baked (§17) |
+| `aStack`, `strSlotName` | when the CO is a stack head / is slotted | as authored |
+| `fLastICOUpdate` | always, and always non-zero in a real save | the save's epoch |
+| `nDestTile` | never assigned in `GetJSONSave`, so it is always `0` in a save | omit |
+| `strIMGPreview` | `Item.ImgOverride`, re-derived on spawn and **never read back** by `SetData` | omit |
+| `aCondReveals` | **never written at all** — read on load, written nowhere | omit |
+| `fMSRedamageAmount`, `aCondZeroes`, `aQueue`, `aReplies`, `mapDGasMols`, `aLot`, `aAttackIAs` | always, but empty/zero unless the part has run | omit |
+| `social`, `cgs`, `mapIAHist2`, `aPledges`, `aFactions`, `aMyShips`, `strBodyType`, `aFaceParts`, `dict*` | crew and robots only | n/a |
+
+`aAttackIAs` is worth one line because it looks like weapon data: it is only ever populated
+by `ApplyAModes`, from a save load or from an interaction granting an attack mode at
+runtime. A weapon spawned from its def has none.
+
+> **Ported in Ostraplan:** `SaveEdit.SynthesizeCo` + the item writers in `SaveEdit` /
+> `SaveGrant` produce this shape. The fields marked "omit" above are omitted deliberately —
+> each is either never read back, or deserialises to the same value the game wrote.
+
+### An item's `aCondOverrides` is the SHALLOW channel, and a full load throws it away
+
+*Verified against game `1.0.0.11`.* It reads like a per-instance override that lands on top
+of everything, and on a template it is exactly that. On a **save** it is not: it is the
+shallow-state mirror, and the CO's `aConds` is what the ship actually comes up holding.
+
+`Ship.InitShip` calls `SpawnItems`, and `SpawnItems` is where both
+`JsonItem.ApplyOverrideCondsToCO` calls live. That method is
+`co.SetCondAmount(...)` → `AddCondAmount`, which **returns on its first line** for any CO
+built from save data: `SetData` has frozen its conds, and `Ship.PostGameLoad` — the only
+place `bFreezeConds` is ever cleared — does not run until several hundred lines later in
+the same method. So on a full load of a visited ship, every override is dropped.
+
+`ApplyUniqueMapConditions` is the tell. It does the same job on the same COs and
+deliberately brackets its `AddCondAmount` with `bFreezeConds = false` / restore.
+`ApplyOverrideCondsToCO` does not.
+
+The game never notices because it writes **both**: in a real save every item carrying an
+`aCondOverrides` entry has the same cond at the same value in its CO's `aConds` (checked
+across a live save: `StatDamage` on an EVA suit, a knife, a soldering iron, a drill, a
+battery — identical in both places every time). The overrides are what
+`Ostranauts.Ships.DamageSystem` and `Ostranauts.Trading.DataCOWrapper` read off a ship
+nobody has loaded, which is the whole point of them.
+
+The two exceptions that still work through the override alone, because nothing is frozen:
+
+- a **template's top-level** item, which carries no CO at all;
+- the **structural marker** use — `SpawnItems` collects `strID`s of items that have any
+  `aCondOverrides` and a non-empty `strParentID` *before* applying anything, so a marker
+  used to keep a contained item alive is read as presence, not as a condition.
+
+**The pairing runs both ways, and a writer has to keep both halves.** `GetJsonItem` mirrors
+the CO's damage onto the item; in a real save every item carrying a `StatDamage` override
+has the identical value in its CO, checked across an EVA suit, a knife, a soldering iron, a
+drill and a battery. Writing one without the other splits the ship in two: the shallow
+readers answer from the item, and the loaded ship answers from the CO.
+
+> **Ported in Ostraplan:** `SaveEdit.SetStatDamage` writes the CO's cond **and** the item's
+> mirror, matching `GetJsonItem`'s `> 0.001` rule and removing the entry below it — the
+> removal being the half the game gets for free by rebuilding each item from scratch.
+> `SaveEdit.SetFillConds` writes an authored tank/canister fill onto the **CO** and
+> `SetFillOverrides` mirrors it onto the item. A fill is the one thing Ostraplan puts in
+> `aCondOverrides` that the game never does, which is safe in both directions: the game has
+> no authored-fill concept to write, both shallow readers pass an unknown cond through, and
+> `RemoveShallowDamage` explicitly keeps everything that is not `StatDamage`. Before this
+> the write-back wrote a fill only onto the item, so it priced right at a broker and then
+> came up holding the def's stock 13,373 mol the moment the player flew the ship, and wear
+> went only onto the CO, so a worn ship quoted its old condition. Tests:
+> `ContainerFillTests`, `WearTests`.
+
+### Writing a cond the def also declares needs the marker expanded
+
+A corollary of the `DEFAULT` expansion in [§3](#3-conditions-and-loots--the-tile-vocabulary):
+`CondOwner.SetData` replaces the marker by **appending** the def's `aStartingConds`, then
+applies the whole list in order, zeroing each cond before setting it. The def therefore has
+the last word on every cond it declares, and an amount written beside the marker is
+overwritten by the def's own value on load.
+
+This is why `StatDamage` can be written next to the marker and a gas amount cannot: no
+ordinary def declares `StatDamage`, but a tank declares `StatGasMolO2`. The exceptions are
+worth knowing — **thirteen mineral defs** (`ItmMineral01`…`ItmMineralStone01`) declare
+`StatDamage` as a spawn roll (`StatDamage=0.5x1-50`), so painted wear on one of those is
+contested too.
+
+> **Ported in Ostraplan:** `SaveEdit.ExpandDefaultIfContested`, which spells the def's
+> conds out **only** when the writer is setting one the def declares (`PartDef.Declares` /
+> `PartDef.CondEntries`). Expanding unconditionally would put twenty entries on every part
+> in the record.
+
+### `SetUpBehaviours` is the last line of `SetData`, so a save-loaded CO never runs it
+
+*Verified against game `1.0.0.11`.* `CondOwner.SetUpBehaviours` is where every part in the game
+gets the conds no def declares. It is called on the **final line of `SetData`**, and
+`bFreezeConds` is set some 450 lines earlier whenever there is save data, so every one of
+its `AddCondAmount` calls is a no-op on that path. Its **list** operations still work,
+which is why the `ACTBash` it appends is there on a part that has nothing else.
+
+What it gives, and what missing it costs:
+
+| Cond | Defs declaring it | Read by | Missing means |
+|---|---|---|---|
+| `IsDamageable` | **none** | `Interaction`'s melee / environmental damage branch | the part cannot be hit |
+| `IsDestructable` | **none** | `TIsExplosionTarget`, `TIsDestructable` | not picked as an explosion target |
+| `StatRepairProgressMax` | 17 of 359 palette defs | `DestCheck.DamageCheck` | absent reads as 0, so `progress >= max` is true at once and the job completes on its first tick |
+| `StatInstallProgressMax` / `StatUninstallProgressMax` | nearly all | same | same, for the three that do not |
+
+The two early returns are part of the rule: a part with no `StatDamageMax`, or carrying
+`IsSystem`, stops after the ceilings; an `IsUndamageable` part, or one that is neither
+`IsInstalled` nor `IsSolid`, stops before `IsDamageable`.
+
+A game-built part carries all of these because the backfill ran once on an unfrozen CO,
+when the part was first spawned, and `GetJSON` has written them out ever since. That is why
+a live save's MSS floor CO has `IsDamageable`, `IsDestructable` and
+`StatRepairProgressMax=1.0x1000` while `ItmFloorGrate01` declares none of the three, and it
+is the trap: reading the def tells you nothing about what the game's own part is carrying.
+
+**`IsDestructable` has a second route that does survive.** A def with its own
+`Destructable` update command gets it from `DestCheck.SetData` during `AddCommand`, which
+runs *before* the freeze. Only defs relying on the `SetUpBehaviours` fallback lose it. The
+destroy behaviour is never lost either way, because the component `AddCommand` builds is
+not a condition.
+
+**The guards read the BASE conds, not the skin's.** `SetUpBehaviours` is the last line of
+`SetData` and `COOverlay.Init` runs after `SetData` returns, so the backfill sees the base
+condowner's conds and the skin's cond loot lands on the result. Reading the rule off the
+folded conds instead gets 249 defs wrong, in both directions:
+
+- 254 skin loots move `StatDamageMax`, which is one of the guards.
+- `CNDOLConduit04` takes `StatInstallProgressMax` from the base's 150 to zero, i.e.
+  **absent**, which is an instant install. Backfilling from the folded view would see it
+  missing and restore 1000, making the part slower than the game intends.
+- 247 damaged/patch floor skins adjust `StatInstallProgressMax` on a base that does not
+  declare it. The game backfills 1000 and *then* applies the delta, so `ItmFloorAERO01Dmg`
+  ends at 1050 and `ItmStorageBinFloor1x103Dmg` at 950. The folded view alone shows 50 and
+  nothing at all.
+
+> **Ported in Ostraplan:** `PartDef.BehaviourBackfill` is the rule itself, including both
+> early returns; `Catalog.ResolveDef` runs it against the base conds and lets the skin loot
+> settle on top, exactly as the game orders it, and stores the finished entries as
+> `PartDef.BehaviourConds`. Written by `SaveEdit.SynthesizeCo` and
+> `ExportedCondOwnerSave.For`. None of the conds it adds is declared by any def — that is
+> what the guards test — so they never collide with the `DEFAULT` marker's expansion and can
+> sit beside it. `SaveEdit.HealBehaviourConds` repairs a **kept** CO that an older Ostraplan
+> wrote without them, since nothing in the game ever adds them a second time; it only ever
+> adds, and defers to the CO over the def on `IsUndamageable` / `IsIndestructable` /
+> `fLastICOUpdate`, which are things a part can acquire in play and a def cannot know about.
+> Tests: `CondLootOverlayTests`, `SaveEditInjectSyntheticTests`.
+
+### `fLastICOUpdate` is when the CO was last caught up, and zero means "the age of the save"
+
+A synthesized CO that omits it gets zero, and `CondOwner.CatchUp` / `EndTurn` advance every
+**timed** cond on the CO by `StarSystem.fEpoch - fLastICOUpdate`. On a mature save that is
+tens of billions of seconds in one step, which expires any timed cond immediately. The
+game stamps a newly-created CO with the current epoch, so that is what to write.
+
+Narrow in practice: of 446 timed conditions, only two appear as an *item's* starting cond
+— `IsReadyEvolveTimer` on the `ItmMeat01` family and `IsReadyHarvestTimer` on
+`ItmPlanterMeat01`. The rest are runtime social, medical and cooldown conds applied to
+crew. Worth writing all the same, since the cost is one field.
 
 ### `dimensions` is display-only but locale-sensitive
 

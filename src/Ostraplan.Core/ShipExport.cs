@@ -236,20 +236,16 @@ public static class ShipExport
 
             var childIds = c.Children.Select(child => EmitContained(child, cid, fx, fy)).ToList();
 
-            cos.Add(new ExportedCondOwnerSave
-            {
-                StrID = cid,
-                StrCODef = c.DefName,
-                StrCondID = c.DefName + cid,
-                InventoryX = c.GridX,
-                InventoryY = c.GridY,
-                // What the game re-slots a slotted item by on load: Ship.SpawnItems passes this to
-                // compSlots.SlotItem, which returns false on a null name and leaves the item unattached.
-                StrSlotName = c.Slotted ? c.SlotName : null,
-                // A stack head lists its members; a real (drillable) container does not — its children are separate
-                // items positioned by their own inventory cells, not stack members of the container.
-                AStack = c.IsStack && childIds.Count > 0 ? childIds.ToArray() : null,
-            });
+            var cargoCo = ExportedCondOwnerSave.For(c.DefName, cid, catalog);
+            cargoCo.InventoryX = c.GridX;
+            cargoCo.InventoryY = c.GridY;
+            // What the game re-slots a slotted item by on load: Ship.SpawnItems passes this to
+            // compSlots.SlotItem, which returns false on a null name and leaves the item unattached.
+            cargoCo.StrSlotName = c.Slotted ? c.SlotName : null;
+            // A stack head lists its members; a real (drillable) container does not — its children are separate
+            // items positioned by their own inventory cells, not stack members of the container.
+            cargoCo.AStack = c.IsStack && childIds.Count > 0 ? childIds.ToArray() : null;
+            cos.Add(cargoCo);
             return cid;
         }
 
@@ -371,7 +367,7 @@ public static class ShipExport
                         StrName = modDef, FX = fx, FY = fy, FRotation = 0, StrID = modId,
                         StrParentID = strID, ACondOverrides = PristineMarker, BForceLoad = true,
                     });
-                    cos.Add(new ExportedCondOwnerSave { StrID = modId, StrCODef = modDef, StrCondID = modDef + modId });
+                    cos.Add(ExportedCondOwnerSave.For(modDef, modId, catalog));
                 }
             }
         }
@@ -443,10 +439,9 @@ public static class ShipExport
                     });
                     memberIds.Add(mid);
                 }
-                cos.Add(new ExportedCondOwnerSave
-                {
-                    StrID = headId, StrCODef = lo.DefName, StrCondID = lo.DefName + headId, AStack = memberIds.ToArray(),
-                });
+                var stackCo = ExportedCondOwnerSave.For(lo.DefName, headId, catalog);
+                stackCo.AStack = memberIds.ToArray();
+                cos.Add(stackCo);
             }
             // What a deck item holds. A top-level item in a TEMPLATE normally carries no CO, so the game spawns it
             // with bLoot: true and fills it from its own def — which is right, and why an untouched backpack is
@@ -459,10 +454,7 @@ public static class ShipExport
             // behaviour identical.
             else if (lo.Cargo.Any(c => !c.Intrinsic || c.Children.Count > 0))
             {
-                cos.Add(new ExportedCondOwnerSave
-                {
-                    StrID = headId, StrCODef = lo.DefName, StrCondID = lo.DefName + headId,
-                });
+                cos.Add(ExportedCondOwnerSave.For(lo.DefName, headId, catalog));
                 EmitCargo(lo.Cargo, headId, fx, fy);
             }
         }
@@ -1154,13 +1146,21 @@ public sealed class ExportedCondOverride
 /// shape). A <c>data/ships</c> file spawns as a template, which keeps contained items only if they carry save-style
 /// CO data; <c>aConds = ["DEFAULT"]</c> tells <c>CondOwner.SetData</c> to repopulate the def's starting conds (a
 /// pristine item), and a stack head's <c>aStack</c> (member <c>strID</c>s) is what the game reads to rebuild the
-/// ×N stack at the authored count. Mirrors <see cref="SaveEdit"/>'s synthesized COs.</summary>
+/// ×N stack at the authored count. Mirrors <see cref="SaveEdit"/>'s synthesized COs, including the two rules
+/// <see cref="For"/> exists to apply.</summary>
 public sealed class ExportedCondOwnerSave
 {
     [JsonPropertyName("strID")] public string StrID { get; set; } = "";
     [JsonPropertyName("strCODef")] public string StrCODef { get; set; } = "";
     [JsonPropertyName("bAlive")] public bool BAlive { get; set; } = true;
     [JsonPropertyName("aConds")] public string[] AConds { get; set; } = ["DEFAULT"];
+
+    /// <summary>The cond rules the def declares. <c>SetData</c> reads them from the save block whenever there is
+    /// one, so a CO that omits the field loads with none at all — which is what every canister, RTA tank, reactor
+    /// core and fire extinguisher written into a container used to get. The marker expands to an empty set for a
+    /// def that declares none, so it is always safe.</summary>
+    [JsonPropertyName("aCondRules")] public string[] ACondRules { get; set; } = ["DEFAULT"];
+
     [JsonPropertyName("strCondID")] public string StrCondID { get; set; } = "";
     [JsonPropertyName("strIdleAnim")] public string StrIdleAnim { get; set; } = "Idle";
     [JsonPropertyName("inventoryX")] public int InventoryX { get; set; }
@@ -1174,6 +1174,24 @@ public sealed class ExportedCondOwnerSave
     /// in. <c>Ship.SpawnItems</c> re-slots by this name, and <c>Slots.SlotItem</c> refuses a null one, so a
     /// slotted item without it never attaches to its host. Null — and omitted — for loose grid cargo.</summary>
     [JsonPropertyName("strSlotName")] public string? StrSlotName { get; set; }
+
+    /// <summary>The CO for <paramref name="def"/>, with its conds resolved the two ways a save-shaped record has to
+    /// carry them. Use this rather than the constructor. A cooverlay skin must have its conds written out in full,
+    /// because the <c>DEFAULT</c> marker resolves to the skin's base condowner and the skin's cond-loot deltas can
+    /// never be applied to a CO the game loaded from save data (<see cref="PartDef.SavedConds"/>); and every part
+    /// needs the conds the game backfills in <c>SetUpBehaviours</c>, which is frozen out on that same path
+    /// (<see cref="PartDef.BehaviourConds"/>).</summary>
+    public static ExportedCondOwnerSave For(string def, string strID, Catalog catalog)
+    {
+        var part = catalog.Lookup(def);
+        return new ExportedCondOwnerSave
+        {
+            StrID = strID,
+            StrCODef = def,
+            StrCondID = def + strID,
+            AConds = [.. (part?.SavedConds ?? ["DEFAULT"]).Concat(part?.BehaviourConds ?? [])],
+        };
+    }
 }
 
 /// <summary>A baked room: tile indices (row-major into nCols×nRows), certified spec, void flag.</summary>

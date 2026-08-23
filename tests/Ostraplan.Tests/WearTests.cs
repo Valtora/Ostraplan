@@ -1,3 +1,5 @@
+using System;
+using System.Linq;
 using System.Text.Json.Nodes;
 using Ostraplan.Core;
 using Xunit;
@@ -6,7 +8,8 @@ namespace Ostraplan.Tests;
 
 /// <summary>
 /// The wear feature (0.31): the <see cref="WearModel"/> port of the game's kiosk "Used" damage pass, and its two
-/// application paths — per-part <c>aCondOverrides</c> on export, per-CO <c>StatDamage</c> on save-edit. All
+/// application paths — per-part <c>aCondOverrides</c> on export, and on save-edit BOTH the CO's
+/// <c>StatDamage</c> and the item's <c>aCondOverrides</c> mirror of it, which is what the game writes. All
 /// game-free (synthetic catalogs), so the damage maths and the JSON shapes are pinned without the install.
 /// </summary>
 public class WearTests
@@ -166,6 +169,55 @@ public class WearTests
 
     private static string NewCoId(JsonObject ship) =>
         ((JsonArray)ship["aCOs"]!).Select(n => (string)n!["strID"]!).First(id => id != "a");
+
+    private static JsonObject ItemOf(JsonObject ship, string id) =>
+        ((JsonArray)ship["aItems"]!).Select(n => n!.AsObject()).Single(o => (string)o["strID"]! == id);
+
+    private static double? DamageOverride(JsonObject item) =>
+        (item["aCondOverrides"] as JsonArray)?.Cast<JsonObject>()
+            .FirstOrDefault(o => (string?)o["CondName"] == "StatDamage") is { } d ? (double)d["Amount"]! : null;
+
+    /// <summary>
+    /// The game keeps a part's damage in two places and Ostraplan has to as well: the CO is what the ship comes up
+    /// holding, and the item's <c>aCondOverrides</c> is the copy read without loading the ship — a broker quote,
+    /// and the micrometeoroid pass over an unvisited hull. <c>Ship.GetJsonItem</c> writes the mirror whenever the
+    /// damage clears 0.001, and <c>DamageSystem.RemoveShallowDamage</c> exists to strip exactly that entry.
+    /// Writing only the CO left a worn ship reading its old condition at a broker and its new one once loaded.
+    /// </summary>
+    [Fact]
+    public void Save_edit_wear_reaches_the_item_mirror_as_well_as_the_co()
+    {
+        var cat = new Fixtures().Part("Panel", startingConds: ["IsInstalled"],
+            condValues: new Dictionary<string, double> { ["StatDamageMax"] = 4.0 }).Build();
+        var doc = Fixtures.Doc(cat, new Placement { DefName = "Panel", X = 0, Y = 0, OriginStrID = "a" });
+        var (ship, _) = SaveEdit.BuildInjectedShip(doc, PanelContext(cat), cat, NoSpecs,
+            wear: new WearOptions(true, 0.5, Seed: 7));
+
+        var onCo = Conds(ship, "a").Single(c => c.StartsWith("StatDamage=", StringComparison.Ordinal));
+        var onItem = DamageOverride(ItemOf(ship, "a"));
+        Assert.NotNull(onItem);
+        Assert.Equal(double.Parse(onCo["StatDamage=1.0x".Length..], System.Globalization.CultureInfo.InvariantCulture),
+                     onItem!.Value, 6);   // the two agree, the way every damaged part in a real save does
+    }
+
+    /// <summary>Repairing has to take the mirror away, not just the CO's cond. The game gets that for free by
+    /// rebuilding each item entry from scratch on save; a record edited in place has to remove the stale entry, or
+    /// a repaired part still reads damaged to everything that has not loaded the ship.</summary>
+    [Fact]
+    public void Save_edit_repair_clears_the_item_mirror_too()
+    {
+        var cat = new Fixtures().Part("Panel", startingConds: ["IsInstalled"],
+            condValues: new Dictionary<string, double> { ["StatDamageMax"] = 4.0 }).Build();
+        var ctx = PanelContext(cat);
+        ((JsonArray)ctx.ShipRecord["aItems"]!)[0]!.AsObject()["aCondOverrides"] = new JsonArray(
+            new JsonObject { ["CondName"] = "StatDamage", ["Chance"] = 1.0, ["Amount"] = 3.0, ["NegativeValue"] = false });
+        var doc = Fixtures.Doc(cat, new Placement { DefName = "Panel", X = 0, Y = 0, OriginStrID = "a" });
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs, wear: WearOptions.Repaired);
+
+        Assert.DoesNotContain(Conds(ship, "a"), c => c.StartsWith("StatDamage=", StringComparison.Ordinal));
+        Assert.Null(DamageOverride(ItemOf(ship, "a")));
+    }
 
     [Fact]
     public void Save_edit_without_wear_leaves_existing_damage_untouched()

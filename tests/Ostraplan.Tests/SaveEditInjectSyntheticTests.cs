@@ -163,6 +163,85 @@ public class SaveEditInjectSyntheticTests
         Assert.Contains("DEFAULT", ((JsonArray)newCo["aConds"]!).Select(x => (string)x!));   // repopulates def conds on load
     }
 
+    // ---- the self-heal over kept condition owners ----
+
+    /// <summary>A synthetic damageable part, and a CO written the way an older Ostraplan wrote one: the def's
+    /// conds and nothing else.</summary>
+    private static Catalog HealCat() => new Fixtures()
+        .Part("Panel", tileConds: ["IsFloor", "IsFloorSealed"], startingConds: ["IsInstalled", "StatDamageMax"],
+              condValues: new Dictionary<string, double> { ["StatDamageMax"] = 15 })
+        .Build();
+
+    private static List<string> CondsOf(JsonNode ship, string id) =>
+        ((JsonArray)((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()).Single(o => (string)o["strID"]! == id)["aConds"]!)
+        .Select(n => (string)n!).ToList();
+
+    [Fact]
+    public void A_kept_co_missing_the_backfilled_conds_is_repaired_on_the_way_through()
+    {
+        var cat = HealCat();
+        var co = Co("a", "Panel");
+        co["aConds"] = new JsonArray("IsInstalled=1.0x1", "StatDamageMax=1.0x15");   // no IsDamageable, no ceilings
+        var ctx = Context(new JsonArray(Item("a", "Panel", 100, 200)), new JsonArray(co),
+            new() { ["a"] = new OriginPart(0, 0, 0, []) });
+        var doc = Fixtures.Doc(cat, new Placement { DefName = "Panel", X = 0, Y = 0, OriginStrID = "a" });
+
+        var (ship, report) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
+
+        var conds = CondsOf(ship, "a");
+        Assert.Contains("IsDamageable=1.0x1", conds);
+        Assert.Contains("IsDestructable=1.0x1", conds);
+        Assert.Contains("StatRepairProgressMax=1.0x1000", conds);
+        Assert.Equal(["IsInstalled=1.0x1", "StatDamageMax=1.0x15"], conds.Take(2));   // the original say, untouched
+        Assert.Equal(1, report.BehaviourFixed);
+    }
+
+    [Fact]
+    public void A_kept_co_the_game_wrote_is_left_exactly_as_it_was()
+    {
+        var cat = HealCat();
+        var original = new[]
+        {
+            "IsInstalled=1.0x1", "StatDamageMax=1.0x15", "IsDamageable=1.0x1", "IsDestructable=1.0x1",
+            "StatRepairProgressMax=1.0x1000", "StatInstallProgressMax=1.0x1000", "StatUninstallProgressMax=1.0x1000",
+        };
+        var co = Co("a", "Panel");
+        co["aConds"] = new JsonArray([.. original.Select(c => (JsonNode)c)]);
+        co["fLastICOUpdate"] = 12345.0;
+        var ctx = Context(new JsonArray(Item("a", "Panel", 100, 200)), new JsonArray(co),
+            new() { ["a"] = new OriginPart(0, 0, 0, []) });
+        var doc = Fixtures.Doc(cat, new Placement { DefName = "Panel", X = 0, Y = 0, OriginStrID = "a" });
+
+        var (ship, report) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
+
+        Assert.Equal(original, CondsOf(ship, "a"));
+        Assert.Equal(0, report.BehaviourFixed);
+        var healed = ((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()).Single(o => (string)o["strID"]! == "a");
+        Assert.Equal(12345.0, (double)healed["fLastICOUpdate"]!);  // a real catch-up point is never overwritten
+        // aCondRules is never healed: the save writer OMITS an empty array, so an absent field is the game saying
+        // "no cond rules" rather than evidence that Ostraplan wrote this CO (340 of 487 on a real station).
+        Assert.Null(healed["aCondRules"]);
+    }
+
+    /// <summary>The def cannot know what a part picked up in play. A CO that has been made undamageable or
+    /// indestructable keeps that, however damageable its def says it is.</summary>
+    [Fact]
+    public void A_part_made_undamageable_in_play_is_not_healed_back()
+    {
+        var cat = HealCat();
+        var co = Co("a", "Panel");
+        co["aConds"] = new JsonArray("IsInstalled=1.0x1", "StatDamageMax=1.0x15",
+                                     "IsUndamageable=1.0x1", "IsIndestructable=1.0x1");
+        var ctx = Context(new JsonArray(Item("a", "Panel", 100, 200)), new JsonArray(co),
+            new() { ["a"] = new OriginPart(0, 0, 0, []) });
+        var doc = Fixtures.Doc(cat, new Placement { DefName = "Panel", X = 0, Y = 0, OriginStrID = "a" });
+
+        var conds = CondsOf(SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs).Ship, "a");
+        Assert.DoesNotContain("IsDamageable=1.0x1", conds);
+        Assert.DoesNotContain("IsDestructable=1.0x1", conds);
+        Assert.Contains("StatRepairProgressMax=1.0x1000", conds);   // the ceilings have no counter-cond and still land
+    }
+
     [Fact]
     public void A_deleted_part_drops_its_item_and_its_CO()
     {

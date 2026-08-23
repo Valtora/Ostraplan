@@ -122,12 +122,19 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         Assert.Equal(items0 + 1, Count(ship, "aItems"));   // one new item...
         Assert.Equal(cos0 + 1, Count(ship, "aCOs"));       // ...AND a matching CO (a save load skips item-without-CO)
 
-        // the synthesized CO is 1:1 with the new item by strID, def-typed, with DEFAULT conds (pristine on load)
+        // the synthesized CO is 1:1 with the new item by strID, def-typed, and pristine on load. Which shape that
+        // takes depends on the def this save happened to hand us: a plain condowner gets the DEFAULT marker, a
+        // cooverlay skin gets its conds in full, because the marker resolves to the skin's BASE condowner and the
+        // skin's cond-loot deltas can never be applied to a save-loaded CO (see PartDef.SavedConds).
         var newItem = ((JsonArray)ship["aItems"]!).Last()!.AsObject();
         var newId = (string?)newItem["strID"];
         var newCo = ((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()).First(c => (string?)c["strID"] == newId);
         Assert.Equal(def, (string?)newCo["strCODef"]);
-        Assert.Contains("DEFAULT", ((JsonArray)newCo["aConds"]!).Select(n => (string?)n));
+        var part = g.Catalog.Lookup(def)!;
+        Assert.Equal(part.SavedConds.Concat(part.BehaviourConds), ((JsonArray)newCo["aConds"]!).Select(n => (string?)n));
+        // cond rules always carry the marker: SetData reads them from the save block whenever there is one, so a
+        // CO that omits the field loads with none at all (a canister with no DcGas* rules).
+        Assert.Equal(["DEFAULT"], ((JsonArray)newCo["aCondRules"]!).Select(n => (string?)n));
     }
 
     [SkippableFact]
@@ -214,7 +221,6 @@ public class SaveEditInjectTests(ITestOutputHelper output)
 
         var origItem = r.Context.ItemsById[oid].AsObject();
         var origOverrides = origItem["aCondOverrides"]?.ToJsonString();
-        var origCoConds = r.Context.CosById[oid].AsObject()["aConds"]?.ToJsonString();
         var origFx = origItem["fX"]!.GetValue<double>();
 
         new MoveCommand([target], 3, 0).Do(r.Doc);
@@ -225,9 +231,15 @@ public class SaveEditInjectTests(ITestOutputHelper output)
         var moved = ((JsonArray)ship["aItems"]!).Select(n => n!.AsObject()).Single(it => (string?)it["strID"] == oid);
         Assert.Equal(origOverrides, moved["aCondOverrides"]?.ToJsonString());
         Assert.NotEqual(origFx, moved["fX"]!.GetValue<double>());
-        // and its condition owner (wear, power, gas, inventory, door state) is kept verbatim
+        // and its condition owner (wear, power, gas, inventory, door state) is kept verbatim. Stated as a PREFIX
+        // rather than an equality because the self-heal may append conds an older Ostraplan left off this part
+        // (SaveEdit.HealBehaviourConds) — it only ever adds, so nothing the save said may move or change. On a
+        // save whose parts the game built there is nothing to add and the two are identical.
         var co = ((JsonArray)ship["aCOs"]!).Select(n => n!.AsObject()).Single(c => (string?)c["strID"] == oid);
-        Assert.Equal(origCoConds, co["aConds"]?.ToJsonString());
+        var origList = ((JsonArray?)r.Context.CosById[oid].AsObject()["aConds"])?.Select(n => (string?)n).ToList() ?? [];
+        var newList = ((JsonArray?)co["aConds"])?.Select(n => (string?)n).ToList() ?? [];
+        Assert.Equal(origList, newList.Take(origList.Count));
+        _out.WriteLine($"moved CO: {origList.Count} conds kept, {newList.Count - origList.Count} healed on the way through");
     }
 
     [SkippableFact]

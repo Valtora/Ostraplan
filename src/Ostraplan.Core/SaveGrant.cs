@@ -319,7 +319,7 @@ public static class SaveGrant
         foreach (var co in cos)
             if (Str(co, "strID") is { } id) haveCo.Add(id);
 
-        var synthesized = new List<(JsonObject Co, PartDef Part)>();
+        var synthesized = new List<(JsonObject Co, PartDef Part, JsonObject Item)>();
         // Synthesizing a CO is also what stops the game spawning an item's own pockets, so anything that carries
         // intrinsic contents has to have them written out here (see SaveEdit.EmitIntrinsicContents). A top-level
         // item only: contained cargo already came through ShipExport carrying its pockets, and a loose STACK is
@@ -341,7 +341,7 @@ public static class SaveGrant
             haveCo.Add(id);
             if (catalog.Lookup(defName) is { } part)
             {
-                synthesized.Add((co, part));
+                synthesized.Add((co, part, obj));
                 if (obj["strParentID"] is null && obj["strSlotParentID"] is null
                     && CargoEdit.IntrinsicContentsOf(part, catalog).Count > 0)
                     needIntrinsics.Add((id, part, Dbl(obj, "fX"), Dbl(obj, "fY")));
@@ -471,21 +471,21 @@ public static class SaveGrant
     /// here to clear. It is still worth answering rather than falling through to the roll, so the baked rating says
     /// A for the same reason the update path's does.</para>
     /// </summary>
-    private static string? ApplyWear(WearOptions? wear, IReadOnlyList<(JsonObject Co, PartDef Part)> parts)
+    private static string? ApplyWear(WearOptions? wear, IReadOnlyList<(JsonObject Co, PartDef Part, JsonObject Item)> parts)
     {
         if (wear is not { Enabled: true } w) return null;
         if (w.IsRepair) return Rating.ConditionGrade(1.0);
         var rng = WearModel.NewRng(w);
         var ceiling = WearModel.CeilingFor(w.TargetCondition);
         var rates = new List<double>();
-        foreach (var (co, part) in parts)
+        foreach (var (co, part, item) in parts)
         {
             if (!part.StartingConds.Contains("IsInstalled")) continue;   // cargo and loose kit are not "the ship's condition"
             if (part.StartingConds.Contains("IsSystem")) { rates.Add(0.0); continue; }
             var damageMax = part.StartingCondValues.GetValueOrDefault("StatDamageMax");
             if (damageMax <= 0) { rates.Add(0.0); continue; }
             var dmg = WearModel.DamageAmount(rng, ceiling, damageMax);
-            SaveEdit.SetStatDamage(co, dmg);
+            SaveEdit.SetStatDamage(co, dmg, part, item);
             rates.Add(dmg / damageMax);
         }
         return WearModel.GradeFor(rates);
@@ -506,7 +506,7 @@ public static class SaveGrant
     private static string? CarryCondition(
         ShipDocument doc, IReadOnlyDictionary<string, JsonNode> sourceCos,
         IReadOnlyDictionary<string, string> itemIdByPlacementId,
-        IReadOnlyList<(JsonObject Co, PartDef Part)> parts)
+        IReadOnlyList<(JsonObject Co, PartDef Part, JsonObject Item)> parts)
     {
         // new item strID -> the save item it came from
         var originByItemId = new Dictionary<string, string>(StringComparer.Ordinal);
@@ -515,7 +515,7 @@ public static class SaveGrant
                 originByItemId[itemId] = origin;
 
         var rates = new List<double>();
-        foreach (var (co, part) in parts)
+        foreach (var (co, part, item) in parts)
         {
             if (!part.StartingConds.Contains("IsInstalled")) continue;   // cargo and loose kit are not "the ship's condition"
             var damageMax = part.StartingCondValues.GetValueOrDefault("StatDamageMax");
@@ -525,7 +525,7 @@ public static class SaveGrant
                          && sourceCos.TryGetValue(origin, out var src)
                 ? Math.Clamp(StatDamage(src), 0, damageMax)
                 : 0.0;   // added since the import, so it really is a new part
-            SaveEdit.SetStatDamage(co, damage);
+            SaveEdit.SetStatDamage(co, damage, part, item);
             rates.Add(damage / damageMax);
         }
         return WearModel.GradeFor(rates);

@@ -28,6 +28,12 @@ public sealed record InjectReport(
     double? Charged = null, double? ResultingBalance = null,
     bool AtmosphereFilled = false, int PowerFixed = 0)
 {
+    /// <summary>Kept condition owners repaired on the way through: parts an older Ostraplan wrote into this save
+    /// without the conds the game backfills on spawn, which left them unable to take a hit and invisible to
+    /// explosions (see <see cref="PartDef.BehaviourConds"/>). Zero for a save whose parts the game built, which is
+    /// every save Ostraplan has not written to.</summary>
+    public int BehaviourFixed { get; init; }
+
     /// <summary>Parts that only changed state — uninstalled, installed, a door opened or shut (see
     /// <see cref="ShipDiff.ReformedCount"/>). Written as fresh items like <see cref="Added"/>, but reported apart
     /// from it because nothing was actually built.</summary>
@@ -189,14 +195,17 @@ public static class SaveEdit
         var outCOs = new JsonArray();
         var outCosById = new Dictionary<string, JsonObject>(StringComparer.Ordinal);
         var powerFixed = 0;
+        var behaviourFixed = 0;
         foreach (var co in SourceCos(ctx))
         {
             var id = Str(co, "strID");
             if (id is not null && (dropSet.Contains(id) || roomCoIds.Contains(id))) continue;
             var clone = co.DeepClone().AsObject();
-            if (Str(clone, "strCODef") is { } cdef && catalog.Lookup(cdef) is { } cpart
-                && BakeTickers(clone, cpart, ctx.Epoch, catalog, onlyPower: true) > 0)
-                powerFixed++;
+            if (Str(clone, "strCODef") is { } cdef && catalog.Lookup(cdef) is { } cpart)
+            {
+                if (BakeTickers(clone, cpart, ctx.Epoch, catalog, onlyPower: true) > 0) powerFixed++;
+                if (HealBehaviourConds(clone, cpart, ctx.Epoch)) behaviourFixed++;
+            }
             outCOs.Add(clone);
             if (id is not null) outCosById[id] = clone;   // for re-positioning moved/rotated original cargo below
         }
@@ -311,7 +320,9 @@ public static class SaveEdit
                 if (GpmSettings(catalog, p.DefName) is { } gpm) item["aGPMSettings"] = gpm;
                 outItems.Add(item);
                 outItemsById[containerId] = item;
-                outCOs.Add(SynthesizeCo(p.DefName, containerId, catalog, ctx.Source.RegId, ctx.Epoch));
+                var newCo = SynthesizeCo(p.DefName, containerId, catalog, ctx.Source.RegId, ctx.Epoch);
+                outCOs.Add(newCo);
+                outCosById[containerId] = newCo;
 
                 // a newly-added nav console with no MODULES is a bare frame — install the standard nav-module set as
                 // contained children, each a fresh item + CO. The test is NavConsole.NeedsModules, not "has no
@@ -343,16 +354,17 @@ public static class SaveEdit
             if (outItemsById.GetValueOrDefault(containerId) is { } namedItem)
                 ApplyRename(namedItem, p.CustomName);
 
-            // An authored fill, for a new tank and a kept one alike. It rides on the ITEM's aCondOverrides rather
-            // than the CO's aConds, which is not the arrangement StatDamage uses and is deliberate: a new part's
-            // CO is written aConds=["DEFAULT"], and CondOwner's init strips that marker and APPENDS the def's own
-            // starting conds to the end of the list, zeroing each cond first — so an explicit StatGasMolO2 written
-            // there would be overwritten by the def's 13,373 mol every time. An override is applied after the CO
-            // is fully built (Ship.SpawnItems → JsonItem.ApplyOverrideCondsToCO → CondOwner.SetCondAmount), so it
-            // lands on top of both the def's amount and a kept CO's saved one. StatDamage does not hit this
-            // because no def declares StatDamage to overwrite it with.
-            if (p.Fill is { } fill && outItemsById.GetValueOrDefault(containerId) is { } filledItem)
-                SetFillOverrides(filledItem, fill, catalog.Lookup(p.DefName), catalog);
+            // An authored fill, for a new tank and a kept one alike, written in BOTH places the game keeps a
+            // container's contents. The item's aCondOverrides is the shallow-state channel, read off a ship nobody
+            // has loaded; the CO's aConds is what the ship actually comes up holding. The two are not
+            // interchangeable and the game writes both — see SetFillConds for why an override alone is dropped on
+            // a full load, which is what used to happen to every fill a write-back authored.
+            if (p.Fill is { } fill)
+            {
+                if (outItemsById.GetValueOrDefault(containerId) is { } filledItem)
+                    SetFillOverrides(filledItem, fill, catalog.Lookup(p.DefName), catalog);
+                SetFillConds(outCosById.GetValueOrDefault(containerId), fill, catalog.Lookup(p.DefName), catalog);
+            }
 
             // A nav console's screen arrangement: where each module it holds sits, so the console reads the way the
             // design intends instead of however the game walks the container (see NavConsole.Arrange). On a KEPT
@@ -460,7 +472,7 @@ public static class SaveEdit
         // the chosen average condition — the game stores per-part wear exactly this way (a CO's aConds carry
         // StatDamage). DMGStatus stays 0 (New) below, so the game keeps this baked wear rather than running its own
         // pass. The resulting mean condition becomes the baked aRating Condition slot.
-        var wornGrade = ApplyWear(wear, outCOs, structuralIds, catalog, paintedById);
+        var wornGrade = ApplyWear(wear, outCOs, structuralIds, catalog, outItemsById, paintedById);
 
         // roomValue is the room's PARTS value (Room.CalculateRoomValue), which Ship.GetShipValue sums on a
         // shallow load — bake that, not the physical volume, so a broker quote taken before the ship is
@@ -539,6 +551,7 @@ public static class SaveEdit
             charge?.Amount, charge?.NewBalance, atmosphereFilled, powerFixed)
         {
             Reformed = diff.ReformedCount,
+            BehaviourFixed = behaviourFixed,
         };
         return (ship, report);
     }
@@ -954,6 +967,7 @@ public static class SaveEdit
     /// </summary>
     private static string? ApplyWear(
         WearOptions? wear, JsonArray outCOs, HashSet<string> structuralIds, Catalog catalog,
+        IReadOnlyDictionary<string, JsonObject> itemsById,
         IReadOnlyDictionary<string, double>? painted = null)
     {
         var anyPainted = painted is { Count: > 0 };
@@ -965,7 +979,7 @@ public static class SaveEdit
             foreach (var node in outCOs)
                 if (node is JsonObject co && Str(co, "strID") is { } id && painted!.TryGetValue(id, out var c)
                     && DamagePoolOf(co, catalog) is { } max)
-                    SetStatDamage(co, (1.0 - c) * max);
+                    SetStatDamage(co, (1.0 - c) * max, DefOf(co, catalog), itemsById.GetValueOrDefault(id));
             // No grade: an unarmed pass does not know the condition of the parts it deliberately left alone, so
             // it must not claim to. The game recomputes the rating on a full load either way.
             return null;
@@ -978,9 +992,9 @@ public static class SaveEdit
                 if (node is not JsonObject repaired || Str(repaired, "strID") is not { } rid
                     || !structuralIds.Contains(rid)) continue;
                 if (anyPainted && painted!.TryGetValue(rid, out var c) && DamagePoolOf(repaired, catalog) is { } max)
-                    SetStatDamage(repaired, (1.0 - c) * max);
+                    SetStatDamage(repaired, (1.0 - c) * max, DefOf(repaired, catalog), itemsById.GetValueOrDefault(rid));
                 else
-                    SetStatDamage(repaired, 0);
+                    SetStatDamage(repaired, 0, DefOf(repaired, catalog), itemsById.GetValueOrDefault(rid));
             }
             return anyPainted ? null : Rating.ConditionGrade(1.0);
         }
@@ -1002,7 +1016,7 @@ public static class SaveEdit
             var dmg = anyPainted && painted!.TryGetValue(id, out var c)
                 ? (1.0 - c) * damageMax
                 : WearModel.DamageAmount(rng, ceiling, damageMax);
-            SetStatDamage(co, dmg);
+            SetStatDamage(co, dmg, part, itemsById.GetValueOrDefault(id));
             rates.Add(dmg / damageMax);
         }
         return WearModel.GradeFor(rates);
@@ -1019,14 +1033,103 @@ public static class SaveEdit
         return max > 0 ? max : null;
     }
 
+    /// <summary>The palette entry a CO's <c>strCODef</c> names, or null when it names nothing this install has.</summary>
+    private static PartDef? DefOf(JsonObject co, Catalog catalog) =>
+        Str(co, "strCODef") is { } def ? catalog.Lookup(def) : null;
+
+    /// <summary>
+    /// Repair a <b>kept</b> condition owner that is missing the conds the game gives every part on the day it is
+    /// built (<see cref="PartDef.BehaviourConds"/>), plus the two fields beside them a synthesized CO used to
+    /// leave out. Returns whether anything was added.
+    ///
+    /// <para>This is the same shape as the Power-ticker self-heal above and exists for the same reason: a part an
+    /// older Ostraplan wrote into this save is missing them permanently, because a kept CO is copied verbatim and
+    /// nothing in the game ever adds them a second time. On a save whose parts the game built, every one of these
+    /// is already present and this does nothing at all.</para>
+    ///
+    /// <para><b>Only ever adds, never overwrites.</b> Each cond is written only when the CO has no say on it, so a
+    /// value the game or the player arrived at is left alone. Three cases are deliberately left to the CO rather
+    /// than the def, because the def cannot know about them: a part that picked up <c>IsUndamageable</c> or
+    /// <c>IsIndestructable</c> at runtime keeps whichever flag that implies, and an <c>fLastICOUpdate</c> that is
+    /// already set is a real catch-up point the game is entitled to act on. Nothing in the game's code removes any
+    /// of these conds, so absence means the backfill never ran rather than that something took it away.</para>
+    ///
+    /// <para><b><c>aCondRules</c> is deliberately NOT healed.</b> A synthesized CO needs the field, but an absent
+    /// one is no evidence that a CO was synthesized: the save writer omits an empty array rather than writing
+    /// <c>[]</c>, so absence is the game saying "this part has no cond rules". 340 of the 487 COs on one real
+    /// station are missing it. Filling those with the <c>DEFAULT</c> marker would hand every one of them its def's
+    /// rules — inventing state for a part the game recorded as having none.</para>
+    ///
+    /// <para>Nothing it touches feeds price, mass or the rating, so a heal cannot move what a ship is worth.</para>
+    /// </summary>
+    private static bool HealBehaviourConds(JsonObject co, PartDef def, double epoch)
+    {
+        var healed = false;
+
+        // Present and non-zero on all 487 COs of a real station record, so absence here IS a reliable tell.
+        if (co["fLastICOUpdate"] is null) { co["fLastICOUpdate"] = epoch; healed = true; }
+
+        if (def.BehaviourConds.Length == 0) return healed;
+        if (co["aConds"] is not JsonArray conds) return healed;
+
+        var present = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var n in conds)
+            if (n is JsonValue v && v.TryGetValue<string>(out var s)) present.Add(LootDef.CondName(s));
+
+        foreach (var entry in def.BehaviourConds)
+        {
+            var name = LootDef.CondName(entry);
+            if (present.Contains(name)) continue;
+            if (name == "IsDamageable" && present.Contains("IsUndamageable")) continue;
+            if (name == "IsDestructable" && present.Contains("IsIndestructable")) continue;
+            conds.Add(entry);
+            healed = true;
+        }
+        return healed;
+    }
+
+    /// <summary>
+    /// Spell out a CO's <c>aConds</c> when the <c>DEFAULT</c> marker would overrule something this writer is about
+    /// to put on <paramref name="conds"/> — and only then, because expanding a marker that costs nothing would put
+    /// twenty entries on every part in the record.
+    ///
+    /// <para><c>CondOwner.SetData</c> expands the marker by <b>appending</b> the def's own <c>aStartingConds</c> to
+    /// whatever else the array holds, and applies the result in order, zeroing each cond before it sets it. So the
+    /// def has the last word on every cond it declares, and an authored amount written beside the marker is
+    /// overwritten by the def's stock value on load. Writing the def's conds out in full is the only way to get
+    /// the last word back.</para>
+    ///
+    /// <para>Most conds a writer sets are not declared by any def — <c>StatDamage</c> is the usual one, and only
+    /// the thirteen mineral defs declare it (as a spawn roll) — so this normally does nothing at all.</para>
+    /// </summary>
+    private static void ExpandDefaultIfContested(JsonObject co, PartDef? def, params string[] conds)
+    {
+        if (def is null || co["aConds"] is not JsonArray arr) return;
+        var marker = -1;
+        for (var i = 0; i < arr.Count; i++)
+            if (arr[i] is JsonValue v && v.TryGetValue<string>(out var s) && s == "DEFAULT") { marker = i; break; }
+        if (marker < 0) return;
+        if (!conds.Any(def.Declares)) return;
+        arr.RemoveAt(marker);
+        foreach (var entry in def.CondEntries) arr.Add(entry);
+    }
+
     /// <summary>Set a CO's <c>StatDamage</c> to <paramref name="amount"/> (in <c>StatDamageMax</c> count units):
     /// drop any existing <c>StatDamage</c>, and — when actually damaging it — its <c>IsPristine</c> resale flag
     /// (the game removes it on first damage), then add a single <c>StatDamage=1.0x&lt;amount&gt;</c>. A zero amount
     /// leaves the part undamaged (and keeps <c>IsPristine</c>). Does not touch <c>StatDamageMax</c>.
+    /// <para><paramref name="def"/> is only needed for the handful of defs that declare <c>StatDamage</c>
+    /// themselves — the minerals, which roll theirs on spawn. See <see cref="ExpandDefaultIfContested"/>.</para>
+    /// <para><paramref name="item"/> is the part's item entry, and passing it is how wear reaches the <b>shallow</b>
+    /// half of the record as well. The game writes both: <c>Ship.GetJsonItem</c> rebuilds each item entry from live
+    /// state and mirrors the CO's damage onto it, and <c>DamageSystem.RemoveShallowDamage</c> exists to strip
+    /// exactly that entry. Setting the CO alone leaves a worn ship reading its OLD condition at a broker and its
+    /// new one once loaded.</para>
     /// <para>Shared with <see cref="SaveGrant"/>, which wears a granted ship the same way.</para></summary>
-    internal static void SetStatDamage(JsonObject co, double amount)
+    internal static void SetStatDamage(JsonObject co, double amount, PartDef? def = null, JsonObject? item = null)
     {
         if (co["aConds"] is not JsonArray conds) co["aConds"] = conds = new JsonArray();
+        ExpandDefaultIfContested(co, def, "StatDamage", "IsPristine");
         for (var i = conds.Count - 1; i >= 0; i--)
             if (conds[i] is JsonValue v && v.TryGetValue<string>(out var s)
                 && (s.StartsWith("StatDamage=", StringComparison.Ordinal)
@@ -1034,6 +1137,81 @@ public static class SaveEdit
                 conds.RemoveAt(i);
         if (amount > 0)
             conds.Add($"StatDamage=1.0x{amount.ToString("0.######", System.Globalization.CultureInfo.InvariantCulture)}");
+        if (item is not null) SetDamageOverride(item, amount);
+    }
+
+    /// <summary>
+    /// Mirror a part's damage onto its <b>item</b>, which is where the game keeps the copy it can read without
+    /// loading the ship — the broker's item wrapper and the micrometeoroid pass over an unvisited hull both read
+    /// it there (<c>Ostranauts.Trading.DataCOWrapper</c>, <c>Ostranauts.Ships.DamageSystem</c>).
+    ///
+    /// <para><c>Ship.GetJsonItem</c>'s exact rule: an entry when the damage clears <c>0.001</c>, and otherwise
+    /// none at all. The game gets the "otherwise" for free because it builds every item entry from scratch on each
+    /// save; a record edited in place has to take the stale entry out, or repairing a part leaves it reading
+    /// damaged to everything that has not loaded the ship.</para>
+    ///
+    /// <para>Only <c>StatDamage</c> is mirrored, because that is the only cond the game itself ever writes here.
+    /// A fill is the deliberate exception (see <see cref="SetFillOverrides"/>): the game has no authored-fill
+    /// concept to write, both shallow readers pass unknown conds through untouched, and
+    /// <c>RemoveShallowDamage</c> explicitly keeps everything that is not <c>StatDamage</c>.</para>
+    /// </summary>
+    private static void SetDamageOverride(JsonObject item, double amount)
+    {
+        var overrides = item["aCondOverrides"] as JsonArray;
+        if (overrides is not null)
+            for (var i = overrides.Count - 1; i >= 0; i--)
+                if (overrides[i] is JsonObject o && Str(o, "CondName") == "StatDamage")
+                    overrides.RemoveAt(i);
+
+        if (amount <= 0.001)
+        {
+            if (overrides is { Count: 0 }) item.Remove("aCondOverrides");   // no entries is no field, as the game writes it
+            return;
+        }
+        if (overrides is null) item["aCondOverrides"] = overrides = new JsonArray();
+        overrides.Add(new JsonObject
+        {
+            ["CondName"] = "StatDamage",
+            ["Chance"] = 1.0,
+            ["Amount"] = Math.Abs(amount),
+            ["NegativeValue"] = amount < 0,
+        });
+    }
+
+    /// <summary>
+    /// Write a container's authored fill onto its condition owner, which is what decides its contents once the ship
+    /// actually loads.
+    ///
+    /// <para><see cref="SetFillOverrides"/> writes the same amounts onto the <b>item</b>, and that is not the same
+    /// thing and not enough on its own. An item's <c>aCondOverrides</c> is the shallow-state channel: it is what
+    /// the broker and the damage system read off a ship nobody has loaded, and on a full load
+    /// <c>Ship.SpawnItems</c> feeds it to <c>CondOwner.SetCondAmount</c> — which routes through
+    /// <c>AddCondAmount</c> and returns on its first line, because a CO built from save data has had its conds
+    /// frozen since <c>SetData</c> and <c>Ship.PostGameLoad</c> does not thaw them until several hundred lines
+    /// later. The game writes both and never notices, since its CO already carries the same values. A writer that
+    /// puts an authored fill only on the item gets a tank that reads right at a broker and comes up holding the
+    /// def's stock 13,373 mol the moment the player flies it.</para>
+    ///
+    /// <para>A template is the exception that proves it: a top-level item there carries no CO, so nothing is
+    /// frozen and the override is the whole mechanism. That is why the mod export needs none of this.</para>
+    /// </summary>
+    internal static void SetFillConds(JsonObject? co, IReadOnlyDictionary<string, double> fill, PartDef? def, Catalog catalog)
+    {
+        if (co is null || ContainerFill.Describe(def, catalog) is not { } spec) return;
+        if (co["aConds"] is not JsonArray conds) co["aConds"] = conds = new JsonArray();
+
+        var lines = spec.Lines.Select(l => l.Cond).ToArray();
+        ExpandDefaultIfContested(co, def, lines);
+        var ours = new HashSet<string>(lines, StringComparer.Ordinal);
+        for (var i = conds.Count - 1; i >= 0; i--)
+            if (conds[i] is JsonValue v && v.TryGetValue<string>(out var s) && ours.Contains(LootDef.CondName(s)))
+                conds.RemoveAt(i);
+
+        // Every payload line is written, including the ones at the def's stock amount: the expansion above may have
+        // just re-stated the def's own entry, and an emptied line has to say zero out loud or there is nothing to
+        // zero. An entry at zero adds nothing after SetData's ZeroCondAmount, which is exactly "empty".
+        foreach (var line in spec.Lines)
+            conds.Add(FormattableString.Invariant($"{line.Cond}=1.0x{fill.GetValueOrDefault(line.Cond)}"));
     }
 
     /// <summary>
@@ -1125,22 +1303,45 @@ public static class SaveEdit
     /// A pristine condition owner for a newly-added part, keyed to its item's <paramref name="strID"/>. A save
     /// load requires one CO per item; <c>aConds = ["DEFAULT"]</c> tells <c>CondOwner.SetData</c> to repopulate the
     /// def's own starting conds (verified against the decompile), so the part comes up freshly-built — the same
-    /// pattern the game and <see cref="ShipExport"/> use. Cooverlay skins resolve through
-    /// <c>DataHandler.GetCondOwnerDef</c> to their base def, so this works for any buildable def.
+    /// pattern the game uses for a part whose conds still match its def.
+    ///
+    /// <para><b>A cooverlay skin cannot use that marker</b>, which is what <see cref="PartDef.SavedConds"/> is
+    /// for: the marker resolves through <c>DataHandler.GetCondOwnerDef</c> to the skin's <b>base</b> condowner, and
+    /// the skin's own cond-loot deltas can never be applied on top of a save-loaded CO (<c>SetData</c> freezes
+    /// conds the moment it has save data, and the <c>COOverlay</c> runs after that). So a skin gets its conds
+    /// written out in full, exactly as the game's own <c>CondOwner.GetJSON</c> writes them.</para>
+    ///
+    /// <para><c>aCondRules = ["DEFAULT"]</c> for the same reason the conds carry a marker, and it is not
+    /// optional: <c>SetData</c> takes the rules from <c>jCOSIn.aCondRules</c> whenever there is save data, so a CO
+    /// that omits the field loads with <b>no</b> cond rules at all. Sixty vanilla condowners declare them —
+    /// every canister, RTA tank, reactor core and fire extinguisher — and the game writes the field on each. A def
+    /// that declares none expands the marker to an empty set, so this is safe to write unconditionally.</para>
     /// </summary>
     internal static JsonObject SynthesizeCo(string def, string strID, Catalog catalog, string regId, double epoch)
     {
+        var part = catalog.Lookup(def);
         var co = new JsonObject
         {
             ["strID"] = strID,
             ["strCODef"] = def,
             ["bAlive"] = true,
-            ["aConds"] = new JsonArray("DEFAULT"),
+            // The def's own conds, plus the ones the game would have backfilled in SetUpBehaviours and cannot,
+            // because that runs on a frozen CO (see PartDef.BehaviourConds). None of the backfilled conds is
+            // declared by any def, by construction of the guards there, so they never collide with the marker's
+            // expansion and can sit beside it.
+            ["aConds"] = new JsonArray([
+                .. (part?.SavedConds ?? ["DEFAULT"]).Concat(part?.BehaviourConds ?? []).Select(c => (JsonNode)c!)]),
+            ["aCondRules"] = new JsonArray("DEFAULT"),
             ["strCondID"] = def + strID,
+            // When this CO was last brought up to date. The game stamps a newly-created one with the current epoch
+            // (CondOwner's own init does exactly this), and CatchUp/EndTurn advance every TIMED cond on the CO by
+            // fEpoch - fLastICOUpdate. Left at zero that elapsed span is the whole age of the save, which expires
+            // any timed cond the moment the ship is visited. Only two item families declare one as a starting cond
+            // (the meat that evolves and the meat planter's harvest timer), but the cost of being right is a field.
+            ["fLastICOUpdate"] = epoch,
             ["strIdleAnim"] = "Idle",
             ["strRegIDLast"] = regId,
         };
-        var part = catalog.Lookup(def);
         if (part?.Friendly is { Length: > 0 } friendly) co["strFriendlyName"] = friendly;
         // a freshly-built device carries all the tickers its def declares (Power, etc.) — bake them, or the part
         // loads with no Power ticker and can never draw power (a save loads tickers from the CO, not the def).
