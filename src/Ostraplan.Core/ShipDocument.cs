@@ -77,6 +77,30 @@ public sealed class Placement
     public bool IsGiven { get; set; }
 
     /// <summary>
+    /// The condition the designer painted on this part: 1.0 pristine, 0.0 gone. Null (and omitted from the
+    /// <c>.oplan</c>) for a part nobody has painted, which is the great majority and which takes whatever the
+    /// export-wide wear setting decides.
+    ///
+    /// <para><b>This is a deliberate reversal of "a design carries no wear".</b> That line was written for
+    /// <see cref="DamageState"/>, where it is still right: a strike is a <i>measurement</i> of a layout and
+    /// storing its result would make "fire again" expensive and the document dishonest. Painted condition is the
+    /// other thing — an authored property of the design, the same as a container's <see cref="Fill"/> or a nav
+    /// console's <see cref="NavLayout"/> — and docs/SCOPE.md already put "a wear level" among what a design
+    /// carries into the game. This generalises that one whole-ship number to per part; it does not open a new
+    /// category. See docs/SCOPE.md, "Painting condition".</para>
+    ///
+    /// <para>It reaches the game by the same route the whole-ship wear does, as an <c>aOverrideConds</c>
+    /// <c>StatDamage</c> entry on a mod export and as the condition owner's own <c>StatDamage</c> on a save
+    /// write, so a painted part is worn in game rather than merely worn here.</para>
+    ///
+    /// <para>It rides through <see cref="Restate"/> — uninstalling a battered pump does not mend it — and is
+    /// dropped by duplicate and paste along with <see cref="Fill"/>, <see cref="ZBias"/> and
+    /// <see cref="CustomName"/>, which is the existing convention for everything that is not def, pose or
+    /// cargo.</para>
+    /// </summary>
+    public double? Condition { get; set; }
+
+    /// <summary>
     /// The <c>strID</c> of the save item this part came from, set when the document was imported from a save
     /// <b>for editing</b> (<see cref="SaveEditImport"/>); null for parts the user added. Unlike
     /// <see cref="IsGiven"/> (which clears on move) it is <b>preserved</b> across move / rotate / group-rotate —
@@ -128,7 +152,7 @@ public sealed class Placement
             // So does Fill: uninstalling a tank does not empty it, and the loose form is the same shell with the
             // same volume and rating. A line the target def does not have is dropped where the fill is applied.
             DefName = targetDef, X = X, Y = Y, Rot = rot, IsGiven = false, Cargo = Cargo, CustomName = CustomName,
-            ZBias = ZBias, NavLayout = NavLayout, Fill = Fill,
+            ZBias = ZBias, NavLayout = NavLayout, Fill = Fill, Condition = Condition,
             OriginStrID = backHome ? carriedId : null,
             SwappedFromStrID = backHome ? null : carriedId,
             SwappedFromDef = backHome || carriedId is null ? null : carriedDef,
@@ -695,6 +719,23 @@ public sealed class ShipDocument
     internal void SetFill(Placement p, IReadOnlyDictionary<string, double>? fill)
     {
         p.Fill = fill;
+        RaiseChanged();
+    }
+
+    /// <summary>Set a part's painted condition (see <see cref="Placement.Condition"/>); null hands it back to
+    /// whatever the export's own wear setting decides. Like a fill this moves nothing spatial, but it DOES raise
+    /// <see cref="Changed"/>: the Ship Rating's Condition slot is a mean over the installed parts, so it moves
+    /// with every stroke.</summary>
+    internal void SetCondition(Placement p, double? condition)
+    {
+        p.Condition = Paint.Clamp(condition);
+        RaiseChanged();
+    }
+
+    /// <inheritdoc cref="SetCondition(Placement, double?)"/>
+    internal void SetCondition(LooseObject o, double? condition)
+    {
+        o.Condition = Paint.Clamp(condition);
         RaiseChanged();
     }
 

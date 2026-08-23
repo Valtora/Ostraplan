@@ -74,6 +74,10 @@ public static class SaveEdit
         // The optional wear pass (below) re-rolls StatDamage on exactly this set — the installed structure the
         // Ship Rating's Condition slot averages over — leaving cargo, crew and system spawners alone.
         var structuralIds = new HashSet<string>(StringComparer.Ordinal);
+        // Condition the designer painted on a part, keyed by the CO strID that part ends up as. An authored value
+        // beats the roll and applies whether or not the wear pass is armed, so a battered station written back
+        // over a ship arrives battered even on a "keep the existing condition" pass.
+        var paintedById = new Dictionary<string, double>(StringComparer.Ordinal);
         var diff = ShipDiff.Compute(doc, ctx);
 
         // classify the origins we need to act on
@@ -361,6 +365,7 @@ public static class SaveEdit
             }
 
             structuralIds.Add(containerId);
+            if (p.Condition is { } painted) paintedById[containerId] = painted;
             EmitCargo(p.Cargo, containerId, fx, fy);
         }
 
@@ -449,7 +454,7 @@ public static class SaveEdit
         // the chosen average condition — the game stores per-part wear exactly this way (a CO's aConds carry
         // StatDamage). DMGStatus stays 0 (New) below, so the game keeps this baked wear rather than running its own
         // pass. The resulting mean condition becomes the baked aRating Condition slot.
-        var wornGrade = ApplyWear(wear, outCOs, structuralIds, catalog);
+        var wornGrade = ApplyWear(wear, outCOs, structuralIds, catalog, paintedById);
 
         // roomValue is the room's PARTS value (Room.CalculateRoomValue), which Ship.GetShipValue sums on a
         // shallow load — bake that, not the physical volume, so a broker quote taken before the ship is
@@ -934,17 +939,46 @@ public static class SaveEdit
     /// where the point is that nothing is left carrying damage whatever put it there. This is the only path that
     /// removes damage at all: on an update the kept COs arrive with the ship's real wear on them, and an unarmed
     /// pass deliberately leaves it.</para>
+    ///
+    /// <para><b>A painted condition is authored and outranks all of it</b> (see <see cref="Placement.Condition"/>).
+    /// It is applied whether or not the pass is armed, so the whole method now runs for a painted design even on
+    /// an unarmed one; it beats the roll on a worn pass; and it beats the clear on a repair, because repairing
+    /// everything is a statement about the parts the designer did <i>not</i> speak for. Unpainted parts behave
+    /// exactly as they always did.</para>
     /// </summary>
-    private static string? ApplyWear(WearOptions? wear, JsonArray outCOs, HashSet<string> structuralIds, Catalog catalog)
+    private static string? ApplyWear(
+        WearOptions? wear, JsonArray outCOs, HashSet<string> structuralIds, Catalog catalog,
+        IReadOnlyDictionary<string, double>? painted = null)
     {
-        if (wear is not { Enabled: true } w) return null;
+        var anyPainted = painted is { Count: > 0 };
+        if (wear is not { Enabled: true } w)
+        {
+            // Unarmed: the ship's own wear is left alone, but a painted part still has to be written or the
+            // design would claim a condition it never delivered.
+            if (!anyPainted) return null;
+            foreach (var node in outCOs)
+                if (node is JsonObject co && Str(co, "strID") is { } id && painted!.TryGetValue(id, out var c)
+                    && DamagePoolOf(co, catalog) is { } max)
+                    SetStatDamage(co, (1.0 - c) * max);
+            // No grade: an unarmed pass does not know the condition of the parts it deliberately left alone, so
+            // it must not claim to. The game recomputes the rating on a full load either way.
+            return null;
+        }
+
         if (w.IsRepair)
         {
             foreach (var node in outCOs)
-                if (node is JsonObject repaired && Str(repaired, "strID") is { } rid && structuralIds.Contains(rid))
+            {
+                if (node is not JsonObject repaired || Str(repaired, "strID") is not { } rid
+                    || !structuralIds.Contains(rid)) continue;
+                if (anyPainted && painted!.TryGetValue(rid, out var c) && DamagePoolOf(repaired, catalog) is { } max)
+                    SetStatDamage(repaired, (1.0 - c) * max);
+                else
                     SetStatDamage(repaired, 0);
-            return Rating.ConditionGrade(1.0);
+            }
+            return anyPainted ? null : Rating.ConditionGrade(1.0);
         }
+
         var rng = WearModel.NewRng(w);
         var ceiling = WearModel.CeilingFor(w.TargetCondition);
         var rates = new List<double>();
@@ -959,11 +993,24 @@ public static class SaveEdit
             }
             var damageMax = part.StartingCondValues.GetValueOrDefault("StatDamageMax");
             if (damageMax <= 0) { rates.Add(0.0); continue; }
-            var dmg = WearModel.DamageAmount(rng, ceiling, damageMax);
+            var dmg = anyPainted && painted!.TryGetValue(id, out var c)
+                ? (1.0 - c) * damageMax
+                : WearModel.DamageAmount(rng, ceiling, damageMax);
             SetStatDamage(co, dmg);
             rates.Add(dmg / damageMax);
         }
         return WearModel.GradeFor(rates);
+    }
+
+    /// <summary>A CO's damage pool from its def, or null when it has none and so cannot hold wear at all — the
+    /// same test <see cref="Paint.CanWear"/> applies in the editor, run here against the CO's own
+    /// <c>strCODef</c>.</summary>
+    private static double? DamagePoolOf(JsonObject co, Catalog catalog)
+    {
+        if (Str(co, "strCODef") is not { } def || catalog.Lookup(def) is not { } part) return null;
+        if (part.StartingConds.Contains("IsSystem")) return null;
+        var max = part.StartingCondValues.GetValueOrDefault("StatDamageMax");
+        return max > 0 ? max : null;
     }
 
     /// <summary>Set a CO's <c>StatDamage</c> to <paramref name="amount"/> (in <c>StatDamageMax</c> count units):

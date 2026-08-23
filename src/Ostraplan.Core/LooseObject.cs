@@ -70,4 +70,19 @@ public sealed class LooseObject
     /// pushed behind the fixture it leans on. Mutable for the same reason <see cref="Quantity"/> is: the nudge
     /// retunes it in place, keeping the object's identity for the selection pointing at it.</summary>
     public int ZBias { get; set; }
+
+    /// <summary>
+    /// The condition the designer painted on this item, exactly as <see cref="Placement.Condition"/>: 1.0
+    /// pristine, 0.0 gone, null for an item nobody has painted.
+    ///
+    /// <para>A loose item takes wear because the game gives it a condition owner like anything else, and because
+    /// a battered crate on the deck is most of what makes a compartment read as lived-in rather than newly
+    /// fitted. This is the same reasoning that let a loose item carry a <see cref="CustomName"/>: the design
+    /// intent is often the loose form.</para>
+    ///
+    /// <para><b>A stack is worn as a stack.</b> The condition belongs to the pile of twenty rounds rather than to
+    /// one of them, which is where the game keeps it too and matches how <see cref="CustomName"/> lands on the
+    /// head object.</para>
+    /// </summary>
+    public double? Condition { get; set; }
 }

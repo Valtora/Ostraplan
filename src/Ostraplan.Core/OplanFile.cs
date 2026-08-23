@@ -103,6 +103,7 @@ public sealed class OplanFile
                            // null means "the def's own amounts", {} means "this container holds nothing".
                            Fill = p.Fill is { } fill
                                ? new Dictionary<string, double>(fill, StringComparer.Ordinal) : null,
+                           Cond = p.Condition,
                        })
                        .ToList(),
             Zones = doc.Zones.Select(ToOplanZone).ToList(),
@@ -112,6 +113,7 @@ public sealed class OplanFile
                                   Def = lo.DefName, X = lo.X, Y = lo.Y, Rot = lo.Rot, Qty = lo.Quantity,
                                   Name = lo.CustomName, Z = lo.ZBias == 0 ? null : lo.ZBias,
                                   Cargo = lo.Cargo.Count > 0 ? lo.Cargo.Select(ToOplanCargo).ToList() : null,
+                                  Cond = lo.Condition,
                               })
                               .ToList(),
             ExtraMassKg = doc.ExtraMassKg > 0 ? doc.ExtraMassKg : null,
@@ -169,6 +171,9 @@ public sealed class OplanFile
                     ? new Dictionary<string, string>(nav, StringComparer.Ordinal) : null,
                 Fill = part.Fill is { } fill
                     ? new Dictionary<string, double>(fill, StringComparer.Ordinal) : null,
+                // Clamped rather than trusted: the field is hand-editable and a value outside 0..1 would drive
+                // the wear shader and the export's StatDamage past the pool the part actually has.
+                Condition = Paint.Clamp(part.Cond),
             };
             doc.Add(placement);
             byIndex[i] = placement;
@@ -204,6 +209,7 @@ public sealed class OplanFile
                     // AddLoose tops up the item's own pockets, so a file written before deck items held anything
                     // still opens with them (and a file that has them is left alone).
                     Cargo = FromOplanCargoList(lo.Cargo ?? [], catalog.Lookup(lo.Def), catalog),
+                    Condition = Paint.Clamp(lo.Cond),
                 });
         return (doc, missing);
     }
@@ -383,6 +389,12 @@ public sealed class OplanPart
     /// emptied. Additive at format v1, like the rest: an older build ignores it and round-trips it through
     /// <see cref="Extra"/>, so a design opened in one is priced and flown on stock fills but loses nothing.</summary>
     [JsonPropertyName("fill")] public Dictionary<string, double>? Fill { get; set; }
+    /// <summary>The condition the designer painted on this part, 1.0 pristine to 0.0 gone (see
+    /// <see cref="Placement.Condition"/>). Null — and omitted — for a part nobody painted, which is almost all of
+    /// them and which takes whatever the export's own wear setting decides. Additive at format v1, like the rest:
+    /// an older build ignores it and round-trips it through <see cref="Extra"/>, so a design opened in one exports
+    /// on the whole-ship wear setting alone but loses nothing.</summary>
+    [JsonPropertyName("cond")] public double? Cond { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }
 
@@ -445,6 +457,10 @@ public sealed class OplanLoose
     /// <summary>What the item holds (see <see cref="LooseObject.Cargo"/>): a backpack's pouches and whatever was
     /// put in them. Null — and omitted — for the great majority of deck items, which hold nothing.</summary>
     [JsonPropertyName("cargo")] public List<OplanCargo>? Cargo { get; set; }
+    /// <summary>The condition the designer painted on this deck item, on the same terms as a part's
+    /// <see cref="OplanPart.Cond"/>. Null — and omitted — for an item nobody painted. A stack carries one
+    /// condition for the whole pile, which is where the game keeps it.</summary>
+    [JsonPropertyName("cond")] public double? Cond { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }
 

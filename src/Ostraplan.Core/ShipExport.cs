@@ -177,12 +177,18 @@ public static class ShipExport
         // never runs its own DamageAllCOs pass.
         Random? wearRng = null;
         double wearCeiling = 0;
-        List<double>? wearRates = wear is { Enabled: true } ? [] : null;
         if (wear is { Enabled: true } wo)
         {
             wearRng = WearModel.NewRng(wo);
             wearCeiling = WearModel.CeilingFor(wo.TargetCondition);
         }
+
+        // A design can also carry condition PAINTED per part (Placement.Condition), which is authored rather than
+        // rolled and therefore travels whatever the wear setting says — a pristine export of a deliberately
+        // battered station still has to arrive battered. So the rates list is collected whenever either source is
+        // in play, and a painted part wins over the roll wherever both would speak.
+        var anyPainted = doc.Placements.Any(p => p.Condition is not null);
+        List<double>? wearRates = wearRng is not null || anyPainted ? [] : null;
 
         // map a grid part back to its source placement (PlacedPart.StrID == Placement.Id) so its contained cargo
         // travels into the export
@@ -287,19 +293,24 @@ public static class ShipExport
             // Wear: damage installed parts (the set the rating's Condition slot averages over). A part with a
             // StatDamageMax health pool and no IsSystem flag takes uniform(0, ceiling)·M damage; system/undamageable
             // installed parts count as pristine in the grade but are left untouched, exactly like the game.
-            if (wearRng is not null && part.Part.Has("IsInstalled"))
+            if (wearRates is not null && part.Part.Has("IsInstalled"))
             {
                 var damageMax = part.Part.StartingCondValues.GetValueOrDefault("StatDamageMax");
                 if (damageMax > 0 && !part.Part.Has("IsSystem"))
                 {
-                    var dmg = WearModel.DamageAmount(wearRng, wearCeiling, damageMax);
+                    // A painted condition is an authored fact and takes precedence over the roll; an unpainted
+                    // part falls to the roll, or to nothing when the pass is unarmed. Both land in the same
+                    // StatDamage override, because both are the same thing to the game.
+                    var dmg = placement?.Condition is { } painted
+                        ? (1.0 - painted) * damageMax
+                        : wearRng is null ? 0.0 : WearModel.DamageAmount(wearRng, wearCeiling, damageMax);
                     if (dmg > 0)
                         (overrides ??= []).Add(new ExportedCondOverride { CondName = "StatDamage", Chance = 1.0, Amount = dmg });
-                    wearRates!.Add(dmg / damageMax);
+                    wearRates.Add(dmg / damageMax);
                 }
                 else
                 {
-                    wearRates!.Add(0.0);
+                    wearRates.Add(0.0);
                 }
             }
 
@@ -403,6 +414,17 @@ public static class ShipExport
             // A name the user gave this deck item, on the head alone: the stack's extra copies below are members of
             // it, and the game keeps the name on the head's CO (see Rename and LooseObject.CustomName).
             if (lo.CustomName is { } looseName) head.AGPMSettings = [RenameGpm(looseName)];
+            // A condition the user painted, likewise on the head alone: the pile is worn as a pile, which is where
+            // the game keeps it and how the name above lands. The stack members below keep their pristine marker,
+            // so a worn stack reads by its head exactly as a renamed one does.
+            if (lo.Condition is { } looseCond && Paint.CanWearLoose(part)
+                && part.StartingCondValues.GetValueOrDefault("StatDamageMax") is > 0 and var looseMax)
+            {
+                var dmg = (1.0 - looseCond) * looseMax;
+                if (dmg > 0)
+                    head.ACondOverrides =
+                        [new ExportedCondOverride { CondName = "StatDamage", Chance = 1.0, Amount = dmg }];
+            }
             items.Add(head);
 
             if (qty > 1)
