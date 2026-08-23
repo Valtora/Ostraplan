@@ -77,6 +77,30 @@ A name also costs the model nothing the overlay was not already paying: it rides
 loose item exactly as a part's does, through the `.oplan`, the export and a save write-back,
 and an import reads it back. Tile conditions were the real line, and they still are.
 
+### Painting condition
+
+A design can carry the condition of each part and each deck item, painted by hand, and it
+travels into the game with everything else. This reverses the line drawn in
+`DamageState.cs`, and the reversal is worth recording because the original reasoning is
+still correct about the thing it was written for.
+
+The argument there was that a design carries no wear: `StatDamage` is per-instance save
+state, no def declares it, and the scope line admitting a single impact is about *measuring*
+a layout rather than storing a damaged one. All of that still holds for a **strike**. A
+micrometeoroid run is a measurement, its damage lives beside the document and never in it,
+and that is what makes "fire again" and "start over" the same cheap operation.
+
+An authored condition is the other thing entirely. It is a property of the design, the same
+as a container's fill or a nav console's arrangement, and this page already listed "a wear
+level" among what a design carries into the game. So this generalises one whole-ship number
+to per part; it does not open a new category. What decided it was the modding case
+([issue #33](https://github.com/Valtora/Ostraplan/issues/33)): a station that is meant to
+look lived-in cannot be described by a single average, because the point is that some of it
+has held up and some of it has not.
+
+The line that remains is the same one as before. **A strike is measured, a condition is
+authored.** Simulate still stores nothing, and still cannot.
+
 ### Often the honest answer is "that's a mod"
 
 A request that wants a station fitting *buildable*, as against placeable, is still asking
@@ -105,7 +129,8 @@ tool nothing.
   mod: a residence reaches the game through a Real Estate broker, and stocking one is
   shopping rather than designing.
 - **Carrying what belongs to the ship** through those writes: zones, container cargo,
-  loose items, device wiring, and a wear level.
+  loose items, device wiring, and condition — a whole-ship wear level, or a condition
+  painted part by part (see [Painting condition](#painting-condition)).
 - **Naming what the ship is made of**, placed parts and loose deck items alike (see
   [Naming loose items](#naming-loose-items)).
 
