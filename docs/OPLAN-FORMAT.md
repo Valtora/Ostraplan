@@ -180,6 +180,7 @@ The design itself, in draw order (array order is preserved). Each entry:
 | `cargo` | array / absent | A full snapshot of this container's contents. Absent only for a container holding nothing. |
 | `cargoOwn` | bool / absent | Whether `cargo` is the design's **own** (authored in the inventory editor) rather than contents that arrived with an import and are still the ship's. Only the latter are refreshed from the ship a write-back is about to write over. Absent when the container holds nothing, and in a file from before this field, where a snapshot was only ever written for an edited container and so reads back as owned. |
 | `fill` | object / absent | How much of what this canister or tank holds: payload condition (`StatGasMolO2`, `StatLiqD2O`, …) → amount. Absent for a part left at the amounts its def ships with, which is nearly all of them. An **empty object is not the same as absent**: it is a container deliberately emptied, and absent means "whatever the def carries". Amounts are moles for a gas and kilograms for a liquid or solid. |
+| `cond` | double / absent | The condition the **Damage Brush** painted on this part: `1.0` pristine, `0.0` gone. Absent for a part nobody painted, which is nearly all of them, and which takes whatever the export's own wear setting decides. A painted value beats that setting everywhere, including a repair pass. Clamped to 0–1 on load, since the file is hand-editable and a value outside it would drive the export's `StatDamage` past the pool the part has. Additive since v1. |
 
 **Cargo snapshot node** (`cargo[]`, recursive via `children`):
 
@@ -230,6 +231,7 @@ on load. One per tile — a later duplicate at the same tile overwrites.
 | `name` | string / absent | The name the user gave this deck item, exactly as on a part (above). Absent for an item carrying its def's stock name, which is nearly all of them. On a stack it is the stack's, and reaches the game on the stack head. |
 | `z` | int / absent | The manual draw-order bias, exactly as on a part: loose items share one render order with placed structure. Absent for the automatic order. |
 | `cargo` | array / absent | What the item holds, in the same **cargo snapshot node** shape as a part's (above). A crate on the deck holds what was put in it; a garment, backpack or EVA suit holds its own pockets. Absent for the great majority of deck items, which hold nothing. |
+| `cond` | double / absent | The condition the **Damage Brush** painted, exactly as on a part (above). On a stack it is the stack's, and reaches the game on the stack head, the same way `name` does. |
 
 An item's own pockets are re-seeded on load, so a file written before deck items held
 anything still opens with them and a file that has them is left alone.

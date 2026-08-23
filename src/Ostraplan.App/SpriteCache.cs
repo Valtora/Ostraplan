@@ -175,6 +175,150 @@ public sealed class SpriteCache
         return dst;
     }
 
+    // ---- procedural wear (the Damage Brush) ----
+    //
+    // A port of the game's Sprites/AlbedoPass wear path (see WearShader). The shader runs per fragment on the GPU;
+    // here it is baked once per (sprite, condition, position) into a frozen bitmap and cached, because the noise
+    // only ever changes when one of those three does. A 16x16 sprite is 256 noise evaluations, so a fully painted
+    // 500-part ship costs less than one Light Viz relight.
+    //
+    // The cache key carries the world position, and it has to: two identical walls one tile apart wear differently
+    // and that is the whole reason the pattern looks natural. Condition is quantised to a byte, which is finer
+    // than the 1% the UI offers and keeps a slider drag from minting a new bitmap per pixel of travel.
+
+    private readonly Dictionary<(string Path, int Col, int Row, int Rate, long Wx, long Wy), BitmapSource> _worn = new();
+
+    /// <summary>How finely a world coordinate is keyed. Positions are whole or half tiles (a footprint centre),
+    /// so this is exact for every real value rather than a tolerance.</summary>
+    private const double WorldKeyScale = 16.0;
+
+    /// <summary>
+    /// A part's sprite with wear baked in at <paramref name="condition"/>, or the plain sprite when the part is
+    /// too healthy to show any (see <see cref="WearShader.Threshold"/>).
+    /// </summary>
+    public BitmapSource WornSprite(
+        PartDef part, double condition, double worldX, double worldY, Catalog catalog)
+    {
+        ArgumentNullException.ThrowIfNull(part);
+        var plain = Sprite(part);
+        var frame = WearShader.Frame.Sprite(part.Item.Width, part.Item.Height);
+        return Worn(plain, part, frame, condition, worldX, worldY, catalog, col: -1, row: -1) ?? plain;
+    }
+
+    /// <summary>One autotiled cell with wear baked in. The cell's uv is local to the cell but the quantisation
+    /// grid is the whole sheet's, which <see cref="WearShader.Frame.SheetCell"/> encodes.</summary>
+    public BitmapSource WornSheetCell(
+        PartDef part, int col, int rowFromTop, double condition, double worldX, double worldY, Catalog catalog)
+    {
+        ArgumentNullException.ThrowIfNull(part);
+        var plain = SheetCell(part, col, rowFromTop);
+        var sheet = Sprite(part);
+        var frame = WearShader.Frame.SheetCell(
+            part.Item.Width, part.Item.Height, sheet.PixelWidth, sheet.PixelHeight);
+        return Worn(plain, part, frame, condition, worldX, worldY, catalog, col, rowFromTop) ?? plain;
+    }
+
+    /// <summary>The bake. Returns null when there is nothing to draw differently, so the caller keeps the frozen
+    /// original rather than paying for a copy of it.</summary>
+    private BitmapSource? Worn(
+        BitmapSource plain, PartDef part, WearShader.Frame frame, double condition,
+        double worldX, double worldY, Catalog catalog, int col, int row)
+    {
+        var rate = 1.0 - Paint.Clamp01(condition);
+        if (rate < WearShader.Threshold || part.SpriteAbs is null) return null;
+
+        var rateKey = (int)Math.Round(rate * 255.0);
+        var key = (part.SpriteAbs, col, row, rateKey,
+            (long)Math.Round(worldX * WorldKeyScale), (long)Math.Round(worldY * WorldKeyScale));
+        lock (_gate)
+        {
+            if (_worn.TryGetValue(key, out var hit)) return hit;
+        }
+
+        var tuning = WearShader.Tuning.For(part.Item.Wear);
+        var (wr, wg, wb) = WearShader.WearColor(part.Item.DmgColor, part.Item.ImgDamaged, catalog.ColorTable);
+
+        var bgra = new FormatConvertedBitmap(plain, PixelFormats.Bgra32, null, 0);
+        int w = bgra.PixelWidth, h = bgra.PixelHeight;
+        if (w <= 0 || h <= 0) return null;
+        var px = new byte[w * h * 4];
+        bgra.CopyPixels(px, w * 4, 0);
+
+        // The second texture, where the def names one. Sampled at the same normalised uv as the albedo and
+        // scaled to its own size, which is what keeps a damaged sheet aligned with the cell being drawn.
+        byte[]? dmgPx = null;
+        int dw = 0, dh = 0;
+        if (part.SpriteDamagedAbs is not null && Load(part.SpriteDamagedAbs) is { } dmgSrc)
+        {
+            var dmgBgra = new FormatConvertedBitmap(dmgSrc, PixelFormats.Bgra32, null, 0);
+            dw = dmgBgra.PixelWidth;
+            dh = dmgBgra.PixelHeight;
+            dmgPx = new byte[dw * dh * 4];
+            dmgBgra.CopyPixels(dmgPx, dw * 4, 0);
+        }
+
+        for (var y = 0; y < h; y++)
+            for (var x = 0; x < w; x++)
+            {
+                var i = (y * w + x) * 4;
+                if (px[i + 3] == 0) continue;   // fully transparent: nothing to wear
+
+                var u = (x + 0.5) / w;
+                var v = (y + 0.5) / h;
+                // The part's draw-order scalar is the noise field's third axis (the shader's _PositionOffset.z),
+                // so two parts stacked on one tile still wear differently.
+                if (WearShader.Sample(rate, u, v, worldX, worldY, part.Item.ZScale, frame, tuning)
+                    is not { } n) continue;
+
+                // The worn colour: the second texture times the tint where there is one, the flat tint otherwise.
+                double tr = wr, tg = wg, tb = wb;
+                if (dmgPx is not null)
+                {
+                    var dx = Math.Clamp((int)(u * dw), 0, dw - 1);
+                    var dy = Math.Clamp((int)(v * dh), 0, dh - 1);
+                    var di = (dy * dw + dx) * 4;
+                    tb = dmgPx[di] / 255.0 * wb;
+                    tg = dmgPx[di + 1] / 255.0 * wg;
+                    tr = dmgPx[di + 2] / 255.0 * wr;
+                }
+
+                // _Lerp blends over the noise value; without it the texel is replaced outright.
+                var t = tuning.Lerp ? Math.Clamp(n, 0.0, 1.0) : 1.0;
+                px[i] = Mix(px[i], tb, t);
+                px[i + 1] = Mix(px[i + 1], tg, t);
+                px[i + 2] = Mix(px[i + 2], tr, t);
+            }
+
+        var result = new WriteableBitmap(w, h, 96, 96, PixelFormats.Bgra32, null);
+        result.WritePixels(new Int32Rect(0, 0, w, h), px, w * 4, 0);
+        result.Freeze();
+        lock (_gate) { _worn[key] = result; }
+        return result;
+    }
+
+    private static byte Mix(byte from, double to, double t) =>
+        (byte)Math.Clamp(Math.Round(from + (to * 255.0 - from) * t), 0, 255);
+
+    /// <summary>The point past which <see cref="TrimWorn"/> throws the bake away. Generous: a fully painted
+    /// 500-part ship sits far under it, and the cost of being wrong is one re-bake rather than a wrong picture.</summary>
+    private const int WornCacheLimit = 4096;
+
+    /// <summary>
+    /// Drop the baked wear if it has grown past <see cref="WornCacheLimit"/>.
+    ///
+    /// <para>An entry is keyed by world position, so moving a painted part invalidates nothing — it simply misses
+    /// and bakes a new entry, leaving the old one unreachable. That is the right trade, since an edit then costs
+    /// one part's bake rather than the whole ship's, but it means the dictionary grows with every tile a dragged
+    /// part passes through and something has to bound it.</para>
+    /// </summary>
+    public void TrimWorn()
+    {
+        lock (_gate)
+        {
+            if (_worn.Count > WornCacheLimit) _worn.Clear();
+        }
+    }
+
     private BitmapSource? Load(string absPath)
     {
         lock (_gate)

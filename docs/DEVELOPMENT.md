@@ -65,6 +65,7 @@ The app takes a few developer flags, each of which renders something and exits:
 | `--invsmoke <dir>` | The inventory viewer: a synthesized backpack, an editable one, rotation, and the first real save container. Needs the install. |
 | `--navsmoke <dir>` | The nav console arrange board, at rest and mid-drag, so the screen layout can be eyeballed against the game's. Needs the install. |
 | `--svgsmoke <dir>` | A real ship's room map to SVG, validated as XML. Needs the install. |
+| `--wearsmoke <dir>` | A strip of four real parts at descending condition, for holding the wear port up against the game. Needs the install. |
 
 The preview renders are for eyeballing a layout change; they are not assertions, so they
 do not replace a test.

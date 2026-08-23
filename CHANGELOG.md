@@ -12,6 +12,36 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **A Damage Brush: paint condition onto a design and keep it.** **Simulate ▸ Damage Brush…**, then drag
+  across the plan and everything the stroke crosses takes the condition you set. Set one figure for
+  everything the brush touches, or **a range it rolls within, per object, as it paints** — which is the
+  one to reach for, because a corridor at a flat 60% reads as uniformly tired where 25%–70% reads as a
+  place some of which has held up and some of which has not. A whole stroke is one undo step. It is the
+  first entry in that menu that writes to the design rather than measuring it, and the answer to
+  designing a station, ship or apartment that looks lived in rather than freshly fitted.
+  - **Ostraplan now draws wear the way the game does.** A worn part actually looks worn on the plan,
+    rather than merely reading a number in a panel: the game generates its wear procedurally in a
+    shader, and that shader is now ported. Two identical walls side by side wear differently, because
+    the pattern comes from where a part sits on the grid, so what you see is what that ship will look
+    like in game rather than something that merely resembles it.
+  - **Nothing shows above 80% condition.** That is the game's own cutoff, and it is why its second-hand
+    ships look clean at their ~88% average. A range that stops at 85% will look like you did nothing.
+  - **Painting a part to nothing breaks it** into its damaged form — a cracked wall, a wrecked alarm —
+    because a part in Ostranauts cannot rest at a full damage pool. So a 0%–40% range breaks some of
+    what it crosses and merely wears the rest, in one stroke, which is what gives a derelict its mix.
+    There is no separate tool for it.
+  - **Deck items take it too**, so a battered crate reads as part of the room. A stack is worn as a
+    stack. Untick **Include loose items** to paint the structure alone.
+  - **Ship systems and parts with no damage pool are left alone**, exactly as the game leaves them, and
+    the window says how many a stroke passed over.
+  - **It reaches the game.** A painted condition is part of the design: it goes into the `.oplan`, into
+    an exported mod and into a save write-back, and it beats the whole-ship **Condition / Wear** setting
+    on all three — including "repair everything", because that is a statement about the parts you did
+    *not* speak for. This is the opposite of a strike, whose damage is never stored.
+  - **To take it off a part**, select it and use **right-click ▸ Clear painted condition**. That is not
+    the same as painting 100%: cleared means "whatever the export's wear setting decides". The inspector
+    grows a **Condition** row on anything you have painted.
+  - Thanks to NotFuji for the request.
 - **Loose items can be named, the same as a placed part.** Select an item lying on the deck and type
   over the name at the top of the inspector, or use **right-click ▸ Rename…**. That is how a Smart
   Crate reads "Electrical" for the wire, lights and sensors that go in it, a SuperHandy carries the

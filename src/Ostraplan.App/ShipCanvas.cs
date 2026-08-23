@@ -262,7 +262,7 @@ public sealed class ShipCanvas : FrameworkElement
     /// <see cref="AppSettings.AllowModdedOverrides"/>.</summary>
     public bool AllowModdedOverrides { get; set; }
 
-    private enum Drag { None, Pan, Move, Band, Paint, BoxFill, ZonePaint, ZoneBox, Aim }
+    private enum Drag { None, Pan, Move, Band, Paint, BoxFill, ZonePaint, ZoneBox, Aim, DamagePaint }
     private Drag _drag;
     private Point _dragStartScreen;
     private (int X, int Y) _dragStartCell;
@@ -272,6 +272,7 @@ public sealed class ShipCanvas : FrameworkElement
     private HashSet<(int X, int Y)>? _zoneWorking;      // the active zone's tiles being edited this stroke (preview), null when idle
     private HashSet<(int X, int Y)> _zoneBefore = [];   // the active zone's tiles at stroke start (for the undo snapshot)
     private bool _zoneErase;                            // this stroke removes tiles (Ctrl) rather than adds
+    private readonly HashSet<(int X, int Y)> _damagePainted = [];   // tiles this Damage Brush stroke has already reported
     private IReadOnlyList<(int X, int Y)> _illegalCells = [];   // tiles of existing illegal placements (from ProblemScan)
     private IReadOnlyList<(int X, int Y)> _leakCells = [];      // unsealed tiles of a leaking compartment (from the Ship Rating report)
     private HashSet<(int X, int Y)> _airSelection = [];         // an enclosed "air" region highlighted for a fill (double-click empty space, then arm + Enter)
@@ -408,6 +409,7 @@ public sealed class ShipCanvas : FrameworkElement
         ActiveZoneId = null;   // a zone id from the previous document is stale
         _zoneWorking = null;
         _staticShip = null;
+        InvalidateWear();      // a different design has a different grid anchor, so every world position moves
         ClearAirSelection();
         InvalidateVisual();
     }
@@ -417,6 +419,7 @@ public sealed class ShipCanvas : FrameworkElement
     private void OnContentChanged()
     {
         _staticShip = null;
+        InvalidateWear();
         ClearAirSelection();
         InvalidateVisual();
     }
@@ -682,6 +685,29 @@ public sealed class ShipCanvas : FrameworkElement
     /// <summary>True while a Simulate dialog is aiming: the canvas reports angles instead of editing, and draws the
     /// pivot and ghost path. Cleared when the dialog closes.</summary>
     public bool IsAiming => _aiming;
+
+    private bool _damageBrush;
+
+    /// <summary>True while the Damage Brush owns the canvas.</summary>
+    public bool IsDamageBrushing => _damageBrush;
+
+    /// <summary>Raised once for each tile a Damage Brush stroke crosses. The canvas reports tiles and decides
+    /// nothing about what gets painted on them: which objects a tile holds, whether they can take wear, and what
+    /// condition to roll are all the window's business.</summary>
+    public event Action<(int X, int Y)>? DamagePainted;
+
+    /// <summary>Raised when a Damage Brush stroke is released, so the window can close the whole drag into one
+    /// undo step — the same shape as <see cref="StrokeCommitted"/> for an ordinary paint stroke.</summary>
+    public event Action? DamageStrokeFinished;
+
+    /// <summary>Hand the canvas to the Damage Brush window, or give it back. While it is on, dragging paints
+    /// instead of placing or selecting, exactly as <see cref="SetAiming"/> makes dragging measure.</summary>
+    public void SetDamageBrush(bool on)
+    {
+        _damageBrush = on;
+        Cursor = on ? System.Windows.Input.Cursors.Pen : null;
+        InvalidateVisual();
+    }
 
     /// <summary>Raised as a strike path is drawn: press, drag, release. The Simulate dialog fires along whatever
     /// comes out — the canvas measures the line and decides nothing about what it means.</summary>
@@ -1380,6 +1406,21 @@ public sealed class ShipCanvas : FrameworkElement
             return;
         }
 
+        // The Damage Brush: intercepts on the same terms as aiming, and for the same reason — a stroke must not
+        // move or place anything it is painting over. A tile is reported per cell rather than per pixel, so the
+        // window rolls a condition once per object however slowly the mouse crosses it.
+        if (_damageBrush && e.ChangedButton == MouseButton.Left)
+        {
+            _damagePainted.Clear();
+            var start = CellAt(screen);
+            _damagePainted.Add(start);
+            _drag = Drag.DamagePaint;
+            CaptureMouse();
+            DamagePainted?.Invoke(start);
+            e.Handled = true;
+            return;
+        }
+
         // Wire mode: left-click a signalable device to arm it as the signal source, then click another to
         // connect (or click a connected one to disconnect); the source stays armed so you can wire it to several
         // targets. Right-click drops what's "in hand" first — a held palette brush, else the armed wire source —
@@ -1711,6 +1752,16 @@ public sealed class ShipCanvas : FrameworkElement
             return;
         }
 
+        // A brush stroke reports each tile once. Re-reporting a tile the mouse merely wobbled over would re-roll
+        // the condition of whatever stands on it, so a slow stroke would flicker its own work.
+        if (_drag == Drag.DamagePaint)
+        {
+            var painted = CellAt(screen);
+            if (_damagePainted.Add(painted)) DamagePainted?.Invoke(painted);
+            e.Handled = true;
+            return;
+        }
+
         var cell = CellAt(screen);
         if (_hoverCell is null || _hoverCell.Value != cell)
         {
@@ -1758,6 +1809,18 @@ public sealed class ShipCanvas : FrameworkElement
         {
             if (_aimStart is { } from) StrikePathDrawn?.Invoke(from, DocPointAt(e.GetPosition(this)), true);
             _aimStart = null;
+            e.Handled = true;
+            return;
+        }
+
+        // Releasing closes the stroke, which is what makes the whole drag one undo step. The tile under the
+        // release only paints if the drag never reached it, so a click that never moved still paints one tile.
+        if (drag == Drag.DamagePaint)
+        {
+            var last = CellAt(e.GetPosition(this));
+            if (_damagePainted.Add(last)) DamagePainted?.Invoke(last);
+            _damagePainted.Clear();
+            DamageStrokeFinished?.Invoke();
             e.Handled = true;
             return;
         }
@@ -3657,7 +3720,8 @@ public sealed class ShipCanvas : FrameworkElement
     {
         if (item.Placement is { } p) { DrawPlacement(dc, p, offset); return; }
         if (Doc!.Catalog.Lookup(item.DefName) is { } part)
-            DrawSprite(dc, part, item.X + offset.X, item.Y + offset.Y, item.Rot, ghost: false);
+            DrawSprite(dc, part, item.X + offset.X, item.Y + offset.Y, item.Rot, ghost: false,
+                condition: Doc.LooseAt(item.X, item.Y)?.Condition);
     }
 
     private void DrawPlacement(DrawingContext dc, Placement p, (int X, int Y) offset)
@@ -3668,7 +3732,28 @@ public sealed class ShipCanvas : FrameworkElement
             dc.DrawRectangle(Brushes.DarkSlateGray, null, CellRect(p.X + offset.X, p.Y + offset.Y, 1, 1));
             return;
         }
-        DrawSprite(dc, part, p.X + offset.X, p.Y + offset.Y, p.Rot, ghost: false);
+        DrawSprite(dc, part, p.X + offset.X, p.Y + offset.Y, p.Rot, ghost: false, condition: p.Condition);
+    }
+
+    /// <summary>
+    /// Where world origin sits in document coordinates, for the wear shader's world-space noise (see
+    /// <see cref="WearShader.PositionOffset"/>). The same anchor a micrometeoroid converges on, and for the same
+    /// reason: a design drawn here will sit at the export grid's origin, while one imported from a save already
+    /// has a frame of its own, and the two wear differently.
+    ///
+    /// <para>Cached because it is a property of the document rather than of a frame, and recomputing it per
+    /// sprite would walk every placement to find the bounds.</para>
+    /// </summary>
+    private StrikeAnchor? _wearAnchor;
+
+    private StrikeAnchor WearAnchor => _wearAnchor ??= MicrometeoroidStrike.AnchorFor(Doc!);
+
+    /// <summary>Drop the cached anchor and bound the bake. The anchor moves whenever the design's bounds do, and
+    /// every part's world position moves with it, so it cannot be held across an edit.</summary>
+    private void InvalidateWear()
+    {
+        _wearAnchor = null;
+        Sprites?.TrimWorn();
     }
 
     // While set, DrawSprite draws each part's vector-swizzled NORMAL map instead of its albedo sprite (the Light
@@ -3687,8 +3772,13 @@ public sealed class ShipCanvas : FrameworkElement
     internal static int DrawRot(PartDef part, int rot) =>
         part.Item.HasSpriteSheet ? 0 : GridMath.Norm(rot);
 
-    private void DrawSprite(DrawingContext dc, PartDef part, int gx, int gy, int rot, bool ghost)
+    private void DrawSprite(
+        DrawingContext dc, PartDef part, int gx, int gy, int rot, bool ghost, double? condition = null)
     {
+        // Wear is an albedo effect. The normal pass bakes surface relief for Light Viz and a worn texel's normal
+        // is unchanged, so that pass draws the plain sprite whatever the condition says.
+        var worn = !_normalPass && !ghost && condition is not null;
+
         if (part.Item.HasSpriteSheet && part.Item.CtSpriteSheet is { } ct)
         {
             // per-tile autotile crop; ghosts have no tile conds yet, so they show isolated
@@ -3699,7 +3789,17 @@ public sealed class ShipCanvas : FrameworkElement
                 {
                     var mask = ghost ? 0 : Autotile.MaskAt(Doc!.Conds, ct, gx + c, gy + r);
                     var (col, row) = Autotile.Cell(mask, cols, rows);
-                    var cell = _normalPass ? Sprites.NormalSheetCell(part, col, row) : Sprites.SheetCell(part, col, row);
+                    System.Windows.Media.Imaging.BitmapSource? cell;
+                    if (_normalPass) cell = Sprites.NormalSheetCell(part, col, row);
+                    else if (worn)
+                    {
+                        // A sheet part wears per TILE, not per part: each cell sits at its own world position, so
+                        // a long run of wall gets a continuous pattern across it rather than the same square
+                        // stamped repeatedly. That is what the game does, since every cell is its own draw.
+                        var (wx, wy, _) = WearShader.PositionOffset(gx + c, gy + r, 1, 1, part.Item.ZScale, WearAnchor);
+                        cell = Sprites.WornSheetCell(part, col, row, condition!.Value, wx, wy, Doc!.Catalog);
+                    }
+                    else cell = Sprites.SheetCell(part, col, row);
                     if (cell is not null) dc.DrawImage(cell, CellRect(gx + c, gy + r, 1, 1));
                 }
             return;
@@ -3712,7 +3812,17 @@ public sealed class ShipCanvas : FrameworkElement
         var norm = DrawRot(part, rot);
         var (effW, effH) = GridMath.Size(part.Item.Width, part.Item.Height, norm);
         var (visW, visH) = Sprites!.SpriteTiles(part);
-        var bmp = _normalPass ? Sprites.NormalSprite(part, norm) : Sprites.Sprite(part);
+        System.Windows.Media.Imaging.BitmapSource? bmp;
+        if (_normalPass) bmp = Sprites.NormalSprite(part, norm);
+        else if (worn)
+        {
+            // The bake goes onto the UNROTATED sprite and the canvas turns the result, which is the same order the
+            // game works in: the noise is sampled in the sprite's own uv space and the item transform rotates the
+            // pixels afterwards.
+            var (wx, wy, _) = WearShader.PositionOffset(gx, gy, effW, effH, part.Item.ZScale, WearAnchor);
+            bmp = Sprites.WornSprite(part, condition!.Value, wx, wy, Doc!.Catalog);
+        }
+        else bmp = Sprites.Sprite(part);
         if (bmp is null) return;
         var center = new Point(_pan.X + (gx + effW / 2.0) * Zoom, _pan.Y + (gy + effH / 2.0) * Zoom);
         var sprite = new Rect(center.X - visW * Zoom / 2, center.Y - visH * Zoom / 2, visW * Zoom, visH * Zoom);

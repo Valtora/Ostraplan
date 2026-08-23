@@ -243,6 +243,71 @@ public partial class App : Application
             return;
         }
 
+        // render self-test: a strip of real parts at descending condition, so the wear port can be held up against
+        // the game's own rendering of the same part at the same figure. The constants behind it live in compiled
+        // GPU code (see WearShader), so no data test can catch them drifting and this is the check that can.
+        // Needs the game install.
+        if (e.Args.Contains("--wearsmoke"))
+        {
+            var dir = e.Args.SkipWhile(a => a != "--wearsmoke").Skip(1).FirstOrDefault() ?? AppContext.BaseDirectory;
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var env = GameEnv.Locate(null);
+                var catalog = Catalog.Build(DataIndex.Load(env));
+                var sprites = new SpriteCache();
+
+                // One sheet part, one plain fixture, and one that ships its own damaged texture, so all three
+                // branches of the composite are on the page rather than only the flat-tint one.
+                // The last two ship their own strImgDamaged, so the second-texture branch is on the page rather
+                // than only the flat-tint one the walls take.
+                string[] defs = ["ItmWall1x1", "ItmFloorGrate01", "ItmAtmoScrubber01", "ItmBattery02"];
+                double[] conditions = [1.00, 0.85, 0.80, 0.60, 0.40, 0.20, 0.05];
+
+                const int cell = 64, pad = 8, labelH = 18;
+                var cols = conditions.Length;
+                var rows = defs.Length;
+                var visual = new DrawingVisual();
+                using (var dc = visual.RenderOpen())
+                {
+                    dc.DrawRectangle(Brushes.Black, null,
+                        new Rect(0, 0, cols * (cell + pad) + pad, rows * (cell + pad + labelH) + pad));
+                    for (var r = 0; r < rows; r++)
+                    {
+                        if (catalog.Lookup(defs[r]) is not { } part) continue;
+                        for (var c = 0; c < cols; c++)
+                        {
+                            var x = pad + c * (cell + pad);
+                            var y = pad + r * (cell + pad + labelH);
+                            // Each sample sits at its own world position, exactly as it would on a deck, so the
+                            // strip shows the position-dependence rather than one pattern repeated.
+                            var bmp = part.Item.HasSpriteSheet
+                                ? sprites.WornSheetCell(part, 0, 0, conditions[c], c * 3.0, -r * 3.0, catalog)
+                                : sprites.WornSprite(part, conditions[c], c * 3.0, -r * 3.0, catalog);
+                            dc.DrawImage(bmp, new Rect(x, y, cell, cell));
+                            dc.DrawText(
+                                new FormattedText(
+                                    $"{part.Friendly} {conditions[c] * 100:0}%",
+                                    System.Globalization.CultureInfo.InvariantCulture,
+                                    FlowDirection.LeftToRight, new Typeface("Segoe UI"), 10, Brushes.White,
+                                    VisualTreeHelper.GetDpi(visual).PixelsPerDip),
+                                new Point(x, y + cell + 2));
+                        }
+                    }
+                }
+                var target = new RenderTargetBitmap(
+                    cols * (cell + pad) + pad, rows * (cell + pad + labelH) + pad, 96, 96, PixelFormats.Pbgra32);
+                target.Render(visual);
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(target));
+                using var wearFs = File.Create(Path.Combine(dir, "wear-strip.png"));
+                encoder.Save(wearFs);
+            }
+            catch (Exception ex) { File.WriteAllText(Path.Combine(dir, "wearsmoke-error.txt"), ex.ToString()); }
+            Shutdown(0);
+            return;
+        }
+
         // render self-test: render a real ship's room map to SVG, validate it parses as XML, and write it out
         // for eyeballing, then exit. Confirms the SVG serializer (embedded sprite layer + vector annotations)
         // produces well-formed output. Needs the game install.

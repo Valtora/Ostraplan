@@ -3228,6 +3228,20 @@ public partial class MainWindow : Window
             menu.Items.Add(Item("Repair" + (toRepair.Count > 1 ? $" ({toRepair.Count})" : ""), "", (_, _) => SwapForms(toRepair)));
         }
 
+        // The Damage Brush paints; this is the only way to unpaint, so it is offered wherever the selection
+        // actually carries a painted condition and nowhere else. It clears the authored value rather than setting
+        // 100%: the two differ at the export, where cleared means "whatever the wear setting decides" and 100%
+        // means "pristine, whatever the wear setting says".
+        var toUnpaint = unlocked.Where(p => p.Condition is not null).ToList();
+        var looseUnpaint = Board.SelectedLooseObjects().Where(o => o.Condition is not null).ToList();
+        if (toUnpaint.Count + looseUnpaint.Count > 0)
+        {
+            var n = toUnpaint.Count + looseUnpaint.Count;
+            menu.Items.Add(new Separator());
+            menu.Items.Add(Item("Clear painted condition" + (n > 1 ? $" ({n})" : ""), "",
+                (_, _) => ClearPaintedCondition(toUnpaint, looseUnpaint)));
+        }
+
         // "View contents…": a single container/console/crate — shown even when empty (so an imported empty
         // container isn't "locked"). Not shown for a multi-selection — uses the lone selected part, else topmost.
         var cargoTarget = multi ? null : (selected.Count == 1 ? selected[0] : stack[0]);
@@ -3776,7 +3790,12 @@ public partial class MainWindow : Window
         InsInputs.Text = part.Inputs.Length == 0 ? "none" : string.Join("\n", part.Inputs);
         // A tank's contents belong to the placed part, not the def, so only a lone selected placement has any
         // (an armed palette part is a def and holds whatever the def holds).
-        PopulateStats(part, lonePart);
+        // A condition the Damage Brush painted, from whichever half of the selection is the lone thing. Read here
+        // rather than inside PopulateStats because a deck item carries one too and that method only knows about
+        // placements.
+        var painted = lonePart?.Condition
+                      ?? (Board.ArmedPart is null && lone ? Board.SelectedLoose?.Condition : null);
+        PopulateStats(part, lonePart, painted);
     }
 
     // ---- the PART name row: renaming in place, the way the game's own object panel does (#30) ----
@@ -3913,7 +3932,7 @@ public partial class MainWindow : Window
     /// <c>Stat*</c> cond verbatim), and the "Conditions (flags)" list (every non-<c>Stat</c> starting cond) for the
     /// selected part — the true, raw figures the game keeps hidden. All three read <see cref="PartDef"/> data
     /// already in memory (the same source as Base Value), so this adds no data loading.</summary>
-    private void PopulateStats(PartDef part, Placement? placed)
+    private void PopulateStats(PartDef part, Placement? placed, double? paintedCondition = null)
     {
         var vals = part.StartingCondValues;
 
@@ -3921,6 +3940,16 @@ public partial class MainWindow : Window
         foreach (var (key, label, unit) in KeyStats)
             if (vals.TryGetValue(key, out var v))
                 StatsList.Children.Add(StatRow(label, FormatStat(v) + (unit.Length > 0 ? " " + unit : ""), raw: false));
+
+        // What the Damage Brush left on this one thing. Shown among the curated figures rather than in the raw
+        // list, for the same reason a tank's fill is: the raw list is the def's own data verbatim, and this
+        // belongs to the placement. A part nobody painted shows nothing, so the row's presence is the answer to
+        // "did I paint this".
+        if (paintedCondition is { } cond)
+            StatsList.Children.Add(StatRow(
+                "Condition",
+                $"{cond * 100:0}%" + (1.0 - cond < WearShader.Threshold ? "  (too healthy to show wear)" : ""),
+                raw: false));
 
         // What this particular tank holds, when it is not simply what the def ships with. Shown against the
         // curated figures rather than in the raw list, which is deliberately the def's own data verbatim.
@@ -4355,7 +4384,52 @@ public partial class MainWindow : Window
             () => OpenSimulate(SimulateMode.Micrometeoroid), enabled: _doc is not null));
         m.Items.Add(MenuAction("Weapon Impact…",
             () => OpenSimulate(SimulateMode.WeaponImpact), enabled: _doc is not null));
+        m.Items.Add(new Separator());
+        // Sits with the two solvers because all three are about damage, and apart from them because it is the only
+        // one that WRITES it: a strike measures the design, the brush authors it.
+        m.Items.Add(MenuAction("Damage Brush…", OpenDamageBrush, enabled: _doc is not null));
         OpenMenuUnder(m, BtnSimulateMenu);
+    }
+
+    /// <summary>Drop the painted condition from a selection, structure and deck items together in one undo step.
+    /// The inverse of a brush stroke, and the only one there is.</summary>
+    private void ClearPaintedCondition(IReadOnlyList<Placement> parts, IReadOnlyList<LooseObject> loose)
+    {
+        if (_doc is null || parts.Count + loose.Count == 0) return;
+        var cmds = new List<IDocCommand>(parts.Count + loose.Count);
+        foreach (var p in parts) cmds.Add(new SetConditionCommand(p, p.Condition, null));
+        foreach (var o in loose) cmds.Add(new SetLooseConditionCommand(o, o.Condition, null));
+        _stack.Push(_doc, cmds.Count == 1 ? cmds[0] : new CompositeCommand(cmds));
+    }
+
+    private DamageBrushWindow? _damageBrush;
+
+    /// <summary>
+    /// Open the Damage Brush on the active design, or bring the open one forward. One at a time, like Simulate:
+    /// the brush owns the canvas's pointer while it is up, and two windows would fight over every stroke.
+    /// </summary>
+    private void OpenDamageBrush()
+    {
+        if (_doc is null) return;
+        if (_damageBrush is { } open) { open.Activate(); return; }
+
+        // Capture the SESSION, not the shim. The window outlives this method and its strokes land whenever the
+        // user gets round to them, by which point _stack/_doc resolve to whichever tab is active then — so a
+        // stroke painted on this design would be recorded against another one's undo history (see CONVENTIONS).
+        var session = _active;
+        var window = new DamageBrushWindow(Board, _doc) { Owner = this };
+        window.Committed += stroke =>
+        {
+            if (session.Doc is null || stroke.Count == 0) return;
+            // Recorded as already-executed, exactly like a palette stroke: the brush ran each command live so the
+            // wear appeared under the cursor. The stack's own dirty flag and the document's Changed event carry
+            // the title, the tab star and the re-scan from here, so there is nothing else to poke.
+            session.Stack.PushExecuted(
+                stroke.Count == 1 ? stroke[0] : new CompositeCommand(stroke.ToList()));
+        };
+        window.Closed += (_, _) => _damageBrush = null;
+        _damageBrush = window;
+        window.Show();
     }
 
     private void OpenSimulate(SimulateMode mode)

@@ -347,11 +347,12 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   hull plates, wrecked devices — for its working form, ship-wide, in one undo step. See
   [Repairing damage](#repairing-damage).
 
-## Simulate — what a hit would break
+## Simulate — what a hit would break, and wear you put there yourself
 
 **Simulate ▸ Micrometeoroid Strike…** and **Simulate ▸ Weapon Impact…** fire something at the
 design and tint every part it damages, green through amber to red. Both open the same window on
-a different tab.
+a different tab. **Simulate ▸ Damage Brush…** is the other half of the menu and works the other
+way round: it paints condition onto the design and keeps it.
 
 **Drag a line across the plan** to say where the strike comes in and where it goes out. Let go
 and it fires along that line. Drag another to fire again. Damage builds up across strikes and is
@@ -424,6 +425,42 @@ fire up to the heaviest missile — then draw the path the same way.
 - **Damage is the worst case.** In game every shot is jittered before it lands and fires are
   rolled per part; neither is reproduced, because a plan should tell you what a bad day looks
   like rather than sample one.
+
+### Damage Brush — a ship that has been lived in
+
+**Simulate ▸ Damage Brush…** is the one entry in this menu that *writes* to the design rather
+than measuring it. Drag across the plan and everything the stroke crosses takes the condition
+you set. Wear appears on the parts as you paint, exactly as the game will draw it.
+
+Set either **one condition** for everything the brush touches, or **a range** it rolls within,
+per object, as it goes. The range is the one to reach for: a corridor painted at a flat 60%
+reads as uniformly tired, where 25–70% reads as a place where some things have held up and
+others have not.
+
+- **Nothing shows above 80% condition.** The game draws no wear at all until a part is below
+  it, which is why its own second-hand ships look clean — they average about 88%. A range that
+  stops at 85% will look like you did nothing, so aim well under.
+- **Painting a part to nothing breaks it.** At 0% it becomes its damaged form — a cracked wall,
+  a wrecked alarm — because a part in Ostranauts cannot sit at a full damage pool; it breaks.
+  So a range like 0–40% breaks some of what it crosses and merely wears the rest, in one
+  stroke, which is what gives a derelict its mix.
+- **A whole stroke is one undo step**, however many tiles it crossed.
+- **Deck items take it too**, so a battered crate reads as part of the room. Untick **Include
+  loose items** to paint the structure alone. A stack is worn as a stack.
+- **Not everything can be worn.** Ship systems and parts with no damage pool of their own are
+  left alone, exactly as the game leaves them, and the window says how many a stroke passed
+  over.
+- **To undo a painted part later**, select it and use **right-click ▸ Clear painted condition**.
+  That is not the same as painting it to 100%: cleared means "whatever the export's wear
+  setting decides", where 100% means pristine no matter what that setting says. The inspector
+  shows a **Condition** row on anything you have painted, so its presence answers "did I paint
+  this".
+
+**It reaches the game.** A painted condition is part of the design: it goes into the `.oplan`,
+into an exported mod, and into a save write-back, and it beats the whole-ship **Condition /
+Wear** setting on all three — including "repair everything", because that is a statement about
+the parts you did *not* speak for. This is the opposite of a strike, whose damage is never
+stored.
 
 ## Saving & sharing
 
