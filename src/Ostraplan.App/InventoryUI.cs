@@ -218,6 +218,7 @@ public sealed class InventoryWindow : Window
                     Text = "Drag to move (R turns it) · into a container to nest it"
                            + (_path.Count > 1 ? " · onto a name at the top to move it out" : "")
                            + " · Alt+click for info · right-click to rename or remove"
+                           + " · Del takes one, Shift+Del the whole stack"
                            + " · click the title to name this container",
                     Foreground = Dim, FontSize = 11, Margin = new Thickness(0, 0, 0, 6), TextWrapping = TextWrapping.Wrap,
                 });
@@ -626,13 +627,17 @@ public sealed class InventoryWindow : Window
         menu.Items.Add(new Separator());
         if (item.IsStack && item.Stack > 1)
         {
-            menu.Items.Add(MenuItem("Remove one", () => Remove(CargoEdit.RemoveOne(HostCargo, item.StrID))));
-            menu.Items.Add(MenuItem($"Remove all ×{item.Stack}", () => Remove(CargoEdit.RemoveWhole(HostCargo, item.StrID))));
+            // The shortcuts are on the labels because the menu is where they are discovered: the grid itself has no
+            // room to say it, and Shift+Del is not a thing anyone tries on spec.
+            menu.Items.Add(MenuItem("Remove one",
+                () => Remove(CargoEdit.RemoveOne(HostCargo, item.StrID)), "Del"));
+            menu.Items.Add(MenuItem($"Remove all ×{item.Stack}",
+                () => Remove(CargoEdit.RemoveWhole(HostCargo, item.StrID)), "Shift+Del"));
         }
         else
         {
             var label = item.Children.Count > 0 ? "Remove (with contents)" : "Remove";
-            menu.Items.Add(MenuItem(label, () => Remove(CargoEdit.RemoveWhole(HostCargo, item.StrID))));
+            menu.Items.Add(MenuItem(label, () => Remove(CargoEdit.RemoveWhole(HostCargo, item.StrID)), "Del"));
         }
 
         if (_path.Count > 1)   // nested — offer to move the item out to an ancestor container
@@ -649,9 +654,9 @@ public sealed class InventoryWindow : Window
         return menu;
     }
 
-    private static MenuItem MenuItem(string header, Action act)
+    private static MenuItem MenuItem(string header, Action act, string? gesture = null)
     {
-        var mi = new MenuItem { Header = header };
+        var mi = new MenuItem { Header = header, InputGestureText = gesture ?? "" };
         mi.Click += (_, _) => act();
         return mi;
     }
@@ -712,10 +717,18 @@ public sealed class InventoryWindow : Window
         Commit(updated);
     }
 
-    /// <summary>Apply a remove (clearing the selection, which points at the now-gone item).</summary>
+    /// <summary>
+    /// Apply a remove, keeping the selection on the tile when there is still something there.
+    ///
+    /// <para><b>Taking one off a stack leaves the stack.</b> <see cref="CargoEdit.RemoveOne"/> rebuilds the node
+    /// with a <c>with</c> expression, so the same <c>StrID</c> is still on the same cell with one fewer in it.
+    /// Clearing the selection unconditionally meant every press of Delete had to be preceded by another click, so
+    /// emptying a stack of five cost ten actions instead of five. It only clears when the item has actually
+    /// gone.</para>
+    /// </summary>
     private void Remove(IReadOnlyList<CargoItem> newRootCargo)
     {
-        _selectedId = null;
+        if (_selectedId is { } id && FindNode(newRootCargo, id) is null) _selectedId = null;
         Commit(newRootCargo);
     }
 
@@ -990,8 +1003,14 @@ public sealed class InventoryWindow : Window
         if (!Editing) return;
         switch (e.Key)
         {
+            // Shift or Alt takes the whole stack, matching the right-click menu's "Remove all ×N", which was the
+            // only route to it. Without a keyboard equivalent a stack of five was five presses even once the
+            // selection stopped being dropped between them.
             case Key.Delete when _selectedId is { } id:
-                Remove(CargoEdit.RemoveOne(HostCargo, id));
+                var whole = (Keyboard.Modifiers & (ModifierKeys.Shift | ModifierKeys.Alt)) != 0;
+                Remove(whole
+                    ? CargoEdit.RemoveWhole(HostCargo, id)
+                    : CargoEdit.RemoveOne(HostCargo, id));
                 e.Handled = true;
                 break;
             case Key.Escape when _dragging:
