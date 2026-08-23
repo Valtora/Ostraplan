@@ -9,7 +9,12 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.11**).
 
-## [Unreleased]
+## [1.1.2] 2026-08-24, a part written into a save behaves like one the game built
+
+Player feedback again, and it turned out to be one fault with a long reach. A part
+Ostraplan wrote into a save was recorded by name and left to the game to fill in the rest,
+and the game only does that for a part it is building itself. Everything below follows from
+that, and the last entry mends the ships it has already happened to.
 
 ### Fixed
 - **A branded part written into a save keeps its brand.** An MSS wall came back reading 21 credits
