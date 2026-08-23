@@ -187,6 +187,28 @@ public partial class App : Application
                              ?? doc.Placements.Where(pl => pl.Cargo.Count > 0).OrderByDescending(pl => pl.Cargo.Count).FirstOrDefault()) is { } p)
                         {
                             RenderInv("inv-real.png", p.DefName, catalog.Lookup(p.DefName)?.Friendly ?? p.DefName, p.Cargo);
+
+                            // The item info panel, on a real item off a real save — the one that has factions to
+                            // show, since a synthesized item never belongs to any.
+                            var subject = doc.Placements.SelectMany(pl => pl.Cargo)
+                                .FirstOrDefault(c => c.Factions.Count > 0) ?? p.Cargo[0];
+                            var info = new CargoInfoWindow(() => CargoInfo.For(subject, doc), _ => { });
+                            info.Measure(new Size(340, double.PositiveInfinity));
+                            info.Arrange(new Rect(0, 0, 340, info.DesiredSize.Height));
+                            info.UpdateLayout();
+                            if (info.Content is FrameworkElement content)
+                            {
+                                content.Measure(new Size(340, double.PositiveInfinity));
+                                content.Arrange(new Rect(0, 0, 340, content.DesiredSize.Height));
+                                content.UpdateLayout();
+                                var ih = Math.Max(1, (int)Math.Ceiling(content.DesiredSize.Height));
+                                var ibmp = new RenderTargetBitmap(340, ih, 96, 96, PixelFormats.Pbgra32);
+                                ibmp.Render(content);
+                                var ienc = new PngBitmapEncoder();
+                                ienc.Frames.Add(BitmapFrame.Create(ibmp));
+                                using var ifs = File.Create(Path.Combine(dir, "inv-item-info.png"));
+                                ienc.Save(ifs);
+                            }
                             break;
                         }
                     }

@@ -939,6 +939,37 @@ drill into nested containers. On an editable design you can also **add, remove a
 rearrange** loose cargo; contents travel with the ship through **Export** and save
 write-back.
 
+### What an item is, and naming it
+
+**Alt+click any item** in the container view for its info panel, or use **right-click ▸
+Info…**. It shows what the game's own object panel shows: the name, the description, the
+factions the item belongs to, and its value.
+
+- **The factions are the interesting part.** They come off the item itself rather than its
+  def, so an item that arrived with an imported ship reads as whoever it came from — a pouch
+  out of a Ceres station names that station. An item you added here belongs to none, and the
+  panel says `n/a`, which is what the game says too.
+- **RAW CONDITIONS** underneath is Ostraplan's own addition and labelled as such. The game
+  hides these; they are here because they are what you actually want when you are editing a
+  save and need to know what a def carries.
+- The panel stays open while you browse, re-points when you Alt+click something else, and
+  closes itself if the item is removed behind it.
+
+**Any item can be named**, not just containers — a labelled round in a locker is as much a
+part of a design as a labelled crate. Three ways in, all of them the same rename and all one
+undo step:
+
+- **Type over the name** at the top of the info panel, the way you rename a part in the
+  inspector. Clear it, or type the stock name back, to put it back.
+- **Right-click ▸ Rename…** on the item.
+- **Click the title** at the top of the container view to name the container you are looking
+  inside. At the root that is the part or deck item itself; drilled in, it is the nested
+  container — which is what makes a crate of pouches labelable pouch by pouch.
+
+The name is the game's own rename, so it goes into the game through **Export** and **Update
+Ship in Save…**, and comes back when you import a ship carrying one. A stack is named as a
+stack.
+
 ### Moving things around the grid
 
 - **Drag** an item to move it. It rides centred on the cursor, and the cell it will land in

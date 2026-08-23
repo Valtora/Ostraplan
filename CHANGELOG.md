@@ -12,6 +12,29 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Name anything inside a container, and see what it is.** The contents view now answers both halves of
+  what an item is. **Alt+click any item** (or **right-click ▸ Info…**) for the panel the game shows for
+  an object: its name, its description, the factions it belongs to, and its value. **Any item can be
+  named**, not only ones with a container of their own, because a labelled round in a locker is as much
+  a part of a design as a labelled crate.
+  - **Three ways to name, all the same rename and all one undo step**: type over the name at the top of
+    the info panel the way you rename a part in the inspector, use **right-click ▸ Rename…**, or **click
+    the title** of the container view to name the container you are looking inside. That last one is what
+    makes a crate of pouches labelable pouch by pouch, since drilling in re-points it at the nested one.
+  - **It is the game's own rename**, so a name goes into the game through **Export** and **Update Ship in
+    Save…**, and comes back when you import a ship carrying one. Before this, a name a player gave a pouch
+    in game was dropped on import and then written back as a no-op that erased it. A stack is named as a
+    stack.
+  - **The factions are the part worth having.** They belong to the item rather than its def, so anything
+    that arrived with an imported ship reads as whoever it came from — a pouch out of a Ceres station
+    names that station. An item you added here belongs to none, and the panel says so in the game's own
+    words. A design carries its own copy of the names, because a save invents factions as it goes and
+    nothing in the game install lists them, so they survive the design leaving that save.
+  - **RAW CONDITIONS is Ostraplan's own**, and labelled as such rather than passed off as the game's. The
+    game's panel deliberately hides these; they are here because they are what you want when you are
+    editing a save. The game's own figures are shorter than you would expect: it shows only conditions
+    flagged for display, and four in the whole of the game's data are.
+  - Thanks to nighoggDatatype for the request.
 - **A Damage Brush: paint condition onto a design and keep it.** **Simulate ▸ Damage Brush…**, then drag
   across the plan and everything the stroke crosses takes the condition you set. Set one figure for
   everything the brush touches, or **a range it rolls within, per object, as it paints** — which is the

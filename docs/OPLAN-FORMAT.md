@@ -125,6 +125,7 @@ A complete file, with every section populated:
 | `looseObjects` | array | Loose floor cargo (below). Additive since v1. |
 | `links` | array | Device signal connections (below). Additive since v1. |
 | `dismissedAlerts` | array of string | Problem-warning keys the user dismissed, so a dismissed warning stays dismissed across reopens. Additive since v1. |
+| `factions` | object / absent | Friendly names for the factions this design's cargo belongs to, raw id → name. A save **invents** factions at runtime (a stock playthrough carries about 400, one per person among the rest) and nothing under the game install lists any of them, so a design that named none of its own would lose them the moment it left the save. Only the ids the cargo actually references are written. Omitted for a design whose cargo belongs to none, which is every design drawn from scratch. Additive since v1. |
 | `extraMassKg` | double / absent | Dead weight the design is expected to haul (a tow, or a hold of salvage), in kg. Feeds the **propulsion** figures only, dividing in exactly where the game puts a docked ship's mass; it is not reaction mass. **Omitted when zero.** Additive since v1. |
 | `autoSaveOf` | string / absent | Present **only** in an auto-save snapshot (`%APPDATA%\Ostraplan\autosave`): the path of the design's own file when the snapshot was taken, so recovering it puts the design back on that file. Absent in a snapshot of a design that had never been saved, and absent from every file **Save** writes. Additive since v1. |
 
@@ -196,9 +197,12 @@ The design itself, in draw order (array order is preserved). Each entry:
 | `stack` | int | Stacked count (≥ 1). |
 | `isStack` | bool | Whether this node is a stack head. |
 | `children` | array / absent | Nested contents (a container inside a container). |
+| `name` | string / absent | The name the user gave this item (the game's own `Rename`, exactly as on a part). Absent for an item carrying its def's stock name, which is nearly all of them. On a stack it is the stack's, and reaches the game on the stack head. |
+| `factions` | array of string / absent | The factions this item belongs to, raw ids, from its condition owner's `aFactions`. Per-instance save state rather than anything the def declares, so only an imported item has any. Their friendly names are in the root `factions` table. |
 
 Friendly name and grid footprint are **not** stored on cargo nodes — they are
-re-resolved from the def on load.
+re-resolved from the def on load. `name` is the exception, because it is not the def's
+name and nothing outside the save knows it.
 
 ### `zones`
 

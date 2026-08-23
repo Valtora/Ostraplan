@@ -147,6 +147,11 @@ public sealed class InventoryWindow : Window
         return (def, children);
     }
 
+    /// <summary>What to call a cargo item on screen: the name the user gave it, else the def's own, else the raw
+    /// def name. The one place that decision is made, so a renamed pouch reads the same on its tile, its tooltip,
+    /// its breadcrumb and the messages about it (#37).</summary>
+    private static string Label(CargoItem item) => item.CustomName ?? item.Friendly ?? item.DefName;
+
     /// <summary>Find a cargo node anywhere in the live tree by id.</summary>
     private static CargoItem? FindNode(IReadOnlyList<CargoItem> items, string id)
     {
@@ -210,9 +215,10 @@ public sealed class InventoryWindow : Window
                 {
                     // "A name at the top" is the breadcrumb, so only claim it when an ancestor is actually up there
                     // to drop onto. The right-click "Move to" menu is gated on the same depth for the same reason.
-                    Text = "Drag to move, R turns it in hand · into a container to nest it"
+                    Text = "Drag to move (R turns it) · into a container to nest it"
                            + (_path.Count > 1 ? " · onto a name at the top to move it out" : "")
-                           + " · right-click to remove",
+                           + " · Alt+click for info · right-click to rename or remove"
+                           + " · click the title to name this container",
                     Foreground = Dim, FontSize = 11, Margin = new Thickness(0, 0, 0, 6), TextWrapping = TextWrapping.Wrap,
                 });
         }
@@ -247,7 +253,19 @@ public sealed class InventoryWindow : Window
             var last = i == _path.Count - 1;
             if (last)
             {
-                bar.Children.Add(new TextBlock { Text = _path[i].Title, Foreground = Ink, FontWeight = FontWeights.Bold, FontSize = 15 });
+                // The deepest crumb is the container you are looking inside, and naming it here is the obvious
+                // move: it is the one place its name is already on screen (#37). Click to rename when editing.
+                var head = new TextBlock
+                {
+                    Text = _path[i].Title, Foreground = Ink, FontWeight = FontWeights.Bold, FontSize = 15,
+                };
+                if (Editing)
+                {
+                    head.Cursor = Cursors.Hand;
+                    head.ToolTip = "Click to rename this container";
+                    head.MouseLeftButtonUp += (_, _) => { if (!_dragging) RenameCurrent(); };
+                }
+                bar.Children.Add(head);
             }
             else
             {
@@ -268,6 +286,45 @@ public sealed class InventoryWindow : Window
         return bar;
     }
 
+    /// <summary>
+    /// Rename whatever the deepest breadcrumb points at.
+    ///
+    /// <para>Two different things wear that crumb and they are named through different commands: at the root it is
+    /// the <b>host</b> the window was opened on, a placed part or a deck item, whose name lives on the object
+    /// itself; deeper in it is a nested <see cref="CargoItem"/>, whose name lives in the host's cargo tree. Both
+    /// are one undo step, and both land in the same place in the game.</para>
+    /// </summary>
+    private void RenameCurrent()
+    {
+        if (!Editing || _doc is null) return;
+
+        if (_path[^1].ContainerId is { } nestedId)
+        {
+            if (FindNode(HostCargo, nestedId) is { } nested) RenameItem(nested);
+            return;
+        }
+
+        // The root: the placement or deck item this window belongs to.
+        var hostDef = _catalog.Lookup(_rootDefName);
+        var current = _root?.CustomName ?? _rootLoose?.CustomName;
+        var dlg = new RenameDialog(hostDef?.Friendly ?? _rootDefName, current, _root is not null ? "part" : "item")
+        {
+            Owner = this,
+        };
+        if (dlg.ShowDialog() != true) return;
+        var chosen = Rename.Typed(dlg.ChosenName, hostDef);
+        if (chosen == current) return;
+
+        _stack!.Push(_doc, _root is not null
+            ? new SetCustomNameCommand(_root, _root.CustomName, chosen)
+            : new SetLooseCustomNameCommand(_rootLoose!, _rootLoose!.CustomName, chosen));
+
+        // The crumb IS the title, so both have to move with it.
+        _path[0] = _path[0] with { Title = chosen ?? hostDef?.Friendly ?? _rootDefName };
+        Title = "Contents — " + _path[0].Title;
+        Render();
+    }
+
     private void NavigateTo(int depth)
     {
         if (depth < 0 || depth >= _path.Count - 1) return;
@@ -278,7 +335,7 @@ public sealed class InventoryWindow : Window
 
     private void DrillInto(CargoItem child)
     {
-        _path.Add(new Crumb(child.Friendly ?? child.DefName, child.StrID));
+        _path.Add(new Crumb(Label(child), child.StrID));
         _selectedId = null;
         Render();
     }
@@ -402,7 +459,7 @@ public sealed class InventoryWindow : Window
     private FrameworkElement SlotCell(CargoItem item, string slot)
     {
         var tile = ItemTile(item, SlotPx, SlotPx, item.Stack);
-        tile.ToolTip = $"{SlotFriendly(slot)}: {item.Friendly ?? item.DefName}"
+        tile.ToolTip = $"{SlotFriendly(slot)}: {Label(item)}"
             + (item.Children.Count > 0 ? $"  ({item.SubtreeCount - 1} inside — click to open)" : "");
         return tile;
     }
@@ -461,23 +518,99 @@ public sealed class InventoryWindow : Window
             BorderBrush = selected ? ThemeManager.Warn : drillable ? Accent : PanelBorder,
             BorderThickness = new Thickness(selected ? 2 : drillable ? 1.5 : 1),
             Child = overlay,
-            ToolTip = (item.Friendly ?? item.DefName)
+            ToolTip = Label(item)
                 + (count > 1 ? $"  ×{count}" : "")
                 + (drillable ? $"  ({item.SubtreeCount - 1} inside — click to open)" : "")
-                + (Editing && !item.Slotted ? "  · drag to move (R turns it) · right-click to remove" : ""),
+                + "  · Alt+click for info"
+                + (Editing && !item.Slotted ? "  · drag to move (R turns it) · right-click to remove or rename" : ""),
         };
         if (Editing && !item.Slotted)
         {
             border.Cursor = Cursors.Hand;
-            border.MouseLeftButtonDown += (_, e) => StartDrag(item, e);   // click vs drag decided on button-up
+            border.MouseLeftButtonDown += (_, e) =>
+            {
+                // Alt+click asks what the thing IS rather than moving it, so it has to intercept before the drag
+                // arms — otherwise the drag swallows the click and the panel never opens.
+                if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt)) { ShowInfo(item); e.Handled = true; return; }
+                StartDrag(item, e);   // click vs drag decided on button-up
+            };
             border.ContextMenu = TileMenu(item);
         }
-        else if (drillable)   // read-only viewer: click to drill
+        else
         {
+            // Read-only, or an equipped item: Alt+click still answers "what is this", which is the whole point of
+            // the panel and is as useful on a suit's battery as on a crate's rounds.
             border.Cursor = Cursors.Hand;
-            border.MouseLeftButtonUp += (_, _) => DrillInto(item);
+            border.MouseLeftButtonUp += (_, e) =>
+            {
+                if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt)) { ShowInfo(item); e.Handled = true; return; }
+                if (drillable) DrillInto(item);
+            };
+            if (item.Slotted) border.ContextMenu = SlottedMenu(item);
         }
         return border;
+    }
+
+    private CargoInfoWindow? _info;
+
+    /// <summary>
+    /// Open the info panel on an item, or re-point the open one. One window, like the ship's Simulate: a second
+    /// would be describing a different item with nothing on screen to say which.
+    ///
+    /// <para>The panel re-reads the item by id rather than holding it, so an edit made behind it lands and a
+    /// removal closes it. That matters because the tree is immutable — every edit replaces the node, so a held
+    /// reference would go stale on the first move.</para>
+    /// </summary>
+    private void ShowInfo(CargoItem item)
+    {
+        var id = item.StrID;
+
+        CargoInfo? Read() =>
+            _doc is not null && FindNode(RootCargo, id) is { } live ? CargoInfo.For(live, _doc) : null;
+
+        void DoRename(string? name)
+        {
+            if (!Editing) return;
+            if (CargoEdit.Rename(HostCargo, id, name) is { } next) Commit(next);
+        }
+
+        if (_info is { } open)
+        {
+            open.Retarget(Read, DoRename);
+            open.Activate();
+            return;
+        }
+        var window = new CargoInfoWindow(Read, DoRename) { Owner = this };
+        window.Closed += (_, _) => _info = null;
+        _info = window;
+        window.Show();
+    }
+
+    /// <summary>An equipped item's menu. It cannot be moved or removed here (slots stay read-only), but it can be
+    /// asked about and named, which is the whole of what #37 wanted on items without a container of their own.</summary>
+    private ContextMenu SlottedMenu(CargoItem item)
+    {
+        var menu = new ContextMenu();
+        menu.Items.Add(MenuItem("Info…", () => ShowInfo(item)));
+        if (Editing) menu.Items.Add(MenuItem(item.CustomName is null ? "Rename…" : "Rename or clear…", () => RenameItem(item)));
+        return menu;
+    }
+
+    /// <summary>Rename one cargo item through the shared dialog — the other way in, alongside the info panel's
+    /// own box, exactly as a placed part offers both (#30, #38).</summary>
+    private void RenameItem(CargoItem item)
+    {
+        if (!Editing) return;
+        var def = _catalog.Lookup(item.DefName);
+        var dlg = new RenameDialog(def?.Friendly ?? item.DefName, item.CustomName, "item") { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+        // The stock name typed back means the same as an empty box, exactly as it does for a part.
+        var chosen = Rename.Typed(dlg.ChosenName, def);
+        if (CargoEdit.Rename(HostCargo, item.StrID, chosen) is { } next)
+        {
+            Commit(next);
+            _info?.Refresh();
+        }
     }
 
     /// <summary>Right-click menu for a grid tile when editing: remove one / the whole stack, and (when nested) move
@@ -485,6 +618,12 @@ public sealed class InventoryWindow : Window
     private ContextMenu TileMenu(CargoItem item)
     {
         var menu = new ContextMenu();
+        // Info and rename lead, because they act on any item at all — the removal below is the only thing here
+        // that needs the item to be loose cargo, and #37's whole point was that naming should not be gated on
+        // having a container.
+        menu.Items.Add(MenuItem("Info…", () => ShowInfo(item)));
+        menu.Items.Add(MenuItem(item.CustomName is null ? "Rename…" : "Rename or clear…", () => RenameItem(item)));
+        menu.Items.Add(new Separator());
         if (item.IsStack && item.Stack > 1)
         {
             menu.Items.Add(MenuItem("Remove one", () => Remove(CargoEdit.RemoveOne(HostCargo, item.StrID))));
@@ -523,7 +662,7 @@ public sealed class InventoryWindow : Window
         row.Children.Add(ItemTile(item, SlotPx, SlotPx, item.Stack));
         row.Children.Add(new TextBlock
         {
-            Text = $"{item.Friendly ?? item.DefName}  {note}",
+            Text = $"{Label(item)}  {note}",
             Foreground = Dim,
             VerticalAlignment = VerticalAlignment.Center,
             Margin = new Thickness(8, 0, 0, 0),
@@ -793,7 +932,7 @@ public sealed class InventoryWindow : Window
         if (def?.ContainerGrid is not { } grid) return;
         if (_catalog.Lookup(item.DefName) is { } itemDef && !ContainerFilter.Accepts(_catalog, def, itemDef))
         {
-            MessageBox.Show(this, $"“{def.Friendly}” won't hold {item.Friendly ?? item.DefName}.", "Can't move here",
+            MessageBox.Show(this, $"“{def.Friendly}” won't hold {Label(item)}.", "Can't move here",
                 MessageBoxButton.OK, MessageBoxImage.Information);
             return;
         }
@@ -802,7 +941,7 @@ public sealed class InventoryWindow : Window
         var canRotate = _catalog.Lookup(item.DefName)?.CanRotateInInventory == true;
         if (InventoryGrid.FirstFreeCellRotated(grid.W, grid.H, loose, item.GridW, item.GridH, canRotate) is not { } cell)
         {
-            MessageBox.Show(this, $"No room left in “{def.Friendly}” for {item.Friendly ?? item.DefName}.",
+            MessageBox.Show(this, $"No room left in “{def.Friendly}” for {Label(item)}.",
                 "Won't fit", MessageBoxButton.OK, MessageBoxImage.Warning);
             return;
         }
