@@ -55,6 +55,15 @@ public sealed record ItemDef(
     /// </summary>
     public double ZScale { get; init; } = 1.0;
 
+    /// <summary>
+    /// The def's own tuning for the game's procedural wear (see <see cref="WearShader"/>), straight off
+    /// <c>JsonItemDef</c>. Every field here is a <b>sentinel</b> rather than a value: <c>Item.SetData</c> pushes
+    /// each one at the shader only when the def actually set it, so an unset field leaves the shader's own default
+    /// standing. <see cref="WearShader.Tuning.For"/> is where that resolution happens, and it is the only place
+    /// that should read these.
+    /// </summary>
+    public WearFields Wear { get; init; } = WearFields.Unset;
+
     public static ItemDef Parse(JsonElement e) => new(
         Json.Str(e, "strName") ?? "",
         Json.Str(e, "strImg") ?? "",
@@ -71,7 +80,50 @@ public sealed record ItemDef(
         ShadowBoxes = Json.StrArray(e, "aShadowBoxes").Select(ShadowBox.Parse).OfType<ShadowBox>().ToArray(),
         IsWallForLight = Json.StrArray(e, "aSocketAdds").Contains("TILWallAdds"),
         ZScale = Json.Dbl(e, "fZScale", 1.0),
+        Wear = WearFields.Parse(e),
     };
+}
+
+/// <summary>
+/// An item def's raw wear-shader fields, verbatim from <c>JsonItemDef</c> and carrying its constructor's
+/// defaults rather than C#'s. Resolving these into the values the shader actually runs on is
+/// <see cref="WearShader.Tuning.For"/>'s job, not this record's.
+///
+/// <para><b>The defaults are not zero and not false, and that is the whole reason this is its own type.</b>
+/// <c>JsonItemDef</c>'s constructor sets <c>fDmgCut</c> and <c>fDmgTrim</c> to <c>-999</c> and <c>bLerp</c> and
+/// <c>bSinew</c> to <c>true</c> before deserialization runs, so a def that omits a field keeps that value.
+/// Reading <c>bLerp</c> with the usual <c>false</c> fallback would turn the wear blend off for the 800-odd core
+/// defs that never mention it, while the 107 that set <c>bLerp: false</c> would look identical — a difference
+/// that shows up as flatly wrong shading with nothing to point at.</para>
+/// </summary>
+/// <param name="Mode"><c>nDmgMode</c>, selecting the shader's <c>_DmgPassThrough</c> / <c>_DmgExtend</c> pair.
+/// 0 (the default) leaves both at the shader's own values.</param>
+/// <param name="Cut"><c>fDmgCut</c>, where the noise field is sliced. <c>-999</c> means unset.</param>
+/// <param name="Trim"><c>fDmgTrim</c>, the offset added after the slice. <c>-999</c> means unset.</param>
+/// <param name="Intensity"><c>fDmgIntensity</c>, the gain on the sliced noise. 0 means unset.</param>
+/// <param name="Complexity"><c>fDmgComplexity</c>, the spatial frequency of the noise. 0 means unset.</param>
+/// <param name="Lerp"><c>bLerp</c>: blend the worn colour in over the noise value rather than replacing.</param>
+/// <param name="Sinew"><c>bSinew</c>: take the absolute value of the sliced noise, which turns a one-sided
+/// stain into a vein.</param>
+public sealed record WearFields(
+    int Mode, double Cut, double Trim, double Intensity, double Complexity, bool Lerp, bool Sinew)
+{
+    /// <summary>The sentinel meaning "the def did not set <see cref="Cut"/> / <see cref="Trim"/>", which is what
+    /// <c>JsonItemDef</c>'s constructor writes.</summary>
+    public const double Unspecified = -999.0;
+
+    /// <summary>What a def that mentions none of these fields carries — <c>JsonItemDef</c>'s constructor
+    /// defaults. Also what a synthetic test catalog's parts get.</summary>
+    public static WearFields Unset { get; } = new(0, Unspecified, Unspecified, 0, 0, Lerp: true, Sinew: true);
+
+    public static WearFields Parse(JsonElement e) => new(
+        Json.Int(e, "nDmgMode"),
+        Json.Dbl(e, "fDmgCut", Unspecified),
+        Json.Dbl(e, "fDmgTrim", Unspecified),
+        Json.Dbl(e, "fDmgIntensity"),
+        Json.Dbl(e, "fDmgComplexity"),
+        Json.Bool(e, "bLerp", fallback: true),
+        Json.Bool(e, "bSinew", fallback: true));
 }
 
 /// <summary>
@@ -679,8 +731,13 @@ internal static class Json
     public static string? Str(JsonElement e, string name) =>
         e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.String ? v.GetString() : null;
 
-    public static bool Bool(JsonElement e, string name) =>
-        e.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.True;
+    /// <summary>A boolean field, absent reading as <paramref name="fallback"/>. The fallback is almost always
+    /// false, but a handful of <c>JsonItemDef</c> fields are constructed <c>true</c> before deserialization and
+    /// so mean the opposite when omitted — see <see cref="WearFields"/>.</summary>
+    public static bool Bool(JsonElement e, string name, bool fallback = false) =>
+        e.TryGetProperty(name, out var v) && v.ValueKind is JsonValueKind.True or JsonValueKind.False
+            ? v.ValueKind is JsonValueKind.True
+            : fallback;
 
     public static int Int(JsonElement e, string name, int fallback = 0) =>
         e.TryGetProperty(name, out var v) && v.ValueKind == JsonValueKind.Number && v.TryGetInt32(out var i)
