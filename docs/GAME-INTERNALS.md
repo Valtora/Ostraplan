@@ -1120,6 +1120,41 @@ content of a name, and stores it verbatim.
 
 ---
 
+### The mega tool tip shows less than you would expect
+
+An object's mega tool tip (`Ostranauts.UI.MegaToolTip`) is a host plus a prefab list of
+data modules. For an **item** the relevant ones are:
+
+| Module | What it shows |
+|---|---|
+| `ItemModule` | `strNameFriendly`, `strDesc`, the object's factions, its portrait. Carries `StartRename`, so this is where a rename happens in game. |
+| `ValueModule` | `GetBasePrice()`. Exact (`~$N`) for a crew with `SkillAdmin`, else `$`–`$$$$$` tiers. Destroys itself outright on a def with no `StatBasePrice` rather than printing zero. |
+| `NumberModule` | Every condition whose def declares `nDisplayType == 1`. |
+| `GasModule` | The 8 gases, where present, plus `StatGasPressure`. |
+
+> **`nDisplayType == 1` matches four conditions in the whole of stock 1.0.0.11**:
+> `StatGasTemp`, `StatLiqD2O`, `StatLiqHe` and one more liquid. An ordinary crate's tool tip
+> is therefore a name, a description, factions and a price, and **nothing else**. A panel
+> that fills itself with every `Stat*` a def declares is not parity, it is a different
+> feature — which is why Ostraplan's raw list is a separate, labelled section.
+
+**Factions are per-instance save state.** `CondOwner.aFactions` is populated from
+`JsonCondOwnerSave.aFactions` and by `AddFaction` at runtime; nothing on a def declares any.
+Ordinary cargo does carry them (a drink pouch, a coffee, a chair on a station-owned ship),
+and they identify the company or station the object came from. Their friendly names live in
+the **save's own** `objSystem.aFactions` — about 400 in a mature playthrough, most of them
+the per-person factions the game mints as it goes — and **no data file under the install
+lists them**, which is why an imported design has to carry its own table.
+
+> **Ported in Ostraplan:** `CargoInfo` (the panel's contents, in the game's module order),
+> `Catalog.CondDisplay` / `CondDisplayDef` (the `nDisplayType == 1` set and its formatting),
+> `CargoItem.Factions` + `ShipDocument.FactionNames` (read at import from the session
+> record). Behind Alt+click in the container view. **Re-verify on a major game version:**
+> the `nDisplayType` set, since a patch that marks more conditions display-type 1 silently
+> grows the panel. `CargoInfoTests` pins the count as a drift alarm.
+
+---
+
 ## 15. Rendering
 
 - **Z-order is `fZScale`, per item def. Higher draws nearer the viewer.** `nLayer` is `0`
