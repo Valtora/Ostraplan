@@ -762,7 +762,8 @@ public sealed class ShipCanvas : FrameworkElement
     {
         if (ShowWalk == on) return;
         ShowWalk = on;
-        if (!on) { _walkOverlay = WalkOverlay.Empty; _walkGeos = null; }   // drop stale data so it can't flash on re-enable
+        // Drop stale data so it can't flash on re-enable — but only when the Access overlay is not reading it too.
+        if (!on && !ShowAccess) { _walkOverlay = WalkOverlay.Empty; _walkGeos = null; }
         ShowWalkChanged?.Invoke();
         InvalidateVisual();
     }
@@ -772,6 +773,27 @@ public sealed class ShipCanvas : FrameworkElement
     {
         _walkOverlay = overlay ?? WalkOverlay.Empty;
         _walkGeoDirty = true;
+        InvalidateVisual();
+    }
+
+    /// <summary>True while the Access overlay is on: the part under the cursor (or the one selected) shows the
+    /// tiles a crew member would work it from. It reads the same analysis WalkViz does, so turning it on schedules
+    /// the same scan; the two are separate toggles because they answer different questions and the walk zones are
+    /// a lot of colour to wade through when all you wanted was which side of a console to stand on.</summary>
+    public bool ShowAccess { get; private set; }
+
+    /// <summary>Raised when the Access overlay is toggled, so the window can schedule the analysis it needs.</summary>
+    public event Action? ShowAccessChanged;
+
+    public void ToggleAccess() => SetShowAccess(!ShowAccess);
+
+    public void SetShowAccess(bool on)
+    {
+        if (ShowAccess == on) return;
+        ShowAccess = on;
+        // The walk analysis feeds both overlays, so it is only safe to drop when neither wants it.
+        if (!on && !ShowWalk) { _walkOverlay = WalkOverlay.Empty; _walkGeos = null; }
+        ShowAccessChanged?.Invoke();
         InvalidateVisual();
     }
 
@@ -2716,6 +2738,7 @@ public sealed class ShipCanvas : FrameworkElement
         DrawAirSelection(dc);
         if (ShowRooms) DrawRoomOverlay(dc);   // under the zones: rooms are the ground truth a zone is drawn onto
         if (ShowWalk) DrawWalkOverlay(dc);    // over the rooms (a walk zone cuts across compartments), under the zones
+        if (ShowAccess) DrawAccessOverlay(dc);   // over the walk zones: it is about one part, not the whole deck
         DrawDamageOverlay(dc);                // the heat map: only ever a handful of parts, and always on top
         DrawGhostPath(dc);                    // the strike being aimed, over everything
         if (ShowZones || ActiveZoneId is not null) DrawZones(dc);
@@ -3014,6 +3037,92 @@ public sealed class ShipCanvas : FrameworkElement
     /// stand, and a doorway with vacuum on one side is dashed amber: crossable, but only in a suit.
     /// Drawn live in <see cref="OnRender"/>, never baked into the sprite cache, so edits appear immediately.
     /// </summary>
+    /// <summary>
+    /// Where the part you are pointing at, or have selected, is worked from: the tiles a crew member stands on to
+    /// use it.
+    ///
+    /// <para>The game shows this on the tile itself, and the plan could not show it at all — so a console usable
+    /// only from one side looked exactly like one usable from any, and the only way to find out was to build the
+    /// ship and walk up to it. The analysis has always known the answer (it is what decides "device cannot be
+    /// reached"); it simply threw away everything except the verdict.</para>
+    ///
+    /// <para><b>One part at a time, deliberately.</b> Drawing every interactable part's standing tiles at once
+    /// covers the deck in marks and answers nothing: the question is asked about a particular thing, by pointing
+    /// at it. Selection wins over hover, so a part can be pinned and then looked away from.</para>
+    /// </summary>
+    private void DrawAccessOverlay(DrawingContext dc)
+    {
+        if (_walkOverlay.Access.Count == 0 || Doc is null) return;
+        if (AccessSubject() is not { } access) return;
+        if (access.Standing.Count == 0) return;   // nothing can reach it; the Walk overlay is where that is reported
+
+        // ONE tile, the nearest, which is what the game marks. Painting every tile in range answered a question
+        // nobody asked ("where could a crew member conceivably stand") and read as a smear around the part: a pump
+        // reachable from any of eight neighbours lit up all eight and said less than one arrow would have.
+        var (sx, sy) = access.Standing[0];
+        var pen = access.EvaOnly ? AccessEvaPen : AccessPen;
+        var cell = CellRect(sx, sy, 1, 1);
+        dc.DrawRoundedRectangle(access.EvaOnly ? AccessEvaFill : AccessFill, pen, cell, 2, 2);
+        DrawStandMark(dc, cell, access.EvaOnly);
+
+        // The part outlined in the same colour, so the mark is visibly about that thing rather than about whatever
+        // else happens to be beside it.
+        var (bx, by, bw, bh) = BodyRect(access.Body);
+        dc.DrawRectangle(null, pen, CellRect(bx, by, bw, bh));
+    }
+
+    /// <summary>A pair of feet on the tile: the game marks the spot with a footprint sprite, and a shape reads as
+    /// "stand here" where a plain tint reads as one more overlay. Drawn rather than lifted, since no game art ships
+    /// with the tool.</summary>
+    private static void DrawStandMark(DrawingContext dc, Rect cell, bool evaOnly)
+    {
+        var brush = evaOnly ? AccessEvaMark : AccessMark;
+        var w = cell.Width * 0.17;
+        var h = cell.Height * 0.34;
+        if (w < 1.2 || h < 2) return;   // zoomed too far out for the shape to say anything
+
+        var gap = cell.Width * 0.10;
+        var cy = cell.Y + cell.Height / 2;
+        foreach (var dx in new[] { -gap - w / 2, gap + w / 2 })
+            dc.DrawRoundedRectangle(brush, null,
+                new Rect(cell.X + cell.Width / 2 + dx - w / 2, cy - h / 2, w, h), w / 2, w / 2);
+    }
+
+    /// <summary>The bounding rect of a part's tiles, so its outline is one stroke rather than a grid of them.</summary>
+    private static (int X, int Y, int W, int H) BodyRect(IReadOnlyList<(int X, int Y)> tiles)
+    {
+        int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
+        foreach (var (x, y) in tiles)
+        {
+            if (x < minX) minX = x;
+            if (y < minY) minY = y;
+            if (x > maxX) maxX = x;
+            if (y > maxY) maxY = y;
+        }
+        return (minX, minY, maxX - minX + 1, maxY - minY + 1);
+    }
+
+    /// <summary>The part the access marks are about: a single selected part, else whatever the cursor is over.
+    /// Null for a multiple selection, where "which side do you walk up to" has no single answer.</summary>
+    private AccessPoints? AccessSubject()
+    {
+        if (Doc is not null && SelectedIds.Count == 1 && SelectedLooseIds.Count == 0)
+        {
+            var sel = SelectedPlacements().FirstOrDefault();
+            if (sel is not null && _walkOverlay.AccessAt((sel.X, sel.Y)) is { } picked) return picked;
+        }
+        return SelectionCount == 0 && _hoverCell is { } hover ? _walkOverlay.AccessAt(hover) : null;
+    }
+
+    private static readonly Brush AccessFill = Frozen(Color.FromArgb(70, 90, 190, 255));
+    private static readonly Pen AccessPen = FrozenPen(Color.FromArgb(210, 120, 205, 255), 1.5);
+    // Amber rather than blue, matching the "suit up" language the walk overlay already uses for a doorway with
+    // vacuum across it: reachable, but not on a stroll.
+    private static readonly Brush AccessEvaFill = Frozen(Color.FromArgb(60, 235, 175, 70));
+    private static readonly Pen AccessEvaPen = FrozenPen(Color.FromArgb(200, 245, 190, 90), 1.5);
+    private static readonly Brush AccessMark = Frozen(Color.FromArgb(235, 150, 215, 255));
+    private static readonly Brush AccessEvaMark = Frozen(Color.FromArgb(235, 250, 205, 120));
+
     private void DrawWalkOverlay(DrawingContext dc)
     {
         if (_walkOverlay.IsEmpty) return;

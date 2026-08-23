@@ -57,9 +57,12 @@ public sealed record WalkZone(int Index, IReadOnlyList<int> Tiles, bool Exterior
 /// what a UI should point at: the target tile is where a crew member would <i>stand</i>, which is usually a tile
 /// belonging to some other part (the floor in front, or the wall the fitting is set into), so marking it names the
 /// wrong thing and selects the wrong part when clicked.</param>
+/// <param name="StandingTiles">Every tile a crew member could work this part from, not merely the first one found.
+/// The verdict only ever needed one, but a plan cannot show you which side of a thing you walk up to without all
+/// of them, and that is a question the game answers on the tile itself and Ostraplan did not answer at all.</param>
 public sealed record WalkDevice(
     PlacedPart Part, string Friendly, string Action, int TargetTile, double Range, int Zone, WalkBlock Reason,
-    IReadOnlyList<int> BodyTiles)
+    IReadOnlyList<int> BodyTiles, IReadOnlyList<int> StandingTiles)
 {
     /// <summary>Operable on foot from a walk zone, without leaving the ship.</summary>
     public bool Reachable => Zone >= 0;
@@ -107,18 +110,43 @@ public sealed record WalkResult(
     public bool IsEmpty => Zones.Count == 0 && Devices.Count == 0;
 }
 
+/// <summary>
+/// Where one part is worked from, in <b>document</b> coordinates: the tiles a crew member could stand on to use
+/// it, and whether they would have to be suited to do it.
+/// </summary>
+/// <param name="Body">The part's own tiles, so the canvas can tie the marks to the thing they describe.</param>
+/// <param name="Standing">The tiles it can be operated from. Empty when nothing can reach it at all.</param>
+/// <param name="Action">The interaction the answer came from, for saying what the crew member would be doing.</param>
+/// <param name="EvaOnly">Reachable, but only from outside the hull. Normal for hull-mounted equipment, and worth
+/// separating from unreachable so it does not read as a fault.</param>
+public sealed record AccessPoints(
+    IReadOnlyList<(int X, int Y)> Body,
+    IReadOnlyList<(int X, int Y)> Standing,
+    string Action,
+    bool EvaOnly);
+
 /// <summary>The walk analysis in <b>document</b> coordinates, ready for the canvas to paint without holding the
 /// grid — the same flat, UI-free shape <see cref="PowerOverlay"/> uses.</summary>
+/// <param name="Access">Where each interactable part is worked from, keyed by the part's anchor tile so the canvas
+/// can look up whatever the user has selected or is pointing at. Keyed rather than listed because it is asked one
+/// part at a time: drawing every part's standing tiles at once would cover the deck.</param>
 public sealed record WalkOverlay(
     IReadOnlyList<IReadOnlyList<(int X, int Y)>> Zones,
     IReadOnlyList<bool> ZoneIsExterior,
     IReadOnlyList<(int X, int Y)> UnreachableDevices,
     IReadOnlyList<(int X, int Y)> EvaOnlyDevices,
-    IReadOnlyList<(int X, int Y)> EvaOnlyPortals)
+    IReadOnlyList<(int X, int Y)> EvaOnlyPortals,
+    IReadOnlyDictionary<(int X, int Y), AccessPoints> Access)
 {
-    public static readonly WalkOverlay Empty = new([], [], [], [], []);
+    public static readonly WalkOverlay Empty =
+        new([], [], [], [], [], new Dictionary<(int X, int Y), AccessPoints>());
 
     public bool IsEmpty => Zones.Count == 0 && UnreachableDevices.Count == 0 && EvaOnlyDevices.Count == 0;
+
+    /// <summary>Where the part occupying a tile is worked from, or null when nothing there takes an interaction.
+    /// Any tile of the part answers, not only its anchor, because the user points at the sprite.</summary>
+    public AccessPoints? AccessAt((int X, int Y) tile) =>
+        Access.TryGetValue(tile, out var a) ? a : null;
 }
 
 /// <summary>
@@ -203,6 +231,14 @@ public static class WalkNetwork
         var evaPortals = EvaOnlyPortals(grid);
 
         return new WalkResult(zones, tileZone, walkable, devices, evaPortals);
+    }
+
+    /// <summary>Squared tile distance between two grid indices, for ordering standing tiles by how near the
+    /// target point they are. Squared because only the ordering is wanted and a square root would not change it.</summary>
+    private static double Dist2(ShipGrid grid, int a, int b)
+    {
+        double dx = grid.Col(a) - grid.Col(b), dy = grid.Row(a) - grid.Row(b);
+        return dx * dx + dy * dy;
     }
 
     /// <summary>Project a document's Forbid zones onto grid tile indices, for <see cref="Build"/>. Zones are held
@@ -344,22 +380,26 @@ public static class WalkNetwork
 
                 var zone = -1;
                 var reason = WalkBlock.NoTargetPoint;
+                IReadOnlyList<int> standing = [];
                 if (target >= 0)
                 {
-                    var (stand, why) = Operate(grid, sight, walkable, part, target, range);
+                    var (stand, why, all) = Operate(grid, sight, walkable, part, target, range);
                     reason = why;
+                    standing = all;
                     if (stand >= 0) zone = tileZone[stand];
 
                     // Nothing inside can reach it: is that because it is mounted on the hull (normal, suit up) or
                     // because it is genuinely walled in (a real fault)? Re-ask with the exterior counted to tell
                     // them apart, so external rotors and cargo pods stop drowning out the findings that matter.
-                    if (stand < 0 && evaWalkable is not null
-                        && Operate(grid, sight, evaWalkable, part, target, range).Stand >= 0)
-                        reason = WalkBlock.EvaOnly;
+                    if (stand < 0 && evaWalkable is not null)
+                    {
+                        var eva = Operate(grid, sight, evaWalkable, part, target, range);
+                        if (eva.Stand >= 0) { reason = WalkBlock.EvaOnly; standing = eva.All; }
+                    }
                 }
 
                 var candidate = new WalkDevice(
-                    part, def.Friendly, ia.Label, target, range, zone, reason, Body(grid, part));
+                    part, def.Friendly, ia.Label, target, range, zone, reason, Body(grid, part), standing);
                 best ??= candidate;                       // the most permissive interaction, as the fallback verdict
                 if (zone >= 0) { best = candidate; break; }
             }
@@ -400,7 +440,7 @@ public static class WalkNetwork
     /// only tier 1 reports the whole bay unusable. Nothing on this path is sight-checked, because the game's
     /// fallback goes straight to the jump-point search, which tests walkability and nothing else.</para>
     /// </summary>
-    private static (int Stand, WalkBlock Reason) Operate(
+    private static (int Stand, WalkBlock Reason, List<int> All) Operate(
         ShipGrid grid, LineOfSight sight, bool[] walkable, PlacedPart part, int target, double range)
     {
         // CEIL, not floor or truncate: the game's destination search sizes its band with
@@ -409,6 +449,10 @@ public static class WalkNetwork
         var r = (int)Math.Ceiling(range);
         int tc = grid.Col(target), tr = grid.Row(target);
         var stoodAnywhere = false;
+        // Every qualifying tile, not the first: the verdict below only reads the first, but a UI showing where a
+        // part is worked from needs the lot. The band is (2r+1)² with r usually 1 or 2, so collecting them all
+        // costs a list allocation over the early return it replaces.
+        var all = new List<int>();
 
         for (var dr = -r; dr <= r; dr++)
             for (var dc = -r; dc <= r; dc++)
@@ -419,12 +463,21 @@ public static class WalkNetwork
                 if (!walkable[t] || grid.Has(t, "IsFixture")) continue;
                 stoodAnywhere = true;
                 if (!sight.IsVisible(part, t, ignoreEndpoints: true)) continue;
-                return (t, WalkBlock.None);
+                all.Add(t);
             }
 
-        if (walkable[target]) return (target, WalkBlock.None);   // tier 2
+        if (all.Count > 0)
+        {
+            // Nearest to the target point first. The game reaches its answer by expanding outward from the target
+            // (Pathfinder.GetClosestWalkableDestination runs a reverse frontier from it), so the tile it settles on
+            // is the nearest one rather than whichever a scan happened to meet first. That matters twice over: it
+            // is the tile worth showing a user, and it is the one whose walk zone the verdict should report.
+            all.Sort((a, b) => Dist2(grid, a, target).CompareTo(Dist2(grid, b, target)));
+            return (all[0], WalkBlock.None, all);
+        }
+        if (walkable[target]) return (target, WalkBlock.None, [target]);   // tier 2
 
-        return (-1, stoodAnywhere ? WalkBlock.SightBlocked : WalkBlock.NoStandingTile);
+        return (-1, stoodAnywhere ? WalkBlock.SightBlocked : WalkBlock.NoStandingTile, all);
     }
 
     /// <summary>
@@ -462,12 +515,28 @@ public static class WalkNetwork
     {
         if (result.IsEmpty) return WalkOverlay.Empty;
 
+        // Every tile of a part maps to that part's answer, so pointing anywhere on a wide console finds it. A tile
+        // two parts share keeps the first: they are asked about by pointing, and the eye is on the sprite that
+        // covers the tile rather than on whatever is underneath it.
+        var access = new Dictionary<(int X, int Y), AccessPoints>();
+        foreach (var d in result.Devices)
+        {
+            if (d.BodyTiles.Count == 0) continue;
+            var entry = new AccessPoints(
+                [.. d.BodyTiles.Select(grid.GridToDoc)],
+                [.. d.StandingTiles.Select(grid.GridToDoc)],
+                d.Action,
+                d.EvaOnly);
+            foreach (var t in d.BodyTiles) access.TryAdd(grid.GridToDoc(t), entry);
+        }
+
         return new WalkOverlay(
             [.. result.Zones.Select(z => (IReadOnlyList<(int X, int Y)>)z.Tiles.Select(grid.GridToDoc).ToArray())],
             [.. result.Zones.Select(z => z.Exterior)],
             // the device's own body, not where a crew member would stand — see WalkDevice.BodyTiles
             [.. result.Unreachable.SelectMany(d => d.BodyTiles).Distinct().Select(grid.GridToDoc)],
             [.. result.EvaOnlyDevices.SelectMany(d => d.BodyTiles).Distinct().Select(grid.GridToDoc)],
-            [.. result.EvaOnlyPortals.Select(grid.GridToDoc)]);
+            [.. result.EvaOnlyPortals.Select(grid.GridToDoc)],
+            access);
     }
 }

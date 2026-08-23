@@ -296,6 +296,63 @@ public class WalkNetworkTests
     }
 
     [Fact]
+    public void A_device_reports_every_tile_it_can_be_worked_from_not_merely_the_first()
+    {
+        // The verdict only ever needed one standable tile. The Access overlay needs all of them, because "which
+        // side do you walk up to" is a question a single tile cannot answer.
+        var f = Base();
+        f.Interaction("Switch", "use", 1);
+        f.Part("Console", tileConds: ["IsFixture", "IsObstruction", "IsFloor", "IsFloorSealed"],
+            startingConds: ["IsInstalled"], category: "CTRL",
+            mapPoints: new Dictionary<string, (double X, double Y)> { ["use"] = (0, 0) },
+            interactions: ["Switch"]);
+        var cat = f.Build();
+        // Floor on one side of the console only, so the answer is a side rather than a ring.
+        var doc = Fixtures.Doc(cat,
+            Fixtures.P("Wall", -1, 0), Fixtures.P("Console", 0, 0), Fixtures.P("Wall", 1, 0),
+            Fixtures.P("Wall", -1, -1), Fixtures.P("Wall", 0, -1), Fixtures.P("Wall", 1, -1),
+            Fixtures.P("Floor", -1, 1), Fixtures.P("Floor", 0, 1), Fixtures.P("Floor", 1, 1));
+
+        var dev = Assert.Single(Analyze(cat, doc).Devices);
+
+        Assert.True(dev.Reachable);
+        // Only the open row below, and all three of it. The console's own tile is a fixture, and the walls are not
+        // standable at all, so a correct answer is exactly the floor strip.
+        var grid = ShipGrid.FromDocument(doc, cat);
+        var standing = dev.StandingTiles.Select(grid.GridToDoc).OrderBy(t => t.X).ToList();
+        Assert.Equal([(-1, 1), (0, 1), (1, 1)], standing);
+        // Nearest to the target point first, because that is the one the game settles on and so the one worth
+        // marking. The console's target point is its own tile, so the tile directly below it wins.
+        Assert.Equal((0, 1), grid.GridToDoc(dev.StandingTiles[0]));
+    }
+
+    [Fact]
+    public void The_overlay_can_be_asked_about_any_tile_of_a_part_not_only_its_anchor()
+    {
+        // The user points at a sprite, not at an anchor, so a wide console has to answer from either end.
+        var f = Base();
+        f.Interaction("Switch", "use", 1);
+        f.Part("Desk", w: 2, h: 1, tileConds: ["IsFixture", "IsObstruction", "IsFloor", "IsFloorSealed"],
+            startingConds: ["IsInstalled"], category: "CTRL",
+            mapPoints: new Dictionary<string, (double X, double Y)> { ["use"] = (0, 0) },
+            interactions: ["Switch"]);
+        var cat = f.Build();
+        var doc = Fixtures.Doc(cat,
+            Fixtures.P("Desk", 0, 0),
+            Fixtures.P("Floor", 0, 1), Fixtures.P("Floor", 1, 1));
+
+        var grid = ShipGrid.FromDocument(doc, cat);
+        var ov = WalkNetwork.ToOverlay(grid, WalkNetwork.Build(grid, cat));
+
+        var left = ov.AccessAt((0, 0));
+        var right = ov.AccessAt((1, 0));
+        Assert.NotNull(left);
+        Assert.Same(left, right);                       // one answer, reachable from either tile of the part
+        Assert.Contains((0, 1), left!.Standing);
+        Assert.Null(ov.AccessAt((0, 1)));               // the floor in front is not itself a device
+    }
+
+    [Fact]
     public void A_wall_embedded_device_is_not_blinded_by_its_own_hull()
     {
         // A sensor sits IN the hull line, so its sight origin is inside the wall and every ray out crosses the

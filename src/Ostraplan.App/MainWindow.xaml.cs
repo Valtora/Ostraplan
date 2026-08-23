@@ -181,6 +181,7 @@ public partial class MainWindow : Window
         board.ShowRoomsChanged += OnShowRoomsChanged;   // same for the room certification
         board.ShowLightChanged += OnShowLightChanged;   // same for the interior-lighting flood
         board.ShowWalkChanged += OnShowWalkChanged;     // same for the crew-access analysis
+        board.ShowAccessChanged += OnShowAccessChanged; // the same analysis, read one part at a time
         board.WireModeChanged += OnWireModeChanged;     // swap the status hint for the wiring instructions
         board.SurfaceModeChanged += OnSurfaceModeChanged;   // show/hide the Surfaces bar and swap the status hint
         board.LinkToggleRequested += OnLinkToggleRequested;   // connect/disconnect two devices via the command stack
@@ -906,7 +907,8 @@ public partial class MainWindow : Window
         var catalog = _catalog;
         var showPower = Board.ShowPower;   // only pay for the power flood when PowerViz is on
         var showLight = Board.ShowLight;   // and the interior-lighting flood only when Light Viz is on
-        var showWalk = Board.ShowWalk;     // and the walk analysis only when WalkViz is on
+        // The walk analysis feeds both WalkViz and the Access overlay, so either one wanting it is enough.
+        var showWalk = Board.ShowWalk || Board.ShowAccess;
         // WalkViz reads the persisted View-menu switches; the Law report always uses the defaults, so the two never
         // disagree about what the ship IS — only about what the overlay is currently asking.
         var walkOpts = new WalkOptions(_settings.WalkIncludeExterior, _settings.WalkRespectForbidZones);
@@ -2114,6 +2116,14 @@ public partial class MainWindow : Window
     {
         SyncViewToggles();
         if (Board.ShowWalk) ScheduleScan();
+    }
+
+    /// <summary>The Access overlay was toggled. It reads the same analysis WalkViz does, so it schedules the same
+    /// scan; the two are separate views over one result rather than two analyses.</summary>
+    private void OnShowAccessChanged()
+    {
+        SyncViewToggles();
+        if (Board.ShowAccess) ScheduleScan();
     }
 
     // ---- lighting (Light Viz) ----
@@ -3790,6 +3800,10 @@ public partial class MainWindow : Window
                 Board.ToggleWalk();
                 e.Handled = true;
                 break;
+            case Key.J when !ctrl && !e.IsRepeat:   // access points for the part under the cursor
+                Board.ToggleAccess();
+                e.Handled = true;
+                break;
             case Key.W or Key.A or Key.S or Key.D when !ctrl:
                 Board.SetPanKey(e.Key, true);   // smooth per-frame pan until KeyUp
                 e.Handled = true;
@@ -4335,7 +4349,7 @@ public partial class MainWindow : Window
         if (exterior is { } ex) _settings.WalkIncludeExterior = ex;
         if (forbid is { } fb) _settings.WalkRespectForbidZones = fb;
         _settings.Save();
-        if (Board.ShowWalk) ScheduleScan();
+        if (Board.ShowWalk || Board.ShowAccess) ScheduleScan();   // both read the walk analysis
     }
 
     /// <summary>A labelled slider plus an editable numeric box hosted in a menu (stays open while adjusting): drag
@@ -4606,6 +4620,7 @@ public partial class MainWindow : Window
     private void OnPowerToggleClick(object sender, RoutedEventArgs e) => Board.TogglePower();
     private void OnLightToggleClick(object sender, RoutedEventArgs e) => Board.ToggleLight();
     private void OnWalkToggleClick(object sender, RoutedEventArgs e) => Board.ToggleWalk();
+    private void OnAccessToggleClick(object sender, RoutedEventArgs e) => Board.ToggleAccess();
     private void OnWireToggleClick(object sender, RoutedEventArgs e) => Board.ToggleWireMode();
 
     /// <summary>Reflect the live overlay state onto the toolbar toggle buttons' IsChecked, so the Fluent theme paints
@@ -4619,6 +4634,7 @@ public partial class MainWindow : Window
         BtnPower.IsChecked = Board.ShowPower;
         BtnLight.IsChecked = Board.ShowLight;
         BtnWalk.IsChecked = Board.ShowWalk;
+        BtnAccess.IsChecked = Board.ShowAccess;
         BtnWire.IsChecked = Board.WireMode;
         BtnSurface.IsChecked = Board.SurfaceMode;
     }
@@ -5576,6 +5592,7 @@ public partial class MainWindow : Window
             ("Rooms overlay", "C", "Show/hide RoomViz: every compartment the game would flood-fill, tinted in its own colour and labelled with what it certifies as, its size and its value. A room that certifies as nothing says why — what to add, and which item in it blocks the spec (a canister parked in a quarters, say). Unsealed compartments are red. The exterior isn't tinted, so a room open to space simply loses its tint."),
             ("Light overlay", "L", "Show/hide Light Viz: interior lighting simulated from every fixture and lit device. Each light floods its compartment (bounded by walls) in its own colour, so dark corners and colour clashes show at a glance. The View menu's Light Viz sliders set the light brightness and how far unlit areas darken (from a glow over the full-bright ship up to the in-game dark look)."),
             ("Walk overlay", "K", "Show/hide WalkViz: every tile crew can stand on, tinted by which connected zone it belongs to — two tiles sharing a colour are reachable from each other on foot, two colours mean no route. Fittings nobody can operate are ringed in red at the spot they'd have to stand, and a doorway with vacuum on one side is dashed amber (crossable, but only in a suit). Note a closed door only seals if it is unpowered, locked or damaged; a powered one crew simply open. The View menu can count spacewalks and choose whether Forbid zones apply."),
+            ("Access overlay", "J", "Point at a fitting and see the tiles a crew member would work it from, the way the game marks them on the deck. The plan alone cannot tell you an arcade cabinet is usable from one side only, or which side that is. Selecting a part pins its marks so you can look elsewhere; with nothing selected they follow the cursor. Amber instead of blue means it is reachable only from outside the hull, which is normal for hull-mounted equipment. It reads the same analysis as the Walk overlay, so the same View menu switches apply."),
             ("Surfaces mode", "T", "Treat the deck as a canvas: everything outside the focused layer is ghosted and steps out of the way of clicks, so the floor under a bed is one click away, and a 1×1 wall/floor brush re-skins whatever is already on a tile instead of refusing to land on it. Paint, box-fill (Shift+drag), outline (Ctrl at release) and the compartment fill on a bare room all work as they always did — they just re-skin whatever they land on now. In the Surfaces bar: a second brush and a checkerboard or stripe pattern; SHOW picks the focused layer (Both / Floors / Walls — Floors ghosts the walls too, which is how you reach the floors under them); PAINT picks what a stroke may do (Replace only, the default, so a stroke never spills new deck past a room's edge; Both; or Fill only). View ▸ Surfaces sets how visible the ghosted layers stay. Light Viz switches off while it is on, because a lit composite has no layers left to ghost."),
             ("Wire mode", "Toolbar toggle", "Wire signalable devices: click a device to arm it as the signal source, then click another to connect (or a connected one to disconnect). Connectable devices ring violet, wires draw source→target. Esc / right-click cancels."),
             ("Delete", "Del", "Delete the selection."),

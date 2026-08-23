@@ -166,6 +166,8 @@
                             ToolTip="Light Viz (L): simulate the in-game interior lighting"/>
                     <ToggleButton x:Name="BtnWalk" Content="Walk" Style="{StaticResource OverlayToggle}" Click="OnWalkToggleClick"
                             ToolTip="Walk overlay (K): show which tiles crew can reach, and which fittings they can operate"/>
+                    <ToggleButton x:Name="BtnAccess" Content="Access" Style="{StaticResource OverlayToggle}" Click="OnAccessToggleClick"
+                            ToolTip="Access overlay (J): point at a fitting to see the tiles a crew member would work it from"/>
                     <ToggleButton x:Name="BtnWire" Content="Wire" Style="{StaticResource OverlayToggle}" Click="OnWireToggleClick"
                             ToolTip="Wire mode: show the signal wiring, and click a device then another to connect them"/>
                     <ToggleButton x:Name="BtnSurface" Content="Surfaces" Style="{StaticResource OverlayToggle}" Click="OnSurfaceToggleClick"
