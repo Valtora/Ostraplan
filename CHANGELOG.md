@@ -23,6 +23,12 @@ each release was verified against is recorded in
     already knows about every tile, instead of working it all out again part by part.
   - Taking a snapshot, exporting a preview or rebuilding Light Viz no longer throws away the
     drawing of the ship you are looking at. With Light Viz on that was happening on every edit.
+  - **The ship is drawn for the part of it you are looking at**, rather than in full every time.
+    Zoomed in to build something, a repaint now costs the same on a 30,000-part station as on a
+    small ship, and laying a tile costs roughly half what it did. Dragging a selection and
+    drag-painting go through the same cached drawing as everything else instead of redrawing the
+    whole design once per frame. Nothing about what you see changes: the same view renders to the
+    same pixels as before, down to the plan rotation and Surfaces mode.
 
 ### Added
 - **Shift+drag paints an area with the Damage Brush.** Rubber-band a rectangle and everything

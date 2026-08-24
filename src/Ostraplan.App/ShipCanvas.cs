@@ -348,11 +348,26 @@ public sealed class ShipCanvas : FrameworkElement
     /// <summary>True while the armed palette brush is a loose item (Items tab) rather than buildable structure.</summary>
     public bool ArmedLoose => _armedLoose;
 
-    // Cached vector drawing of every placement's sprite — the expensive part of a frame (DrawOrder
-    // sort + per-tile autotile + DrawImage over the whole ship). Rebuilt only when the ship content
-    // or the pan/zoom mapping changes; reused across the frames of a band-select or box-fill drag,
-    // where the ship is static and only the overlay rectangle moves. Bypassed mid-move/paint.
+    // Cached vector drawing of the ship's sprites — the expensive part of a frame (per-tile autotile
+    // + a DrawImage per drawable). Baked at pan zero so panning is a transform rather than a rebuild,
+    // and covering only _staticRect: a window around what is on screen, not the whole design.
     private DrawingGroup? _staticShip;
+
+    /// <summary>The document-tile rect <see cref="_staticShip"/> is good for. The bake covers a window wider than
+    /// the viewport, so ordinary panning stays a transform and only a pan clean out of the window rebakes.</summary>
+    private Rect _staticRect;
+
+    /// <summary>Whether <see cref="_staticShip"/> was baked with the moving selection left out (a Move drag draws
+    /// those live at the cursor instead). Part of the cache key, so starting or ending a Move rebakes on its own
+    /// and no drag-start/end hook can be missed.</summary>
+    private bool _staticExcludesMoving;
+
+    /// <summary>Drawn extents (document tiles) for the render order they were built from, one per drawable, so
+    /// culling the bake is a rect test rather than a catalog and sprite lookup per drawable. Keyed by reference on
+    /// the order itself: <see cref="ShipDocument.RenderOrder"/> hands back a new list only when the content
+    /// changed, which is exactly when an extent can have moved.</summary>
+    private IReadOnlyList<RenderItem>? _extentsFor;
+    private Rect[] _extents = [];
 
     public event Action<IReadOnlyList<IDocCommand>>? StrokeCommitted;
     public event Action? SymmetryChanged;
@@ -2734,38 +2749,32 @@ public sealed class ShipCanvas : FrameworkElement
 
         DrawGrid(dc, view);
 
-        // The placement sprites. When Light Viz is on we always show the lit composite as the ship body — even
-        // mid-drag — so the ship never "un-lights" while you manipulate it (the old drag path drew flat sprites,
-        // which read as a flicker against the lit look). The composite is a snapshot from stroke start, so the only
-        // parts that differ from it are the in-flux ones (the moving selection, the live paint stroke); those draw
-        // live on top via DrawInFluxParts. A moving part therefore shows twice for the duration of the drag: lit at
-        // its origin (baked in the composite) and live at the cursor — the expected drag-preview double.
+        // The placement sprites. Always a cached backdrop plus whatever is in flux on top of it, in every state
+        // including mid-drag. When Light Viz is on the backdrop is the lit composite, so the ship never "un-lights"
+        // while you manipulate it (an older drag path drew flat sprites, which read as a flicker against the lit
+        // look); otherwise it is the windowed sprite bake.
+        //
+        // What "in flux" means differs between the two, because of what each backdrop already contains. The
+        // composite is a snapshot from stroke start, so both a Move and a Paint differ from it. The sprite bake is
+        // rebuilt from the live document, so a Paint is already in it (the stroke's commands are applied as they
+        // are made) and only a Move is not — and that one is left out of the bake deliberately, so the moving
+        // parts show at the cursor alone rather than also at the pose they started from.
         var lit = ShowLight && _lightImage is not null;
-        if (_drag is Drag.Move or Drag.Paint && !lit)
+        var docView = new Rect((view.X - _pan.X) / Zoom, (view.Y - _pan.Y) / Zoom, view.Width / Zoom, view.Height / Zoom);
+
+        // The backdrop is baked at pan zero, so shift it to the live pan with a transform — panning stays a
+        // transform plus one blit instead of a rebuild per frame.
+        dc.PushTransform(new TranslateTransform(_pan.X, _pan.Y));
+        if (lit)
         {
-            // No composite to lean on (Light Viz off, or not yet baked): a Move drags selected parts (offset per
-            // frame) and a Paint adds parts live, so both draw straight through, bypassing the cached drawing.
-            DrawItems(dc, Doc.RenderOrder(), i => _drag != Drag.Move ? (0, 0)
-                : i.Placement is { } p ? (SelectedIds.Contains(p.Id) && !Doc.IsLocked(p) ? MoveDeltaFor(p) : (0, 0))
-                : SelectedLooseIds.Contains(i.Id) ? _moveDelta : (0, 0));
+            // Light Viz: the game-exact composite (albedo x accumulated light + glow decals), one doc-space
+            // bitmap at 16 px/tile scaled like a sprite. Unlit hull is a black silhouette, exactly in-game.
+            var r = _lightImageRect;
+            dc.DrawImage(_lightImage, new Rect(r.X * Zoom, r.Y * Zoom, r.Width * Zoom, r.Height * Zoom));
         }
-        else
-        {
-            // The cache/composite is baked at pan zero, so shift it to the live pan with a transform — panning stays
-            // a transform + one blit instead of rebuilding the whole ship each frame. Every non-drag state (idle,
-            // band-select, box-fill preview) reuses this too, so it skips the DrawOrder + autotile pass each frame.
-            dc.PushTransform(new TranslateTransform(_pan.X, _pan.Y));
-            if (lit)
-            {
-                // Light Viz: the game-exact composite (albedo x accumulated light + glow decals), one doc-space
-                // bitmap at 16 px/tile scaled like a sprite. Unlit hull is a black silhouette, exactly in-game.
-                var r = _lightImageRect;
-                dc.DrawImage(_lightImage, new Rect(r.X * Zoom, r.Y * Zoom, r.Width * Zoom, r.Height * Zoom));
-            }
-            else dc.DrawDrawing(StaticShip());
-            dc.Pop();
-            if (_drag is Drag.Move or Drag.Paint) DrawInFluxParts(dc);   // the moving selection / live paint stroke, over the lit backdrop
-        }
+        else dc.DrawDrawing(StaticShip(docView));
+        dc.Pop();
+        if (lit ? _drag is Drag.Move or Drag.Paint : _drag == Drag.Move) DrawInFluxParts(dc);
 
         DrawLooseSelection(dc);   // the outlines on the selected loose items; the items themselves draw with the ship
         DrawIllegalCells(dc);
@@ -3876,47 +3885,145 @@ public sealed class ShipCanvas : FrameworkElement
         }
     }
 
+    /// <summary>How far past the viewport the bake reaches, as a fraction of the viewport, on each side. Bigger
+    /// buys longer pans between rebakes and costs more per rebake; at 0.5 the window is four viewports of area.</summary>
+    private const double BakeMargin = 0.5;
+
     /// <summary>
-    /// The cached vector drawing of every placement at rest, baked at <b>pan zero</b> (so it is
-    /// pan-independent — <see cref="OnRender"/> applies the current pan as a <see cref="TranslateTransform"/>) but at
-    /// the current <see cref="Zoom"/>. Built on first use and reused until the ship content (<see
-    /// cref="OnContentChanged"/>) or the zoom (the <see cref="Zoom"/> setter) changes. Frozen so WPF can render it on
-    /// the compositor thread without re-walking the scene each frame. Baking pan in used to rebuild the whole ship
-    /// every pan frame — the source of the WASD/drag pan lag on big ships.
+    /// The cached vector drawing of the ship at rest, baked at <b>pan zero</b> (so it is pan-independent —
+    /// <see cref="OnRender"/> applies the current pan as a <see cref="TranslateTransform"/>) at the current
+    /// <see cref="Zoom"/>, and covering a <b>window</b> around <paramref name="visibleDoc"/> rather than the whole
+    /// design. Frozen, so WPF renders it without re-walking the scene each frame.
+    ///
+    /// <para>The window is what makes a big design behave. Baking everything meant a design's cost was its total
+    /// size whatever was on screen: at an ordinary editing zoom a station shows a couple of per cent of its tiles
+    /// and paid for the rest on every rebake. Since any edit drops the cache (<see cref="OnContentChanged"/>),
+    /// that was the price of laying a single tile.</para>
+    ///
+    /// <para>It is deliberately a window rather than a grid of chunks. Everything the design draws shares one
+    /// z-order (<see cref="ShipDocument.RenderOrder"/>), and drawing chunk by chunk would order every drawable in
+    /// one chunk against every drawable in the next by chunk rather than by that order, mislayering anything that
+    /// straddles a boundary. One ordered pass filtered by region keeps the order exactly as it was.</para>
     /// </summary>
-    private Drawing StaticShip()
+    /// <summary>
+    /// Bake the whole design instead of a window around the view.
+    ///
+    /// <para>Exists for one test, and is never set by the app. A window that is uniformly too tight — an extent
+    /// that forgets a sprite's overhang, a margin off by a tile — drops the same content from every route to a
+    /// view, so a canvas compared only against itself agrees with itself and says nothing. Rendering the same
+    /// frame with the culling out of the way is the only ground truth available that does not pin the test to
+    /// which sprites the game currently ships.</para>
+    /// </summary>
+    internal bool BakeWholeDesign { get; set; }
+
+    /// <summary>Stands in for "everywhere" when <see cref="BakeWholeDesign"/> is on. Finite, so the rect maths
+    /// below stays well behaved, and far larger than any design's tile bounds.</summary>
+    private static readonly Rect Everywhere = new(-1e7, -1e7, 2e7, 2e7);
+
+    private Drawing StaticShip(Rect visibleDoc)
     {
-        if (_staticShip is not null) return _staticShip;
+        var excluding = _drag == Drag.Move;
+        if (_staticShip is not null && _staticExcludesMoving == excluding && _staticRect.Contains(visibleDoc))
+            return _staticShip;
+
+        var rect = BakeWholeDesign
+            ? Everywhere
+            : Rect.Inflate(visibleDoc,
+                Math.Max(visibleDoc.Width * BakeMargin, 1), Math.Max(visibleDoc.Height * BakeMargin, 1));
+
         var savedPan = _pan;
         _pan = default;   // bake at the origin; the live pan rides on a transform, not the geometry
         try
         {
             var dg = new DrawingGroup();
             using (var ctx = dg.Open())
-                DrawItems(ctx, Doc!.RenderOrder(), _ => (0, 0));
+                DrawItems(ctx, InWindow(rect, excluding), _ => (0, 0));
             dg.Freeze();
+            _staticRect = rect;
+            _staticExcludesMoving = excluding;
             return _staticShip = dg;
         }
         finally { _pan = savedPan; }
     }
 
-    /// <summary>Draw only the parts in flux during a Move/Paint drag, live, over the retained lit composite: the
-    /// moving selection (each at its per-frame offset) for a Move, or the parts placed so far this stroke for a
-    /// Paint (which the composite, baked at stroke start, doesn't yet contain). Everything static comes from the
-    /// composite, so this keeps the ship lit while an edit is in progress. Autotiling of the moving parts is
-    /// computed from the still-unmutated document exactly as the flat drag path did, then translated.</summary>
+    /// <summary>The drawables painting into <paramref name="docRect"/>, in render order. When
+    /// <paramref name="skipMoving"/> is set the ones a Move drag is carrying are left out, because those draw live
+    /// at the cursor and would otherwise also show at the pose they started from.</summary>
+    private List<RenderItem> InWindow(Rect docRect, bool skipMoving)
+    {
+        var order = Doc!.RenderOrder();
+        EnsureExtents(order);
+        var list = new List<RenderItem>();
+        for (var i = 0; i < order.Count; i++)
+        {
+            var item = order[i];
+            if (skipMoving && IsMoving(item)) continue;
+            if (docRect.IntersectsWith(_extents[i])) list.Add(item);
+        }
+        return list;
+    }
+
+    /// <summary>Whether a Move drag is carrying this drawable — the same test the live pass applies, so the two
+    /// agree on what the cache has to leave out. The primary airlock is fixed to the ship, so selecting it does
+    /// not move it.</summary>
+    private bool IsMoving(RenderItem item) =>
+        item.Placement is { } p ? SelectedIds.Contains(p.Id) && !Doc!.IsLocked(p) : SelectedLooseIds.Contains(item.Id);
+
+    private void EnsureExtents(IReadOnlyList<RenderItem> order)
+    {
+        if (ReferenceEquals(_extentsFor, order)) return;
+        _extents = new Rect[order.Count];
+        for (var i = 0; i < order.Count; i++) _extents[i] = DrawnExtent(order[i]);
+        _extentsFor = order;
+    }
+
+    /// <summary>
+    /// The document-tile rect a drawable actually paints into. A sheet part (wall, floor) autotiles within its
+    /// footprint; anything else draws its sprite at the sprite's own size centred on that footprint, and a sprite
+    /// may be larger or smaller than the footprint (<see cref="SpriteCache.SpriteTiles"/>).
+    ///
+    /// <para>Generous on purpose. It decides what the bake may leave out, and a part dropped because its origin
+    /// sits off screen while its sprite still reaches onto it would visibly disappear at the edge of the view. A
+    /// rotated sprite turns about the footprint centre, so the square that holds it at any angle is used rather
+    /// than the sprite's own box.</para>
+    ///
+    /// <para><see cref="BakeMargin"/> is the first line of defence and usually covers any overhang on its own,
+    /// but not always: the margin is a fraction of the viewport <i>in tiles</i>, so zoomed right in it can be a
+    /// couple of tiles, and a large station sprite overhangs by more than that. Which is why this measures rather
+    /// than assumes.</para>
+    /// </summary>
+    private Rect DrawnExtent(RenderItem item)
+    {
+        if (Doc!.Catalog.Lookup(item.DefName) is not { } part) return new Rect(item.X, item.Y, 1, 1);
+
+        var norm = DrawRot(part, item.Rot);
+        var (effW, effH) = GridMath.Size(part.Item.Width, part.Item.Height, norm);
+        var foot = new Rect(item.X, item.Y, effW, effH);
+        if (part.Item.HasSpriteSheet) return foot;
+
+        var (visW, visH) = Sprites!.SpriteTiles(part);
+        var side = (double)Math.Max(visW, visH);
+        return Rect.Union(foot,
+            new Rect(item.X + effW / 2.0 - side / 2, item.Y + effH / 2.0 - side / 2, side, side));
+    }
+
+    /// <summary>Draw only the parts in flux during a Move/Paint drag, live, over the retained backdrop: the moving
+    /// selection (each at its per-frame offset) for a Move, or the parts placed so far this stroke for a Paint
+    /// (which the lit composite, baked at stroke start, doesn't yet contain — the sprite bake does, so a Paint
+    /// only reaches here with Light Viz on). Everything static comes from the backdrop, so an edit in progress
+    /// neither un-lights the ship nor redraws it. Autotiling of the moving parts is computed from the
+    /// still-unmutated document, then translated.</summary>
     private void DrawInFluxParts(DrawingContext dc)
     {
         if (Doc is null) return;
         if (_drag == Drag.Move)
         {
-            foreach (var p in Doc.DrawOrder())
-                if (SelectedIds.Contains(p.Id) && !Doc.IsLocked(p))
-                    DrawPlacement(dc, p, MoveDeltaFor(p));
-            // the loose half of the selection, live at the cursor over the baked composite (as the parts above)
-            foreach (var lo in SelectedLooseObjects())
-                if (Doc.Catalog.Lookup(lo.DefName) is { } part)
-                    DrawSprite(dc, part, lo.X + _moveDelta.X, lo.Y + _moveDelta.Y, lo.Rot, ghost: false);
+            // One walk of the single render order rather than parts and then loose items, so a mixed selection
+            // keeps the layering it has at rest. IsMoving is the same test StaticShip's bake excludes on, so the
+            // backdrop and this pass cannot disagree about what is in hand.
+            foreach (var i in Doc.RenderOrder())
+                if (IsMoving(i))
+                    DrawItem(dc, i, i.Placement is { } p ? MoveDeltaFor(p) : _moveDelta);
         }
         else if (_drag == Drag.Paint)
         {

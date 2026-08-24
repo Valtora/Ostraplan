@@ -92,6 +92,7 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 | Activity log / path scrubbing | `AuditLogTests` | — |
 | Import (template / save) | `TemplateLoaderTests`* | `ShipImportTests`, `ShipSaveImportTests` |
 | Rendering | — | `RenderSmokeTests` |
+| The bake window (what the ship cache may cull) | — | `BakeWindowTests`† |
 | Document tabs (session isolation, the strip, close/cycle) | `DocumentSessionTests`, `MainWindowTabsTests`† | — |
 | Auto-save rotation (per path, per untitled slot) | `AutoSaveTests` | — |
 | UI scale (clamp, popup layer) | `SettingsTests`, `UiScalePopupTests`† | — |
@@ -99,6 +100,12 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 \* `TemplateLoaderTests` loads a real core ship, so it is gated too.
 
 † These build WPF controls, so each runs its body on an STA thread of its own (see the `RunSta` helper each declares). `MainWindowTabsTests` constructs the real `MainWindow`, which is game-free because game data loads on `Loaded` and that is never raised — but it does mean it catches a constructor that throws, which is a crash on launch rather than a bug anyone could report.
+
+`BakeWindowTests` compares the canvas against **itself** rather than against stored images, so it survives a
+game update that changes a sprite. Its ground-truth checks render the same frame with the culling turned off
+(`ShipCanvas.BakeWholeDesign`, internal and used nowhere else) and hold the culled frame against that — the
+checks that only compare two routes to a view cannot catch a window that is uniformly too tight, since both
+sides then lose the same content and agree.
 
 ## The perf benchmark
 

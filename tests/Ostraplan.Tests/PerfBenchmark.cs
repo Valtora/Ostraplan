@@ -79,9 +79,16 @@ public sealed class PerfBenchmark(ITestOutputHelper o)
 
     /// <summary>
     /// The headline user-facing number: place one part and repaint, which is what a single click costs and what a
-    /// drag-paint pays per tile. Offscreen through <see cref="RenderTargetBitmap"/>, so the rasterisation half is
-    /// software and reads slower than the live compositor; the bake half is the same work either way, and the
-    /// figure is comparable against itself across a change.
+    /// drag-paint pays per tile.
+    ///
+    /// <para>Measured at <b>both</b> the zooms a design is actually looked at, because the answer differs and only
+    /// one of them is where the work happens. "framed" is the whole design in view, as it opens; "editing" is
+    /// zoomed in on one compartment, which is where anything gets built. A cost that scales with the design rather
+    /// than with the view shows up as the two being the same.</para>
+    ///
+    /// <para>Offscreen through <see cref="RenderTargetBitmap"/>, so the rasterisation half is software and reads
+    /// slower than the live compositor; the bake half is the same work either way, and the figure is comparable
+    /// against itself across a change. Expect run-to-run spread of a few tens of per cent.</para>
     /// </summary>
     [SkippableTheory]
     [MemberData(nameof(Designs))]
@@ -98,20 +105,32 @@ public sealed class PerfBenchmark(ITestOutputHelper o)
             canvas.SetDocument(doc);
             canvas.Measure(new Size(1600, 900));
             canvas.Arrange(new Rect(0, 0, 1600, 900));
-            canvas.FitContent();
             canvas.UpdateLayout();
             var rtb = new RenderTargetBitmap(1600, 900, 96, 96, PixelFormats.Pbgra32);
-
-            Row("repaint, no edit", Ms(() => { canvas.InvalidateVisual(); canvas.UpdateLayout(); rtb.Render(canvas); }, 10));
-
-            // Each iteration places a fresh tile clear of the hull, so no two collide and every one is a real edit.
             var y = b.MinY;
-            Row("place 1 part + repaint", Ms(() =>
+
+            void Measure(string at, Action frame)
             {
-                new PlaceCommand(new Placement { DefName = "ItmFloorGrate01", X = b.MaxX + 3, Y = y++ }).Do(doc);
-                canvas.UpdateLayout();
-                rtb.Render(canvas);
-            }, 10));
+                frame();   // settle the view before timing anything
+                Row($"{at}: repaint, no edit",
+                    Ms(() => { canvas.InvalidateVisual(); canvas.UpdateLayout(); rtb.Render(canvas); }, 10));
+                // Each iteration places a fresh tile clear of the hull, so no two collide and every one is a real edit.
+                Row($"{at}: place 1 part + repaint", Ms(() =>
+                {
+                    new PlaceCommand(new Placement { DefName = "ItmFloorGrate01", X = b.MaxX + 3, Y = y++ }).Do(doc);
+                    canvas.UpdateLayout();
+                    rtb.Render(canvas);
+                }, 10));
+            }
+
+            Measure("framed", canvas.FitContent);
+
+            // one 10x10 patch in the middle of the design, framed the way the Problems list frames an issue
+            var cx = (b.MinX + b.MaxX) / 2;
+            var cy = (b.MinY + b.MaxY) / 2;
+            var patch = (from dx in Enumerable.Range(0, 10) from dy in Enumerable.Range(0, 10) select (cx + dx, cy + dy)).ToList();
+            Measure("editing", () => canvas.FocusTiles(patch));
+            o.WriteLine($"  (editing zoom {canvas.Zoom:F0} px/tile)");
         });
     }
 
