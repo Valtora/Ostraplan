@@ -53,6 +53,11 @@ each release was verified against is recorded in
   warn on the way out. Both now see the same ship.
 
 ### Added
+- **Hold Shift while panning with WASD to move about three times as fast.** Crossing a large
+  station at the ordinary pan speed takes about twelve seconds; this makes it two or three. It
+  reads the key as you hold it, so you can speed up and slow down mid-pan, and it is the same
+  accelerator Shift already gives the zoom. Mouse panning is unchanged, since that already moves
+  as fast as you drag it.
 - **Shift+drag paints an area with the Damage Brush.** Rubber-band a rectangle and everything
   inside it is painted when you let go, which is the same gesture that boxes a zone or fills a
   rectangle from the palette. Nothing changes while the box is still being sized, since shrinking

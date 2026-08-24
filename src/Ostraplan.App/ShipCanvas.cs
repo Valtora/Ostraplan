@@ -1261,6 +1261,12 @@ public sealed class ShipCanvas : FrameworkElement
     private long _lastPanTick;
     private const double PanTilesPerSecond = 14;
 
+    /// <summary>Shift-pan accelerator, the sibling of <see cref="FastZoomFactor"/>. Lower than that one because
+    /// panning is held rather than stepped: a notch of zoom lands wherever it lands, but a held key you steer,
+    /// and past about this much the view runs away from small corrections. Enough to cross a station in a couple
+    /// of seconds instead of twelve, which is the point of it.</summary>
+    private const double FastPanFactor = 3.0;
+
     public void SetPanKey(Key key, bool down)
     {
         var changed = down ? _panKeys.Add(key) : _panKeys.Remove(key);
@@ -1297,7 +1303,9 @@ public sealed class ShipCanvas : FrameworkElement
         if (v.LengthSquared == 0) return;
         if (v.LengthSquared > 1) v.Normalize();
 
-        _pan += ScreenPanDelta(v * (PanTilesPerSecond * Zoom * dt));
+        // Read live rather than latched at key-down, so Shift speeds up and lets go mid-pan.
+        var speed = PanTilesPerSecond * (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift) ? FastPanFactor : 1.0);
+        _pan += ScreenPanDelta(v * (speed * Zoom * dt));
         RaiseViewChanged();
 
         // The mouse isn't moving during a WASD pan, but the world tile under it is — so the armed

@@ -191,7 +191,8 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
 
 ### Navigating
 
-- **Pan:** **WASD**, **Space**+left-drag, or middle-drag.
+- **Pan:** **WASD**, **Space**+left-drag, or middle-drag. Hold **Shift** with WASD to pan
+  about three times as fast, which is what makes crossing a station bearable.
 - **Zoom:** mouse wheel (integer 0.125×–8×, crisp pixel art). Zoom right out to
   frame a whole station; zoom in to 8× for tile-precise work.
 - **Rotate the view:** **Q** / **E**, in 90° steps, like the in-game camera. All

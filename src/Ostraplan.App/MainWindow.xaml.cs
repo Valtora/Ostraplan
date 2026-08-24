@@ -5610,7 +5610,7 @@ public partial class MainWindow : Window
             ("Select all", "Ctrl+A", "Select every part in the design."),
             ("Copy / paste / duplicate", "Ctrl+C / V / D", "Copy · paste at the cursor · duplicate the selection."),
             ("Cancel", "Esc", "Cancel placement, then clear the selection."),
-            ("Pan", "W A S D", "Pan the view (smooth while held)."),
+            ("Pan", "W A S D", "Pan the view (smooth while held). Hold Shift to pan roughly three times as fast, for crossing a station."),
             ("Pan (mouse)", "MMB / Space + drag", "Pan the view by dragging."),
             ("Rotate view", "Q / E", "Rotate the plan view CCW / CW, like the in-game camera."),
             ("Zoom", "Mouse wheel / + −", "Wheel zooms at the cursor in fine 0.1× steps (hold Shift for 0.5×); + and − zoom at the view centre."),
