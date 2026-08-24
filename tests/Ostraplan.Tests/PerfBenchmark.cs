@@ -1,8 +1,10 @@
 using System.Diagnostics;
+using System.Reflection;
 using System.Threading;
 using System.Windows;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
+using System.Windows.Threading;
 using Ostraplan.App;
 using Ostraplan.Core;
 using Xunit;
@@ -132,6 +134,69 @@ public sealed class PerfBenchmark(ITestOutputHelper o)
             Measure("editing", () => canvas.FocusTiles(patch));
             o.WriteLine($"  (editing zoom {canvas.Zoom:F0} px/tile)");
         });
+    }
+
+    /// <summary>
+    /// What turning Light Viz on costs. The composite is rebuilt after every settled edit, so its UI-thread half
+    /// is felt as a hitch: that is the number to watch. The rest runs on a bake thread and only delays the lit
+    /// picture catching up, which is already allowed to be one edit stale.
+    /// </summary>
+    [SkippableTheory]
+    [MemberData(nameof(Designs))]
+    public void Light_composite(string design)
+    {
+        var g = TestData.RequireGame();
+        var doc = Load(g, design, out var name);
+        o.WriteLine($"{name}: {doc.Placements.Count} placements");
+
+        RunSta(() =>
+        {
+            var canvas = new ShipCanvas { Sprites = new SpriteCache() };
+            canvas.SetDocument(doc);
+            canvas.Measure(new Size(1600, 900));
+            canvas.Arrange(new Rect(0, 0, 1600, 900));
+            canvas.FitContent();
+            canvas.UpdateLayout();
+
+            var scene = LightNetwork.Build(ShipGrid.FromDocument(doc, g.Catalog), g.Catalog, null);
+            canvas.SetShowLight(true);
+            canvas.SetLightScene(scene);   // warm the sprite and normal-map caches
+            Settle(canvas);
+
+            // One rebuild at a time, settled in between. Overlapping them would have several bake threads
+            // competing for cores and read as UI-thread cost that is really contention.
+            double blocked = 0, landed = 0;
+            const int runs = 3;
+            for (var i = 0; i < runs; i++)
+            {
+                Reset(canvas);
+                var whole = Stopwatch.StartNew();
+                var sw = Stopwatch.StartNew();
+                canvas.SetLightScene(scene);
+                blocked += sw.Elapsed.TotalMilliseconds;
+                Settle(canvas);
+                landed += whole.Elapsed.TotalMilliseconds;
+            }
+            Row("UI thread blocked", blocked / runs);
+            Row("until the composite lands", landed / runs);
+        });
+    }
+
+    private static readonly FieldInfo LightImage =
+        typeof(ShipCanvas).GetField("_lightImage", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+    private static void Reset(ShipCanvas canvas) => LightImage.SetValue(canvas, null);
+
+    /// <summary>Pump this thread's dispatcher until the composite has been handed back, or we give up on it. The
+    /// sleep keeps the pump off a core the bake thread wants.</summary>
+    private static void Settle(ShipCanvas canvas)
+    {
+        var sw = Stopwatch.StartNew();
+        while (LightImage.GetValue(canvas) is null && sw.Elapsed < TimeSpan.FromSeconds(60))
+        {
+            Dispatcher.CurrentDispatcher.Invoke(() => { }, DispatcherPriority.Background);
+            Thread.Sleep(1);
+        }
     }
 
     private static ShipDocument Load((GameEnv Env, DataIndex Index, Catalog Catalog) g, string design, out string name)

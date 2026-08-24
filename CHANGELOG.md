@@ -29,6 +29,12 @@ each release was verified against is recorded in
     drag-painting go through the same cached drawing as everything else instead of redrawing the
     whole design once per frame. Nothing about what you see changes: the same view renders to the
     same pixels as before, down to the plan rotation and Surfaces mode.
+  - **Light Viz costs a fraction of what it did to keep up with an edit.** Rebuilding the lit
+    picture froze the window for about a tenth of a second on a large ship and closer to half a
+    second on a big station, every time an edit settled. Most of that work now happens away from
+    the window, which stays responsive while it catches up, and the parts of a ship with no
+    surface relief are skipped rather than searched for. The lit picture itself is unchanged,
+    pixel for pixel.
 
 ### Added
 - **Shift+drag paints an area with the Damage Brush.** Rubber-band a rectangle and everything

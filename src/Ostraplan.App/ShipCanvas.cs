@@ -1,6 +1,7 @@
 using System.Globalization;
 using System.IO;
 using System.Text;
+using System.Threading;
 using System.Windows;
 using System.Windows.Input;
 using System.Windows.Media;
@@ -3429,16 +3430,20 @@ public sealed class ShipCanvas : FrameworkElement
         int w = tilesW * ppt, h = tilesH * ppt;
         if ((long)w * h > 64_000_000) { _lightImage = null; return; }   // a station past ~500x500 tiles: skip rather than exhaust memory
 
-        var albedo = BakeDocPixels(minX, minY, tilesW, tilesH, ppt, normalPass: false);
-        var normal = BakeDocPixels(minX, minY, tilesW, tilesH, ppt, normalPass: true);
+        // Reading the document is what has to happen here, so that is all that does: two frozen drawings, built
+        // back to back off the same instant of the design. Turning them into pixels touches nothing but themselves.
+        var albedoDrawing = BakeDocDrawing(minX, minY, ppt, normalPass: false);
+        var normalDrawing = BakeDocDrawing(minX, minY, ppt, normalPass: true);
         var glows = new List<GlowImage>(_lightScene.Glows.Count);
         foreach (var g in _lightScene.Glows)
             if (Sprites.GlowPixels(g.SpriteAbs, g.Rot) is { } gp)
                 glows.Add(new GlowImage(g.DocX, g.DocY, gp.W, gp.H, gp.Bgra));
 
         var scene = _lightScene;
-        Task.Run(() =>
+        OnBakeThread(() =>
         {
+            var albedo = Rasterize(albedoDrawing, w, h);
+            var normal = Rasterize(normalDrawing, w, h);
             var acc = LightComposite.AccumulateLights(scene, w, h, ppt, minX, minY, normal);
             var outPx = LightComposite.Compose(albedo, acc, w, h, ppt, minX, minY, glows);
             var bmp = System.Windows.Media.Imaging.BitmapSource.Create(w, h, 96, 96, PixelFormats.Pbgra32, null, outPx, w * 4);
@@ -3453,28 +3458,61 @@ public sealed class ShipCanvas : FrameworkElement
         });
     }
 
-    /// <summary>Render the ship (placements + loose items) into a doc-space pixel buffer at
-    /// <paramref name="ppt"/> px/tile — the albedo pass, or the normal-map pass (each sprite swapped for its
-    /// vector-swizzled normal texture; uncovered pixels keep alpha 0 = flat). Premultiplied BGRA.</summary>
-    private byte[] BakeDocPixels(int minX, int minY, int tilesW, int tilesH, int ppt, bool normalPass)
+    /// <summary>
+    /// Run a composite off the UI thread, on an STA thread of its own.
+    ///
+    /// <para>Not the thread pool. Rasterising into a <see cref="RenderTargetBitmap"/> needs a
+    /// <see cref="Visual"/>, and building one anywhere pins a <see cref="Dispatcher"/> to the current thread that
+    /// nothing then shuts down — on a pooled thread that outlives the work and is handed to whatever runs next.
+    /// A thread of its own costs a fraction of a millisecond against a bake measured in tens, and takes its
+    /// dispatcher with it when it ends.</para>
+    /// </summary>
+    private static void OnBakeThread(Action work)
+    {
+        var t = new Thread(() =>
+        {
+            try { work(); }
+            finally { System.Windows.Threading.Dispatcher.FromThread(Thread.CurrentThread)?.InvokeShutdown(); }
+        })
+        { IsBackground = true, Name = "Ostraplan light composite" };
+        t.SetApartmentState(ApartmentState.STA);
+        t.Start();
+    }
+
+    /// <summary>Rasterise a frozen doc-space drawing to premultiplied BGRA. Safe anywhere: a frozen
+    /// <see cref="Drawing"/> has no thread affinity, and the sprites it holds are frozen too
+    /// (<see cref="SpriteCache"/>).</summary>
+    private static byte[] Rasterize(Drawing drawing, int w, int h)
+    {
+        var dv = new DrawingVisual();
+        RenderOptions.SetBitmapScalingMode(dv, BitmapScalingMode.NearestNeighbor);
+        using (var ctx = dv.RenderOpen()) ctx.DrawDrawing(drawing);
+        var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+        rtb.Render(dv);
+        var px = new byte[w * h * 4];
+        rtb.CopyPixels(px, w * 4, 0);
+        return px;
+    }
+
+    /// <summary>The ship (placements + loose items) as a frozen doc-space drawing anchored at
+    /// (<paramref name="minX"/>, <paramref name="minY"/>) and <paramref name="ppt"/> px/tile — the albedo pass, or
+    /// the normal-map pass (each sprite swapped for its vector-swizzled normal texture; a part with no normal map
+    /// draws nothing, and uncovered pixels keep alpha 0 = flat).
+    ///
+    /// <para>Frozen because that is what lets <see cref="Rasterize"/> run somewhere else. This walks the document
+    /// so it belongs on the UI thread; turning the result into pixels does not.</para></summary>
+    private Drawing BakeDocDrawing(int minX, int minY, int ppt, bool normalPass)
     {
         var (savedPan, savedZoom, savedRot) = (_pan, Zoom, ViewRot);
         SetBakeView(ppt, new Vector(-minX * (double)ppt, -minY * (double)ppt), 0);
         _normalPass = normalPass;
         try
         {
-            var dv = new DrawingVisual();
-            RenderOptions.SetBitmapScalingMode(dv, BitmapScalingMode.NearestNeighbor);
-            using (var ctx = dv.RenderOpen())
-            {
+            var dg = new DrawingGroup();
+            using (var ctx = dg.Open())
                 foreach (var i in Doc!.RenderOrder()) DrawItem(ctx, i, (0, 0));
-            }
-            int w = tilesW * ppt, h = tilesH * ppt;
-            var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
-            rtb.Render(dv);
-            var px = new byte[w * h * 4];
-            rtb.CopyPixels(px, w * 4, 0);
-            return px;
+            dg.Freeze();
+            return dg;
         }
         finally
         {
@@ -4154,6 +4192,12 @@ public sealed class ShipCanvas : FrameworkElement
     private void DrawSprite(
         DrawingContext dc, PartDef part, int gx, int gy, int rot, bool ghost, double? condition = null)
     {
+        // A part with no normal map contributes nothing to the normal pass: every lookup below ends in a null
+        // cell and draws nothing (alpha 0 reads as flat downstream). Leaving before the sheet loop matters more
+        // than it looks, because that loop resolves an autotile mask per tile — four condtrigger evaluations
+        // apiece — and most of a ship's tiles are the walls and floors it would run for.
+        if (_normalPass && part.SpriteNormAbs is null) return;
+
         // Wear is an albedo effect. The normal pass bakes surface relief for Light Viz and a worn texel's normal
         // is unchanged, so that pass draws the plain sprite whatever the condition says.
         var worn = !_normalPass && !ghost && condition is not null;
