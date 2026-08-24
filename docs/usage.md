@@ -523,10 +523,17 @@ fire up to the heaviest missile — then draw the path the same way.
 than measuring it. Drag across the plan and everything the stroke crosses takes the condition
 you set. Wear appears on the parts as you paint, exactly as the game will draw it.
 
+**Shift+drag** boxes an area instead of a line, the same gesture as a box fill in the palette
+or a zone: rubber-band a rectangle and everything inside it is painted when you let go. Nothing
+changes while you are still sizing the box, because shrinking it could not take the wear back
+off. Use it for a whole compartment, a deck, or a ship, and the freehand brush for the trail of
+scuffing between them.
+
 Set either **one condition** for everything the brush touches, or **a range** it rolls within,
 per object, as it goes. The range is the one to reach for: a corridor painted at a flat 60%
 reads as uniformly tired, where 25–70% reads as a place where some things have held up and
-others have not.
+others have not. An area rolls exactly as the brush does, once per object, so boxing a room at
+25–70% gives it the same varied look as dragging over every tile of it would have.
 
 - **Nothing shows above 80% condition.** The game draws no wear at all until a part is below
   it, which is why its own second-hand ships look clean — they average about 88%. A range that
@@ -537,7 +544,8 @@ others have not.
   stroke, which is what gives a derelict its mix. The damaged form it leaves behind is a fresh
   one, and each object is rolled once per stroke however many of its tiles you cross, so
   dragging the length of a big tank breaks it once rather than a stage per tile.
-- **A whole stroke is one undo step**, however many tiles it crossed.
+- **A whole stroke is one undo step**, however many tiles it crossed, and a boxed area is one
+  stroke however big it was.
 - **Deck items take it too**, so a battered crate reads as part of the room. Untick **Include
   loose items** to paint the structure alone. A stack is worn as a stack.
 - **Not everything can be worn.** Ship systems and parts with no damage pool of their own are

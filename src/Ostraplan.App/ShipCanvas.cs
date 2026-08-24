@@ -262,7 +262,7 @@ public sealed class ShipCanvas : FrameworkElement
     /// <see cref="AppSettings.AllowModdedOverrides"/>.</summary>
     public bool AllowModdedOverrides { get; set; }
 
-    private enum Drag { None, Pan, Move, Band, Paint, BoxFill, ZonePaint, ZoneBox, Aim, DamagePaint }
+    private enum Drag { None, Pan, Move, Band, Paint, BoxFill, ZonePaint, ZoneBox, Aim, DamagePaint, DamageBox }
     private Drag _drag;
     private Point _dragStartScreen;
     private (int X, int Y) _dragStartCell;
@@ -696,8 +696,15 @@ public sealed class ShipCanvas : FrameworkElement
     /// condition to roll are all the window's business.</summary>
     public event Action<(int X, int Y)>? DamagePainted;
 
+    /// <summary>Raised once when an <b>area</b> stroke is released, with the two corners of the box it bounded,
+    /// inclusive and in either order. Nothing is reported while the box is being sized: shrinking a rectangle
+    /// could not take the wear back off the tiles it had already crossed, so an area paints on release only.
+    /// The window decides what the rectangle means, the same as it does for a tile.</summary>
+    public event Action<(int X, int Y), (int X, int Y)>? DamageAreaPainted;
+
     /// <summary>Raised when a Damage Brush stroke is released, so the window can close the whole drag into one
-    /// undo step — the same shape as <see cref="StrokeCommitted"/> for an ordinary paint stroke.</summary>
+    /// undo step — the same shape as <see cref="StrokeCommitted"/> for an ordinary paint stroke. Both a freehand
+    /// stroke and an area raise it.</summary>
     public event Action? DamageStrokeFinished;
 
     /// <summary>Hand the canvas to the Damage Brush window, or give it back. While it is on, dragging paints
@@ -1441,6 +1448,20 @@ public sealed class ShipCanvas : FrameworkElement
         {
             _damagePainted.Clear();
             var start = CellAt(screen);
+            _dragStartCell = start;
+
+            // Shift is this app's box modifier everywhere else (a zone, the palette's fill), so it bounds an area
+            // here too: rubber-band a rectangle and paint the whole of it on release.
+            if (Keyboard.Modifiers.HasFlag(ModifierKeys.Shift))
+            {
+                _drag = Drag.DamageBox;
+                _hoverCell = start;
+                CaptureMouse();
+                InvalidateVisual();
+                e.Handled = true;
+                return;
+            }
+
             _damagePainted.Add(start);
             _drag = Drag.DamagePaint;
             CaptureMouse();
@@ -1763,7 +1784,7 @@ public sealed class ShipCanvas : FrameworkElement
     /// for any non-box state, which clears the readout.</summary>
     private void RaiseSelectionSize()
     {
-        if (_drag is Drag.Band or Drag.BoxFill or Drag.ZoneBox && _hoverCell is { } end)
+        if (_drag is Drag.Band or Drag.BoxFill or Drag.ZoneBox or Drag.DamageBox && _hoverCell is { } end)
             SelectionSizeChanged?.Invoke((Math.Abs(end.X - _dragStartCell.X) + 1, Math.Abs(end.Y - _dragStartCell.Y) + 1));
         else
             SelectionSizeChanged?.Invoke(null);
@@ -1819,6 +1840,7 @@ public sealed class ShipCanvas : FrameworkElement
                 InvalidateVisual();
                 break;
             case Drag.Band:
+            case Drag.DamageBox:
                 InvalidateVisual();
                 break;
         }
@@ -1849,6 +1871,18 @@ public sealed class ShipCanvas : FrameworkElement
             if (_damagePainted.Add(last)) DamagePainted?.Invoke(last);
             _damagePainted.Clear();
             DamageStrokeFinished?.Invoke();
+            e.Handled = true;
+            return;
+        }
+
+        // An area stroke has painted nothing yet, so the release does the whole rectangle at once and then closes
+        // the stroke, which makes the box one undo step exactly like a drag.
+        if (drag == Drag.DamageBox)
+        {
+            DamageAreaPainted?.Invoke(_dragStartCell, CellAt(e.GetPosition(this)));
+            DamageStrokeFinished?.Invoke();
+            RaiseSelectionSize();
+            InvalidateVisual();
             e.Handled = true;
             return;
         }
@@ -2811,6 +2845,13 @@ public sealed class ShipCanvas : FrameworkElement
             var (bx0, bx1) = (Math.Min(_dragStartCell.X, bandEnd.X), Math.Max(_dragStartCell.X, bandEnd.X));
             var (by0, by1) = (Math.Min(_dragStartCell.Y, bandEnd.Y), Math.Max(_dragStartCell.Y, bandEnd.Y));
             dc.DrawRectangle(BandBrush, BandPen, CellRect(bx0, by0, bx1 - bx0 + 1, by1 - by0 + 1));
+        }
+
+        if (_drag == Drag.DamageBox && _hoverCell is { } areaEnd)
+        {
+            var (ax0, ax1) = (Math.Min(_dragStartCell.X, areaEnd.X), Math.Max(_dragStartCell.X, areaEnd.X));
+            var (ay0, ay1) = (Math.Min(_dragStartCell.Y, areaEnd.Y), Math.Max(_dragStartCell.Y, areaEnd.Y));
+            dc.DrawRectangle(BandBrush, BandPen, CellRect(ax0, ay0, ax1 - ax0 + 1, ay1 - ay0 + 1));
         }
 
         if (_drag == Drag.BoxFill && _hoverCell is { } fillEnd)

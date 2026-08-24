@@ -150,15 +150,24 @@ public sealed class DamageStroke(ShipDocument doc, Random rng)
 {
     private readonly List<IDocCommand> _cmds = [];
     private readonly HashSet<Guid> _rolled = [];
+    private int _painted;
+    private int _skipped;
 
     /// <summary>What the stroke has done so far, in order, already executed.</summary>
     public IReadOnlyList<IDocCommand> Commands => _cmds;
+
+    /// <summary>What the stroke has painted, and what it reached but could not, across the whole drag. Running
+    /// totals rather than a per-tile figure because the area brush covers its whole rectangle in one release, and
+    /// a freehand stroke's last tile says nothing about the corridor behind it.</summary>
+    public (int Painted, int Skipped) Totals => (_painted, _skipped);
 
     /// <summary>Start the next stroke. It does not undo anything: the host has taken these commands.</summary>
     public void Reset()
     {
         _cmds.Clear();
         _rolled.Clear();
+        _painted = 0;
+        _skipped = 0;
     }
 
     /// <summary>
@@ -191,7 +200,54 @@ public sealed class DamageStroke(ShipDocument doc, Random rng)
             if (ApplyLoose(lo, brush)) painted++; else skipped++;
         }
 
+        _painted += painted;
+        _skipped += skipped;
         return (painted, skipped);
+    }
+
+    /// <summary>
+    /// Paint every tile of a rectangle, corners inclusive and in either order: a whole area drag in one call.
+    /// Identical to walking the box with <see cref="PaintTile"/>, so a part straddling the edge is painted once
+    /// like any other, and the whole rectangle is still one stroke and therefore one undo step.
+    ///
+    /// <para>Two things it does that a tile walk cannot. The document's <c>Changed</c> is held until the end,
+    /// because a box is thousands of tiles and a problem scan each would stall the app the way a big box fill
+    /// once did. And the rectangle is clipped to what the design actually occupies: a drag at low zoom can bound
+    /// far more empty space than ship, and none of it can take paint.</para>
+    /// </summary>
+    /// <returns>The stroke's running totals, which for an area brush is the area's own count.</returns>
+    public (int Painted, int Skipped) PaintArea(int x0, int y0, int x1, int y1, ConditionBrush brush, bool includeLoose)
+    {
+        if (Occupied() is not { } ship) return Totals;
+
+        var minX = Math.Max(Math.Min(x0, x1), ship.MinX);
+        var maxX = Math.Min(Math.Max(x0, x1), ship.MaxX);
+        var minY = Math.Max(Math.Min(y0, y1), ship.MinY);
+        var maxY = Math.Min(Math.Max(y0, y1), ship.MaxY);
+
+        using var _ = doc.SuspendChanged();
+        for (var y = minY; y <= maxY; y++)
+            for (var x = minX; x <= maxX; x++)
+                PaintTile(x, y, brush, includeLoose);
+
+        return Totals;
+    }
+
+    /// <summary>The tiles the design could hold anything on: the parts' own bounds widened to cover the deck
+    /// items, which sit outside the spatial index and can lie past the last wall. Null for an empty design.</summary>
+    private (int MinX, int MinY, int MaxX, int MaxY)? Occupied()
+    {
+        var b = doc.Bounds();
+        var loose = doc.LooseObjects;
+        if (b is not { } bounds) return loose.Count == 0 ? null : Spread(loose);
+        if (loose.Count == 0) return bounds;
+
+        var (lx0, ly0, lx1, ly1) = Spread(loose);
+        return (Math.Min(bounds.MinX, lx0), Math.Min(bounds.MinY, ly0),
+                Math.Max(bounds.MaxX, lx1), Math.Max(bounds.MaxY, ly1));
+
+        static (int, int, int, int) Spread(IReadOnlyCollection<LooseObject> items) =>
+            (items.Min(o => o.X), items.Min(o => o.Y), items.Max(o => o.X), items.Max(o => o.Y));
     }
 
     /// <summary>Paint one placed part, or report that it cannot take wear. Returns whether anything happened.</summary>

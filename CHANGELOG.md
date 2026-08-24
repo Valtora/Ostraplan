@@ -11,6 +11,13 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **Shift+drag paints an area with the Damage Brush.** Rubber-band a rectangle and everything
+  inside it is painted when you let go, which is the same gesture that boxes a zone or fills a
+  rectangle from the palette. Nothing changes while the box is still being sized, since shrinking
+  it could not take the wear back off. An area rolls exactly as a drag does, once per object, and
+  a boxed room is one undo step however many tiles it covered. The freehand brush is unchanged.
+
 ### Fixed
 - **Painting a part down to nothing no longer ends the stroke with an error.** The Damage Brush
   breaks a part driven to 0% into its damaged form, and doing that changed what was standing on

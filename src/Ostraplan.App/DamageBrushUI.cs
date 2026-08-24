@@ -16,7 +16,9 @@ namespace Ostraplan.App;
 ///
 /// <para>A stroke is <b>one undo step</b> however many tiles it crossed, the same as a paint stroke from the
 /// palette. The commands are executed live so the canvas shows the wear as the mouse moves, then handed over on
-/// release for the stack to record as a batch (see <see cref="Committed"/>).</para>
+/// release for the stack to record as a batch (see <see cref="Committed"/>). <b>Shift and drag</b> bounds an
+/// area instead: nothing is painted while the box is being sized, and the whole rectangle goes down on release
+/// as one stroke.</para>
 /// </summary>
 public sealed class DamageBrushWindow : Window
 {
@@ -73,11 +75,13 @@ public sealed class DamageBrushWindow : Window
         Sync();
 
         _board.DamagePainted += OnPainted;
+        _board.DamageAreaPainted += OnAreaPainted;
         _board.DamageStrokeFinished += OnStrokeFinished;
         Loaded += (_, _) => _board.SetDamageBrush(true);
         Closed += (_, _) =>
         {
             _board.DamagePainted -= OnPainted;
+            _board.DamageAreaPainted -= OnAreaPainted;
             _board.DamageStrokeFinished -= OnStrokeFinished;
             _board.SetDamageBrush(false);
         };
@@ -92,8 +96,14 @@ public sealed class DamageBrushWindow : Window
 
     private void OnPainted((int X, int Y) cell)
     {
-        var (painted, skipped) = _stroke.PaintTile(cell.X, cell.Y, Brush, _includeLoose.IsChecked == true);
-        if (painted > 0 || skipped > 0) Report(painted, skipped);
+        _stroke.PaintTile(cell.X, cell.Y, Brush, _includeLoose.IsChecked == true);
+        Report();
+    }
+
+    private void OnAreaPainted((int X, int Y) a, (int X, int Y) b)
+    {
+        _stroke.PaintArea(a.X, a.Y, b.X, b.Y, Brush, _includeLoose.IsChecked == true);
+        Report();
     }
 
     private void OnStrokeFinished()
@@ -103,10 +113,17 @@ public sealed class DamageBrushWindow : Window
         _stroke.Reset();
     }
 
-    private void Report(int painted, int skipped) =>
+    /// <summary>The stroke so far, not the tile just crossed: an area paints its whole rectangle in one go, and
+    /// a freehand stroke's last tile says nothing about the corridor behind it. A stroke that has done nothing at
+    /// all leaves the previous stroke's line up rather than blanking it.</summary>
+    private void Report()
+    {
+        var (painted, skipped) = _stroke.Totals;
+        if (painted == 0 && skipped == 0) return;
         _statusLine.Text = skipped == 0
             ? $"Painted {painted}."
             : $"Painted {painted}, left {skipped} that cannot take wear.";
+    }
 
     // ---- chrome ----
 
@@ -116,8 +133,9 @@ public sealed class DamageBrushWindow : Window
 
         root.Children.Add(new TextBlock
         {
-            Text = "Drag across the plan to paint. Everything the stroke touches takes the condition below, and a "
-                 + "part driven to nothing breaks into its damaged form the way the game breaks it.",
+            Text = "Drag across the plan to paint, or hold Shift and drag to box an area and paint all of it at "
+                 + "once. Everything the stroke touches takes the condition below, and a part driven to nothing "
+                 + "breaks into its damaged form the way the game breaks it.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12),
         });
 

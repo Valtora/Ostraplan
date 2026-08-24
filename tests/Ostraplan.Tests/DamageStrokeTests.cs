@@ -171,6 +171,108 @@ public class DamageStrokeTests
         Assert.Empty(stroke.Commands);
     }
 
+    // ---- the area brush (Shift + drag) ----
+
+    [Fact]
+    public void An_area_paints_every_tile_of_its_rectangle()
+    {
+        var doc = new ShipDocument(Cat());
+        for (var y = 0; y < 3; y++)
+            for (var x = 0; x < 3; x++)
+                doc.Add(new Placement { DefName = "Floor", X = x, Y = y });
+        doc.Add(new Placement { DefName = "Floor", X = 5, Y = 5 });   // outside the box, and must stay untouched
+
+        var (painted, skipped) = Stroke(doc).PaintArea(0, 0, 2, 2, ConditionBrush.Fixed(0.5), includeLoose: false);
+
+        Assert.Equal(9, painted);
+        Assert.Equal(0, skipped);
+        Assert.Equal(9, doc.Placements.Count(p => p.Condition is { } c && Math.Abs(c - 0.5) < 1e-9));
+        Assert.Null(doc.Placements.Single(p => p.X == 5).Condition);
+    }
+
+    [Fact]
+    public void An_area_reads_the_same_whichever_corner_the_drag_started_from()
+    {
+        var doc = new ShipDocument(Cat());
+        for (var x = 0; x < 3; x++) doc.Add(new Placement { DefName = "Floor", X = x, Y = 0 });
+
+        var (painted, _) = Stroke(doc).PaintArea(2, 0, 0, 0, ConditionBrush.Fixed(0.5), includeLoose: false);
+
+        Assert.Equal(3, painted);
+    }
+
+    [Fact]
+    public void An_area_is_one_stroke_and_so_one_undo_step()
+    {
+        // The whole box has to come back on a single Ctrl+Z, including the parts it destroyed.
+        var doc = new ShipDocument(Cat());
+        doc.Add(new Placement { DefName = "Wall", X = 0, Y = 0 });
+        doc.Add(new Placement { DefName = "Floor", X = 1, Y = 0 });
+
+        var stroke = Stroke(doc);
+        stroke.PaintArea(0, 0, 1, 0, Destroy, includeLoose: false);
+        Assert.Equal(["Floor", "WallDmg"], doc.Placements.Select(p => p.DefName).Order());
+
+        new CompositeCommand(stroke.Commands.ToList()).Undo(doc);
+
+        Assert.Equal(["Floor", "Wall"], doc.Placements.Select(p => p.DefName).Order());
+        Assert.All(doc.Placements, p => Assert.Null(p.Condition));
+    }
+
+    [Fact]
+    public void A_part_straddling_the_edge_of_the_area_is_still_rolled_once()
+    {
+        var doc = new ShipDocument(Cat());
+        doc.Add(new Placement { DefName = "Hull", X = 0, Y = 0 });   // 2 wide: tiles (0,0) and (1,0)
+
+        Stroke(doc).PaintArea(0, 0, 4, 4, Destroy, includeLoose: false);
+
+        Assert.Equal("HullDmg", Assert.Single(doc.Placements).DefName);
+    }
+
+    [Fact]
+    public void An_area_far_bigger_than_the_ship_paints_the_ship_and_stops()
+    {
+        // A drag at low zoom bounds a rectangle mostly made of vacuum. Walking all of it would be millions of
+        // lookups for the same result, so the box is clipped to what the design occupies.
+        var doc = new ShipDocument(Cat());
+        doc.Add(new Placement { DefName = "Floor", X = 0, Y = 0 });
+        doc.AddLoose(new LooseObject { DefName = "Crate", X = 40, Y = 40 });   // clipping must still reach the deck items
+
+        var (painted, _) = Stroke(doc).PaintArea(-100_000, -100_000, 100_000, 100_000, ConditionBrush.Fixed(0.5), includeLoose: true);
+
+        Assert.Equal(2, painted);
+        Assert.Equal(0.5, Assert.Single(doc.LooseObjects).Condition!.Value, 9);
+    }
+
+    [Fact]
+    public void An_area_on_an_empty_design_does_nothing()
+    {
+        var stroke = Stroke(new ShipDocument(Cat()));
+
+        Assert.Equal((0, 0), stroke.PaintArea(0, 0, 9, 9, Destroy, includeLoose: true));
+        Assert.Empty(stroke.Commands);
+    }
+
+    [Fact]
+    public void The_totals_run_across_the_whole_stroke_and_reset_with_it()
+    {
+        var doc = new ShipDocument(Cat());
+        doc.Add(new Placement { DefName = "Floor", X = 0, Y = 0 });
+        doc.Add(new Placement { DefName = "Floor", X = 1, Y = 0 });
+        doc.Add(new Placement { DefName = "Strut", X = 2, Y = 0 });   // no damage pool: reached, not painted
+
+        var stroke = Stroke(doc);
+        stroke.PaintTile(0, 0, ConditionBrush.Fixed(0.5), includeLoose: false);
+        stroke.PaintTile(1, 0, ConditionBrush.Fixed(0.5), includeLoose: false);
+        stroke.PaintTile(2, 0, ConditionBrush.Fixed(0.5), includeLoose: false);
+
+        Assert.Equal((2, 1), stroke.Totals);
+
+        stroke.Reset();
+        Assert.Equal((0, 0), stroke.Totals);
+    }
+
     // ---- deck items ----
 
     [Fact]
