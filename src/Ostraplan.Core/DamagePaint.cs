@@ -131,3 +131,117 @@ public sealed class SetLooseConditionCommand(LooseObject obj, double? before, do
             ? $"Cleared the painted condition on the loose {AuditFmt.Name(f, obj.DefName)}"
             : $"Painted the loose {AuditFmt.Name(f, obj.DefName)} to {after.Value * 100:0}% condition";
 }
+
+/// <summary>
+/// One Damage Brush stroke, from press to release: what the brush does to a tile, and the commands it has run so
+/// the host can record the whole drag as one undo step.
+///
+/// <para>It lives in Core rather than in the brush window because every case in it is a rule and not chrome — a
+/// part driven to nothing, a part the stroke crosses twice, a locked part, a deck item — and a rule that only
+/// exists inside a mouse handler can only be eyeballed (docs/CONVENTIONS.md).</para>
+///
+/// <para>Commands are executed as they are made, so the wear appears under the cursor as the mouse moves, and are
+/// handed over already-done on release for the stack to push as a batch.</para>
+/// </summary>
+/// <param name="doc">The design being painted.</param>
+/// <param name="rng">Seeded by the caller once per window rather than per stroke, so re-painting the same corridor
+/// twice does not hand back the identical set of rolls.</param>
+public sealed class DamageStroke(ShipDocument doc, Random rng)
+{
+    private readonly List<IDocCommand> _cmds = [];
+    private readonly HashSet<Guid> _rolled = [];
+
+    /// <summary>What the stroke has done so far, in order, already executed.</summary>
+    public IReadOnlyList<IDocCommand> Commands => _cmds;
+
+    /// <summary>Start the next stroke. It does not undo anything: the host has taken these commands.</summary>
+    public void Reset()
+    {
+        _cmds.Clear();
+        _rolled.Clear();
+    }
+
+    /// <summary>
+    /// Paint everything standing on one tile. A tile can hold several parts (a floor under a wall under a conduit)
+    /// and the stroke is painting the tile, so each of them takes its own roll — one figure shared across a whole
+    /// deck's worth of stacked parts would read as a flat patch.
+    ///
+    /// <para><b>Once per object, not once per tile.</b> A part wider than a tile is reached again on every tile of
+    /// its body, and re-rolling it there would give a big tank as many chances at a bad number as it has tiles, and
+    /// would walk a part driven to nothing a second stage down its break chain in a single stroke.</para>
+    /// </summary>
+    /// <returns>How many objects took the brush, and how many were reached but could not.</returns>
+    public (int Painted, int Skipped) PaintTile(int x, int y, ConditionBrush brush, bool includeLoose)
+    {
+        var painted = 0;
+        var skipped = 0;
+
+        // A snapshot of the tile, because painting is allowed to change what stands on it: a part driven to
+        // nothing is removed and its broken form placed, and both halves edit the very index list PlacementsAt
+        // hands back. Enumerating that live is a "collection was modified" crash on the first break.
+        foreach (var p in doc.PlacementsAt(x, y).ToArray())
+        {
+            if (!_rolled.Add(p.Id)) continue;   // already had its roll earlier in this stroke
+            if (doc.IsLocked(p)) { skipped++; continue; }
+            if (Apply(p, brush)) painted++; else skipped++;
+        }
+
+        if (includeLoose && doc.LooseAt(x, y) is { } lo && _rolled.Add(lo.Id))
+        {
+            if (ApplyLoose(lo, brush)) painted++; else skipped++;
+        }
+
+        return (painted, skipped);
+    }
+
+    /// <summary>Paint one placed part, or report that it cannot take wear. Returns whether anything happened.</summary>
+    private bool Apply(Placement p, ConditionBrush brush)
+    {
+        if (Paint.Resolve(p.DefName, brush.Roll(rng), doc.Catalog) is not { } resolved) return false;
+
+        // A condition of zero breaks the part into its damaged form, which is a def change rather than a value
+        // change, so it goes through the same swap Repair uses in the other direction.
+        if (resolved.Def != p.DefName)
+        {
+            if (FormSwap.BuildSwap(doc, [(p, resolved.Def)]) is not { } swap) return false;
+            swap.Cmd.Do(doc);
+            _cmds.Add(swap.Cmd);
+
+            foreach (var made in swap.New)
+            {
+                _rolled.Add(made.Id);   // the broken form is this stroke's own work, not something it found
+                // A swap restates the part, and a restate carries the painted condition across, which is right
+                // for an uninstall and wrong here: the broken form is a different part starting its own life,
+                // which is exactly what Paint.Resolve hands back alongside the def.
+                if (!Nearly(made.Condition, resolved.Condition))
+                    Run(new SetConditionCommand(made, made.Condition, resolved.Condition));
+            }
+            return true;
+        }
+
+        if (Nearly(p.Condition, resolved.Condition)) return false;   // already there: no undo step for a no-op
+        Run(new SetConditionCommand(p, p.Condition, resolved.Condition));
+        return true;
+    }
+
+    /// <summary>The loose twin of <see cref="Apply"/>.</summary>
+    private bool ApplyLoose(LooseObject lo, ConditionBrush brush)
+    {
+        if (!Paint.CanWearLoose(doc.Catalog.Lookup(lo.DefName))) return false;
+        // A deck item has no break chain to walk here: breaking one would delete it from the design, and a brush
+        // is not a way to remove things. It floors at whatever the roll gave instead.
+        var condition = Paint.Clamp01(brush.Roll(rng));
+        if (Nearly(lo.Condition, condition)) return false;
+        Run(new SetLooseConditionCommand(lo, lo.Condition, condition));
+        return true;
+    }
+
+    private void Run(IDocCommand cmd)
+    {
+        cmd.Do(doc);
+        _cmds.Add(cmd);
+    }
+
+    private static bool Nearly(double? a, double? b) =>
+        a is null && b is null || a is { } x && b is { } y && Math.Abs(x - y) < 1e-6;
+}

@@ -24,13 +24,12 @@ public sealed class DamageBrushWindow : Window
     private static Brush Dim => ThemeManager.Dim;
 
     private readonly ShipCanvas _board;
-    private readonly ShipDocument _doc;
 
-    /// <summary>Seeded once per window rather than per stroke, so re-painting the same corridor twice does not
-    /// hand back the identical set of rolls.</summary>
-    private readonly Random _rng = new();
-
-    private readonly List<IDocCommand> _stroke = [];
+    /// <summary>The stroke in progress. Its rules are Core's (<see cref="DamageStroke"/>); this window supplies
+    /// the brush the sliders are set to and hands the finished stroke to the host. Its RNG is seeded once per
+    /// window rather than per stroke, so re-painting the same corridor twice does not hand back the identical set
+    /// of rolls.</summary>
+    private readonly DamageStroke _stroke;
     private readonly RadioButton _fixed;
     private readonly RadioButton _range;
     private readonly Slider _one;
@@ -47,7 +46,7 @@ public sealed class DamageBrushWindow : Window
     public DamageBrushWindow(ShipCanvas board, ShipDocument doc)
     {
         _board = board;
-        _doc = doc;
+        _stroke = new DamageStroke(doc, new Random());
 
         Title = "Damage Brush";
         Width = 380;
@@ -93,70 +92,15 @@ public sealed class DamageBrushWindow : Window
 
     private void OnPainted((int X, int Y) cell)
     {
-        var painted = 0;
-        var skipped = 0;
-
-        // Everything standing on the tile, structure first. A tile can hold several parts (a floor under a wall
-        // under a conduit) and the stroke is painting the tile, so all of them take a roll — each its own, or a
-        // whole deck's worth of stacked parts would share one figure and read as a flat patch.
-        foreach (var p in _doc.PlacementsAt(cell.X, cell.Y))
-        {
-            if (_doc.IsLocked(p)) { skipped++; continue; }
-            if (Apply(p)) painted++; else skipped++;
-        }
-
-        if (_includeLoose.IsChecked == true && _doc.LooseAt(cell.X, cell.Y) is { } lo)
-        {
-            if (ApplyLoose(lo)) painted++; else skipped++;
-        }
-
+        var (painted, skipped) = _stroke.PaintTile(cell.X, cell.Y, Brush, _includeLoose.IsChecked == true);
         if (painted > 0 || skipped > 0) Report(painted, skipped);
     }
 
-    /// <summary>Paint one placed part, or report that it cannot take wear. Returns whether anything happened.</summary>
-    private bool Apply(Placement p)
-    {
-        var condition = Brush.Roll(_rng);
-        if (Paint.Resolve(p.DefName, condition, _doc.Catalog) is not { } resolved) return false;
-
-        // A condition of zero breaks the part into its damaged form, which is a def change rather than a value
-        // change, so it goes through the same swap Repair uses in the other direction.
-        if (resolved.Def != p.DefName)
-        {
-            if (FormSwap.BuildSwap(_doc, [(p, resolved.Def)]) is not { } swap) return false;
-            swap.Cmd.Do(_doc);
-            _stroke.Add(swap.Cmd);
-            return true;
-        }
-
-        if (Nearly(p.Condition, resolved.Condition)) return false;   // already there: no undo step for a no-op
-        var cmd = new SetConditionCommand(p, p.Condition, resolved.Condition);
-        cmd.Do(_doc);
-        _stroke.Add(cmd);
-        return true;
-    }
-
-    private bool ApplyLoose(LooseObject lo)
-    {
-        if (!Paint.CanWearLoose(_doc.Catalog.Lookup(lo.DefName))) return false;
-        // A deck item has no break chain to walk here: breaking one would delete it from the design, and a brush
-        // is not a way to remove things. It floors at whatever the roll gave instead.
-        var condition = Paint.Clamp01(Brush.Roll(_rng));
-        if (Nearly(lo.Condition, condition)) return false;
-        var cmd = new SetLooseConditionCommand(lo, lo.Condition, condition);
-        cmd.Do(_doc);
-        _stroke.Add(cmd);
-        return true;
-    }
-
-    private static bool Nearly(double? a, double? b) =>
-        a is null && b is null || a is { } x && b is { } y && Math.Abs(x - y) < 1e-6;
-
     private void OnStrokeFinished()
     {
-        if (_stroke.Count == 0) return;
-        Committed?.Invoke(_stroke.ToList());
-        _stroke.Clear();
+        if (_stroke.Commands.Count == 0) return;
+        Committed?.Invoke(_stroke.Commands.ToList());
+        _stroke.Reset();
     }
 
     private void Report(int painted, int skipped) =>

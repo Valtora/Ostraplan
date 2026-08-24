@@ -594,7 +594,12 @@ public sealed class ShipDocument
                    .Concat(_looseByTile.Values.Select(lo => new RenderItem(null, lo)))
                    .OrderBy(RenderKey, RenderKeyComparer);
 
-    /// <summary>Every placement covering the tile (spatial-index lookup, unordered). Empty off the ship.</summary>
+    /// <summary>Every placement covering the tile (spatial-index lookup, unordered). Empty off the ship.
+    ///
+    /// <para>This is the index's <b>own list</b>, not a copy: read-only to its caller, but live. Anything that
+    /// adds, removes or moves a part while walking it must take a snapshot first, or the walk throws "collection
+    /// was modified" — which is exactly what a Damage Brush stroke breaking a part used to do
+    /// (<see cref="DamageStroke.PaintTile"/>).</para></summary>
     public IReadOnlyList<Placement> PlacementsAt(int x, int y) =>
         _byTile.TryGetValue((x, y), out var list) ? list : [];
 

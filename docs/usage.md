@@ -534,7 +534,9 @@ others have not.
 - **Painting a part to nothing breaks it.** At 0% it becomes its damaged form — a cracked wall,
   a wrecked alarm — because a part in Ostranauts cannot sit at a full damage pool; it breaks.
   So a range like 0–40% breaks some of what it crosses and merely wears the rest, in one
-  stroke, which is what gives a derelict its mix.
+  stroke, which is what gives a derelict its mix. The damaged form it leaves behind is a fresh
+  one, and each object is rolled once per stroke however many of its tiles you cross, so
+  dragging the length of a big tank breaks it once rather than a stage per tile.
 - **A whole stroke is one undo step**, however many tiles it crossed.
 - **Deck items take it too**, so a battered crate reads as part of the room. Untick **Include
   loose items** to paint the structure alone. A stack is worn as a stack.

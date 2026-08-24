@@ -9,6 +9,23 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.11**).
 
+## [Unreleased]
+
+### Fixed
+- **Painting a part down to nothing no longer ends the stroke with an error.** The Damage Brush
+  breaks a part driven to 0% into its damaged form, and doing that changed what was standing on
+  the tile while the stroke was still reading it, so every break stopped with
+  "Collection was modified". The stroke now reads the tile first and paints what it found, which
+  also means the floor under a wall that breaks still takes its own wear. Thanks to Fuji.
+- **A part the brush breaks arrives in the state the game would break it into.** It was inheriting
+  the condition it had been painted at, so a wall painted to 40% and then destroyed became a
+  damaged wall already worn to 40% of its own, smaller, damage pool. The damaged form starts whole,
+  the way the game starts it.
+- **A part wider than one tile is rolled once per stroke.** Dragging across a big tank rolled it
+  again on every tile of its body: with a range brush that gave it as many chances at a bad figure
+  as it had tiles, and with the brush set to destroy it walked two stages down its break chain in
+  a single pass.
+
 ## [1.1.2] 2026-08-24, a part written into a save behaves like one the game built
 
 Player feedback again, and it turned out to be one fault with a long reach. A part
