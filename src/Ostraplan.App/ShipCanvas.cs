@@ -2744,7 +2744,7 @@ public sealed class ShipCanvas : FrameworkElement
         {
             // No composite to lean on (Light Viz off, or not yet baked): a Move drags selected parts (offset per
             // frame) and a Paint adds parts live, so both draw straight through, bypassing the cached drawing.
-            DrawItems(dc, [.. Doc.RenderOrder()], i => _drag != Drag.Move ? (0, 0)
+            DrawItems(dc, Doc.RenderOrder(), i => _drag != Drag.Move ? (0, 0)
                 : i.Placement is { } p ? (SelectedIds.Contains(p.Id) && !Doc.IsLocked(p) ? MoveDeltaFor(p) : (0, 0))
                 : SelectedLooseIds.Contains(i.Id) ? _moveDelta : (0, 0));
         }
@@ -3856,7 +3856,7 @@ public sealed class ShipCanvas : FrameworkElement
         {
             var dg = new DrawingGroup();
             using (var ctx = dg.Open())
-                DrawItems(ctx, [.. Doc!.RenderOrder()], _ => (0, 0));
+                DrawItems(ctx, Doc!.RenderOrder(), _ => (0, 0));
             dg.Freeze();
             return _staticShip = dg;
         }

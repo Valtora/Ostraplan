@@ -353,6 +353,10 @@ public sealed class ShipDocument
 
     private void RaiseChanged()
     {
+        // Before the batch check: the EVENT is what a batch defers, not the invalidation. Tile conditions already
+        // update per mutation so a mid-batch read is correct, and a stale draw order would break that promise.
+        _renderOrder = null;
+        _drawOrder = null;
         if (_batchDepth > 0) { _batchDirty = true; return; }
         Changed?.Invoke();
     }
@@ -581,18 +585,35 @@ public sealed class ShipDocument
         Comparer<(double, int, int, int, int, long)>.Default;
 
     /// <summary>The placements alone, bottom-to-top. Prefer <see cref="RenderOrder"/> for anything that draws:
-    /// this omits the loose items, which share the same order.</summary>
-    public IEnumerable<Placement> DrawOrder() => InDrawOrder(_placements);
+    /// this omits the loose items, which share the same order.
+    /// <para>Filtered out of <see cref="RenderOrder"/> rather than sorted separately. <see cref="Enumerable.OrderBy"/>
+    /// is stable and both use the same key, so dropping the loose items from the one order leaves exactly the order
+    /// a placements-only sort would have produced — for an O(n) walk instead of a second O(n log n) sort.</para>
+    /// </summary>
+    public IReadOnlyList<Placement> DrawOrder() =>
+        _drawOrder ??= [.. RenderOrder().Where(i => i.Placement is not null).Select(i => i.Placement!)];
 
     /// <summary>
     /// Everything the design draws — placements and loose floor items — in one order, bottom to top. The two used
     /// to be separate passes, which pinned every loose item on top of every part regardless of what it was lying
     /// against, and left the nudge with nothing to act on.
+    ///
+    /// <para><b>Cached</b>, and dropped by <see cref="RaiseChanged"/> — so it is rebuilt once per edit rather than
+    /// once per caller. A frame can ask for it several times (the ship bake, the in-flux parts, a snapshot), and a
+    /// drag asks every frame; each rebuild costs a key per drawable, and a key is several dictionary lookups
+    /// (<see cref="RenderKey"/>). Cleared on <b>every</b> mutation, batched or not, because a mid-batch read has to
+    /// see the order the mutations so far produced.</para>
     /// </summary>
-    public IEnumerable<RenderItem> RenderOrder() =>
-        _placements.Select(p => new RenderItem(p, null))
-                   .Concat(_looseByTile.Values.Select(lo => new RenderItem(null, lo)))
-                   .OrderBy(RenderKey, RenderKeyComparer);
+    public IReadOnlyList<RenderItem> RenderOrder() =>
+        _renderOrder ??=
+        [
+            .. _placements.Select(p => new RenderItem(p, null))
+                          .Concat(_looseByTile.Values.Select(lo => new RenderItem(null, lo)))
+                          .OrderBy(RenderKey, RenderKeyComparer)
+        ];
+
+    private List<RenderItem>? _renderOrder;
+    private List<Placement>? _drawOrder;
 
     /// <summary>Every placement covering the tile (spatial-index lookup, unordered). Empty off the ship.
     ///

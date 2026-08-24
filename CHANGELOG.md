@@ -11,6 +11,13 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Changed
+- **Big designs are quicker to work on.** A large ship or an imported station used to slow the
+  editor down in proportion to its size, whatever was actually on screen. The work has been cut
+  down to what a change really touches:
+  - The order everything draws in is worked out once per edit instead of once per frame, so a
+    drag no longer re-derives it for every part on the ship on the way to each frame.
+
 ### Added
 - **Shift+drag paints an area with the Damage Brush.** Rubber-band a rectangle and everything
   inside it is painted when you let go, which is the same gesture that boxes a zone or fills a
