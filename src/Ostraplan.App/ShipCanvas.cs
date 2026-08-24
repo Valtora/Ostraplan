@@ -401,6 +401,7 @@ public sealed class ShipCanvas : FrameworkElement
     {
         if (Doc is not null) Doc.Changed -= OnContentChanged;
         Doc = doc;
+        _oobFaceDirty = true;   // a different design has its own airlock, or none
         doc.Changed += OnContentChanged;
         SelectedIds.Clear();
         SelectedLooseIds.Clear();   // ids from the previous document are stale, both halves alike
@@ -419,6 +420,7 @@ public sealed class ShipCanvas : FrameworkElement
     private void OnContentChanged()
     {
         _staticShip = null;
+        _oobFaceDirty = true;   // a moved or deleted airlock moves the build envelope
         InvalidateWear();
         ClearAirSelection();
         InvalidateVisual();
@@ -2898,6 +2900,27 @@ public sealed class ShipCanvas : FrameworkElement
             dc.DrawRectangle(AirFill, AirPen, CellRect(x, y, 1, 1));
     }
 
+    /// <summary>The bounding port's mating face in DOCUMENT coordinates: the axis it bounds, which way is out, and
+    /// where the line sits. Null when nothing bounds. Cached because it is a property of the content, not of the
+    /// frame — <see cref="ProblemScan.BoundingPort"/> walks every placement, and this is asked for on every
+    /// repaint, so a big design paid for that walk per frame just to draw a hazard stripe that only moves when the
+    /// airlock does.</summary>
+    private (bool AxisY, int Dir, double Face)? _oobFace;
+    private bool _oobFaceDirty = true;
+
+    private (bool AxisY, int Dir, double Face)? BoundingFace()
+    {
+        if (!_oobFaceDirty) return _oobFace;
+        _oobFaceDirty = false;
+        _oobFace = Doc is not null
+                && ProblemScan.BoundingPort(Doc, Doc.Catalog) is { } p
+                && Doc.Part(p) is { } part
+                && ProblemScan.TryGetFace(part, p, out var axisY, out var dir, out var face)
+            ? (axisY, dir, face)
+            : null;
+        return _oobFace;
+    }
+
     /// <summary>
     /// Hazard-stripe the area beyond the mating face of the one port that bounds construction
     /// (Item.CheckFit's envelope, made visible). At most one zone: only the Primary airlock ever
@@ -2905,8 +2928,8 @@ public sealed class ShipCanvas : FrameworkElement
     /// </summary>
     private void DrawOutOfBounds(DrawingContext dc, Rect view)
     {
-        if (ProblemScan.BoundingPort(Doc!, Doc!.Catalog) is not { } p) return;
-        if (!ProblemScan.TryGetFace(Doc.Part(p)!, p, out var axisY, out var dir, out var face)) return;
+        if (BoundingFace() is not { } bound) return;
+        var (axisY, dir, face) = bound;
 
         var faceScreen = (axisY ? _pan.Y : _pan.X) + face * Zoom;
         var zone = axisY

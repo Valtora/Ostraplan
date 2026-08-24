@@ -17,6 +17,8 @@ each release was verified against is recorded in
   down to what a change really touches:
   - The order everything draws in is worked out once per edit instead of once per frame, so a
     drag no longer re-derives it for every part on the ship on the way to each frame.
+  - The build envelope past the airlock is found when the airlock moves, rather than being
+    searched for from scratch on every repaint.
 
 ### Added
 - **Shift+drag paints an area with the Damage Brush.** Rubber-band a rectangle and everything
