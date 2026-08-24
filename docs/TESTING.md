@@ -100,6 +100,25 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 
 † These build WPF controls, so each runs its body on an STA thread of its own (see the `RunSta` helper each declares). `MainWindowTabsTests` constructs the real `MainWindow`, which is game-free because game data loads on `Loaded` and that is never raised — but it does mean it catches a constructor that throws, which is a crash on launch rather than a bug anyone could report.
 
+## The perf benchmark
+
+`PerfBenchmark` is a **third tier**: a timing printout, not an assertion. It loads three real
+templates spanning the scale range (a large player ship, a mid station, and the largest template
+the game ships) and reports what the per-edit repaint and each analysis pass cost on them.
+
+Nothing in it fails on a number, because a timing depends on the machine and what else is running.
+It exists so a change aimed at responsiveness can be held against a before, in the same way
+`--dlgsmoke` exists to eyeball a layout change. It is game-gated like the rest, and carries
+`[Trait("Category", "Benchmark")]` so a normal run leaves it out.
+
+```powershell
+.\scripts\test.ps1 -Benchmark      # run it, timings printed
+```
+
+Take the render figures as **comparable against themselves**, not as frame times. They rasterise
+offscreen through `RenderTargetBitmap`, which is software, so they read slower than the live
+compositor does; the bake half of each figure is the same work either way.
+
 ## Notes
 
 - `TestData` loads the install once per run (lazily) and shares it; gated tests reuse it.
