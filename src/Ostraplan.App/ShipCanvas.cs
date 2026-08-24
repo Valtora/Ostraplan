@@ -550,7 +550,8 @@ public sealed class ShipCanvas : FrameworkElement
     {
         if (ShowPower == on) return;
         ShowPower = on;
-        if (!on) _powerOverlay = PowerOverlay.Empty;   // drop stale data so it can't flash on re-enable
+        // drop stale data so it can't flash on re-enable; DiscardedAnalysis makes the window recompute it
+        if (!on) { _powerOverlay = PowerOverlay.Empty; DiscardedAnalysis(); }
         UpdatePowerAnimation();
         ShowPowerChanged?.Invoke();
         InvalidateVisual();
@@ -670,6 +671,23 @@ public sealed class ShipCanvas : FrameworkElement
             ? Doc!.HitTestStack(x, y).FirstOrDefault(p => SurfacePaint.IsFocusLayer(Doc.Catalog, Doc.Part(p), LayerFocus))
             : Doc!.HitTest(x, y);
 
+    /// <summary>
+    /// How many times this canvas has thrown away an analysis result it was holding. Every overlay drops its
+    /// result when it is switched off, so nothing stale can flash on re-enable.
+    ///
+    /// <para>The window folds this into the key that decides whether a scan can be skipped, and it has to. Without
+    /// it that key records only what was <i>asked</i> for, and asking for the same thing twice reads as a scan that
+    /// has already been run: switch an overlay off and straight back on and the analysis it needs is never
+    /// recomputed, because the last completed scan matches on every other term. Light Viz came back on with no
+    /// lights, and every other overlay behaved the same way.</para>
+    ///
+    /// <para><b>An overlay that discards a result must call <see cref="DiscardedAnalysis"/> where it discards
+    /// it</b>, which is why this lives next to the dropping rather than in the window.</para>
+    /// </summary>
+    public int AnalysisGeneration { get; private set; }
+
+    private void DiscardedAnalysis() => AnalysisGeneration++;
+
     /// <summary>The freshly computed power network (document coords), pushed by the window after each scan.</summary>
     public void SetPowerOverlay(PowerOverlay overlay)
     {
@@ -687,7 +705,8 @@ public sealed class ShipCanvas : FrameworkElement
     {
         if (ShowRooms == on) return;
         ShowRooms = on;
-        if (!on) { _roomOverlay = RoomOverlay.Empty; _roomGeos = null; _roomLabels = null; }   // drop stale data so it can't flash on re-enable
+        // drop stale data so it can't flash on re-enable; DiscardedAnalysis makes the window recompute it
+        if (!on) { _roomOverlay = RoomOverlay.Empty; _roomGeos = null; _roomLabels = null; DiscardedAnalysis(); }
         ShowRoomsChanged?.Invoke();
         InvalidateVisual();
     }
@@ -788,7 +807,7 @@ public sealed class ShipCanvas : FrameworkElement
         if (ShowWalk == on) return;
         ShowWalk = on;
         // Drop stale data so it can't flash on re-enable — but only when the Access overlay is not reading it too.
-        if (!on && !ShowAccess) { _walkOverlay = WalkOverlay.Empty; _walkGeos = null; }
+        if (!on && !ShowAccess) { _walkOverlay = WalkOverlay.Empty; _walkGeos = null; DiscardedAnalysis(); }
         ShowWalkChanged?.Invoke();
         InvalidateVisual();
     }
@@ -817,7 +836,7 @@ public sealed class ShipCanvas : FrameworkElement
         if (ShowAccess == on) return;
         ShowAccess = on;
         // The walk analysis feeds both overlays, so it is only safe to drop when neither wants it.
-        if (!on && !ShowWalk) { _walkOverlay = WalkOverlay.Empty; _walkGeos = null; }
+        if (!on && !ShowWalk) { _walkOverlay = WalkOverlay.Empty; _walkGeos = null; DiscardedAnalysis(); }
         ShowAccessChanged?.Invoke();
         InvalidateVisual();
     }
@@ -830,7 +849,8 @@ public sealed class ShipCanvas : FrameworkElement
     {
         if (ShowLight == on) return;
         ShowLight = on;
-        if (!on) { _lightScene = LightScene.Empty; _lightImage = null; _lightJob++; }   // drop stale data (and orphan any in-flight composite) so it can't flash on re-enable
+        // drop stale data (and orphan any in-flight composite) so it can't flash on re-enable
+        if (!on) { _lightScene = LightScene.Empty; _lightImage = null; _lightJob++; DiscardedAnalysis(); }
         // The other half of the exclusion in SetSurfaceMode: a lit composite bakes the whole ship into one image,
         // so Surfaces mode would keep its toolbar highlight while quietly ghosting nothing at all.
         else SetSurfaceMode(false);

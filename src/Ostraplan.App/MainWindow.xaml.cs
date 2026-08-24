@@ -905,10 +905,7 @@ public partial class MainWindow : Window
         // neither has the answer, and the overlays and PROBLEMS list already on screen are the answer. That is not a
         // rare case: renaming, cargo, wiring, z-nudges, deck items and painted condition all leave the analysis
         // reading the same design, and each of them used to run the whole thing again.
-        var key = new ScanKey(_doc, _doc.AnalysisKey(), Board.ShowPower, Board.ShowLight,
-            Board.ShowWalk || Board.ShowAccess, Board.ShowRooms,
-            new WalkOptions(_settings.WalkIncludeExterior, _settings.WalkRespectForbidZones),
-            _settings.LightSunParallax, _settings.LightSunAngle);
+        var key = ScanKey.For(_doc, Board, _settings);
         if (key == session.LastScanKey) return;
 
         _scanCts?.Cancel();

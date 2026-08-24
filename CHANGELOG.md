@@ -40,6 +40,8 @@ each release was verified against is recorded in
     painting condition all left the design exactly as the Law report, rooms, power and walk maps
     see it, and all of them used to start the whole analysis again anyway. On a large station that
     was around a third of a second of work per edit, for an answer that could not have moved.
+    Switching an overlay off and back on recomputes it, since switching it off is what throws the
+    old answer away.
 
 ### Added
 - **Shift+drag paints an area with the Damage Brush.** Rubber-band a rectangle and everything

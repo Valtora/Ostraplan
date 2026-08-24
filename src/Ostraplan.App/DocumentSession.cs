@@ -17,16 +17,32 @@ namespace Ostraplan.App;
 /// purpose: copying in one tab and pasting into another is the whole reason for having more than one open.</para>
 /// </summary>
 /// <summary>
-/// Everything the off-thread scan's answer depends on: which design, the state of that design as far as the
-/// analysis can see it (<see cref="ShipDocument.AnalysisKey"/>), which overlays are asking for work, and the
-/// settings the walk and light passes read. Two scans with equal keys must produce equal results, which is what
-/// lets the second one be skipped.
+/// Everything that decides the off-thread scan's answer, and whether the canvas is still holding it: which design,
+/// the state of that design as far as the analysis can see it (<see cref="ShipDocument.AnalysisKey"/>), which
+/// overlays are asking for work, the settings the walk and light passes read, and how many results the canvas has
+/// thrown away (<see cref="ShipCanvas.AnalysisGeneration"/>). Equal keys mean the answer is already on screen,
+/// which is what lets the second scan be skipped.
 ///
 /// <para>The document goes in by reference so a tab switch never matches, whatever the two designs contain.</para>
+///
+/// <para><b>The generation is not optional.</b> Switching an overlay off discards its result, and only switching
+/// one <i>on</i> schedules a scan — so without it, off-then-on produces a key identical to the one recorded while
+/// the overlay was last on, the scan is skipped as redundant, and the overlay comes back with nothing to draw.</para>
 /// </summary>
 internal readonly record struct ScanKey(
-    ShipDocument? Doc, long Analysis, bool Power, bool Light, bool Walk, bool Rooms,
-    WalkOptions WalkOptions, string? SunLocation, double SunAngle);
+    ShipDocument? Doc, long Analysis, int Generation, bool Power, bool Light, bool Walk, bool Rooms,
+    WalkOptions WalkOptions, string? SunLocation, double SunAngle)
+{
+    /// <summary>The key for a design as it stands. The single place one is built, so what a test checks and what
+    /// the window acts on cannot drift apart.</summary>
+    public static ScanKey For(ShipDocument doc, ShipCanvas board, AppSettings settings) => new(
+        doc, doc.AnalysisKey(), board.AnalysisGeneration,
+        board.ShowPower, board.ShowLight,
+        board.ShowWalk || board.ShowAccess,   // the walk analysis feeds WalkViz and Access alike
+        board.ShowRooms,
+        new WalkOptions(settings.WalkIncludeExterior, settings.WalkRespectForbidZones),
+        settings.LightSunParallax, settings.LightSunAngle);
+}
 
 internal sealed class DocumentSession
 {
