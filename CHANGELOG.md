@@ -9,75 +9,50 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.11**).
 
-## [Unreleased]
+## [1.4.0] 2026-08-24, large designs are much faster to work on
+
+A performance release. The editor did work in proportion to the size of the design rather
+than to the edit being made. Two faults turned up along the way.
 
 ### Changed
-- **Big designs are quicker to work on.** A large ship or an imported station used to slow the
-  editor down in proportion to its size, whatever was actually on screen. The work has been cut
-  down to what a change really touches:
-  - The order everything draws in is worked out once per edit instead of once per frame, so a
-    drag no longer re-derives it for every part on the ship on the way to each frame. An edit then
-    repairs that order around what it changed rather than working the whole thing out again, so
-    laying a tile costs about what one tile is worth however much ship is around it.
-  - The build envelope past the airlock is found when the airlock moves, rather than being
-    searched for from scratch on every repaint.
-  - The copy of the design each analysis runs against is taken by copying what the editor
-    already knows about every tile, instead of working it all out again part by part.
-  - Taking a snapshot, exporting a preview or rebuilding Light Viz no longer throws away the
-    drawing of the ship you are looking at. With Light Viz on that was happening on every edit.
-  - **The ship is drawn for the part of it you are looking at**, rather than in full every time.
-    Zoomed in to build something, a repaint now costs the same on a 30,000-part station as on a
-    small ship, and laying a tile costs roughly half what it did. Dragging a selection and
-    drag-painting go through the same cached drawing as everything else instead of redrawing the
-    whole design once per frame. Nothing about what you see changes: the same view renders to the
-    same pixels as before, down to the plan rotation and Surfaces mode.
-  - **Light Viz costs a fraction of what it did to keep up with an edit.** Rebuilding the lit
-    picture froze the window for about a tenth of a second on a large ship and closer to half a
-    second on a big station, every time an edit settled. Most of that work now happens away from
-    the window, which stays responsive while it catches up, and the parts of a ship with no
-    surface relief are skipped rather than searched for. The lit picture itself is unchanged,
-    pixel for pixel.
-  - **Edits that cannot change the analysis no longer re-run it.** Naming a part, filling a
-    container, wiring two devices, nudging what draws on top, dropping something on the deck and
-    painting condition all left the design exactly as the Law report, rooms, power and walk maps
-    see it, and all of them used to start the whole analysis again anyway. On a large station that
-    was around a third of a second of work per edit, for an answer that could not have moved.
-    Switching an overlay off and back on recomputes it, since switching it off is what throws the
-    old answer away.
+- **The ship redraws only what is on screen.** A repaint no longer scales with the size of the
+  design. Dragging a selection and drag-painting use the cached drawing like everything else,
+  instead of redrawing the whole ship each frame.
+- **An edit updates the draw order in place** rather than rebuilding it, so laying a tile costs
+  the same on a station as on a small ship.
+- **Light Viz no longer freezes the window on every edit.** The pause was up to half a second on
+  a big station. That work runs in the background now, and the lit picture is unchanged.
+- **Edits that cannot change the analysis no longer re-run it.** Renaming, cargo, wiring, z-order
+  nudges, deck items and painted condition all leave the Law report, rooms, power and walk maps
+  reading the same ship.
+- Smaller savings behind those. The design each analysis reads is copied rather than rebuilt, the
+  build envelope past the airlock is found when the airlock moves, and snapshots and previews no
+  longer discard the drawing of the ship on screen.
 
-### Fixed
-- **"Respect Forbid zones" now does something in the editor.** WalkViz and the Law report were handed
-  a copy of the design that carried no zones at all, so a Forbid zone never cut a walk route and never
-  raised a reachability warning, whatever the switch said. Export and save write-back read the real
-  design and did take them into account, so a design could read clean while you worked on it and then
-  warn on the way out. Both now see the same ship.
+On the largest station the game ships, zoomed in, a repaint went from about 75 ms to 15 ms and
+laying a tile from about 130 ms to 37 ms. The plan looks exactly as it did before.
 
 ### Added
-- **Hold Shift while panning with WASD to move about three times as fast.** Crossing a large
-  station at the ordinary pan speed takes about twelve seconds; this makes it two or three. It
-  reads the key as you hold it, so you can speed up and slow down mid-pan, and it is the same
-  accelerator Shift already gives the zoom. Mouse panning is unchanged, since that already moves
-  as fast as you drag it.
+- **Shift speeds up WASD panning.** About three times faster while held. Press and release it
+  mid-pan. Mouse panning is unchanged.
 - **Shift+drag paints an area with the Damage Brush.** Rubber-band a rectangle and everything
-  inside it is painted when you let go, which is the same gesture that boxes a zone or fills a
-  rectangle from the palette. Nothing changes while the box is still being sized, since shrinking
-  it could not take the wear back off. An area rolls exactly as a drag does, once per object, and
-  a boxed room is one undo step however many tiles it covered. The freehand brush is unchanged.
+  inside it is painted when you let go. An area rolls once per object, exactly as a drag does, and
+  it is one undo step however many tiles it covered. The freehand brush is unchanged.
 
 ### Fixed
-- **Painting a part down to nothing no longer ends the stroke with an error.** The Damage Brush
-  breaks a part driven to 0% into its damaged form, and doing that changed what was standing on
-  the tile while the stroke was still reading it, so every break stopped with
-  "Collection was modified". The stroke now reads the tile first and paints what it found, which
-  also means the floor under a wall that breaks still takes its own wear. Thanks to Fuji.
-- **A part the brush breaks arrives in the state the game would break it into.** It was inheriting
-  the condition it had been painted at, so a wall painted to 40% and then destroyed became a
-  damaged wall already worn to 40% of its own, smaller, damage pool. The damaged form starts whole,
-  the way the game starts it.
-- **A part wider than one tile is rolled once per stroke.** Dragging across a big tank rolled it
-  again on every tile of its body: with a range brush that gave it as many chances at a bad figure
-  as it had tiles, and with the brush set to destroy it walked two stages down its break chain in
-  a single pass.
+- **Forbid zones now affect WalkViz and the Law report.** They were handed a copy of the design
+  with no zones in it, so the switch did nothing. Export and save write-back always read them, so
+  a design could look clean and then warn on the way out.
+- **A deck item dropped on an occupied tile no longer leaves the old one drawn.** One loose item
+  per tile is the rule, and the item already there is replaced.
+- **Painting a part down to nothing no longer ends the stroke with an error.** Breaking a part
+  changed the tile the stroke was still reading. The floor under a wall that breaks now takes its
+  own wear too. Thanks to Fuji.
+- **A part the brush breaks starts whole.** It used to inherit the condition it was painted at, so
+  a wall painted to 40% and destroyed became a damaged wall already at 40% of its own smaller pool.
+- **A part wider than one tile is rolled once per stroke.** Dragging across a big tank used to roll
+  it again on every tile of its body. With a range brush that gave it as many chances at a bad
+  figure as it had tiles.
 
 ## [1.1.2] 2026-08-24, a part written into a save behaves like one the game built
 
