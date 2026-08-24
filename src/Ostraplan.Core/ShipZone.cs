@@ -38,7 +38,7 @@ public sealed class ShipZone
 
     /// <summary>Stable identity across edits (commands mutate the zone in place, never swap it), so the
     /// canvas active-zone reference and panel rows stay valid — mirrors <see cref="Placement.Id"/>.</summary>
-    public Guid Id { get; } = Guid.NewGuid();
+    public Guid Id { get; init; } = Guid.NewGuid();
 
     public string Name { get; set; } = "";
     public ZoneColor Color { get; set; } = ZoneColor.Default;
@@ -66,6 +66,27 @@ public sealed class ShipZone
     public bool IsBarter => TileConds.Contains(CondBarter);
     public bool IsForbid => TileConds.Contains(CondForbid);
     public bool IsTrigger => TileConds.Contains(CondTrigger) || TileConds.Contains(CondTriggerOwner);
+
+    /// <summary>
+    /// An independent copy, sharing nothing mutable. For <see cref="ShipDocument.Snapshot"/>: the walk analysis
+    /// reads a design's Forbid zones, so a snapshot has to carry its own set for the editor to keep painting while
+    /// the scan runs off-thread.
+    ///
+    /// <para>Copies the whole zone rather than the tiles the analysis happens to read today. A snapshot holding
+    /// zones stripped of their name, colour and owner would be a trap for the next thing to look at one.</para>
+    /// </summary>
+    public ShipZone Copy() => new()
+    {
+        Id = Id,
+        Name = Name,
+        Color = Color,
+        TileConds = [.. TileConds],
+        CategoryConds = [.. CategoryConds],
+        PersonSpec = PersonSpec,
+        TargetPSpec = TargetPSpec,
+        TriggerOnOwner = TriggerOnOwner,
+        Tiles = [.. Tiles],
+    };
 
     /// <summary>The editable non-tile fields as a snapshot (for command before/after).</summary>
     public ZoneMeta Meta => new(Name, Color, [.. TileConds], [.. CategoryConds], PersonSpec, TargetPSpec, TriggerOnOwner);

@@ -43,6 +43,13 @@ each release was verified against is recorded in
     Switching an overlay off and back on recomputes it, since switching it off is what throws the
     old answer away.
 
+### Fixed
+- **"Respect Forbid zones" now does something in the editor.** WalkViz and the Law report were handed
+  a copy of the design that carried no zones at all, so a Forbid zone never cut a walk route and never
+  raised a reachability warning, whatever the switch said. Export and save write-back read the real
+  design and did take them into account, so a design could read clean while you worked on it and then
+  warn on the way out. Both now see the same ship.
+
 ### Added
 - **Shift+drag paints an area with the Damage Brush.** Rubber-band a rectangle and everything
   inside it is painted when you let go, which is the same gesture that boxes a zone or fills a

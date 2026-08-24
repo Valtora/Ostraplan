@@ -175,6 +175,44 @@ public class WalkNetworkTests
         Assert.Single(WalkNetwork.Build(grid, cat, new WalkOptions(RespectForbidZones: false), forbidden).Zones);
     }
 
+    /// <summary>
+    /// The editor does not analyse the live document: it hands the scan a <see cref="ShipDocument.Snapshot"/>, so
+    /// the zones have to survive that or the switch above is decorative. They did not, and nothing noticed, because
+    /// every test here read the live document — while export and save write-back read the live one too and so
+    /// warned about a design the editor had called clean.
+    /// </summary>
+    [Fact]
+    public void A_forbid_zone_still_cuts_the_corridor_through_a_snapshot()
+    {
+        var cat = Base().Build();
+        var doc = Fixtures.Doc(cat, Strip("Floor", 0, 4, 0));
+        new CreateZoneCommand(new ShipZone { Name = "No", TileConds = [ShipZone.CondForbid], Tiles = [(2, 0)] }).Do(doc);
+
+        var snap = doc.Snapshot();
+        var grid = ShipGrid.FromDocument(snap, cat);
+        var forbidden = WalkNetwork.ForbiddenTiles(snap, grid);
+
+        Assert.Equal(WalkNetwork.ForbiddenTiles(doc, ShipGrid.FromDocument(doc, cat)), forbidden);
+        Assert.Equal(2, WalkNetwork.Build(grid, cat, WalkOptions.Default, forbidden).Zones.Count);
+    }
+
+    /// <summary>A snapshot's zones are its own, so painting one while a scan is reading it cannot change what that
+    /// scan sees half way through.</summary>
+    [Fact]
+    public void A_snapshots_zones_are_its_own()
+    {
+        var cat = Base().Build();
+        var doc = Fixtures.Doc(cat, Strip("Floor", 0, 4, 0));
+        var zone = new ShipZone { Name = "No", TileConds = [ShipZone.CondForbid], Tiles = [(2, 0)] };
+        new CreateZoneCommand(zone).Do(doc);
+
+        var snap = doc.Snapshot();
+        new SetZoneTilesCommand(zone, zone.Tiles, [(2, 0), (3, 0), (4, 0)]).Do(doc);
+
+        Assert.Single(snap.Zones[0].Tiles);
+        Assert.Equal(3, doc.Zones[0].Tiles.Count);
+    }
+
     // ---- device reach ----
 
     private static Catalog ReachCatalog(double range)

@@ -175,6 +175,7 @@ public class AnalysisKeyTests
     public void A_snapshot_keys_the_same_as_its_source()
     {
         var doc = Ship(Cat());
+        new CreateZoneCommand(Zone(ShipZone.CondForbid)).Do(doc);   // the zones have to come across too
         Assert.Equal(doc.AnalysisKey(), doc.Snapshot().AnalysisKey());
     }
 }

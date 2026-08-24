@@ -466,8 +466,8 @@ public sealed class ShipDocument
 
     /// <summary>
     /// An independent copy for off-thread analysis: the same placements (poses + given-ness) with
-    /// their own accumulated tile conditions, sharing the catalog. Safe to read on a background
-    /// thread while the original keeps being edited on the UI thread.
+    /// their own accumulated tile conditions and their own zones, sharing the catalog. Safe to read
+    /// on a background thread while the original keeps being edited on the UI thread.
     ///
     /// <para>Taken on the UI thread — it has to be, since the point is to freeze the live document at an instant —
     /// so it is on the path of every debounced scan and its cost is felt directly. The conditions are therefore
@@ -486,6 +486,11 @@ public sealed class ShipDocument
                 OriginStrID = p.OriginStrID, SwappedFromStrID = p.SwappedFromStrID, SwappedFromDef = p.SwappedFromDef,
             });
         copy.Conds.CopyFrom(Conds);
+        // The zones, because the walk analysis reads the Forbid ones (WalkNetwork.ForbiddenTiles) and this is what
+        // it is handed. Without them that call came back empty however many zones the design carried, so the
+        // "Respect Forbid zones" switch did nothing in the editor while export and save write-back — which read the
+        // live document — took them into account. A design could pass the Law report and then warn on the way out.
+        foreach (var z in _zones) copy._zones.Add(z.Copy());
         return copy;
     }
 
