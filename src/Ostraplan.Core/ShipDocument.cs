@@ -489,6 +489,56 @@ public sealed class ShipDocument
         return copy;
     }
 
+    /// <summary>
+    /// A value that changes whenever anything the off-thread analysis reads changes, and does not when it does
+    /// not. Every pass of that analysis — the problem scan, rooms, power, walk and light — is a pure function of
+    /// a <see cref="Snapshot"/>, so a design whose key has not moved cannot produce a different answer and the
+    /// whole scan can be skipped. Renaming a part, editing cargo, nudging a z-order, wiring two devices, dropping
+    /// something on the deck and painting condition all leave it alone; those are common, and each of them used to
+    /// cost a full re-analysis of the design.
+    ///
+    /// <para><b>Ordered</b>, because the analysis is: which of two primary ports bounds construction is decided by
+    /// registration order (<see cref="ProblemScan.BoundingPort"/>), so two designs holding the same parts in a
+    /// different order are not the same design.</para>
+    ///
+    /// <para><b>Forbid zones are folded in although the analysis cannot currently see them</b>: it is handed a
+    /// snapshot, and a snapshot carries no zones, so <see cref="WalkNetwork.ForbiddenTiles"/> always comes back
+    /// empty on that path. Including them costs a re-scan when one is painted and nothing else, and means fixing
+    /// that does not quietly leave this key reporting "unchanged" for an edit that now changes the answer.</para>
+    ///
+    /// <para>64-bit and content-derived rather than a mutation counter, so no future mutator can be forgotten:
+    /// a mutation that does not alter what the analysis reads is one this should ignore, and one that does is one
+    /// it cannot miss.</para>
+    /// </summary>
+    public long AnalysisKey()
+    {
+        unchecked
+        {
+            var h = FnvOffset;
+            foreach (var p in _placements)
+            {
+                foreach (var c in p.DefName) h = Fnv(h, c);
+                h = Fnv(h, p.X);
+                h = Fnv(h, p.Y);
+                h = Fnv(h, p.Rot);
+                h = Fnv(h, p.IsGiven ? 1 : 0);
+            }
+            foreach (var z in _zones)
+            {
+                if (!z.IsForbid) continue;
+                h = Fnv(h, z.Tiles.Count);
+                foreach (var (x, y) in z.Tiles) { h = Fnv(h, x); h = Fnv(h, y); }
+            }
+            return h;
+        }
+    }
+
+    // FNV-1a, 64-bit: one multiply and one xor per value, and wide enough that a collision between two states of
+    // one design is not a thing that happens.
+    private const long FnvOffset = unchecked((long)14695981039346656037UL);
+
+    private static long Fnv(long h, int value) => unchecked((h ^ value) * 1099511628211L);
+
     public PartDef? Part(Placement p) => Catalog.Lookup(p.DefName);
 
     /// <summary>The primary airlock is fixed to the ship: no move/rotate/delete/duplicate. Identified by its

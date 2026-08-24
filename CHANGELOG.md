@@ -35,6 +35,11 @@ each release was verified against is recorded in
     the window, which stays responsive while it catches up, and the parts of a ship with no
     surface relief are skipped rather than searched for. The lit picture itself is unchanged,
     pixel for pixel.
+  - **Edits that cannot change the analysis no longer re-run it.** Naming a part, filling a
+    container, wiring two devices, nudging what draws on top, dropping something on the deck and
+    painting condition all left the design exactly as the Law report, rooms, power and walk maps
+    see it, and all of them used to start the whole analysis again anyway. On a large station that
+    was around a third of a second of work per edit, for an answer that could not have moved.
 
 ### Added
 - **Shift+drag paints an area with the Damage Brush.** Rubber-band a rectangle and everything

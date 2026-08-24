@@ -899,26 +899,39 @@ public partial class MainWindow : Window
         _scanTimer.Stop();
         if (_doc is null || _catalog is null) return;
 
+        var session = _active;            // whose design this is: the user may switch tabs while it runs
+
+        // Everything below is a pure function of these, so if none of them has moved since the last scan finished,
+        // neither has the answer, and the overlays and PROBLEMS list already on screen are the answer. That is not a
+        // rare case: renaming, cargo, wiring, z-nudges, deck items and painted condition all leave the analysis
+        // reading the same design, and each of them used to run the whole thing again.
+        var key = new ScanKey(_doc, _doc.AnalysisKey(), Board.ShowPower, Board.ShowLight,
+            Board.ShowWalk || Board.ShowAccess, Board.ShowRooms,
+            new WalkOptions(_settings.WalkIncludeExterior, _settings.WalkRespectForbidZones),
+            _settings.LightSunParallax, _settings.LightSunAngle);
+        if (key == session.LastScanKey) return;
+
         _scanCts?.Cancel();
         var cts = _scanCts = new CancellationTokenSource();
         var token = cts.Token;
-        var session = _active;            // whose design this is: the user may switch tabs while it runs
-        var snapshot = _doc.Snapshot();   // UI thread, cheap; immutable while the scan runs
+        var snapshot = _doc.Snapshot();   // UI thread; immutable while the scan runs
         var catalog = _catalog;
-        var showPower = Board.ShowPower;   // only pay for the power flood when PowerViz is on
-        var showLight = Board.ShowLight;   // and the interior-lighting flood only when Light Viz is on
+        // Read off the key rather than the live state, so what was tested for a skip and what is actually run
+        // cannot drift apart.
+        var showPower = key.Power;   // only pay for the power flood when PowerViz is on
+        var showLight = key.Light;   // and the interior-lighting flood only when Light Viz is on
         // The walk analysis feeds both WalkViz and the Access overlay, so either one wanting it is enough.
-        var showWalk = Board.ShowWalk || Board.ShowAccess;
+        var showWalk = key.Walk;
         // WalkViz reads the persisted View-menu switches; the Law report always uses the defaults, so the two never
         // disagree about what the ship IS — only about what the overlay is currently asking.
-        var walkOpts = new WalkOptions(_settings.WalkIncludeExterior, _settings.WalkRespectForbidZones);
+        var walkOpts = key.WalkOptions;
         // RoomViz: only certify while the overlay is on, and only when the data index is up (specs come from it).
         // Loaded here on the UI thread, then handed to the scan as an immutable list.
-        var roomSpecs = Board.ShowRooms && _index is { } index ? _roomSpecs ??= RoomCertifier.LoadSpecs(index) : null;
+        var roomSpecs = key.Rooms && _index is { } index ? _roomSpecs ??= RoomCertifier.LoadSpecs(index) : null;
 
         // Exterior daylight: the persisted parallax location + sun angle, resolved on the scan thread
-        var sun = showLight && _settings.LightSunParallax is { Length: > 0 } sunName
-            ? new SunSettings(sunName, _settings.LightSunAngle) : null;
+        var sun = showLight && key.SunLocation is { Length: > 0 } sunName
+            ? new SunSettings(sunName, key.SunAngle) : null;
 
         List<Problem> problems;
         PowerOverlay power;
@@ -953,6 +966,7 @@ public partial class MainWindow : Window
         // The overlays go on the canvas that was scanned, whichever tab that is now on — they are that design's,
         // and a hidden canvas simply draws them when it comes back. Only the shared PROBLEMS list is guarded on the
         // scan still describing what is on screen; the tab switched to has its own scan already scheduled.
+        session.LastScanKey = key;   // recorded here, not at the top: a cancelled scan must not suppress its retry
         session.Board.SetPowerOverlay(power);
         session.Board.SetRoomOverlay(rooms);
         session.Board.SetLightScene(light);

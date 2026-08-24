@@ -65,6 +65,7 @@ public sealed class PerfBenchmark(ITestOutputHelper o)
 
         Row("RenderOrder()", Ms(() => { var _ = doc.RenderOrder().ToList(); }, 30));
         Row("Snapshot()", Ms(() => doc.Snapshot(), 20));
+        Row("AnalysisKey()", Ms(() => doc.AnalysisKey(), 50));
         Row("Bounds()", Ms(() => doc.Bounds(), 100));
         Row("ProblemScan.BoundingPort", Ms(() => ProblemScan.BoundingPort(doc, g.Catalog), 100));
         Row("ProblemScan.Scan", Ms(() => ProblemScan.Scan(doc, g.Catalog), 5));

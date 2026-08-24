@@ -16,6 +16,18 @@ namespace Ostraplan.App;
 /// app and shared by every tab, so opening a second design costs no second load. The clipboard is shared too, on
 /// purpose: copying in one tab and pasting into another is the whole reason for having more than one open.</para>
 /// </summary>
+/// <summary>
+/// Everything the off-thread scan's answer depends on: which design, the state of that design as far as the
+/// analysis can see it (<see cref="ShipDocument.AnalysisKey"/>), which overlays are asking for work, and the
+/// settings the walk and light passes read. Two scans with equal keys must produce equal results, which is what
+/// lets the second one be skipped.
+///
+/// <para>The document goes in by reference so a tab switch never matches, whatever the two designs contain.</para>
+/// </summary>
+internal readonly record struct ScanKey(
+    ShipDocument? Doc, long Analysis, bool Power, bool Light, bool Walk, bool Rooms,
+    WalkOptions WalkOptions, string? SunLocation, double SunAngle);
+
 internal sealed class DocumentSession
 {
     /// <summary>This session's canvas. One per session rather than one shared and swapped, so a tab keeps its own
@@ -60,6 +72,11 @@ internal sealed class DocumentSession
     /// <summary>The most recent scan result, re-rendered when an alert is dismissed or restored. Per session so
     /// coming back to a tab shows its problems again without waiting on a re-scan.</summary>
     public List<Problem> LastProblems { get; set; } = [];
+
+    /// <summary>What the last scan that actually finished was a function of. A scan whose key matches this one
+    /// would recompute the answer already on screen, so it does not run. Default until the first scan lands, which
+    /// is never equal to a real key (its Doc is null), so the first one always runs.</summary>
+    public ScanKey LastScanKey { get; set; }
 
     /// <summary>The analysis reports held open beside the editor. One of each at most, and they belong to this
     /// document: they close with its tab rather than being left describing a ship that is no longer on screen.</summary>
