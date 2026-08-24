@@ -337,6 +337,7 @@ public sealed class ShipDocument
     {
         Catalog = catalog;
         Conds = new TileConds(catalog);
+        _byRenderKey = Comparer<RenderItem>.Create((a, b) => RenderKeyComparer.Compare(RenderKey(a), RenderKey(b)));
     }
 
     /// <summary>
@@ -351,11 +352,50 @@ public sealed class ShipDocument
         return new BatchScope(this);
     }
 
+    /// <summary>
+    /// Something changed, and the cached render order has to be rebuilt from scratch. The safe default: a mutator
+    /// that says nothing about what it touched gets a full re-sort, which is slow on a big design but never wrong.
+    /// Prefer <see cref="RaiseChanged(Guid)"/> where the mutator knows.
+    /// </summary>
     private void RaiseChanged()
     {
-        // Before the batch check: the EVENT is what a batch defers, not the invalidation. Tile conditions already
-        // update per mutation so a mid-batch read is correct, and a stale draw order would break that promise.
         _renderOrder = null;
+        _orderTouched.Clear();
+        Raised();
+    }
+
+    /// <summary>One drawable changed in a way that may move it in the render order (or arrive in it, or leave it).
+    /// The rest of the order still holds, so it is repaired around that one rather than sorted again.</summary>
+    private void RaiseChanged(Guid touched)
+    {
+        if (_renderOrder is not null) _orderTouched.Add(touched);
+        Raised();
+    }
+
+    /// <summary>Several drawables changed together — a group move, a symmetric paste.</summary>
+    private void RaiseChanged(IEnumerable<Guid> touched)
+    {
+        if (_renderOrder is not null)
+            foreach (var id in touched) _orderTouched.Add(id);
+        Raised();
+    }
+
+    /// <summary>
+    /// Something changed that <see cref="RenderKey"/> does not read, so the cached order still stands as it is.
+    ///
+    /// <para>That is a claim about the key, and it is worth stating where it is made: the key is the def's z-scale,
+    /// the drawable's own bias, the def's layer and rank, the bottom edge of its body, and insertion order. A
+    /// zone, a wire, a container's contents, a name, a fill and a painted condition appear in none of them. Change
+    /// what the key reads and this stops being true — <c>ShipDocumentOrderTests</c> holds every mutation against a
+    /// sort from scratch, so it will say so.</para>
+    /// </summary>
+    private void RaiseChangedOrderIntact() => Raised();
+
+    private void Raised()
+    {
+        // Invalidated before the batch check: the EVENT is what a batch defers, not the invalidation. Tile
+        // conditions already update per mutation so a mid-batch read is correct, and a stale draw order would
+        // break that promise.
         _drawOrder = null;
         if (_batchDepth > 0) { _batchDirty = true; return; }
         Changed?.Invoke();
@@ -666,16 +706,79 @@ public sealed class ShipDocument
     /// (<see cref="RenderKey"/>). Cleared on <b>every</b> mutation, batched or not, because a mid-batch read has to
     /// see the order the mutations so far produced.</para>
     /// </summary>
-    public IReadOnlyList<RenderItem> RenderOrder() =>
-        _renderOrder ??=
-        [
-            .. _placements.Select(p => new RenderItem(p, null))
-                          .Concat(_looseByTile.Values.Select(lo => new RenderItem(null, lo)))
-                          .OrderBy(RenderKey, RenderKeyComparer)
-        ];
+    public IReadOnlyList<RenderItem> RenderOrder()
+    {
+        if (_renderOrder is null)
+        {
+            _renderOrder = SortedOrder();
+            _orderTouched.Clear();
+            _renderOrderVersion++;
+        }
+        else if (_orderTouched.Count > 0)
+        {
+            RepairOrder();
+        }
+        return _renderOrder;
+    }
+
+    /// <summary>Bumped every time the render order changes. A consumer that keeps anything derived per drawable
+    /// (the canvas keeps each one's drawn extent) can hold this and rebuild only when it moves.</summary>
+    public long RenderOrderVersion => _renderOrderVersion;
+
+    private List<RenderItem> SortedOrder() =>
+    [
+        .. _placements.Select(p => new RenderItem(p, null))
+                      .Concat(_looseByTile.Values.Select(lo => new RenderItem(null, lo)))
+                      .OrderBy(RenderKey, RenderKeyComparer)
+    ];
+
+    /// <summary>
+    /// Put the drawables named in <see cref="_orderTouched"/> back where they belong, leaving the rest of the
+    /// order alone: drop them out, then binary-search each one that still exists into its place. Sound because
+    /// the key ends in insertion order (<see cref="_order"/>), which is unique per drawable, so no two ever
+    /// compare equal and there is exactly one position for each.
+    ///
+    /// <para>This is what stops a single click costing a re-sort of the whole design. A full sort computes a key
+    /// per drawable, and a key is several dictionary lookups; on a large station that was the bulk of what an
+    /// edit cost, for an order that had changed in one place.</para>
+    ///
+    /// <para>A removal needs no special case: the drawable is dropped and then not found in the document, so it
+    /// simply does not go back. An insertion is the same in reverse.</para>
+    /// </summary>
+    private void RepairOrder()
+    {
+        var order = _renderOrder!;
+        order.RemoveAll(i => _orderTouched.Contains(i.Id));
+
+        // One pass for the touched drawables that are still in the document, rather than a search per id.
+        var reinsert = new List<RenderItem>(_orderTouched.Count);
+        foreach (var p in _placements)
+            if (_orderTouched.Contains(p.Id)) reinsert.Add(new RenderItem(p, null));
+        foreach (var lo in _looseByTile.Values)
+            if (_orderTouched.Contains(lo.Id)) reinsert.Add(new RenderItem(null, lo));
+
+        foreach (var item in reinsert)
+        {
+            var at = order.BinarySearch(item, _byRenderKey);
+            order.Insert(at < 0 ? ~at : at, item);
+        }
+        _orderTouched.Clear();
+        _renderOrderVersion++;
+    }
+
+    /// <summary>A fresh sort that ignores the cache entirely. Exists for the test that holds the incrementally
+    /// repaired order against the order a full sort would have produced; nothing else should want it.</summary>
+    internal IReadOnlyList<RenderItem> RenderOrderFromScratch() => SortedOrder();
 
     private List<RenderItem>? _renderOrder;
     private List<Placement>? _drawOrder;
+    private long _renderOrderVersion;
+
+    /// <summary>Drawables whose place in the cached order is in doubt (see <see cref="RepairOrder"/>). Empty when
+    /// the order is good, and meaningless while <see cref="_renderOrder"/> is null.</summary>
+    private readonly HashSet<Guid> _orderTouched = [];
+
+    private readonly IComparer<RenderItem> _byRenderKey;
 
     /// <summary>Every placement covering the tile (spatial-index lookup, unordered). Empty off the ship.
     ///
@@ -758,7 +861,7 @@ public sealed class ShipDocument
     {
         AddUnconditioned(p);
         if (Part(p) is { } part) Conds.Apply(p, part.Item, +1);
-        RaiseChanged();
+        RaiseChanged(p.Id);
     }
 
     /// <summary>Register a placement without accumulating its tile conditions and without raising
@@ -778,7 +881,7 @@ public sealed class ShipDocument
         Unindex(p);
         _order.Remove(p.Id);
         if (Part(p) is { } part) Conds.Apply(p, part.Item, -1);
-        RaiseChanged();
+        RaiseChanged(p.Id);
     }
 
     /// <summary>
@@ -801,7 +904,7 @@ public sealed class ShipDocument
         p.IsGiven = given ?? false;
         if (part is not null) Conds.Apply(p, part.Item, +1);
         Index(p);
-        RaiseChanged();
+        RaiseChanged(p.Id);
     }
 
     /// <summary>Reposition and turn a part. <paramref name="given"/> as <see cref="MoveTo"/>.</summary>
@@ -817,7 +920,7 @@ public sealed class ShipDocument
         p.IsGiven = given ?? false;
         if (part is not null) Conds.Apply(p, part.Item, +1);
         Index(p);
-        RaiseChanged();
+        RaiseChanged(p.Id);
     }
 
     /// <summary>Replace a part's contained cargo (the inventory editor's add/remove result) and mark it edited, so
@@ -828,7 +931,7 @@ public sealed class ShipDocument
     {
         p.Cargo = cargo;
         _cargoEdited.Add(p.Id);
-        RaiseChanged();
+        RaiseChangedOrderIntact();
     }
 
     /// <summary>Replace a nav console's screen arrangement (see <see cref="Placement.NavLayout"/>); null restores
@@ -837,7 +940,7 @@ public sealed class ShipDocument
     internal void SetNavLayout(Placement p, IReadOnlyDictionary<string, string>? layout)
     {
         p.NavLayout = layout;
-        RaiseChanged();
+        RaiseChangedOrderIntact();
     }
 
     /// <summary>Replace a container's authored fill (see <see cref="Placement.Fill"/>); null returns it to the
@@ -847,7 +950,7 @@ public sealed class ShipDocument
     internal void SetFill(Placement p, IReadOnlyDictionary<string, double>? fill)
     {
         p.Fill = fill;
-        RaiseChanged();
+        RaiseChangedOrderIntact();
     }
 
     /// <summary>Set a part's painted condition (see <see cref="Placement.Condition"/>); null hands it back to
@@ -857,14 +960,14 @@ public sealed class ShipDocument
     internal void SetCondition(Placement p, double? condition)
     {
         p.Condition = Paint.Clamp(condition);
-        RaiseChanged();
+        RaiseChangedOrderIntact();
     }
 
     /// <inheritdoc cref="SetCondition(Placement, double?)"/>
     internal void SetCondition(LooseObject o, double? condition)
     {
         o.Condition = Paint.Clamp(condition);
-        RaiseChanged();
+        RaiseChangedOrderIntact();
     }
 
     /// <summary>True if this part's cargo was edited in-session (or restored from a persisted snapshot) — the
@@ -877,23 +980,23 @@ public sealed class ShipDocument
 
     // ---- zone mutations (command implementations only) ----
 
-    internal void AddZone(ShipZone z) { _zones.Add(z); RaiseChanged(); }
+    internal void AddZone(ShipZone z) { _zones.Add(z); RaiseChangedOrderIntact(); }
 
     /// <summary>Re-insert a zone at a specific position — the undo of a delete, so list order (hence the
     /// serialized <c>aZones</c> order and last-wins overlap) is restored exactly.</summary>
-    internal void InsertZone(int index, ShipZone z) { _zones.Insert(Math.Clamp(index, 0, _zones.Count), z); RaiseChanged(); }
+    internal void InsertZone(int index, ShipZone z) { _zones.Insert(Math.Clamp(index, 0, _zones.Count), z); RaiseChangedOrderIntact(); }
 
-    internal void RemoveZone(ShipZone z) { if (_zones.Remove(z)) RaiseChanged(); }
+    internal void RemoveZone(ShipZone z) { if (_zones.Remove(z)) RaiseChangedOrderIntact(); }
 
     /// <summary>The index of a zone in the list (for a delete command to capture, so undo restores order).</summary>
     public int IndexOfZone(ShipZone z) => _zones.IndexOf(z);
 
     /// <summary>Replace a zone's covered tiles (a paint/erase stroke commits one of these). Zones carry no
     /// tile conditions of their own, so this touches no spatial index — it just swaps the set.</summary>
-    internal void SetZoneTiles(ShipZone z, IEnumerable<(int X, int Y)> tiles) { z.Tiles = [.. tiles]; RaiseChanged(); }
+    internal void SetZoneTiles(ShipZone z, IEnumerable<(int X, int Y)> tiles) { z.Tiles = [.. tiles]; RaiseChangedOrderIntact(); }
 
     /// <summary>Replace a zone's editable non-tile fields (name/colour/type/role/advanced) from a snapshot.</summary>
-    internal void SetZoneMeta(ShipZone z, ZoneMeta meta) { z.ApplyMeta(meta); RaiseChanged(); }
+    internal void SetZoneMeta(ShipZone z, ZoneMeta meta) { z.ApplyMeta(meta); RaiseChangedOrderIntact(); }
 
     // ---- loose-object mutations (command implementations only) ----
 
@@ -904,9 +1007,28 @@ public sealed class ShipDocument
     internal void AddLoose(LooseObject o)
     {
         SeedIntrinsics(o, Catalog);
-        _looseByTile[(o.X, o.Y)] = o;
+        var displaced = Occupy(o);
         _order[o.Id] = _seq++;
-        RaiseChanged();
+        RaiseChanged(displaced is null ? [o.Id] : [o.Id, displaced.Id]);
+    }
+
+    /// <summary>
+    /// Put a loose object on its tile, and hand back whatever it turned off the tile in doing so.
+    ///
+    /// <para>Normally nothing: one loose object per tile is the rule, and the placement law keeps callers honest.
+    /// But the dictionary is keyed by position, so writing to an occupied tile drops the object that was there
+    /// out of the document with no other trace. <b>The caller has to name what it displaced when it raises
+    /// <see cref="Changed"/></b>, because the render order is repaired around what it is told changed and cannot
+    /// see a drawable simply cease to exist. Under a full re-sort this was invisible; it is not any more, and
+    /// <c>ShipDocumentOrderTests</c> is where it showed up.</para>
+    /// </summary>
+    private LooseObject? Occupy(LooseObject o)
+    {
+        _looseByTile.TryGetValue((o.X, o.Y), out var displaced);
+        _looseByTile[(o.X, o.Y)] = o;
+        if (displaced is null || ReferenceEquals(displaced, o)) return null;
+        _order.Remove(displaced.Id);
+        return displaced;
     }
 
     /// <summary>Remove a loose item — only if it is still the one on its tile (guards a stale undo).</summary>
@@ -915,7 +1037,7 @@ public sealed class ShipDocument
         if (_looseByTile.TryGetValue((o.X, o.Y), out var cur) && ReferenceEquals(cur, o) && _looseByTile.Remove((o.X, o.Y)))
         {
             _order.Remove(o.Id);
-            RaiseChanged();
+            RaiseChanged(o.Id);
         }
     }
 
@@ -934,8 +1056,8 @@ public sealed class ShipDocument
         o.X = x;
         o.Y = y;
         o.Rot = GridMath.Norm(rot);
-        _looseByTile[(o.X, o.Y)] = o;
-        RaiseChanged();
+        var displaced = Occupy(o);
+        RaiseChanged(displaced is null ? [o.Id] : [o.Id, displaced.Id]);
     }
 
     /// <summary>
@@ -953,23 +1075,25 @@ public sealed class ShipDocument
         foreach (var lift in poses)
             if (_looseByTile.TryGetValue((lift.Obj.X, lift.Obj.Y), out var cur) && ReferenceEquals(cur, lift.Obj))
                 _looseByTile.Remove((lift.Obj.X, lift.Obj.Y));
+        var touched = new List<Guid>(poses.Count);
         foreach (var (o, x, y, rot) in poses)
         {
             o.X = x;
             o.Y = y;
             o.Rot = GridMath.Norm(rot);
-            _looseByTile[(o.X, o.Y)] = o;
+            touched.Add(o.Id);
+            if (Occupy(o) is { } displaced) touched.Add(displaced.Id);
         }
-        RaiseChanged();
+        RaiseChanged(touched);
     }
 
     /// <summary>Set the stacked quantity of a loose item in place (keeps its identity for selection).</summary>
-    internal void SetLooseQuantity(LooseObject o, int quantity) { o.Quantity = quantity; RaiseChanged(); }
+    internal void SetLooseQuantity(LooseObject o, int quantity) { o.Quantity = quantity; RaiseChangedOrderIntact(); }
 
     /// <summary>Replace what a loose deck item holds (see <see cref="LooseObject.Cargo"/>). Contents live inside
     /// the item, not on the tile grid, so nothing structural is re-analysed; the canvas still repaints, since a
     /// filled container can draw differently and the inspector shows the count.</summary>
-    internal void SetLooseCargo(LooseObject o, IReadOnlyList<CargoItem> cargo) { o.Cargo = cargo; RaiseChanged(); }
+    internal void SetLooseCargo(LooseObject o, IReadOnlyList<CargoItem> cargo) { o.Cargo = cargo; RaiseChangedOrderIntact(); }
 
     /// <summary>
     /// Give a loose item the containers its def spawns with, unless it already carries them. The game creates
@@ -990,27 +1114,27 @@ public sealed class ShipDocument
 
     /// <summary>Set a placed part's manual draw-order bias (see <see cref="Placement.ZBias"/>). Cosmetic: no
     /// geometry moves, so no tile conditions or spatial index change, but the canvas must repaint.</summary>
-    internal void SetZBias(Placement p, int bias) { p.ZBias = bias; RaiseChanged(); }
+    internal void SetZBias(Placement p, int bias) { p.ZBias = bias; RaiseChanged(p.Id); }
 
     /// <summary>Set a loose item's manual draw-order bias (see <see cref="LooseObject.ZBias"/>).</summary>
-    internal void SetZBias(LooseObject o, int bias) { o.ZBias = bias; RaiseChanged(); }
+    internal void SetZBias(LooseObject o, int bias) { o.ZBias = bias; RaiseChanged(o.Id); }
 
     /// <summary>Set or clear a part's own name (see <see cref="Placement.CustomName"/>). Stored verbatim with only
     /// empty collapsing to null (<see cref="Rename.OrNull"/>): typed input is normalised at the rename dialog, and
     /// normalising again here would corrupt an undo that restores a name imported exactly as the game stored it.</summary>
-    internal void SetCustomName(Placement p, string? name) { p.CustomName = Rename.OrNull(name); RaiseChanged(); }
+    internal void SetCustomName(Placement p, string? name) { p.CustomName = Rename.OrNull(name); RaiseChangedOrderIntact(); }
 
     /// <summary>Set or clear a loose deck item's own name (see <see cref="LooseObject.CustomName"/>), on the same
     /// terms as a part's: the game renames a tool on the floor as readily as the rack it belongs in.</summary>
-    internal void SetCustomName(LooseObject o, string? name) { o.CustomName = Rename.OrNull(name); RaiseChanged(); }
+    internal void SetCustomName(LooseObject o, string? name) { o.CustomName = Rename.OrNull(name); RaiseChangedOrderIntact(); }
 
     // ---- device-link mutations (command implementations only) ----
 
     /// <summary>Add a signal connection (no-op if the identical directed link already exists).</summary>
-    internal void AddLink(DeviceLink link) { if (!_links.Contains(link)) { _links.Add(link); RaiseChanged(); } }
+    internal void AddLink(DeviceLink link) { if (!_links.Contains(link)) { _links.Add(link); RaiseChangedOrderIntact(); } }
 
     /// <summary>Remove a signal connection.</summary>
-    internal void RemoveLink(DeviceLink link) { if (_links.Remove(link)) RaiseChanged(); }
+    internal void RemoveLink(DeviceLink link) { if (_links.Remove(link)) RaiseChangedOrderIntact(); }
 
     internal void Clear()
     {

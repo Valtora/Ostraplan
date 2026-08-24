@@ -364,10 +364,12 @@ public sealed class ShipCanvas : FrameworkElement
     private bool _staticExcludesMoving;
 
     /// <summary>Drawn extents (document tiles) for the render order they were built from, one per drawable, so
-    /// culling the bake is a rect test rather than a catalog and sprite lookup per drawable. Keyed by reference on
-    /// the order itself: <see cref="ShipDocument.RenderOrder"/> hands back a new list only when the content
-    /// changed, which is exactly when an extent can have moved.</summary>
-    private IReadOnlyList<RenderItem>? _extentsFor;
+    /// culling the bake is a rect test rather than a catalog and sprite lookup per drawable.
+    ///
+    /// <para>Keyed on <see cref="ShipDocument.RenderOrderVersion"/> rather than on the order's identity: the
+    /// document repairs that list <b>in place</b> around an edit, so the instance is the same one and would say
+    /// nothing had changed.</para></summary>
+    private long _extentsFor = -1;
     private Rect[] _extents = [];
 
     public event Action<IReadOnlyList<IDocCommand>>? StrokeCommitted;
@@ -418,6 +420,8 @@ public sealed class ShipCanvas : FrameworkElement
         if (Doc is not null) Doc.Changed -= OnContentChanged;
         Doc = doc;
         _oobFaceDirty = true;   // a different design has its own airlock, or none
+        _extentBoxes.Clear();   // a def can resolve differently under another document's mod set
+        _extentsFor = -1;
         doc.Changed += OnContentChanged;
         SelectedIds.Clear();
         SelectedLooseIds.Clear();   // ids from the previous document are stale, both halves alike
@@ -4029,10 +4033,10 @@ public sealed class ShipCanvas : FrameworkElement
 
     private void EnsureExtents(IReadOnlyList<RenderItem> order)
     {
-        if (ReferenceEquals(_extentsFor, order)) return;
-        _extents = new Rect[order.Count];
+        if (_extentsFor == Doc!.RenderOrderVersion && _extents.Length == order.Count) return;
+        if (_extents.Length != order.Count) _extents = new Rect[order.Count];
         for (var i = 0; i < order.Count; i++) _extents[i] = DrawnExtent(order[i]);
-        _extentsFor = order;
+        _extentsFor = Doc.RenderOrderVersion;
     }
 
     /// <summary>
@@ -4052,17 +4056,43 @@ public sealed class ShipCanvas : FrameworkElement
     /// </summary>
     private Rect DrawnExtent(RenderItem item)
     {
-        if (Doc!.Catalog.Lookup(item.DefName) is not { } part) return new Rect(item.X, item.Y, 1, 1);
+        var box = ExtentBox(item.DefName, GridMath.Norm(item.Rot));
+        return new Rect(item.X + box.X, item.Y + box.Y, box.Width, box.Height);
+    }
 
-        var norm = DrawRot(part, item.Rot);
-        var (effW, effH) = GridMath.Size(part.Item.Width, part.Item.Height, norm);
-        var foot = new Rect(item.X, item.Y, effW, effH);
-        if (part.Item.HasSpriteSheet) return foot;
+    /// <summary>The extent of a def at a pose, relative to its own origin. Memoised because it is a property of
+    /// the def and the pose and nothing else, and the alternative is a catalog lookup and a sprite lookup per
+    /// drawable every time the extents are rebuilt — tens of thousands of them on a station, for a few hundred
+    /// distinct answers.</summary>
+    private readonly Dictionary<(string Def, int Rot), Rect> _extentBoxes = [];
 
-        var (visW, visH) = Sprites!.SpriteTiles(part);
-        var side = (double)Math.Max(visW, visH);
-        return Rect.Union(foot,
-            new Rect(item.X + effW / 2.0 - side / 2, item.Y + effH / 2.0 - side / 2, side, side));
+    private Rect ExtentBox(string defName, int rot)
+    {
+        if (_extentBoxes.TryGetValue((defName, rot), out var hit)) return hit;
+
+        Rect box;
+        if (Doc!.Catalog.Lookup(defName) is not { } part)
+        {
+            box = new Rect(0, 0, 1, 1);
+        }
+        else
+        {
+            var norm = DrawRot(part, rot);
+            var (effW, effH) = GridMath.Size(part.Item.Width, part.Item.Height, norm);
+            var foot = new Rect(0, 0, effW, effH);
+            if (part.Item.HasSpriteSheet)
+            {
+                box = foot;
+            }
+            else
+            {
+                var (visW, visH) = Sprites!.SpriteTiles(part);
+                var side = (double)Math.Max(visW, visH);
+                box = Rect.Union(foot, new Rect(effW / 2.0 - side / 2, effH / 2.0 - side / 2, side, side));
+            }
+        }
+        _extentBoxes[(defName, rot)] = box;
+        return box;
     }
 
     /// <summary>Draw only the parts in flux during a Move/Paint drag, live, over the retained backdrop: the moving

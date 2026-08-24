@@ -16,7 +16,9 @@ each release was verified against is recorded in
   editor down in proportion to its size, whatever was actually on screen. The work has been cut
   down to what a change really touches:
   - The order everything draws in is worked out once per edit instead of once per frame, so a
-    drag no longer re-derives it for every part on the ship on the way to each frame.
+    drag no longer re-derives it for every part on the ship on the way to each frame. An edit then
+    repairs that order around what it changed rather than working the whole thing out again, so
+    laying a tile costs about what one tile is worth however much ship is around it.
   - The build envelope past the airlock is found when the airlock moves, rather than being
     searched for from scratch on every repaint.
   - The copy of the design each analysis runs against is taken by copying what the editor
