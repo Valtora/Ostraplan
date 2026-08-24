@@ -467,18 +467,25 @@ public sealed class ShipDocument
     /// <summary>
     /// An independent copy for off-thread analysis: the same placements (poses + given-ness) with
     /// their own accumulated tile conditions, sharing the catalog. Safe to read on a background
-    /// thread while the original keeps being edited on the UI thread. Cheap — rebuilding conditions
-    /// for a few thousand parts is a millisecond or two.
+    /// thread while the original keeps being edited on the UI thread.
+    ///
+    /// <para>Taken on the UI thread — it has to be, since the point is to freeze the live document at an instant —
+    /// so it is on the path of every debounced scan and its cost is felt directly. The conditions are therefore
+    /// <b>copied</b> rather than replayed: re-running <see cref="TileConds.Apply"/> per placement re-expands every
+    /// loot graph to arrive at the map this document is already holding. Copying is also the more faithful answer,
+    /// since it analyses the ship against the conditions the editor is autotiling from rather than against a
+    /// freshly derived set.</para>
     /// </summary>
     public ShipDocument Snapshot()
     {
         var copy = new ShipDocument(Catalog);
         foreach (var p in _placements)
-            copy.Add(new Placement
+            copy.AddUnconditioned(new Placement
             {
                 DefName = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot, IsGiven = p.IsGiven,
                 OriginStrID = p.OriginStrID, SwappedFromStrID = p.SwappedFromStrID, SwappedFromDef = p.SwappedFromDef,
             });
+        copy.Conds.CopyFrom(Conds);
         return copy;
     }
 
@@ -694,11 +701,20 @@ public sealed class ShipDocument
 
     internal void Add(Placement p)
     {
+        AddUnconditioned(p);
+        if (Part(p) is { } part) Conds.Apply(p, part.Item, +1);
+        RaiseChanged();
+    }
+
+    /// <summary>Register a placement without accumulating its tile conditions and without raising
+    /// <see cref="Changed"/>. Only <see cref="Snapshot"/> may use this, because it supplies the conditions
+    /// wholesale afterwards; anything else must go through <see cref="Add"/> or the document ends up with a
+    /// part the tile map has never heard of.</summary>
+    private void AddUnconditioned(Placement p)
+    {
         _placements.Add(p);
         _order[p.Id] = _seq++;
         Index(p);
-        if (Part(p) is { } part) Conds.Apply(p, part.Item, +1);
-        RaiseChanged();
     }
 
     internal void Remove(Placement p)

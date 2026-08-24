@@ -13,6 +13,20 @@ public sealed class TileConds
 
     public TileConds(Catalog catalog) => _catalog = catalog;
 
+    /// <summary>
+    /// Replace this map with a copy of <paramref name="other"/>'s. Used by <see cref="ShipDocument.Snapshot"/>,
+    /// which needs the same accumulated conditions on its copy and used to get them by replaying
+    /// <see cref="Apply"/> for every placement — re-expanding each loot graph, with a visited set per cell, to
+    /// arrive at a map the source document was already holding. Copying is both cheaper and more faithful: the
+    /// snapshot is analysed against the conditions the editor is actually autotiling from.
+    /// </summary>
+    public void CopyFrom(TileConds other)
+    {
+        _tiles.Clear();
+        foreach (var (cell, conds) in other._tiles)
+            _tiles[cell] = new Dictionary<string, double>(conds, StringComparer.Ordinal);
+    }
+
     public void Apply(Placement p, ItemDef item, int sign)
     {
         var (w, h, adds) = GridMath.Rotate(item.SocketAdds, item.Width, item.Height, p.Rot);
