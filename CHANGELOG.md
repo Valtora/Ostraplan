@@ -21,6 +21,8 @@ each release was verified against is recorded in
     searched for from scratch on every repaint.
   - The copy of the design each analysis runs against is taken by copying what the editor
     already knows about every tile, instead of working it all out again part by part.
+  - Taking a snapshot, exporting a preview or rebuilding Light Viz no longer throws away the
+    drawing of the ship you are looking at. With Light Viz on that was happening on every edit.
 
 ### Added
 - **Shift+drag paints an area with the Damage Brush.** Rubber-band a rectangle and everything

@@ -2128,9 +2128,9 @@ public sealed class ShipCanvas : FrameworkElement
         var pxH = tilesH * pxPerTile;
 
         var (savedPan, savedZoom, savedRot) = (_pan, Zoom, ViewRot);
-        Zoom = pxPerTile;
-        _pan = new Vector(-(b.MinX - marginTiles) * (double)pxPerTile, -(b.MinY - marginTiles) * (double)pxPerTile);
-        ViewRot = 0;   // draw content unrotated; the editing orientation is applied as a wrapping transform
+        // draw content unrotated; the editing orientation is applied as a wrapping transform
+        SetBakeView(pxPerTile,
+            new Vector(-(b.MinX - marginTiles) * (double)pxPerTile, -(b.MinY - marginTiles) * (double)pxPerTile), 0);
         try
         {
             // match the user's Q/E plan-view rotation (output dims swap at 90°/270°)
@@ -2151,7 +2151,7 @@ public sealed class ShipCanvas : FrameworkElement
         }
         finally
         {
-            (_pan, Zoom, ViewRot) = (savedPan, savedZoom, savedRot);
+            SetBakeView(savedZoom, savedPan, savedRot);
         }
     }
 
@@ -2183,9 +2183,8 @@ public sealed class ShipCanvas : FrameworkElement
         var pxH = tilesH * px;
 
         var (savedPan, savedZoom, savedRot) = (_pan, Zoom, ViewRot);
-        Zoom = px;
-        _pan = new Vector(-(b.MinX - marginTiles) * (double)px, -(b.MinY - marginTiles) * (double)px);
-        ViewRot = 0;   // draw content unrotated; the editing orientation is applied as a wrapping transform
+        // draw content unrotated; the editing orientation is applied as a wrapping transform
+        SetBakeView(px, new Vector(-(b.MinX - marginTiles) * (double)px, -(b.MinY - marginTiles) * (double)px), 0);
         try
         {
             // match the user's Q/E plan-view rotation: sprites + tints turn, output dims swap at 90°/270°,
@@ -2238,7 +2237,7 @@ public sealed class ShipCanvas : FrameworkElement
         }
         finally
         {
-            (_pan, Zoom, ViewRot) = (savedPan, savedZoom, savedRot);
+            SetBakeView(savedZoom, savedPan, savedRot);
         }
     }
 
@@ -2268,9 +2267,8 @@ public sealed class ShipCanvas : FrameworkElement
         var pxH = tilesH * px;
 
         var (savedPan, savedZoom, savedRot) = (_pan, Zoom, ViewRot);
-        Zoom = px;
-        _pan = new Vector(-(b.MinX - marginTiles) * (double)px, -(b.MinY - marginTiles) * (double)px);
-        ViewRot = 0;   // draw content unrotated; the editing orientation is applied as a group transform
+        // draw content unrotated; the editing orientation is applied as a group transform
+        SetBakeView(px, new Vector(-(b.MinX - marginTiles) * (double)px, -(b.MinY - marginTiles) * (double)px), 0);
         try
         {
             // match the user's Q/E plan-view rotation: the sprite layer + room tints share a rotation group,
@@ -2359,7 +2357,7 @@ public sealed class ShipCanvas : FrameworkElement
         }
         finally
         {
-            (_pan, Zoom, ViewRot) = (savedPan, savedZoom, savedRot);
+            SetBakeView(savedZoom, savedPan, savedRot);
         }
     }
 
@@ -2439,7 +2437,7 @@ public sealed class ShipCanvas : FrameworkElement
         }
         finally
         {
-            (_pan, Zoom, ViewRot) = (savedPan, savedZoom, savedRot);
+            SetBakeView(savedZoom, savedPan, savedRot);
         }
     }
 
@@ -2455,10 +2453,11 @@ public sealed class ShipCanvas : FrameworkElement
     /// thumbnail comes to show its neighbours cut off at the edges.</summary>
     private byte[] RenderPreviewFrame(int minX, int minY, int maxX, int maxY, int pxPerTile)
     {
-        Zoom = pxPerTile;
         var centreX = (minX + maxX + 1) / 2.0;
         var centreY = (minY + maxY + 1) / 2.0;
-        _pan = new Vector(PreviewW / 2.0 - centreX * pxPerTile, PreviewH / 2.0 - centreY * pxPerTile);
+        // the caller (RenderGamePreview) owns the save/restore and has already squared the view rotation
+        SetBakeView(pxPerTile,
+            new Vector(PreviewW / 2.0 - centreX * pxPerTile, PreviewH / 2.0 - centreY * pxPerTile), ViewRot);
 
         var dv = new DrawingVisual();
         RenderOptions.SetBitmapScalingMode(dv, BitmapScalingMode.NearestNeighbor);
@@ -2940,6 +2939,23 @@ public sealed class ShipCanvas : FrameworkElement
                 ? new Rect(view.X, view.Y, Math.Max(0, faceScreen - view.X), view.Height)
                 : new Rect(faceScreen, view.Y, Math.Max(0, view.Right - faceScreen), view.Height);
         if (zone.Width > 0 && zone.Height > 0) dc.DrawGeometry(OobBrush, null, new RectangleGeometry(zone));
+    }
+
+    /// <summary>
+    /// Point the view transform at an offscreen bake — a PNG/SVG snapshot, a game preview frame, the Light Viz
+    /// doc-space passes — and, with the saved triple, put it back afterwards.
+    ///
+    /// <para>It writes the zoom's backing field instead of going through <see cref="Zoom"/>, and that is the whole
+    /// reason it exists. The property's job is to drop everything baked at the old zoom: the cached ship drawing
+    /// and the room, walk and power geometries. None of that is stale here, because the on-screen view never
+    /// moves — a bake borrows the transform and hands it straight back. Going through the property therefore threw
+    /// those caches away and rebuilt them for nothing, twice per Light Viz composite, on every scan.</para>
+    /// </summary>
+    private void SetBakeView(double zoom, Vector pan, int rot)
+    {
+        _zoom = zoom;
+        _pan = pan;
+        ViewRot = rot;
     }
 
     /// <summary>Centre of a document tile in screen space (pre view-rotation transform, like <see cref="CellRect"/>).</summary>
@@ -3434,9 +3450,7 @@ public sealed class ShipCanvas : FrameworkElement
     private byte[] BakeDocPixels(int minX, int minY, int tilesW, int tilesH, int ppt, bool normalPass)
     {
         var (savedPan, savedZoom, savedRot) = (_pan, Zoom, ViewRot);
-        Zoom = ppt;
-        _pan = new Vector(-minX * (double)ppt, -minY * (double)ppt);
-        ViewRot = 0;
+        SetBakeView(ppt, new Vector(-minX * (double)ppt, -minY * (double)ppt), 0);
         _normalPass = normalPass;
         try
         {
@@ -3456,7 +3470,7 @@ public sealed class ShipCanvas : FrameworkElement
         finally
         {
             _normalPass = false;
-            (_pan, Zoom, ViewRot) = (savedPan, savedZoom, savedRot);
+            SetBakeView(savedZoom, savedPan, savedRot);
         }
     }
 
