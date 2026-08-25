@@ -180,6 +180,7 @@ public sealed class InventoryWindow : Window
 
         _body.Children.Add(BuildBreadcrumb());
 
+        TextBlock? hint = null;
         var loose = children.Where(c => !c.Slotted).ToList();
         var slotted = children.Where(c => c.Slotted).ToList();
         var hasGrid = def?.IsContainer == true || loose.Count > 0;
@@ -211,7 +212,8 @@ public sealed class InventoryWindow : Window
             _body.Children.Add(header);
             _body.Children.Add(BuildGrid(def, loose));
             if (Editing)
-                _body.Children.Add(new TextBlock
+            {
+                hint = new TextBlock
                 {
                     // "A name at the top" is the breadcrumb, so only claim it when an ancestor is actually up there
                     // to drop onto. The right-click "Move to" menu is gated on the same depth for the same reason.
@@ -221,7 +223,9 @@ public sealed class InventoryWindow : Window
                            + " · Del takes one, Shift+Del the whole stack"
                            + " · click the title to name this container",
                     Foreground = Dim, FontSize = 11, Margin = new Thickness(0, 0, 0, 6), TextWrapping = TextWrapping.Wrap,
-                });
+                };
+                _body.Children.Add(hint);
+            }
         }
 
         if (hasSlots)
@@ -232,6 +236,36 @@ public sealed class InventoryWindow : Window
 
         if (!hasGrid && !hasSlots)
             _body.Children.Add(new TextBlock { Text = "This item holds nothing.", Foreground = Dim, Margin = new Thickness(0, 4, 0, 0) });
+
+        FitHintToContent(hint);
+    }
+
+    /// <summary>The narrowest the drag hint is allowed to wrap to. Below this it becomes a column of single words
+    /// under a one-slot container, which is worse than a window slightly wider than its contents.</summary>
+    private const double HintMinWidth = 320;
+
+    /// <summary>
+    /// Hold the drag hint to the width the real content wants.
+    ///
+    /// <para>A wrapping <see cref="TextBlock"/> in a panel measured at infinite width reports its whole
+    /// <b>unwrapped</b> length as its desired width — it only wraps once something constrains it, and nothing here
+    /// does. Under <see cref="SizeToContent"/> that length is what the window becomes, so one line of prose was
+    /// deciding the size of a window that exists to show a grid: a 1×3 rack with two items in it opened at the
+    /// 900px cap, which is how it was reported ("why does the content view have to be so wide on the root of the
+    /// object... this looks ridiculous").</para>
+    ///
+    /// <para>So measure the content with the prose out of the way, then let the prose wrap to whatever that came
+    /// to. A big paper doll still gets a wide window and the hint still runs across it on one line; a small
+    /// container gets a small window and the hint wraps to three.</para>
+    /// </summary>
+    private void FitHintToContent(TextBlock? hint)
+    {
+        if (hint is null) return;
+        hint.Visibility = Visibility.Collapsed;
+        _body.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var content = _body.DesiredSize.Width - _body.Margin.Left - _body.Margin.Right;
+        hint.Visibility = Visibility.Visible;
+        hint.MaxWidth = Math.Max(content, HintMinWidth);
     }
 
     private static string Summary(PartDef? def, int loose, int slotted)

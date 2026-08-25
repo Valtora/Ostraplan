@@ -187,6 +187,19 @@ Where content is as long as the data makes it, cap the height and let it scroll:
 preview renders the capped case as `dlg-warning-scroll-dark.png`, which is how to eyeball it
 without a design that actually names forty mods.
 
+**And a wrapping `TextBlock` sets the width, not the other way round.** `TextWrapping.Wrap` does
+not make a `TextBlock` narrow. It wraps to whatever width it is *given*, and in a `StackPanel`
+measured at infinite width it is given none, so it reports its whole unwrapped length as its
+desired width and every wrapping line of prose in the panel is a bid for the window's width. Under
+`SizeToContent` the longest of those bids wins. One line of hint text was therefore deciding the
+size of the inventory window: a 1×3 rack with two items in it opened at the 900px `MaxWidth` cap
+and was reported as looking ridiculous, which it did.
+
+Prose is never what a window is sized to. Either give it a `MaxWidth` of its own, or measure the
+real content first with the prose out of the way and hold it to that.
+`InventoryWindow.FitHintToContent` is the working example of the second, and is worth preferring
+where the real content's width varies: it keeps the window sized to the thing it exists to show.
+
 ## Tunable parameters are user controls, not constants
 
 When a visual or behavioural parameter is a **feel** knob (a display level, a brightness
