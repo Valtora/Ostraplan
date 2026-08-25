@@ -12,6 +12,24 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Simulate says what a hit cost the ship, not what is wrong with the ship.** After a strike the
+  hull is asked four questions and only the answers that *changed* are reported: which compartments
+  lost their air, what the crew can no longer walk to, what lost power, and which of the ship's own
+  systems stopped working. The compartments are the ones the *undamaged* ship had, so a hit that
+  takes out the wall between two rooms is reported as those rooms losing their seal rather than as a
+  new room appearing, and one sitting inside a zone you named is called by that name. The systems
+  are the rows off the game's own nav-console diagnostic, in its own words: the reactor, its He3 and
+  D2O, the thrusters, their distributor and reaction mass, backup power, and life support's pumps,
+  stores, heat and cool. Thanks to RedTwinkleToes.
+- **A button to open a container.** Select one and the inspector's **PART** block offers
+  **Contents…**, with a count of what is in there. **Enter** does the same. Opening a container used
+  to be reachable only by right-clicking it, which is hard to find if nobody tells you it is there.
+  Works on a deck item as well as a bolted-down one. Thanks to RedTwinkleToes.
+- **The micrometeoroid window explains its own range.** Away from an atmosphere every micrometeoroid
+  in the game hits at exactly 55, and the whole range above that describes Earth's air and nowhere
+  else — so the window now says so, names whichever bodies your install can actually be hit harder
+  at, marks 55 on the slider, and says that the figure is the hardest a strike can land rather than
+  a typical one. Thanks to RedTwinkleToes.
 - **Sensor wiring: the wiring that actually makes a pump run.** Ostranauts has two separate kinds
   of device wiring and Ostraplan only knew about one of them, so the wire tool only ever did
   anything for the signal box. The missing one is the important one: an air pump, either atmo
@@ -42,6 +60,24 @@ each release was verified against is recorded in
   the left mouse button for as long as it was on.
 
 ### Fixed
+- **A strike no longer blames itself for what the design was already doing wrong.** The consequences
+  of a hit were worked out by re-running the ordinary design checks over the damaged hull and
+  subtracting what the design already said, and it did not work: an airtightness warning puts the
+  number of breaches in its own title, so one new breach changed the whole line and every
+  compartment that was already open got reported as the strike's doing. Nothing is compared as text
+  any more. Thanks to RedTwinkleToes.
+- **A part that ends up as scrap now reads destroyed, not broken.** A storage bay that becomes a
+  pile of aluminium was drawn amber, as though something were still standing there, because the
+  game gives the pile a name and Ostraplan took having a name to mean the part was still a part. It
+  is red now, the tile is treated as clear, and the report still says what was left lying there. A
+  wall that breaks into a damaged wall is unaffected: that is still a wall, it still holds air, and
+  it still reads broken. Thanks to RedTwinkleToes.
+- **The Contents window is the size of what it is showing.** One line of hint text under the grid
+  was setting the width of the whole window, so a 1×3 rack holding two items opened nearly a
+  thousand pixels wide. Thanks to RedTwinkleToes.
+- **A blast no longer loses damage on a part it has finished off.** Where a cell's damage was more
+  than the part could absorb, the remainder was charged to that part instead of passing to the next
+  one on the tile.
 - **Wired devices no longer spawn switched off.** Every connection Ostraplan exported was written in
   a shape that tells the game "connected, but not signalled", and a device in that state is held shut
   down. So the wiring that did get exported was worse than none. It is now written the way the game's
