@@ -7,9 +7,19 @@ release tags.
 
 Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
-[docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.11**).
+[docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
 ## [Unreleased]
+
+### Changed
+- **Ostraplan is now verified against Ostranauts 1.0.0.13.** The port is re-checked against the
+  game rather than assumed to still fit, and the pin the app carries is what says which build
+  that was. This sweep re-read the placement Law, the item footprint and sprite scale, rotation,
+  the rating cutoffs and size classes, the room fill, room certification and the pricing maths
+  against a fresh decompile of the installed build. Nothing had moved: every hardcoded cutoff is
+  where it was, and the whole suite passes against the game's own data. The lighting shaders were
+  not re-extracted this time, so that section of the reference keeps its own 1.0.0.11 stamp. The
+  version shows on exported mods and in the `versionVerified` line of every `.oplan` you save.
 
 ### Fixed
 - **Ostraplan tells you when Ostranauts is not installed, instead of opening empty.** It draws every

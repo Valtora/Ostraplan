@@ -17,11 +17,13 @@ public sealed class GameEnv
     /// <summary>The game's executable, which is what tells a real install apart from a folder shaped like one.</summary>
     public const string GameExeName = "Ostranauts.exe";
 
-    /// <summary>The game version the ported constants/tables were last verified against. Moved to 1.0.0.11
-    /// (Steam build 24744728) by the sweep in docs/GAME-INTERNALS.md §1: the named methods re-read against a
-    /// fresh decompile with no logic drift, the lighting shaders re-extracted and disassembled, and the parity
-    /// corpus green against the live install's data.</summary>
-    public const string VerifiedGameVersion = "1.0.0.11";
+    /// <summary>The game version the ported constants/tables were last verified against. Moved to 1.0.0.13
+    /// (Steam build 24918081) by the sweep in docs/GAME-INTERNALS.md §1: <c>Item.CheckFit</c>, <c>Item.SetData</c>,
+    /// <c>Item.RotateCW</c>, <c>Ship.CalculateRating</c>, <c>Ship.CreateRooms</c>, <c>RoomSpec.Matches</c> and
+    /// <c>CondOwner.GetBasePrice</c> re-read against a fresh decompile with no logic drift and every hardcoded
+    /// cutoff unchanged, and the parity corpus green against the live install's data. The lighting shaders were
+    /// not re-extracted by this sweep, so §16 now carries its own 1.0.0.11 stamp.</summary>
+    public const string VerifiedGameVersion = "1.0.0.13";
 
     public required string GameRoot { get; init; }
     public required string DiscoveredVia { get; init; }

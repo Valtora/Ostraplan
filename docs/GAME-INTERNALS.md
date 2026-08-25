@@ -9,8 +9,10 @@ silently wrong answers). Each system below is described as the game implements i
 with the relevant `Type.Method` citations; a short **Ported in Ostraplan** note
 points to where that system is reimplemented.
 
-**Verified against game `1.0.0.11`** (`GameEnv.VerifiedGameVersion`, Steam build 24744728),
-except where a section carries a later stamp of its own. Rating cutoffs and other magic
+**Verified against game `1.0.0.13`** (`GameEnv.VerifiedGameVersion`, Steam build 24918081),
+except where a section carries a stamp of its own, which may be **older or newer** than this
+line: a stamp moves only for a port that was actually re-read, so a section the latest sweep
+did not touch keeps the version it was last read at. Rating cutoffs and other magic
 numbers are compiled into the DLL and invisible to data diffing, so they can drift between
 patches with nothing in the data to show for it. The version pin exists to flag that.
 
@@ -1443,6 +1445,11 @@ Autotile connectivity honours `bAND`: `TIsWall` is one AND req (`IsWall`), but
 ---
 
 ## 16. Lighting
+
+*Verified against game `1.0.0.11`.* The shaders live in compiled GPU code, so re-checking this
+section means re-extracting and disassembling them rather than re-reading a decompile, and the
+1.0.0.13 sweep did not do that. Nothing in `resources.assets` is visible to the parity corpus
+either, so this section is the one place where a silent drift would not surface as a test.
 
 The game's lighting is a **deferred light pass**, reconstructed from the decompiled
 `Visibility` / `Occluder` / `Block` / `Item` / `GameRenderer` and the disassembled GPU
