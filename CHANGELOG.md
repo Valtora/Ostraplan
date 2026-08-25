@@ -9,7 +9,7 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.11**).
 
-## [Unreleased]
+## [1.7.2] 2026-08-25, the console screen the ship has, and a copy that keeps what you gave it
 
 ### Fixed
 - **A copy keeps what you gave the part.** Copy/paste and **Duplicate** used to take a part's def,
