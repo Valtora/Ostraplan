@@ -3795,6 +3795,12 @@ public partial class MainWindow : Window
                 Board.FillAirSelection();
                 e.Handled = true;
                 break;
+            // Open whatever is selected, if it opens. Second in line behind the air fill, which is the more
+            // specific thing to be doing with a selection and was here first. Only claims the key when something
+            // actually opened, so Enter still reaches a focused button when the selection holds nothing.
+            case Key.Enter when !ctrl:
+                e.Handled = OpenSelectedContents();
+                break;
             case Key.Escape:
                 if (Board.WirePickArmed)
                 {
@@ -3981,6 +3987,7 @@ public partial class MainWindow : Window
             StatsBlock.Visibility = Visibility.Collapsed;
             RawExpander.Visibility = Visibility.Collapsed;
             FlagsExpander.Visibility = Visibility.Collapsed;
+            BtnContents.Visibility = Visibility.Collapsed;
             return;
         }
 
@@ -4024,6 +4031,55 @@ public partial class MainWindow : Window
                       ?? (Board.ArmedPart is null && lone ? Board.SelectedLoose?.Condition : null);
         PopulateStats(part, lonePart, painted);
         PopulateDeviceBlock(part, lonePart);
+        PopulateContentsButton(part, lonePart);
+    }
+
+    /// <summary>
+    /// Show the PART block's "Contents" button when the thing it describes can hold something.
+    ///
+    /// <para>Opening a container was reachable only from the right-click menu, which is a hard affordance to find
+    /// if nobody tells you it is there ("can containers have a dedicated button to open instead of being right
+    /// click menu only?"). The menu entry stays: this is a second way in, not a replacement, and both go through
+    /// the same two methods so they cannot disagree about what is openable.</para>
+    ///
+    /// <para>Covers a deck item as well as a placed part, because the PART block describes either one and a crate
+    /// on the floor holds things exactly as a bolted-down bin does.</para>
+    /// </summary>
+    private void PopulateContentsButton(PartDef part, Placement? lonePart)
+    {
+        var loose = Board.ArmedPart is null && Board.SelectionCount == 1 ? Board.SelectedLoose : null;
+        var count =
+            lonePart is not null && CanViewContents(lonePart) ? lonePart.Cargo.Count :
+            loose is not null && _catalog is not null && Cargo.CanHoldCargo(part, _catalog)
+                ? loose.Cargo.Sum(c => c.SubtreeCount)
+                : -1;
+
+        if (count < 0)
+        {
+            BtnContents.Visibility = Visibility.Collapsed;
+            return;
+        }
+        BtnContents.Content = count > 0 ? $"Contents ({count})…" : "Contents…";
+        BtnContents.Visibility = Visibility.Visible;
+    }
+
+    /// <summary>The PART block's Contents button, and the Enter key that does the same thing.</summary>
+    private void OnContentsClick(object sender, RoutedEventArgs e) => OpenSelectedContents();
+
+    /// <summary>Open the contents of whatever the inspector is describing, and say whether anything opened. No-op
+    /// when the selection holds nothing openable, so a stray Enter on a wall does nothing rather than
+    /// complaining.</summary>
+    private bool OpenSelectedContents()
+    {
+        if (Board.ArmedPart is not null || Board.SelectionCount != 1) return false;
+        if (Board.SelectedPlacements() is [var p] && CanViewContents(p)) { OpenInventory(p); return true; }
+        if (Board.SelectedLoose is { } lo && _doc?.Catalog.Lookup(lo.DefName) is { } part
+            && _catalog is not null && Cargo.CanHoldCargo(part, _catalog))
+        {
+            OpenLooseInventory(lo, part);
+            return true;
+        }
+        return false;
     }
 
     /// <summary>True while <see cref="PopulateDeviceBlock"/> is writing the controls, so the change handlers can

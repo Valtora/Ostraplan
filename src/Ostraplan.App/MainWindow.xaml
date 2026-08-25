@@ -248,6 +248,12 @@
                          PreviewMouseLeftButtonDown="OnPartNamePreviewClick" GotKeyboardFocus="OnPartNameFocused"
                          LostFocus="OnPartNameLostFocus" KeyDown="OnPartNameKeyDown"/>
                 <TextBlock x:Name="InsInternal" Style="{StaticResource SideValue}" Opacity="0.6" FontSize="11"/>
+                <!-- Opening a container was a right-click-only affordance, which is a hard thing to find if
+                     nobody tells you it is there. Shown for whatever the PART block is describing, placed part
+                     or deck item, whenever that thing can hold something. -->
+                <Button x:Name="BtnContents" Visibility="Collapsed" Margin="0,6,0,0" HorizontalAlignment="Left"
+                        Padding="10,3,10,3" FontSize="12" Click="OnContentsClick"
+                        ToolTip="Open this container (Enter)"/>
                 <StackPanel x:Name="DescBlock" Visibility="Collapsed">
                     <TextBlock Text="DESCRIPTION" Style="{StaticResource SideHeader}"/>
                     <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">

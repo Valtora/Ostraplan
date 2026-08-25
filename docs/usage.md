@@ -705,7 +705,7 @@ Everything below is under **File ▸ Import** / the **Export** button.
 
 | | |
 |---|---|
-| **Container contents** | Everything inside lockers, racks and crates, as viewable and editable cargo. Right-click a container and choose **View contents**. |
+| **Container contents** | Everything inside lockers, racks and crates, as viewable and editable cargo. Select a container and press **Contents…** in the inspector, or **Enter**. |
 | **Items lying on the deck** | Tools, scrap and other loose objects on the floor. |
 
 Both default to **on**. Crew are never imported.
@@ -1062,11 +1062,14 @@ and from the designation otherwise.
 
 ## Containers & cargo
 
-Right-click a container — a locker, a nav console, a crate from a save-imported
-ship — and choose **View contents…** to see its inventory laid out on the grid and
-drill into nested containers. On an editable design you can also **add, remove and
-rearrange** loose cargo; contents travel with the ship through **Export** and save
-write-back.
+Select a container — a locker, a nav console, a crate from a save-imported ship — and
+press the **Contents…** button in the inspector's **PART** block, or **Enter**, to see its
+inventory laid out on the grid and drill into nested containers. The button says how many
+items are in there. The right-click **View contents…** entry does the same thing and is
+still there. All three work on a deck item as well as a bolted-down one.
+
+On an editable design you can also **add, remove and rearrange** loose cargo; contents
+travel with the ship through **Export** and save write-back.
 
 **Removing.** **Del** takes one off the selected stack and **Shift+Del** takes the whole
 stack, matching the right-click menu's two entries. The selection stays on the tile while
