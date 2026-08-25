@@ -9,6 +9,26 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.11**).
 
+## [Unreleased]
+
+### Fixed
+- **Ostraplan tells you when Ostranauts is not installed, instead of opening empty.** It draws every
+  part, sprite and mod from your own copy of the game, so without one there is nothing to plan with,
+  and it should never have got as far as a window. A folder passed as an install if it merely held an
+  `Ostranauts_Data` folder, and a mod deploy target is exactly that and nothing else: one of those
+  would resolve as the game, the palette would come up with nothing in it, and not a word was said.
+  An install now means the game's own exe alongside the data and images folders Ostraplan reads, and
+  anything short of that stops at a dialog that will not be dismissed: locate the folder, open the
+  game's Steam page, or close Ostraplan. Cancelling the folder picker comes back to that dialog
+  rather than quitting, so a mis-click no longer ends the session. Settings holds a folder you pick
+  there to the same standard, so one accepted in Settings cannot fail at the next launch.
+- **A folder that looks right but holds no parts is caught too.** A damaged or half-downloaded copy
+  of the game can pass every check on disk and still load nothing. That used to open the planner on
+  an empty palette; it now goes back to the same dialog, naming the folder it read.
+- **A blank game folder in the settings file no longer lands on the crash handler.** A
+  `"gameRootOverride": ""` written by hand came up as an unexpected error rather than as the prompt
+  that explains a missing install. It reaches the prompt now, like any other folder that is not there.
+
 ## [1.7.2] 2026-08-25, the console screen the ship has, and a copy that keeps what you gave it
 
 ### Fixed
