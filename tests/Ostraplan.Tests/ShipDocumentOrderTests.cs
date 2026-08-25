@@ -117,9 +117,10 @@ public class ShipDocumentOrderTests
     public void After_dropping_an_item_on_the_deck() =>
         Edit(d => new PlaceLooseCommand(new LooseObject { DefName = "Widget", X = 0, Y = 3 }).Do(d));
 
-    /// <summary>The tile index is keyed by position, so dropping onto an occupied tile turns the object that was
-    /// there out of the document with nothing else to show for it. The order has to lose it too, or it goes on
-    /// drawing a thing that is not aboard.</summary>
+    /// <summary>Two deck items on one tile is not legal, and <c>LoosePlacement</c> is what refuses it — so one
+    /// reaching the document means it was authored that way and both belong aboard. Neither is turned out by the
+    /// index, and the order carries both: an item deleted to keep an invariant true is an item the user cannot get
+    /// back, and the deck-item warning is what tells them instead.</summary>
     [Fact]
     public void After_dropping_an_item_onto_one_already_there()
     {
@@ -127,7 +128,8 @@ public class ShipDocumentOrderTests
         var before = doc.RenderOrder().Count;
         new PlaceLooseCommand(new LooseObject { DefName = "Widget", X = 2, Y = 2 }).Do(doc);
         AssertOrderIntact(doc);
-        Assert.Equal(before, doc.RenderOrder().Count);   // one in, one out
+        Assert.Equal(before + 1, doc.RenderOrder().Count);   // both aboard, both drawn
+        Assert.Equal(2, doc.LooseStackAt(2, 2).Count);
     }
 
     [Fact]

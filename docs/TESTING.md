@@ -91,6 +91,7 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 | Data parsers (`Defs`, `CondAmount`) | `DefsParsingTests`, `CondAmountTests` | — |
 | Activity log / path scrubbing | `AuditLogTests` | — |
 | Import (template / save) | `TemplateLoaderTests`* | `ShipImportTests`, `ShipSaveImportTests` |
+| Deck items (footprint occupancy, the loose socket law) | `LoosePlacementTests` | `LooseObjectTests` |
 | Rendering | — | `RenderSmokeTests` |
 | The bake window (what the ship cache may cull) | — | `BakeWindowTests`† |
 | Document tabs (session isolation, the strip, close/cycle) | `DocumentSessionTests`, `MainWindowTabsTests`† | — |

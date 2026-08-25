@@ -74,8 +74,13 @@ public static class CheckFit
     /// its own tile contribution is excluded (walls/fixtures add IsObstruction and
     /// forbid it on their own footprint — otherwise every placed part fails itself).
     /// </summary>
+    /// <param name="overlay">A second condition layer read alongside <see cref="ShipDocument.Conds"/>, tile by
+    /// tile, as if the two were one map. <see cref="ShipDocument.LooseConds"/> is the only one: the deck items'
+    /// <c>IsItemTile</c>, which the loose placement law has to see (an item may not land where another already
+    /// lies) and which the structural analysis must not. Null for every structural caller, which is what keeps
+    /// rooms, airtightness and the rating blind to what is lying on the floor.</param>
     public static FitResult Check(ShipDocument doc, PartDef part, int x, int y, int rot,
-        Placement? self = null, bool includeEnvelope = true)
+        Placement? self = null, bool includeEnvelope = true, TileConds? overlay = null)
     {
         var item = part.Item;
         var effRot = item.HasSpriteSheet ? 0 : GridMath.Norm(rot);   // sheet items never rotate
@@ -115,7 +120,7 @@ public static class CheckFit
                     var forbidConds = idx < forbids.Length ? doc.Catalog.LootConds(forbids[idx]) : [];
                     if (reqConds.Count == 0 && forbidConds.Count == 0) continue;   // unconstrained
 
-                    if (!CellPasses(doc.Conds, reqConds, forbidConds, wx, wy, out var why, out var rank, out var softWhy))
+                    if (!CellPasses(doc.Conds, overlay, reqConds, forbidConds, wx, wy, out var why, out var rank, out var softWhy))
                     {
                         failed.Add((wx, wy));
                         if (rank < reasonRank) { reason = why; reasonRank = rank; }
@@ -161,17 +166,24 @@ public static class CheckFit
     private static readonly HashSet<string> SoftReqs = new(StringComparer.Ordinal) { "IsPowerConduit" };
 
     /// <summary>Every req condition present, no forbid condition present (CondTrigger.Triggered, bAND path).
-    /// A missing <see cref="SoftReqs"/> condition does not fail the cell; it reports via <paramref name="softWhy"/>.</summary>
-    private static bool CellPasses(TileConds conds, IReadOnlyList<string> reqConds, IReadOnlyList<string> forbidConds,
+    /// A missing <see cref="SoftReqs"/> condition does not fail the cell; it reports via <paramref name="softWhy"/>.
+    /// <paramref name="overlay"/>, when given, is read as part of the same tile: a condition either layer carries
+    /// is present.</summary>
+    private static bool CellPasses(TileConds conds, TileConds? overlay,
+        IReadOnlyList<string> reqConds, IReadOnlyList<string> forbidConds,
         int x, int y, out string? why, out int rank, out string? softWhy)
     {
         why = null;
         rank = GenericRank;
         softWhy = null;
-        var at = conds.At(x, y);   // null == off-ship / empty tile (empty entries are pruned, never a non-null empty dict)
+        // null == off-ship / empty tile (empty entries are pruned, never a non-null empty dict)
+        var at = conds.At(x, y);
+        var over = overlay?.At(x, y);
+        bool Has(string cond) => at?.ContainsKey(cond) == true || over?.ContainsKey(cond) == true;
+
         string? missingReq = null;
         foreach (var rc in reqConds)
-            if (at is null || !at.ContainsKey(rc))
+            if (!Has(rc))
             {
                 // A soft req (e.g. a light's power conduit) is advisory-only: note it, but don't fail the cell.
                 if (SoftReqs.Contains(rc)) { softWhy ??= ReasonForReq(rc); continue; }
@@ -192,13 +204,12 @@ public static class CheckFit
         }
         // No exemption here, deliberately — see the sub-floor-bin note on CheckFit. A forbid condition present on
         // the tile fails the cell, whatever put it there.
-        if (at is not null)
-            foreach (var fc in forbidConds)
-                if (at.ContainsKey(fc))
-                {
-                    why = ReasonForForbid(fc);
-                    return false;
-                }
+        foreach (var fc in forbidConds)
+            if (Has(fc))
+            {
+                why = ReasonForForbid(fc);
+                return false;
+            }
         return true;
     }
 

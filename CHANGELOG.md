@@ -15,6 +15,27 @@ each release was verified against is recorded in
 - **Zone names read the right way up when the plan is turned.** Rotating the view with Q/E left
   every zone label mirrored or on its side; room labels, connector badges and the origin marker
   always turned with you, and zones now do too. Thanks to RedTwinkleToes.
+- **A deck item is the whole of itself, not just its top-left tile.** Most items in the game are
+  bigger than one tile — a loose XPDR antenna is four — and Ostraplan was treating each of them as
+  though it sat on the single tile it was anchored to. Three things follow from fixing that, all
+  reported by RedTwinkleToes:
+  - **The Item Manifest files an item under a zone it is actually in.** An item lying across two
+    zones was always listed under the one on its top-left corner, whichever way it was facing, so
+    turning it round never changed the answer. It now goes by the whole item, the same rule an
+    installed container has always had — and facing it a different way can now move it.
+  - **Items can no longer be laid over walls, fixtures or each other.** The game's rule is that an
+    item needs its whole footprint clear, and refuses one being put down on a bunk, a locker or a tile
+    another item already covers. Ostraplan checked the anchor tile alone, so half an antenna could lie
+    inside a wall or through the item beside it. Laying, dragging, duplicating and pasting all apply
+    the full rule now, and the ghost tints the tiles that are in the way. It applies to what you place
+    and never to what you import: the game only checks a crew member's own drop, and its ships lie
+    regolith on exteriors and pile several objects on a tile, so an imported design comes in exactly
+    as written.
+  - **An item is picked up and boxed-in wherever you click it,** rather than only on the corner it is
+    anchored to.
+- **Importing a ship no longer loses items piled on one tile.** The game stacks deck cargo — Babak
+  writes fifteen separate packets of antibiotics at one spot — and Ostraplan kept one of them and
+  dropped the rest with nothing to say it had.
 
 ## [1.4.0] 2026-08-24, large designs are much faster to work on
 

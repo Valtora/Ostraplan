@@ -241,15 +241,18 @@ public static class ItemManifest
             return null;
         }
 
-        // Deck items first, and in a fixed reading order. LooseObjects comes off a tile-keyed dictionary, whose
-        // enumeration order is an implementation detail — without this the same design could list its strays in a
-        // different order twice, which is exactly the report you cannot trust to compare against itself.
+        // Deck items first, and in a fixed reading order of the report's own. LooseObjects enumerates in the order
+        // things were dropped, which is not an order anybody reading a manifest can see — without this the same
+        // ship could list its strays differently depending on how it was built, which is exactly the report you
+        // cannot trust to compare against itself.
         foreach (var lo in doc.LooseObjects.OrderBy(o => o.Y).ThenBy(o => o.X))
         {
-            if (zoneTiles is not null && !zoneTiles.Contains((lo.X, lo.Y))) continue;
+            var host = new RenderItem(null, lo);
+            // Scoped by the whole footprint, the same as a placement above: an item is in the zone when any of it
+            // is, which is also what ZoneOf labels it by.
+            if (zoneTiles is not null && !TilesOf(doc, host).Any(zoneTiles.Contains)) continue;
             var def = catalog.Lookup(lo.DefName);
             var name = Rename.Display(lo, def);
-            var host = new RenderItem(null, lo);
             var zone = ZoneOf(host);
             entries.Add(new ManifestEntry(
                 lo.DefName, name, lo.CustomName,
@@ -403,12 +406,18 @@ public static class ItemManifest
     /// The tiles a manifest entry's host occupies — what to point the grid at, and what a zone test asks about.
     /// A placed part answers with its above-floor body (<see cref="ShipDocument.BodyBounds"/>) rather than its
     /// whole footprint, so a fuel tank's under-floor ring does not drag the view out or put the tank in a zone it
-    /// only reaches beneath the deck. A deck item is one tile, which is the design's own model for it.
+    /// only reaches beneath the deck. A deck item answers with its rotated footprint, which is the area the canvas
+    /// draws it over.
+    ///
+    /// <para>It used to answer with its anchor tile alone, and that is the fault behind "a loose item in two zones
+    /// takes the top left corner, whichever way it is rotated": the anchor <i>is</i> the top-left of the rotated
+    /// footprint, so rotating an item could never change which zone it was filed under. Most loose items are
+    /// bigger than one tile, so this is the common case rather than an edge one.</para>
     /// </summary>
     public static IReadOnlyList<(int X, int Y)> TilesOf(ShipDocument doc, RenderItem host)
     {
         ArgumentNullException.ThrowIfNull(doc);
-        return host.Placement is { } p ? TilesOf(doc, p) : [(host.X, host.Y)];
+        return host.Placement is { } p ? TilesOf(doc, p) : [.. doc.LooseTiles(host.Loose!)];
     }
 
     private static List<(int X, int Y)> TilesOf(ShipDocument doc, Placement p)

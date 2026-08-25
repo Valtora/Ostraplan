@@ -1352,23 +1352,40 @@ through **Export** and **Update Ship in Save…**, and it comes back when you im
   what the thing is called.
 
 Placing *arbitrary* loose inventory — tools, food, consumables — is the separate
-**ITEMS** palette tab: arm one and click to drop it onto a floor tile, or into a
+**ITEMS** palette tab: arm one and click to lay it on the deck, or drop it into a
 container under the cursor if one accepts it. Right-click a placed loose item for
 **Rename…**, **Change Quantity** (stackable items, up to the item's stack limit) and
 **Delete**.
-Loose cargo carries no structure, so it takes no part in the Law; it just renders and
-travels with the ship through **Export** and save write-back.
+Loose cargo carries no structure, so it takes no part in the Law for building the ship; it
+renders and travels with the ship through **Export** and save write-back.
+
+**An item takes up as much room as it looks like it does.** Most items in the game are
+bigger than one tile — a loose XPDR antenna is four tiles long — and laying one now goes by
+the whole item rather than by the corner it is anchored to. It will not go down across a
+wall, a bunk, a locker, or another item, which is the rule the game applies when a crew
+member puts something down. The ghost turns red and tints the tiles that are in the way, and
+the status bar says what stopped it. **R** turns the armed item, which changes which tiles it
+needs, so something that will not fit up a corridor usually fits along it.
+
+**Nothing you import is judged by it.** The game only applies that rule to a crew member
+dropping something by hand; a ship spawned from a template places its cargo wherever the file
+says, and the shipped ships make full use of that — regolith strewn over station exteriors,
+wreckage on unfloored decks, several objects piled on one tile. A design opened from a save,
+a template or an `.oplan` therefore comes in exactly as it was written, and nothing warns
+about it. There is no requirement for deck underneath either, so you can dress an exterior
+the way the game does.
 
 Loose items select like anything else: a box-select catches them, **Ctrl+click** adds or
 removes one, and the box-select filter (**Select only**, or the chips after a
 **Shift+drag**) has a **Loose items** row for keeping or dropping the whole catch of them.
+Clicking anywhere on an item picks it up, not only the corner it is anchored to.
 Once selected they move, rotate, flip, copy, duplicate and delete with the structure
 around them, all in one undo step. Two things behave differently from structure, because
-loose items are one per tile where parts stack freely:
+parts stack freely on a tile where deck items do not:
 
-- A transform that would land one deck item on a tile another already holds is refused for
-  the deck items only — the structure still moves, and the status bar says what stayed.
-  A **paste** or **duplicate** instead places the ones that fit and reports the rest.
+- A transform that would land one deck item across another is refused for the deck items
+  only — the structure still moves, and the status bar says what stayed. A **paste** or
+  **duplicate** instead places the ones that fit and reports the rest.
 - **Symmetry** doesn't apply to them. A selection holding any loose item is transformed as
   a plain group about its own centre rather than mirrored about the symmetry axes.
 

@@ -32,7 +32,10 @@ public static class LooseTransform
         foreach (var o in moving)
         {
             var (x, y, rot) = pose(o);
-            if (!doc.LooseFreeAt(x, y, ids) || !taken.Add((x, y))) return null;
+            // Every tile of the destination footprint, not just the anchor: most loose items are bigger than one
+            // tile, so an anchor-only test let a group move overlap two of them by three quarters of their length.
+            foreach (var t in ShipDocument.LooseTiles(doc.Catalog.Lookup(o.DefName), x, y, rot))
+                if (!doc.LooseFreeAt(t.X, t.Y, ids) || !taken.Add(t)) return null;
             poses.Add((o, x, y, rot));
         }
         return poses;

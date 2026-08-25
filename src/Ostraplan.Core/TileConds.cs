@@ -27,16 +27,26 @@ public sealed class TileConds
             _tiles[cell] = new Dictionary<string, double>(conds, StringComparer.Ordinal);
     }
 
-    public void Apply(Placement p, ItemDef item, int sign)
+    public void Apply(Placement p, ItemDef item, int sign) => Apply(p.X, p.Y, p.Rot, item, sign);
+
+    /// <summary>
+    /// Apply (or, with <paramref name="sign"/> -1, lift) an item's <c>aSocketAdds</c> at a pose, without needing a
+    /// <see cref="Placement"/> to carry it. This is the form the loose overlay uses
+    /// (<see cref="ShipDocument.LooseConds"/>): a deck item has a footprint and adds like anything else, it just
+    /// is not structure. A null <paramref name="item"/> (a def the catalogue has never heard of) contributes
+    /// nothing, which is the same nothing it would contribute if it were resolved and declared no adds.
+    /// </summary>
+    public void Apply(int x, int y, int rot, ItemDef? item, int sign)
     {
-        var (w, h, adds) = GridMath.Rotate(item.SocketAdds, item.Width, item.Height, p.Rot);
+        if (item is null) return;
+        var (w, h, adds) = GridMath.Rotate(item.SocketAdds, item.Width, item.Height, rot);
         for (var r = 0; r < h; r++)
             for (var c = 0; c < w; c++)
             {
                 if (r * w + c >= adds.Length) break;
                 var lootName = adds[r * w + c];
                 if (string.IsNullOrEmpty(lootName) || lootName == "Blank") continue;
-                AddLoot((p.X + c, p.Y + r), lootName, sign, null);
+                AddLoot((x + c, y + r), lootName, sign, null);
             }
     }
 

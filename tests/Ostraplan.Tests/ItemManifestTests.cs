@@ -18,6 +18,7 @@ public class ItemManifestTests
     private const string Round = "Round";
     private const string Coveralls = "Coveralls";
     private const string Pocket = "Pocket";
+    private const string Antenna = "Antenna";
 
     private static Catalog Cat() => new Fixtures()
         // an installed container: structure, so it is the bill of materials' business and never a manifest line
@@ -26,6 +27,8 @@ public class ItemManifestTests
         .Part(Crate, startingConds: ["IsContainer"], container: (4, 4), basePrice: 90)
         .Part(Pouch, startingConds: ["IsContainer"], container: (2, 2), basePrice: 20)
         .Part(Round, basePrice: 5)
+        // a deck item taller than the tile it is anchored to — the shape most loose items in the game actually are
+        .Part(Antenna, w: 1, h: 4, basePrice: 600)
         .Part(Pocket, startingConds: ["IsContainer"], container: (1, 2), basePrice: 3)
         // a garment that spawns carrying its own pockets — intrinsic contents (see CargoItem.Intrinsic)
         .ItemLoot("PocketLoot", (Pocket, 2))
@@ -53,6 +56,20 @@ public class ItemManifestTests
         var o = new LooseObject { DefName = def, X = x, Y = y, Quantity = quantity, CustomName = name, Cargo = cargo };
         new PlaceLooseCommand(o).Do(doc);
         return o;
+    }
+
+    private static LooseObject DropFacing(ShipDocument doc, string def, int x, int y, int rot)
+    {
+        var o = new LooseObject { DefName = def, X = x, Y = y, Rot = rot };
+        new PlaceLooseCommand(o).Do(doc);
+        return o;
+    }
+
+    private static ShipZone Named(ShipDocument doc, string name, params (int X, int Y)[] tiles)
+    {
+        var z = new ShipZone { Name = name, Tiles = [.. tiles] };
+        new CreateZoneCommand(z).Do(doc);
+        return z;
     }
 
     private static ManifestLine Line(Manifest m, string def) =>
@@ -317,6 +334,45 @@ public class ItemManifestTests
         var zone = Zone(doc, (5, 5));
 
         Assert.Equal(1, ItemManifest.Build(doc, zone.Tiles).TotalCount);
+    }
+
+    [Fact]
+    public void A_deck_item_is_in_the_zone_when_any_of_its_footprint_is()
+    {
+        // The antenna is 1x4 at (4,4), so it reaches (4,7) while its anchor sits outside a zone covering that tile
+        // alone. Testing the anchor only — which is what the report did — dropped it off the zone entirely.
+        var doc = new ShipDocument(Cat());
+        Drop(doc, Antenna, 4, 4);
+        var zone = Zone(doc, (4, 7));
+
+        Assert.Equal(1, ItemManifest.Build(doc, zone.Tiles).TotalCount);
+    }
+
+    [Fact]
+    public void Rotating_a_deck_item_can_change_the_zone_it_is_filed_under()
+    {
+        // The fault RedTwinkleToes reported: a deck item straddling two zones always took the one on its top-left
+        // tile, whichever way it was facing, because the anchor IS the top-left of the rotated footprint. Filed by
+        // the whole footprint, the 1x4 antenna at (0,0) reaches down into "South" unrotated and east into "East"
+        // at 90 degrees, and the answer changes with it.
+        //
+        // "South" is created first, so it also wins the tie on the unrotated pose under the document-order rule —
+        // which is only visible BECAUSE the footprint is what is tested. The anchor tile (0,0) is in neither zone.
+        var doc = new ShipDocument(Cat());
+        Named(doc, "South", (0, 3));
+        Named(doc, "East", (3, 0));
+
+        var flat = ItemManifest.Build(doc);   // nothing dropped yet
+        Assert.True(flat.IsEmpty);
+
+        DropFacing(doc, Antenna, 0, 0, 0);
+        Assert.Equal("South", Assert.Single(Line(ItemManifest.Build(doc), Antenna).Entries).Zone);
+
+        var doc90 = new ShipDocument(Cat());
+        Named(doc90, "South", (0, 3));
+        Named(doc90, "East", (3, 0));
+        DropFacing(doc90, Antenna, 0, 0, 90);
+        Assert.Equal("East", Assert.Single(Line(ItemManifest.Build(doc90), Antenna).Entries).Zone);
     }
 
     [Fact]

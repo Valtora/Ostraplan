@@ -63,6 +63,47 @@ by the next person through. `SimulateWindow` is the working example, and it conv
 If you add anything that takes a position from the canvas and hands it to Core, decide which frame the Core side
 is in and say so in its doc comment.
 
+## A deck item is its footprint, and it has a condition layer of its own
+
+A `LooseObject` stores one tile, and that tile is the **top-left of its rotated footprint** — not the item. 521
+of the 888 loose items the game ships are bigger than 1x1 (`ItmAntenna01Loose` is 1x4), and the canvas has always
+drawn them across the whole of it. Anything that asks "where is this item" and answers with `(o.X, o.Y)` is
+therefore wrong for the majority of them, and wrong in a way rotation cannot fix: the anchor is the top-left
+whichever way the item faces, which is exactly how it was reported ("loose items in multiple zones take the top
+left corner, regardless of rotation").
+
+**Ask `ShipDocument.LooseTiles`, never the anchor.** The tile index is footprint-keyed, `LooseAt` answers for any
+tile the item covers, and `ItemManifest.TilesOf` returns the whole footprint — the same "in the zone when any of
+its body is" rule placements have always had.
+
+**`LoosePlacement.Check` governs the cursor and nothing else.** The game runs `Item.CheckFit` on the
+*interactive* hand-drop only; `Ship.SpawnItems` places a template's deck cargo unchecked, and the shipped content
+leans on that hard. Measured over all 221 core templates and their 3054 deck items:
+
+| Rule | Whose | Core items it would refuse |
+|---|---|---|
+| `TILItemForbids` (`IsFixture` / `IsObstruction` / `IsItemTile`) over the footprint | the game's | **6** |
+| Deck under every footprint tile | was Ostraplan's, now dropped | hundreds — `Station_MTRS_Nuked` strews 254 pieces of scrap over unfloored wreckage, `Station_Ground` lies regolith on an exterior |
+| One item per tile | Ostraplan's | `Babak` writes 15 separate `ItmPillAntibiotic01` at one position, with no `aStack` |
+
+So **a design that arrives is never judged**, exactly as `ProblemScan` exempts given/locked structure from the
+placement law, and **there is no floor requirement** — the two homegrown rules were what fought the data, not the
+ported one. One item per tile survives at the cursor (a pile the plan cannot draw is not a plan) and nowhere else.
+
+Do not add a design-wide deck warning back without re-running that measurement. It was built once and taken out
+again because it flagged 14 of the 221 ships the game ships.
+
+**`LooseConds` is deliberately not `Conds`.** Rooms, airtightness, the rating and the placement law for structure
+must not see what is lying on the floor, so the deck items' `IsItemTile` lives in its own `TileConds` and is read
+only by the loose law, through `CheckFit`'s `overlay` parameter. The consequence is that the **reverse** direction
+is not ported: an installed part whose forbid mask names `IsItemTile` would refuse to be built over a deck item in
+game, and here it places. That is the right trade — a planner builds the ship before it dresses it — but it is a
+choice, not an oversight.
+
+**The index never deletes to keep the invariant true.** It is a list per tile, so an import brings in every object
+it carries and each of them draws. It used to be `Dictionary<tile, LooseObject>` with `LooseObjects` reading its
+`Values`, which meant importing `Babak` kept one of those fifteen pills and lost the other fourteen with no trace.
+
 ## All text on the plan reads upright
 
 `ShipCanvas.OnRender` runs the whole pass under a `RotateTransform` of `ViewRot`, so **anything textual has to

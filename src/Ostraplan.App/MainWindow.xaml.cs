@@ -2691,12 +2691,13 @@ public partial class MainWindow : Window
                 Cargo = Cargo.CloneForest(p.Cargo),   // duplicate a container's contents with it
             })
             .ToList();
-        // the loose half offsets by the same tile; one already sitting on the target tile keeps it (as a paste)
+        // the loose half offsets by the same tile; one whose copy has nowhere to lie is left out (as a paste)
         var skipped = 0;
+        var claimed = new HashSet<(int, int)>();
         var looseClones = new List<LooseObject>(loose.Count);
         foreach (var o in loose)
         {
-            if (_doc.LooseAt(o.X + 1, o.Y + 1) is not null) { skipped++; continue; }
+            if (!LooseCloneFits(o.DefName, o.X + 1, o.Y + 1, o.Rot, claimed)) { skipped++; continue; }
             looseClones.Add(new LooseObject
             {
                 DefName = o.DefName, X = o.X + 1, Y = o.Y + 1, Rot = o.Rot, Quantity = o.Quantity,
@@ -3091,9 +3092,27 @@ public partial class MainWindow : Window
         }).ToList();
 
     /// <summary>
+    /// Whether a loose clone may lie at a pose during a paste or a duplicate: the placement law
+    /// (<see cref="LoosePlacement.Check"/>) over its whole footprint, plus the tiles the clones already accepted
+    /// in this batch have claimed. The batch has to be tracked by hand because none of it is in the document yet,
+    /// so the law cannot see one clone landing on the next.
+    ///
+    /// <para>Accepting a pose claims its tiles, so this is called once per candidate and in order.</para>
+    /// </summary>
+    private bool LooseCloneFits(string def, int x, int y, int rot, HashSet<(int, int)> claimed)
+    {
+        if (_doc?.Catalog.Lookup(def) is not { } part) return false;
+        if (!LoosePlacement.Check(_doc, part, x, y, rot).Ok) return false;
+        var tiles = ShipDocument.LooseTiles(part, x, y, rot).ToList();
+        if (tiles.Any(claimed.Contains)) return false;
+        foreach (var t in tiles) claimed.Add(t);
+        return true;
+    }
+
+    /// <summary>
     /// The clipboard's loose items as fresh <see cref="LooseObject"/>s anchored at <paramref name="anchor"/>, with
-    /// the ones that have nowhere to go left out: a tile already holding a loose item cannot take a second, and the
-    /// copy is not entitled to displace what is already there.
+    /// the ones that have nowhere to go left out: a copy has to satisfy the same placement law as a fresh drop, and
+    /// it is not entitled to displace what is already there.
     ///
     /// <para>Unlike a group move, this places what fits rather than refusing outright. A move has to be all or
     /// nothing because it relocates the items themselves, and a half-done one strands them; a paste creates new
@@ -3102,12 +3121,12 @@ public partial class MainWindow : Window
     private List<LooseObject> ClipboardLooseClones((int X, int Y) anchor, out int skipped)
     {
         var clones = new List<LooseObject>(_clipLoose.Count);
-        var taken = new HashSet<(int, int)>();
+        var claimed = new HashSet<(int, int)>();
         skipped = 0;
         foreach (var c in _clipLoose)
         {
             var (x, y) = (anchor.X + c.X, anchor.Y + c.Y);
-            if (_doc!.LooseAt(x, y) is not null || !taken.Add((x, y))) { skipped++; continue; }
+            if (!LooseCloneFits(c.Def, x, y, c.Rot, claimed)) { skipped++; continue; }
             clones.Add(new LooseObject
             {
                 DefName = c.Def, X = x, Y = y, Rot = c.Rot, Quantity = c.Quantity,

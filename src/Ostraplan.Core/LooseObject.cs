@@ -6,9 +6,14 @@ namespace Ostraplan.Core;
 /// A loose item lying on a ship tile — cargo dropped straight onto the floor (food, ammo, clothing, tools, a
 /// personal effect), as opposed to a <see cref="Placement"/> (installed structure) or a <see cref="CargoItem"/>
 /// (an item inside a container). Loose objects are a <b>non-structural overlay</b>: like <see cref="ShipZone"/>s
-/// they carry no tile conditions and take no part in the socket law, room flood-fill, airtightness, or rating —
-/// they only render and export. At most one sits on a tile (the design model is one-per-tile), which is the one
-/// invariant a mover has to respect: <see cref="ShipDocument.LooseFreeAt"/> is how it asks.
+/// they contribute nothing to <see cref="ShipDocument.Conds"/> and take no part in room flood-fill, airtightness
+/// or rating — they render, export, and answer to a placement law of their own.
+///
+/// <para><b>It covers its rotated footprint, not the tile it is anchored to.</b> (<see cref="X"/>,<see cref="Y"/>)
+/// is the top-left of that footprint, and most loose items in the game are bigger than 1x1 — so anything asking
+/// where the item is wants <see cref="ShipDocument.LooseTiles"/>. At most one item covers a tile, which is the
+/// one invariant a mover has to respect (<see cref="ShipDocument.LooseFreeAt"/> is how it asks), and
+/// <see cref="LoosePlacement"/> is what enforces it along with the game's own socket masks.</para>
 ///
 /// <para>Its pose is mutable, the same as <see cref="Placement"/>'s, so a move keeps the object's identity and the
 /// selection pointing at it survives being dragged, turned or flipped. Go through

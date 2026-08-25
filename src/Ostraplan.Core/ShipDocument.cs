@@ -251,7 +251,9 @@ public sealed class ShipDocument
     private readonly Dictionary<(int, int), List<Placement>> _byTile = [];   // spatial index: tile -> parts covering it
     private readonly HashSet<Guid> _cargoEdited = [];   // placements whose container contents were authored/removed
     private readonly List<ShipZone> _zones = [];   // painted crew/trade zones (overlays, not tile-grid parts)
-    private readonly Dictionary<(int, int), LooseObject> _looseByTile = [];   // loose items lying on tiles (overlay, one per tile)
+    private readonly List<LooseObject> _loose = [];   // loose items lying on the decks (overlay), in insertion order
+    private readonly HashSet<Guid> _looseIds = [];    // membership for _loose, so a drop is not an O(n) scan
+    private readonly Dictionary<(int, int), List<LooseObject>> _looseByTile = [];   // spatial index: tile -> items covering it
     private readonly List<DeviceLink> _links = [];   // signal connections between signalable devices (overlay, by Placement.Id)
     private readonly HashSet<string> _dismissedAlerts = new(StringComparer.Ordinal);   // problem warnings the user hid (by DismissKey)
 
@@ -337,6 +339,7 @@ public sealed class ShipDocument
     {
         Catalog = catalog;
         Conds = new TileConds(catalog);
+        LooseConds = new TileConds(catalog);
         _byRenderKey = Comparer<RenderItem>.Create((a, b) => RenderKeyComparer.Compare(RenderKey(a), RenderKey(b)));
     }
 
@@ -418,24 +421,70 @@ public sealed class ShipDocument
     /// through the command stack (the <c>internal</c> mutators below).</summary>
     public IReadOnlyList<ShipZone> Zones => _zones;
 
-    /// <summary>The loose items dropped onto tiles (see <see cref="LooseObject"/>). Like zones these are a
-    /// non-structural overlay — NOT in the spatial index and contributing no tile conditions, rooms, or rating —
-    /// so analysis (the snapshot, CheckFit, room/airtightness/rating) never sees them. One per tile. All mutation
-    /// goes through the command stack (the <c>internal</c> mutators below).</summary>
-    public IReadOnlyCollection<LooseObject> LooseObjects => _looseByTile.Values;
-
-    /// <summary>The loose item on a tile, or null.</summary>
-    public LooseObject? LooseAt(int x, int y) => _looseByTile.GetValueOrDefault((x, y));
+    /// <summary>The loose items dropped onto the decks (see <see cref="LooseObject"/>). Like zones these are a
+    /// non-structural overlay — NOT in the placement spatial index and contributing nothing to
+    /// <see cref="Conds"/>, so the structural analysis (the snapshot, rooms, airtightness, rating) never sees
+    /// them. All mutation goes through the command stack (the <c>internal</c> mutators below).</summary>
+    public IReadOnlyList<LooseObject> LooseObjects => _loose;
 
     /// <summary>
-    /// Whether a loose item may land on a tile: true when nothing loose is there, or when the only thing there is
-    /// one of the items in <paramref name="moving"/> (which is about to vacate it). One-per-tile is the loose
-    /// overlay's single hard invariant, and this is how a group move, a paste or a duplicate asks about it before
-    /// committing — without the <paramref name="moving"/> exemption, sliding a room one tile east would refuse
-    /// itself, every item in it blocked by the one behind it.
+    /// The tiles a loose item covers: its <b>rotated footprint</b> anchored at (<see cref="LooseObject.X"/>,
+    /// <see cref="LooseObject.Y"/>), exactly the area the canvas draws it over and the area the game paints its
+    /// <c>aSocketAdds</c> onto. Most loose items are bigger than one tile (521 of the 888 the game ships), so an
+    /// anchor-only model disagrees with the picture as soon as one is laid down.
+    /// </summary>
+    public IEnumerable<(int X, int Y)> LooseTiles(LooseObject o)
+    {
+        ArgumentNullException.ThrowIfNull(o);
+        return LooseTiles(Catalog.Lookup(o.DefName), o.X, o.Y, o.Rot);
+    }
+
+    /// <inheritdoc cref="LooseTiles(LooseObject)"/>
+    public static IEnumerable<(int X, int Y)> LooseTiles(PartDef? def, int x, int y, int rot)
+    {
+        var (w, h) = def is null ? (1, 1) : GridMath.Size(def.Item.Width, def.Item.Height, rot);
+        for (var r = 0; r < h; r++)
+            for (var c = 0; c < w; c++)
+                yield return (x + c, y + r);
+    }
+
+    /// <summary>
+    /// The loose item covering a tile, or null. Answers for the whole footprint, not just the anchor, and hands
+    /// back the most recently laid of them where a design holds more than one there.
+    ///
+    /// <para><see cref="LoosePlacement"/> refuses to lay a second item on a tile, but the game's own ships pile
+    /// them (<c>Babak</c> writes fifteen separate pill objects at one position), so an imported or loaded design
+    /// routinely carries what the cursor would not author. It opens as it was written rather than losing items to
+    /// the index — which is what the old tile-keyed dictionary did, keeping one of those fifteen pills.</para>
+    /// </summary>
+    public LooseObject? LooseAt(int x, int y) =>
+        _looseByTile.TryGetValue((x, y), out var list) && list.Count > 0 ? list[^1] : null;
+
+    /// <summary>Every loose item covering a tile, oldest first. One, in a design the law would accept.</summary>
+    public IReadOnlyList<LooseObject> LooseStackAt(int x, int y) =>
+        _looseByTile.TryGetValue((x, y), out var list) ? list : [];
+
+    /// <summary>
+    /// Whether a loose item may land on a tile: true when nothing loose covers it, or when the only thing
+    /// covering it is one of the items in <paramref name="moving"/> (which is about to vacate). One item per tile
+    /// is the loose overlay's single hard invariant, and this is how a group move, a paste or a duplicate asks
+    /// about it before committing — without the <paramref name="moving"/> exemption, sliding a room one tile east
+    /// would refuse itself, every item in it blocked by the one behind it.
     /// </summary>
     public bool LooseFreeAt(int x, int y, IReadOnlySet<Guid>? moving = null) =>
-        LooseAt(x, y) is not { } lo || (moving is not null && moving.Contains(lo.Id));
+        LooseStackAt(x, y).All(lo => moving is not null && moving.Contains(lo.Id));
+
+    /// <summary>
+    /// The tile conditions the loose items contribute (their <c>aSocketAdds</c>, which for every loose def in the
+    /// game is <c>TILItemAdds</c> → <c>IsItemTile</c>), kept apart from <see cref="Conds"/>.
+    ///
+    /// <para>Apart, because the two answer different questions. Rooms, airtightness and the rating are about
+    /// structure and must not see a crate on the deck; the loose placement law <b>is</b> about the deck, and the
+    /// game's own masks forbid an item landing on a tile another item already claims
+    /// (<c>TILItemForbids</c> = <c>IsFixture</c> / <c>IsObstruction</c> / <c>IsItemTile</c>). Layering it here
+    /// gives the loose law what it needs without widening what the structural analysis reads.</para>
+    /// </summary>
+    public TileConds LooseConds { get; }
 
     /// <summary>The signal connections between devices (see <see cref="DeviceLink"/>). Like zones/loose items these
     /// are a non-structural overlay — they carry no tile conditions and take no part in CheckFit/rooms/rating; they
@@ -728,7 +777,7 @@ public sealed class ShipDocument
     private List<RenderItem> SortedOrder() =>
     [
         .. _placements.Select(p => new RenderItem(p, null))
-                      .Concat(_looseByTile.Values.Select(lo => new RenderItem(null, lo)))
+                      .Concat(_loose.Select(lo => new RenderItem(null, lo)))
                       .OrderBy(RenderKey, RenderKeyComparer)
     ];
 
@@ -754,7 +803,7 @@ public sealed class ShipDocument
         var reinsert = new List<RenderItem>(_orderTouched.Count);
         foreach (var p in _placements)
             if (_orderTouched.Contains(p.Id)) reinsert.Add(new RenderItem(p, null));
-        foreach (var lo in _looseByTile.Values)
+        foreach (var lo in _loose)
             if (_orderTouched.Contains(lo.Id)) reinsert.Add(new RenderItem(null, lo));
 
         foreach (var item in reinsert)
@@ -808,7 +857,9 @@ public sealed class ShipDocument
     public IReadOnlyList<RenderItem> RenderStackAt(int x, int y)
     {
         var items = PlacementsAt(x, y).Select(p => new RenderItem(p, null)).ToList();
-        if (LooseAt(x, y) is { } lo) items.Add(new RenderItem(null, lo));
+        // Every deck item covering the tile, not just the last one laid: where a design carries an overlap the
+        // stacked picker is how the user reaches the one underneath to move it off.
+        foreach (var lo in LooseStackAt(x, y)) items.Add(new RenderItem(null, lo));
         return [.. items.OrderByDescending(RenderKey, RenderKeyComparer)];
     }
 
@@ -1000,64 +1051,80 @@ public sealed class ShipDocument
 
     // ---- loose-object mutations (command implementations only) ----
 
-    /// <summary>Drop a loose item onto its tile. One per tile: an existing loose object there is replaced (the
-    /// placement law forbids that, so in practice the tile is always empty first).</summary>
-    /// <summary>Put a loose item on its tile. Every route in goes through here (a palette drop, an import, an
+    /// <summary>Put a loose item on the deck. Every route in goes through here (a palette drop, an import, an
     /// <c>.oplan</c> load, a redo), which is why the intrinsic seed lives here rather than at each call site.</summary>
     internal void AddLoose(LooseObject o)
     {
+        // Already aboard: a stale redo, the mirror of the guard on RemoveLoose. Filing it a second time would
+        // count its conditions into LooseConds twice, and only a matching pair of removes would ever clear them.
+        if (_looseIds.Contains(o.Id)) return;
         SeedIntrinsics(o, Catalog);
-        var displaced = Occupy(o);
+        Occupy(o);
         _order[o.Id] = _seq++;
-        RaiseChanged(displaced is null ? [o.Id] : [o.Id, displaced.Id]);
+        RaiseChanged(o.Id);
     }
 
     /// <summary>
-    /// Put a loose object on its tile, and hand back whatever it turned off the tile in doing so.
+    /// File a loose object under every tile of its footprint, and add its <c>aSocketAdds</c> to
+    /// <see cref="LooseConds"/>.
     ///
-    /// <para>Normally nothing: one loose object per tile is the rule, and the placement law keeps callers honest.
-    /// But the dictionary is keyed by position, so writing to an occupied tile drops the object that was there
-    /// out of the document with no other trace. <b>The caller has to name what it displaced when it raises
-    /// <see cref="Changed"/></b>, because the render order is repaired around what it is told changed and cannot
-    /// see a drawable simply cease to exist. Under a full re-sort this was invisible; it is not any more, and
-    /// <c>ShipDocumentOrderTests</c> is where it showed up.</para>
+    /// <para><b>Nothing is displaced.</b> <see cref="LoosePlacement"/> keeps the cursor to one item per tile, but
+    /// the game does not: a template can write several objects at one position, and an import, an <c>.oplan</c> or
+    /// a paste brings them in as written. The index is a list per tile for that reason — the same shape
+    /// <see cref="PlacementsAt"/> uses — and <see cref="LooseAt"/> answers with the last one laid. Before it was a
+    /// list, writing to an occupied key dropped whatever was there out of the document with no other trace, which
+    /// is how importing <c>Babak</c> kept one pill in fifteen.</para>
     /// </summary>
-    private LooseObject? Occupy(LooseObject o)
+    private void Occupy(LooseObject o)
     {
-        _looseByTile.TryGetValue((o.X, o.Y), out var displaced);
-        _looseByTile[(o.X, o.Y)] = o;
-        if (displaced is null || ReferenceEquals(displaced, o)) return null;
-        _order.Remove(displaced.Id);
-        return displaced;
+        foreach (var t in LooseTiles(o))
+        {
+            if (!_looseByTile.TryGetValue(t, out var list)) _looseByTile[t] = list = [];
+            if (!list.Contains(o)) list.Add(o);
+        }
+        if (_looseIds.Add(o.Id)) _loose.Add(o);
+        LooseConds.Apply(o.X, o.Y, o.Rot, Catalog.Lookup(o.DefName)?.Item, +1);
     }
 
-    /// <summary>Remove a loose item — only if it is still the one on its tile (guards a stale undo).</summary>
+    /// <summary>Lift a loose object out of the tile index and its condition layer, optionally dropping it from the
+    /// document altogether.</summary>
+    private void Vacate(LooseObject o, bool alsoDropFromDocument)
+    {
+        foreach (var t in LooseTiles(o))
+            if (_looseByTile.TryGetValue(t, out var list) && list.Remove(o) && list.Count == 0)
+                _looseByTile.Remove(t);
+        LooseConds.Apply(o.X, o.Y, o.Rot, Catalog.Lookup(o.DefName)?.Item, -1);
+        if (!alsoDropFromDocument) return;
+        if (_looseIds.Remove(o.Id)) _loose.Remove(o);
+        _order.Remove(o.Id);
+    }
+
+    /// <summary>Remove a loose item — only if it is still in the document (guards a stale undo).</summary>
     internal void RemoveLoose(LooseObject o)
     {
-        if (_looseByTile.TryGetValue((o.X, o.Y), out var cur) && ReferenceEquals(cur, o) && _looseByTile.Remove((o.X, o.Y)))
-        {
-            _order.Remove(o.Id);
-            RaiseChanged(o.Id);
-        }
+        if (!_looseIds.Contains(o.Id)) return;
+        Vacate(o, alsoDropFromDocument: true);
+        RaiseChanged(o.Id);
     }
 
     /// <summary>
     /// Reposition a loose item, keeping its identity — the loose twin of <see cref="MoveTo"/>. The tile index is
-    /// keyed by position, so the old key has to go before the new one is written; everything else about the object
-    /// (its quantity, its contents, its draw-order bias and its place in the insertion order) rides along, which is
-    /// what lets the selection keep pointing at it across a drag.
+    /// keyed by position, so the old tiles have to go before the new ones are written; everything else about the
+    /// object (its quantity, its contents, its draw-order bias and its place in the insertion order) rides along,
+    /// which is what lets the selection keep pointing at it across a drag.
     ///
-    /// <para>Nothing structural is re-analysed, because a loose item contributes no tile conditions and takes no
-    /// part in the law. There is no given-ness to clear either: only structure carries that.</para>
+    /// <para>Nothing structural is re-analysed, because a loose item contributes nothing to <see cref="Conds"/>
+    /// and takes no part in the socket law for placements. There is no given-ness to clear either: only structure
+    /// carries that.</para>
     /// </summary>
     internal void MoveLooseTo(LooseObject o, int x, int y, int rot)
     {
-        if (_looseByTile.TryGetValue((o.X, o.Y), out var cur) && ReferenceEquals(cur, o)) _looseByTile.Remove((o.X, o.Y));
+        Vacate(o, alsoDropFromDocument: false);
         o.X = x;
         o.Y = y;
         o.Rot = GridMath.Norm(rot);
-        var displaced = Occupy(o);
-        RaiseChanged(displaced is null ? [o.Id] : [o.Id, displaced.Id]);
+        Occupy(o);
+        RaiseChanged(o.Id);
     }
 
     /// <summary>
@@ -1072,9 +1139,7 @@ public sealed class ShipDocument
     /// </summary>
     internal void SetLoosePoses(IReadOnlyList<(LooseObject Obj, int X, int Y, int Rot)> poses)
     {
-        foreach (var lift in poses)
-            if (_looseByTile.TryGetValue((lift.Obj.X, lift.Obj.Y), out var cur) && ReferenceEquals(cur, lift.Obj))
-                _looseByTile.Remove((lift.Obj.X, lift.Obj.Y));
+        foreach (var lift in poses) Vacate(lift.Obj, alsoDropFromDocument: false);
         var touched = new List<Guid>(poses.Count);
         foreach (var (o, x, y, rot) in poses)
         {
@@ -1082,7 +1147,7 @@ public sealed class ShipDocument
             o.Y = y;
             o.Rot = GridMath.Norm(rot);
             touched.Add(o.Id);
-            if (Occupy(o) is { } displaced) touched.Add(displaced.Id);
+            Occupy(o);
         }
         RaiseChanged(touched);
     }
@@ -1144,7 +1209,10 @@ public sealed class ShipDocument
         Conds.Clear();
         _cargoEdited.Clear();
         _zones.Clear();
+        _loose.Clear();
+        _looseIds.Clear();
         _looseByTile.Clear();
+        LooseConds.Clear();
         _links.Clear();
         _dismissedAlerts.Clear();
         _seq = 0;

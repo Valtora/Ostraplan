@@ -24,15 +24,19 @@ public class LooseObjectTests
     }
 
     [SkippableFact]
-    public void Item_may_rest_on_a_floor_tile_but_not_off_ship_or_on_a_taken_tile()
+    public void Item_may_lie_on_any_clear_tile_but_not_on_a_taken_one()
     {
         var (doc, _) = FloorAt(2, 2);
 
-        Assert.True(LoosePlacement.CanRestOnFloor(doc, 2, 2));    // on the floor
-        Assert.False(LoosePlacement.CanRestOnFloor(doc, 9, 9));   // empty space, no floor
+        var item = TestData.RequireGame().Catalog.Lookup(Cargo)!;
+
+        Assert.True(LoosePlacement.CanLieAt(doc, item, 2, 2));   // on the deck
+        // Bare space is allowed: no loose def requires a floor, and the game's own stations lie regolith and
+        // wreckage on unfloored tiles, so a rule demanding deck underneath could not author them.
+        Assert.True(LoosePlacement.CanLieAt(doc, item, 9, 9));
 
         new PlaceLooseCommand(new LooseObject { DefName = Cargo, X = 2, Y = 2 }).Do(doc);
-        Assert.False(LoosePlacement.CanRestOnFloor(doc, 2, 2));   // one per tile — now taken
+        Assert.False(LoosePlacement.CanLieAt(doc, item, 2, 2));   // one per tile at the cursor — now taken
         Assert.NotNull(doc.LooseAt(2, 2));
     }
 

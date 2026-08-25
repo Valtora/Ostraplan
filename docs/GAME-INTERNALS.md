@@ -1449,7 +1449,24 @@ Everything else pads, and `UpdateTiles` pads **before** it reads `aSocketAdds`: 
 is applied for any CO carrying an `Item` and no `Pathfinder` (crew), regardless of whether
 it contributes a single tile condition. A **loose floor item is a top-level item**, so it
 grows the frame exactly like an installed part despite being non-structural everywhere
-else. Written outside the intended frame it widens the rebuilt grid, and on the next load
+else — and it paints tile conditions like one too: every loose def's `aSocketAdds` is
+`TILItemAdds` (`IsItemTile`) across its **whole footprint**, which is 1x4 for
+`ItmAntenna01Loose` and bigger than 1x1 for 521 of the 888 loose items in 1.0.0.11. Its
+`aSocketForbids` is `TILItemForbids` (`IsFixture` / `IsObstruction` / `IsItemTile`) over the
+same cells, and its `aSocketReqs` is blank throughout — so the *interactive* drop refuses a
+fixture or another item, and requires no floor.
+
+**Those masks do not gate a spawned ship.** `Ship.SpawnItems` `AddCO`s a template's
+top-level items with no fit check, and the shipped content relies on it: of the 3054 deck
+items across the 221 core templates, `Station_MTRS_Nuked` alone lies 254 pieces of scrap on
+unfloored wreckage, `Station_Ground` lies `RegolithBig` on a station exterior, and `Babak`
+writes **fifteen separate `ItmPillAntibiotic01` objects at one position with no `aStack`** —
+fifteen distinct COs the game spawns as fifteen. So "one loose item per tile" is not the
+game's model, and neither is "a loose item needs a floor".
+
+> **Ported in Ostraplan:** `LoosePlacement`, on the interactive path only — what the Items
+> palette lays is held to the masks, and a design that arrives from a template, a save or an
+> `.oplan` is left exactly as written. Written outside the intended frame it widens the rebuilt grid, and on the next load
 above Shallow `SetZoneData` indexes `aTiles[storedIndex]` directly while `CreateRooms`
 looks up its `mapTileRooms` by rebuilt tile index — so both decode onto the wrong tiles.
 
@@ -3553,6 +3570,7 @@ sets), giving a 220-ship rooms **and** certification gate. Only **Babak / Babak 
 | Save player-ship identification (`strShip`) + layout strip | ported | `SaveImport` |
 | Save write-back (frame rebuild, room-CO drop, dimensions) | ported | `SaveEdit`, `SaveEditImport` |
 | Ship zones (`aZones`) as authored data | modelled (preserve/draw/edit, not validated) | `ShipZone` / `ZoneGeometry` |
+| Loose-item placement (`TILItemForbids` over the item's footprint) | ported for the **interactive drop only**, which is the only path the game itself gates: `Ship.SpawnItems` places a template's deck cargo unchecked, so an imported design is never judged. The reverse — structure refusing to build over a deck item — is deliberately not ported, so the deck stays out of `Conds` | `LoosePlacement`, `ShipDocument.LooseConds` |
 | Wear/damage (`BreakIn` / `DamageAllCOs`) | ported (optional) | `WearModel` |
 | Repair (`installables` repair jobs, §12) | ported (broken def → working def; the undamage jobs are the `WearOptions.Repaired` half) | `Catalog.RepairForms`, `Repair` |
 | Container contents (`GasContainer` capacity, pressure, mass and value; `aCondOverrides`) | ported (the static model; no gas *flow* between containers, §24) | `ContainerFill`, `Placement.Fill` |

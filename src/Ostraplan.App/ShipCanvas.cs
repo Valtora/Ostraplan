@@ -327,8 +327,9 @@ public sealed class ShipCanvas : FrameworkElement
     /// <b>alongside</b> <see cref="SelectedIds"/> rather than instead of it: a box-select catches both kinds, and
     /// the group actions (delete, move, rotate, flip, copy) act on the two halves together. They stay two sets
     /// because the halves are not interchangeable — structure is indexed by tile coverage and answers to the
-    /// placement law, symmetry and the rating, while a loose item is one-per-tile overlay that answers to none of
-    /// them.
+    /// placement law, symmetry and the rating, while a deck item answers to a law of its own
+    /// (<see cref="LoosePlacement"/>), takes no part in symmetry or the rating, and is one per tile where
+    /// structure stacks freely.
     /// </summary>
     public HashSet<Guid> SelectedLooseIds { get; } = [];
 
@@ -1149,6 +1150,11 @@ public sealed class ShipCanvas : FrameworkElement
         return (item, item.X, item.Y);
     }
 
+    /// <summary>A deck item's rotated footprint in tiles. 1x1 for a def the catalogue cannot resolve, which is
+    /// what it is drawn as.</summary>
+    private (int W, int H) LooseSize(LooseObject o) =>
+        Doc?.Catalog.Lookup(o.DefName) is { } d ? GridMath.Size(d.Item.Width, d.Item.Height, o.Rot) : (1, 1);
+
     /// <summary>The loose item on a tile when it is the <b>topmost</b> thing drawn there, else null. A loose item
     /// nudged under a fixture is no longer what a click on that tile lands on.</summary>
     private LooseObject? TopLooseAt((int X, int Y) cell) =>
@@ -1696,8 +1702,9 @@ public sealed class ShipCanvas : FrameworkElement
         {
             if (_armedLoose)
             {
-                // A loose item is dropped with a single click (no drag-paint, no box-fill, no CheckFit): onto a
-                // floor tile or into a container under the cursor. One command, committed immediately.
+                // A deck item is laid with a single click (no drag-paint, no box-fill): clear of fixtures and of
+                // other items over its whole footprint, or into a container under the cursor. One command,
+                // committed immediately.
                 _stroke.Clear();
                 TryPlaceLoose(cell);
                 CommitStroke();
@@ -1782,9 +1789,10 @@ public sealed class ShipCanvas : FrameworkElement
         {
             var selected = SelectedPlacements();
             // The loose half counts too: a click on a selected deck item inside a box catch drags the whole catch.
-            // Loose items are hit exactly on their own tile, the same as the picker reaches them.
+            // Anywhere on a deck item counts, the same as the picker reaches it: a 1x4 antenna is grabbed by any
+            // of the four tiles it lies across, not only by the corner it is anchored to.
             if (selected.Any(p => Doc.Covers(p, cell.X, cell.Y))
-                || SelectedLooseObjects().Any(o => o.X == cell.X && o.Y == cell.Y))
+                || SelectedLooseIds.Overlaps(Doc.LooseStackAt(cell.X, cell.Y).Select(o => o.Id)))
             {
                 if (selected.Any(p => !Doc.IsLocked(p)) || SelectedLooseIds.Count > 0) BeginMoveDrag(cell);
                 e.Handled = true;
@@ -2001,9 +2009,15 @@ public sealed class ShipCanvas : FrameworkElement
             // brings a deck's worth of clutter in, and this is how it is picked back out — and the layer filter on
             // release can drop them again (or keep only them). Ghosting applies as it does to structure: in
             // Surfaces mode the clutter is out of the way of the deck the box is about.
+            // Caught when the box touches ANY of a deck item's footprint, the same test the structural half above
+            // makes against a part's body — a box drawn over the near end of a long antenna means that antenna.
             foreach (var lo in Doc.LooseObjects)
-                if (!IsGhosted(new RenderItem(null, lo)) && lo.X >= x0 && lo.X <= x1 && lo.Y >= y0 && lo.Y <= y1)
+            {
+                if (IsGhosted(new RenderItem(null, lo))) continue;
+                var (lw, lh) = LooseSize(lo);
+                if (lo.X <= x1 && lo.X + lw - 1 >= x0 && lo.Y <= y1 && lo.Y + lh - 1 >= y0)
                     SelectedLooseIds.Add(lo.Id);
+            }
             ExtendSelectionAcrossSymmetry();   // a box-select grabs the mirrored cluster too
             SelectionChanged?.Invoke();
             LooseSelectionChanged?.Invoke();
@@ -2026,9 +2040,10 @@ public sealed class ShipCanvas : FrameworkElement
     }
 
     /// <summary>
-    /// Drop the armed loose item at a tile (see <see cref="LoosePlacement"/>): into a container under the cursor
-    /// that accepts it, else resting on a floor tile. Builds the command and executes it into <c>_stroke</c> (the
-    /// caller commits); a rejected drop (no floor, tile taken, container full) surfaces as a ghost-reason status.
+    /// Lay the armed loose item at a tile (see <see cref="LoosePlacement"/>): into a container under the cursor
+    /// that accepts it, else on the deck. Builds the command and executes it into <c>_stroke</c> (the caller
+    /// commits); a refused drop surfaces the law's own reason as a ghost-reason status, which names what is in the
+    /// way over the item's whole footprint rather than only under its anchor.
     /// </summary>
     private void TryPlaceLoose((int X, int Y) cell)
     {
@@ -2058,7 +2073,8 @@ public sealed class ShipCanvas : FrameworkElement
             return;
         }
 
-        if (LoosePlacement.CanRestOnFloor(Doc, cell.X, cell.Y))
+        var fit = LoosePlacement.Check(Doc, item, cell.X, cell.Y, ArmedRot);
+        if (fit.Ok)
         {
             var cmd = new PlaceLooseCommand(new LooseObject { DefName = item.DefName, X = cell.X, Y = cell.Y, Rot = ArmedRot });
             cmd.Do(Doc);
@@ -2066,9 +2082,9 @@ public sealed class ShipCanvas : FrameworkElement
             return;
         }
 
-        RaiseGhostReason(Doc.LooseAt(cell.X, cell.Y) is not null
-            ? "This tile already holds a loose item"
-            : "Drop an item onto a floor tile or an open container");
+        // The law's own reason, which names what is actually in the way over the item's whole footprint — the
+        // catch-all only has to cover a def with no mask at all.
+        RaiseGhostReason(fit.Reason ?? "Lay the item on clear deck, or drop it into an open container");
     }
 
     private void TryPlacePose(int x, int y, int rot)
@@ -4157,24 +4173,31 @@ public sealed class ShipCanvas : FrameworkElement
         }
     }
 
-    /// <summary>Preview the armed loose item at the hover tile: the semi-transparent sprite plus a green/red
-    /// outline for whether it may land there (a floor tile or an accepting container). Mirrors
-    /// <see cref="TryPlaceLoose"/>'s decision so the click matches the preview.</summary>
+    /// <summary>Preview the armed loose item at the hover tile: the semi-transparent sprite, a green/red outline
+    /// for whether it may lie there (nothing in the way over its whole footprint, or an accepting container), and
+    /// a hazard tint on the tiles refusing it. Mirrors <see cref="TryPlaceLoose"/>'s decision so the click matches
+    /// the preview.</summary>
     private void DrawLooseGhost(DrawingContext dc, (int X, int Y) cell)
     {
         if (ArmedPart is not { } part || Doc is null) return;
         var (w, h) = GridMath.Size(part.Item.Width, part.Item.Height, ArmedRot);
-        var ok = LoosePlacement.AcceptingContainerAt(Doc, Doc.Catalog, cell.X, cell.Y, part) is not null
-                 || LoosePlacement.CanRestOnFloor(Doc, cell.X, cell.Y);
+        // A container under the cursor takes the item whatever the deck around it looks like — it goes INSIDE,
+        // so the footprint never lands on the floor and the loose law has nothing to say about it.
+        var intoContainer = LoosePlacement.AcceptingContainerAt(Doc, Doc.Catalog, cell.X, cell.Y, part) is not null
+                            || LoosePlacement.AcceptingLooseAt(Doc, Doc.Catalog, cell.X, cell.Y, part) is not null;
+        var fit = intoContainer ? FitResult.Legal : LoosePlacement.Check(Doc, part, cell.X, cell.Y, ArmedRot);
 
         dc.PushOpacity(0.55);
         DrawSprite(dc, part, cell.X, cell.Y, ArmedRot, ghost: true);
         dc.Pop();
-        var pen = ok ? GhostOkPen : GhostBadPen;
+        var pen = fit.Ok ? GhostOkPen : GhostBadPen;
         var body = CellRect(cell.X, cell.Y, w, h);
+        // Tint the tiles that refused it, the same as an armed placement's ghost: with a footprint in play,
+        // "doesn't fit" is not much use without saying which part of it did not.
+        foreach (var (fx, fy) in fit.FailedCells) dc.DrawRectangle(HazardFill, null, CellRect(fx, fy, 1, 1));
         dc.DrawRectangle(null, pen, body);
         DrawFacingNeedle(dc, part, body, ArmedRot, pen);
-        RaiseGhostReason(ok ? null : "Drop an item onto a floor tile or an open container");
+        RaiseGhostReason(fit.Ok ? null : fit.Reason ?? "Lay the item on clear deck, or drop it into an open container");
     }
 
     /// <summary>
@@ -4202,9 +4225,11 @@ public sealed class ShipCanvas : FrameworkElement
     private void DrawItem(DrawingContext dc, RenderItem item, (int X, int Y) offset)
     {
         if (item.Placement is { } p) { DrawPlacement(dc, p, offset); return; }
+        // The drawable's own condition, not whatever the tile index happens to name: a design carrying an overlap
+        // has two items answering for one tile, and each has to draw at its own wear.
         if (Doc!.Catalog.Lookup(item.DefName) is { } part)
             DrawSprite(dc, part, item.X + offset.X, item.Y + offset.Y, item.Rot, ghost: false,
-                condition: Doc.LooseAt(item.X, item.Y)?.Condition);
+                condition: item.Loose?.Condition);
     }
 
     private void DrawPlacement(DrawingContext dc, Placement p, (int X, int Y) offset)
