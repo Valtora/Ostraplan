@@ -9,7 +9,7 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.11**).
 
-## [Unreleased]
+## [1.7.1] 2026-08-25, text that wraps instead of being cut off
 
 ### Fixed
 - **Text in a window is wrapped instead of being cut off at the frame.** The micrometeoroid strike
