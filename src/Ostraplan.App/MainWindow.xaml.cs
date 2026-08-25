@@ -43,9 +43,12 @@ public partial class MainWindow : Window
     // The clipboard is deliberately app-wide rather than per document: copying in one tab and pasting into another
     // is most of the reason for having more than one open (the container renames on discussion #33 are the case
     // that asked for it).
-    private List<(string Def, int X, int Y, int Rot, IReadOnlyList<CargoItem> Cargo)> _clip = [];   // copied selection, relative to its top-left (with container contents)
+    // Detached prototypes: real Placement/LooseObject objects that belong to no document, each sitting at its
+    // offset from the selection's top-left. Every paste copies them again (Placement.CopyAt), so two pastes share
+    // no identity with each other or with what was copied.
+    private List<Placement> _clip = [];
     // the loose half of the same copy, relative to the same top-left: a copied room brings the clutter on its deck
-    private List<(string Def, int X, int Y, int Rot, int Quantity, IReadOnlyList<CargoItem> Cargo)> _clipLoose = [];
+    private List<LooseObject> _clipLoose = [];
     // The copied selection's original top-left. Only a last resort for a paste: the canvas answers where the cursor
     // is, and this stands in for the one case it cannot, a canvas that has not been laid out yet.
     private (int X, int Y) _clipOrigin;
@@ -2766,13 +2769,9 @@ public partial class MainWindow : Window
         var selected = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
         var loose = Board.SelectedLooseObjects();
         if (selected.Count == 0 && loose.Count == 0) return;
-        var clones = selected
-            .Select(p => new Placement
-            {
-                DefName = p.DefName, X = p.X + 1, Y = p.Y + 1, Rot = p.Rot,
-                Cargo = Cargo.CloneForest(p.Cargo),   // duplicate a container's contents with it
-            })
-            .ToList();
+        // A duplicate is a paste at a one-tile offset, so it carries exactly what a paste carries: contents, name,
+        // fill, painted condition, device settings, stacking bias, nav layout (see Placement.CopyAt).
+        var clones = selected.Select(p => p.CopyAt(p.X + 1, p.Y + 1)).ToList();
         // the loose half offsets by the same tile; one whose copy has nowhere to lie is left out (as a paste)
         var skipped = 0;
         var claimed = new HashSet<(int, int)>();
@@ -2780,11 +2779,7 @@ public partial class MainWindow : Window
         foreach (var o in loose)
         {
             if (!LooseCloneFits(o.DefName, o.X + 1, o.Y + 1, o.Rot, claimed)) { skipped++; continue; }
-            looseClones.Add(new LooseObject
-            {
-                DefName = o.DefName, X = o.X + 1, Y = o.Y + 1, Rot = o.Rot, Quantity = o.Quantity,
-                Cargo = Cargo.CloneForest(o.Cargo),
-            });
+            looseClones.Add(o.CopyAt(o.X + 1, o.Y + 1));
         }
 
         var cmds = clones.Select(c => (IDocCommand)new PlaceCommand(c)).ToList();
@@ -3150,10 +3145,11 @@ public partial class MainWindow : Window
         var minY = Math.Min(selected.Count > 0 ? selected.Min(p => p.Y) : int.MaxValue,
                             loose.Count > 0 ? loose.Min(o => o.Y) : int.MaxValue);
         _clipOrigin = (minX, minY);
-        // snapshot the container contents too (cargo is immutable, so the reference is a valid snapshot) — each
-        // paste deep-clones it with fresh ids, so a copied container pastes with its contents
-        _clip = selected.Select(p => (p.DefName, p.X - minX, p.Y - minY, p.Rot, p.Cargo)).ToList();
-        _clipLoose = loose.Select(o => (o.DefName, o.X - minX, o.Y - minY, o.Rot, o.Quantity, o.Cargo)).ToList();
+        // Each entry is a full copy of the part at its relative tile, so a copied container carries its contents
+        // and everything else the designer authored — and a paste copies again from there. See Placement.CopyAt
+        // for what a copy deliberately cannot take.
+        _clip = selected.Select(p => p.CopyAt(p.X - minX, p.Y - minY)).ToList();
+        _clipLoose = loose.Select(o => o.CopyAt(o.X - minX, o.Y - minY)).ToList();
     }
 
     /// <summary>
@@ -3165,13 +3161,8 @@ public partial class MainWindow : Window
     /// <see cref="Placement"/>s and deep-clones the cargo with fresh ids, so the same clipboard pasted into two
     /// designs gives each an entirely independent set rather than two ships sharing item identity.</para>
     /// </summary>
-    internal static List<Placement> ClipboardClones(
-        IReadOnlyList<(string Def, int X, int Y, int Rot, IReadOnlyList<CargoItem> Cargo)> clip, (int X, int Y) anchor) =>
-        clip.Select(c => new Placement
-        {
-            DefName = c.Def, X = anchor.X + c.X, Y = anchor.Y + c.Y, Rot = c.Rot,
-            Cargo = Cargo.CloneForest(c.Cargo),   // fresh-id copies of the container's contents
-        }).ToList();
+    internal static List<Placement> ClipboardClones(IReadOnlyList<Placement> clip, (int X, int Y) anchor) =>
+        clip.Select(c => c.CopyAt(anchor.X + c.X, anchor.Y + c.Y)).ToList();
 
     /// <summary>
     /// Whether a loose clone may lie at a pose during a paste or a duplicate: the placement law
@@ -3208,12 +3199,8 @@ public partial class MainWindow : Window
         foreach (var c in _clipLoose)
         {
             var (x, y) = (anchor.X + c.X, anchor.Y + c.Y);
-            if (!LooseCloneFits(c.Def, x, y, c.Rot, claimed)) { skipped++; continue; }
-            clones.Add(new LooseObject
-            {
-                DefName = c.Def, X = x, Y = y, Rot = c.Rot, Quantity = c.Quantity,
-                Cargo = Cargo.CloneForest(c.Cargo),
-            });
+            if (!LooseCloneFits(c.DefName, x, y, c.Rot, claimed)) { skipped++; continue; }
+            clones.Add(c.CopyAt(x, y));
         }
         return clones;
     }

@@ -233,6 +233,40 @@ public class RenameTests
         Assert.Equal("port beacon", switched.CustomName);
     }
 
+    [Fact]
+    public void A_copy_keeps_the_name_and_everything_else_the_designer_authored()
+    {
+        // Copy/paste and Duplicate used to take def, pose and cargo alone, so a bank of named, filled tanks pasted
+        // back unnamed and empty (reported against 1.7.1). Everything the designer typed rides across now; what
+        // cannot is the link back to one save item, which two parts cannot both hold.
+        var cat = new Fixtures().Part("Tank", container: (2, 2)).Build();
+        var original = new Placement
+        {
+            DefName = "Tank", X = 3, Y = 4, Rot = 90, CustomName = "primary O2",
+            ZBias = 2, Condition = 0.4, IsGiven = true, OriginStrID = "save-item-7",
+            Fill = new Dictionary<string, double> { ["StatGasMolO2"] = 120 },
+            Device = new DeviceSettings { Bus = DeviceBusMode.On, Reverse = true },
+            Cargo = [new CargoItem("item-1", "Ration", "Ration Bar", false, [])],
+        };
+
+        var copy = original.CopyAt(10, 11);
+
+        Assert.Equal((10, 11, 90), (copy.X, copy.Y, copy.Rot));
+        Assert.Equal("primary O2", copy.CustomName);
+        Assert.Equal(2, copy.ZBias);
+        Assert.Equal(0.4, copy.Condition);
+        Assert.Equal(120, copy.Fill!["StatGasMolO2"]);
+        Assert.Equal(DeviceBusMode.On, copy.Device!.Bus);
+        Assert.True(copy.Device.Reverse);
+        // contents come across as fresh objects, so the two parts never share item identity
+        Assert.Equal("Ration", Assert.Single(copy.Cargo).DefName);
+        Assert.NotEqual("item-1", copy.Cargo[0].StrID);
+        // and the two things a copy cannot be
+        Assert.Null(copy.OriginStrID);
+        Assert.False(copy.IsGiven);
+        Assert.NotEqual(original.Id, copy.Id);
+    }
+
     [SkippableFact]
     public void A_name_round_trips_through_the_oplan()
     {

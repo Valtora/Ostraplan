@@ -59,7 +59,8 @@ public sealed class Placement
     /// It is applied <b>inside</b> the part's render layer (see <see cref="Catalog.RenderLayer"/>), so no bias can
     /// push a fixture under a deck plate. Cosmetic: nothing about tile conditions, rooms, airtightness, the rating
     /// or the export reads it. It rides through a move, a rotate and a <see cref="Restate"/> — none of those change
-    /// what the thing is sitting in — and is dropped by duplicate/paste along with the rest of the part's identity.
+    /// what the thing is sitting in — and through duplicate and paste, which carry everything the designer
+    /// authored (see <see cref="CustomName"/>): a canister pushed behind its regulator stays behind it in the copy.
     /// </summary>
     public int ZBias { get; set; }
 
@@ -93,10 +94,9 @@ public sealed class Placement
     /// <c>StatDamage</c> entry on a mod export and as the condition owner's own <c>StatDamage</c> on a save
     /// write, so a painted part is worn in game rather than merely worn here.</para>
     ///
-    /// <para>It rides through <see cref="Restate"/> — uninstalling a battered pump does not mend it — and is
-    /// dropped by duplicate and paste along with <see cref="Fill"/>, <see cref="ZBias"/> and
-    /// <see cref="CustomName"/>, which is the existing convention for everything that is not def, pose or
-    /// cargo.</para>
+    /// <para>It rides through <see cref="Restate"/> — uninstalling a battered pump does not mend it — and through
+    /// duplicate and paste, alongside <see cref="Fill"/>, <see cref="ZBias"/> and <see cref="CustomName"/>: a
+    /// copy is of the part as the designer left it (see <see cref="CustomName"/>).</para>
     /// </summary>
     public double? Condition { get; set; }
 
@@ -160,6 +160,27 @@ public sealed class Placement
     }
 
     /// <summary>
+    /// A <b>new part</b> at <paramref name="x"/>,<paramref name="y"/> that is this one in every way the designer
+    /// authored: same def and rotation, its contents deep-cloned with fresh ids, and its name, fill, painted
+    /// condition, device settings, stacking bias and nav-console layout carried across. This is what duplicate and
+    /// paste build, and it is also what the clipboard holds between the two (a detached prototype at the
+    /// selection's own relative tile).
+    ///
+    /// <para>The copy is deliberately <b>not</b> the original in the two ways it cannot be. It has no
+    /// <see cref="OriginStrID"/> or swap trail — those name one item record in one save, and two parts cannot both
+    /// be it — and it is not <see cref="IsGiven"/>, because a copy is new construction and the placement law has to
+    /// judge it as such. Everything else is a property of the design and rides along; see
+    /// <see cref="CustomName"/>.</para>
+    /// </summary>
+    public Placement CopyAt(int x, int y) => new()
+    {
+        DefName = DefName, X = x, Y = y, Rot = Rot,
+        Cargo = Core.Cargo.CloneForest(Cargo),
+        CustomName = CustomName, ZBias = ZBias, Condition = Condition,
+        Fill = Fill, NavLayout = NavLayout, Device = Device,
+    };
+
+    /// <summary>
     /// A name the user gave this part, replacing its stock one everywhere the part is named. Null (and omitted
     /// from the .oplan) when it carries the name its def came with.
     ///
@@ -171,8 +192,18 @@ public sealed class Placement
     ///
     /// <para>It rides through a move and through <see cref="Restate"/> (uninstall, install, switch on or off, a
     /// re-skin), since none of those change what the thing is called — unlike <see cref="OriginStrID"/>, which a
-    /// non-returning Restate hands off to <see cref="SwappedFromStrID"/>. Duplicate and paste drop it along with
-    /// the rest of the part's identity.</para>
+    /// non-returning Restate hands off to <see cref="SwappedFromStrID"/>.</para>
+    ///
+    /// <para><b>Duplicate and paste carry it, and everything else the designer authored</b> — contents,
+    /// <see cref="Fill"/>, <see cref="Condition"/>, <see cref="Device"/>, <see cref="ZBias"/>,
+    /// <see cref="NavLayout"/>. This reverses an earlier rule under which a copy took def, pose and cargo alone,
+    /// so a bank of named, filled tanks pasted back unnamed and empty (reported against 1.7.1). That rule called
+    /// itself "a copy takes nothing of the part's identity", but cargo was carried all along, so the line was
+    /// already elsewhere — and a name is not identity, it is a property of the design, the same as the fill it was
+    /// dropped alongside. What a copy genuinely cannot take is <b>save</b> identity: <see cref="OriginStrID"/> and
+    /// the swap trail name one item record in one save and cannot be held by two placements, and
+    /// <see cref="IsGiven"/> goes with them because a pasted part is new construction the placement law has to
+    /// judge as such.</para>
     /// </summary>
     public string? CustomName { get; set; }
 
@@ -214,8 +245,9 @@ public sealed class Placement
     /// reactant clock, the rating — reads it through <see cref="ShipGrid.FromDocumentFramed"/>, which lays it
     /// over the def's own starting conditions once so no analysis has to know it exists.</para>
     ///
-    /// <para>It rides through a move and through <see cref="Restate"/>, since neither empties a tank, and is
-    /// dropped by duplicate / paste along with the rest of the part's identity.</para>
+    /// <para>It rides through a move and through <see cref="Restate"/>, since neither empties a tank, and through
+    /// duplicate and paste, which carry everything the designer authored (see <see cref="CustomName"/>) — a copied
+    /// bank of tanks pastes at the fill it was drawn at.</para>
     /// </summary>
     public IReadOnlyDictionary<string, double>? Fill { get; set; }
 
@@ -228,8 +260,8 @@ public sealed class Placement
     /// placements. This holds only the per-device switches.</para>
     ///
     /// <para>It rides through a move and through <see cref="Restate"/> — switching a pump off does not turn its
-    /// reverse knob back, and uninstalling then reinstalling one must not lose it — and is dropped by duplicate /
-    /// paste along with the rest of the part's identity. It is carried <b>unclamped</b> so that round trip is
+    /// reverse knob back, and uninstalling then reinstalling one must not lose it — and through duplicate and
+    /// paste (see <see cref="CustomName"/>). It is carried <b>unclamped</b> so that round trip is
     /// lossless; <see cref="DeviceSettings.ClampTo"/> drops what the current def does not offer at the point the
     /// settings are written or shown.</para>
     /// </summary>

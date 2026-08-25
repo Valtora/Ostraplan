@@ -116,10 +116,10 @@ public class DocumentSessionTests
     public void One_clipboard_pastes_into_two_designs_without_them_sharing_anything()
     {
         var cargo = new CargoItem("original-id", "TestRation", "Ration Bar", false, []);
-        List<(string, int, int, int, IReadOnlyList<CargoItem>)> clip =
+        List<Placement> clip =
         [
-            ("TestLocker", 0, 0, 0, [cargo]),
-            ("TestWall", 1, 0, 90, []),
+            new() { DefName = "TestLocker", X = 0, Y = 0, Cargo = [cargo], CustomName = "spare tool storage" },
+            new() { DefName = "TestWall", X = 1, Y = 0, Rot = 90 },
         ];
 
         var a = new ShipDocument(Cat);
@@ -145,6 +145,13 @@ public class DocumentSessionTests
         Assert.NotEqual("original-id", intoA[0].Cargo[0].StrID);   // and neither reuses the copied item's identity
         Assert.NotEqual("original-id", intoB[0].Cargo[0].StrID);
         Assert.Equal("Ration Bar", intoB[0].Cargo[0].Friendly);    // everything else survives the clone
+
+        // The authored half rides across into both, which is the point of a copy: paste a labelled locker and it
+        // pastes labelled. Save identity does not, and cannot — two placements cannot be one save item.
+        Assert.Equal("spare tool storage", intoA[0].CustomName);
+        Assert.Equal("spare tool storage", intoB[0].CustomName);
+        Assert.Null(intoA[0].OriginStrID);
+        Assert.False(intoA[0].IsGiven);
 
         Assert.Equal(2, a.Placements.Count);
         Assert.Equal(2, b.Placements.Count);

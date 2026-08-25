@@ -648,6 +648,12 @@ right-click menu uses the tile you right-clicked. With the cursor off the canvas
 entirely (over the palette, or another window) there is nothing to point at, so it goes
 to the middle of the view, where you can see it.
 
+**A copy takes what you authored.** Paste and **Duplicate** carry a part's contents, the
+name you gave it, a container's fill, painted condition, device settings, stacking order
+and a nav console's screen arrangement — so a bank of labelled, filled tanks pastes
+labelled and filled. What they cannot carry is the copy's link back to a save game: a
+pasted part is new construction, priced and legality-checked as such.
+
 ### Auto-save
 
 **File ▸ Auto-save** takes a rotating snapshot of the open design on a timer. It is

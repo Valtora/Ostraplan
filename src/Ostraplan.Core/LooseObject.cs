@@ -90,4 +90,14 @@ public sealed class LooseObject
     /// head object.</para>
     /// </summary>
     public double? Condition { get; set; }
+
+    /// <summary>A new deck item at <paramref name="x"/>,<paramref name="y"/> that is this one in every way the
+    /// designer authored — quantity, contents (deep-cloned with fresh ids), name, stacking bias and painted
+    /// condition. The loose half of <see cref="Placement.CopyAt"/>, and read that for what a copy cannot be.</summary>
+    public LooseObject CopyAt(int x, int y) => new()
+    {
+        DefName = DefName, X = x, Y = y, Rot = Rot, Quantity = Quantity,
+        Cargo = Ostraplan.Core.Cargo.CloneForest(Cargo),
+        CustomName = CustomName, ZBias = ZBias, Condition = Condition,
+    };
 }
