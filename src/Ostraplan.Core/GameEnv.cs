@@ -14,6 +14,9 @@ public sealed class GameEnv
 {
     public const string DefaultGameRoot = @"C:\Program Files (x86)\Steam\steamapps\common\Ostranauts";
 
+    /// <summary>The game's executable, which is what tells a real install apart from a folder shaped like one.</summary>
+    public const string GameExeName = "Ostranauts.exe";
+
     /// <summary>The game version the ported constants/tables were last verified against. Moved to 1.0.0.11
     /// (Steam build 24744728) by the sweep in docs/GAME-INTERNALS.md §1: the named methods re-read against a
     /// fresh decompile with no logic drift, the lighting shaders re-extracted and disassembled, and the parity
@@ -75,22 +78,60 @@ public sealed class GameEnv
         catch { return null; }   // a malformed path is simply not a saves folder
     }
 
+    /// <summary>
+    /// Why <paramref name="root"/> is not an Ostranauts install Ostraplan can run on, or null when it is one.
+    /// Phrased as a complete sentence naming the folder, because every caller puts it straight in front of the user.
+    ///
+    /// <para>Deliberately stricter than "there is an Ostranauts_Data folder inside it", which is all this used to
+    /// ask. A <b>mod deploy target</b> is exactly that folder and nothing else, and it passed: the catalogue then
+    /// built from an empty core, the planner opened with no parts in the palette and said nothing, and the
+    /// game-gated tests reported as failures rather than the honest skip they promise. The exe is what separates
+    /// a game from a folder shaped like one; the two StreamingAssets folders are the data and sprites Ostraplan
+    /// actually reads, so a half-downloaded install is caught as well as an absent one.</para>
+    /// </summary>
+    public static string? InstallProblem(string? root)
+    {
+        if (string.IsNullOrWhiteSpace(root))
+            return "No game folder has been chosen.";
+
+        string full;
+        try { full = Path.GetFullPath(root.Replace('/', '\\')); }
+        catch (Exception e) when (e is ArgumentException or PathTooLongException or NotSupportedException)
+        {
+            return $"'{root}' is not a usable folder path.";
+        }
+
+        if (!Directory.Exists(full))
+            return $"'{full}' is not a folder that exists.";
+
+        if (!File.Exists(Path.Combine(full, GameExeName)))
+            return $"'{full}' holds no {GameExeName}, so it is not an Ostranauts install.";
+
+        var streaming = Path.Combine(full, "Ostranauts_Data", "StreamingAssets");
+        foreach (var need in new[] { "data", "images" })
+            if (!Directory.Exists(Path.Combine(streaming, need)))
+                return $"'{full}' has no Ostranauts_Data\\StreamingAssets\\{need} folder, " +
+                        "so the game's own data is not there to read.";
+
+        return null;
+    }
+
     public static GameEnv Locate(string? gameRootOverride, string? savesDirOverride = null)
     {
         string root, via;
         if (gameRootOverride is not null)
         {
-            root = Path.GetFullPath(gameRootOverride);
+            // Validate before GetFullPath: an override of "" reaches here from a settings file written by hand,
+            // and GetFullPath throws ArgumentException for it, which no caller catches.
+            if (InstallProblem(gameRootOverride) is { } why) throw new DirectoryNotFoundException(why);
+            root = Path.GetFullPath(gameRootOverride.Replace('/', '\\'));
             via = "user setting";
-            if (!Directory.Exists(Path.Combine(root, "Ostranauts_Data")))
-                throw new DirectoryNotFoundException(
-                    $"'{root}' does not look like an Ostranauts install (no Ostranauts_Data folder inside it).");
         }
         else if (LocateViaSteam() is { } steamHit)
         {
             (root, via) = steamHit;
         }
-        else if (Directory.Exists(Path.Combine(DefaultGameRoot, "Ostranauts_Data")))
+        else if (InstallProblem(DefaultGameRoot) is null)
         {
             root = DefaultGameRoot;
             via = "default install path";
@@ -179,7 +220,7 @@ public sealed class GameEnv
         foreach (var lib in libraries.Distinct(StringComparer.OrdinalIgnoreCase))
         {
             var candidate = Path.Combine(lib, "steamapps", "common", "Ostranauts");
-            if (Directory.Exists(Path.Combine(candidate, "Ostranauts_Data")))
+            if (InstallProblem(candidate) is null)
                 return (candidate, $"Steam library at {lib}");
         }
         return null;

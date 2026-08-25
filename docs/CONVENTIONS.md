@@ -14,6 +14,32 @@ Put new logic in Core and let the app call into it. That is what keeps the bulk 
 suite game-free and fast, and it is the difference between a rule that can be regression
 tested and one that can only be eyeballed.
 
+## An install is the game, not a folder shaped like it
+
+`GameEnv.InstallProblem` is the single answer to "is this an Ostranauts install", and every caller goes
+through it: auto-detection, the Steam library scan, the startup gate and the Settings picker. It asks for
+the game's own exe (`GameEnv.GameExeName`) **and** `Ostranauts_Data\StreamingAssets\{data,images}`.
+
+It used to ask only whether an `Ostranauts_Data` folder was there, and a **mod deploy target** is exactly
+that folder and nothing else. On a machine with no game but with ModTools deploying into one, the skeleton
+resolved as the install: `LoadOrder.Read` fell back to a core-only load, `LoadSource` skipped every data
+folder that was not there without complaining, `Catalog.Build` returned an empty catalogue, and the planner
+opened with an empty palette and said nothing. The suite had the same hole and was worse about it, reporting
+87 failures where [DEVELOPMENT.md](DEVELOPMENT.md) promises an honest skip.
+
+Two rules follow from that, and both are the reason the check is where it is:
+
+- **Never re-derive "is this an install" at a call site.** A second opinion is how the two halves drifted
+  apart in the first place: the Settings picker and `GameEnv.Locate` had separately-written checks, so a
+  folder Settings accepted could still be refused at the next launch.
+- **A resolved install is not a loaded one.** `MainWindow.LoadDataAsync` holds at `ShowInstallGate` until
+  the catalogue actually carries parts, because no on-disk check can prove a half-downloaded copy has data
+  in it. An empty palette is a failure state, never a start state.
+
+The gate itself is a wall rather than a warning: there is no editing surface behind it, so its only exits
+are a folder that passes, the game's Steam page, or closing the app. A skipped test is honest; an app that
+opens with nothing in it is not.
+
 ## Per-document state belongs to the session, not the window
 
 `MainWindow` holds **several designs at once**, one per document tab. Anything that belongs

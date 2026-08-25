@@ -369,72 +369,140 @@ public partial class MainWindow : Window
 
     // ---- startup ----
 
+    /// <summary>
+    /// The blocking gate for a missing or unusable Ostranauts install. Ostraplan draws the game's own sprites and
+    /// validates against the game's own rules, so an absent install is not a degraded mode with a warning on it:
+    /// there is nothing to plan with, and the planner must not open. Returns true once the user has pointed at a
+    /// folder that passes <see cref="GameEnv.InstallProblem"/> (saved as the override, for the caller to retry),
+    /// and false when they chose to close, having already closed the window.
+    ///
+    /// <para>Every route out of here is deliberate. Cancelling the folder picker comes back to this dialog rather
+    /// than quitting, so a mis-click never ends the session, and closing is a labelled button instead.</para>
+    /// </summary>
+    /// <param name="reason">What was checked and what was wrong with it, as the first line of the message.</param>
+    private bool ShowInstallGate(string reason)
+    {
+        while (true)
+        {
+            var choice = Dlg.Choose(this, DlgKind.Warning, "Ostranauts install required",
+                reason + "\n\n" +
+                "Ostraplan is a planner for Ostranauts. It reads every part, sprite and mod from your own copy of " +
+                "the game, so it cannot run without one.\n\n" +
+                "• Install Ostranauts, then start Ostraplan again.\n" +
+                "• Or, if you already have it, point Ostraplan at the game folder.\n" +
+                "… The folder holding " + GameEnv.GameExeName + ", usually steamapps\\common\\Ostranauts.",
+                "Locate folder…", "Get the game…", "Close Ostraplan");
+
+            if (choice == MessageDialog.Choice.Cancel)
+            {
+                AuditLog.Add($"No usable Ostranauts install, closed at the startup gate: {reason}");
+                Close();
+                return false;
+            }
+
+            if (choice == MessageDialog.Choice.Secondary)
+            {
+                // The game is not going to finish installing inside this session, so the store page is a signpost
+                // and not a route onward: come back to the same wall once the browser has it.
+                try { OpenUrl(StorePageUrl); }
+                catch (Exception ex)
+                {
+                    Dlg.Info(this, "Ostranauts on Steam",
+                        $"Ostraplan couldn't open your browser ({ex.Message}).\n\n" +
+                        "The game's page is at:\n" + StorePageUrl);
+                }
+                continue;
+            }
+
+            var dlg = new OpenFolderDialog
+            {
+                Title = $"Pick the Ostranauts folder (the one holding {GameEnv.GameExeName})",
+            };
+            if (dlg.ShowDialog(this) != true) continue;
+
+            if (GameEnv.InstallProblem(dlg.FolderName) is { } why)
+            {
+                reason = why;   // say what is wrong with the folder they just picked, not what was wrong before
+                continue;
+            }
+
+            _settings.GameRootOverride = dlg.FolderName;
+            AuditLog.Setting("Game folder", dlg.FolderName);
+            _settings.Save();
+            return true;
+        }
+    }
+
     private async Task LoadDataAsync()
     {
-        while (_env is null)
-        {
-            try
-            {
-                _env = GameEnv.Locate(_settings.GameRootOverride, _settings.SavesDirOverride);
-            }
-            catch (DirectoryNotFoundException ex)
-            {
-                // Ostraplan reads the game's own sprites and data — it can't run without the install. Show why,
-                // let the user point at the folder by hand, and fail closed (a clean exit) if they cancel.
-                Dlg.Warn(this, "Ostranauts install required",
-                    ex.Message + "\n\n" +
-                    "Ostraplan needs the Ostranauts install to run.\n" +
-                    "Please pick the game folder.");
-                var dlg = new OpenFolderDialog { Title = "Pick the Ostranauts folder (inside steamapps\\common)" };
-                if (dlg.ShowDialog(this) != true)
-                {
-                    Dlg.Info(this, "Ostraplan is closing",
-                        "Ostraplan can't run without the Ostranauts install, so it will now close.\n\n" +
-                        "Launch it again once the game is installed, or when you're ready to pick the folder.");
-                    Close();
-                    return;
-                }
-                _settings.GameRootOverride = dlg.FolderName;
-                AuditLog.Setting("Game folder", dlg.FolderName);
-                _settings.Save();
-            }
-        }
-
-        TxtLoading.Text = "Loading game data…";
-        var env = _env;
+        GameEnv env;
         DataIndex index;
         Catalog catalog;
         SpriteCache sprites;
         List<PartVM> parts;
-        try
+
+        // Hold at the gate until an install resolves AND actually yields parts. Both halves are needed: a folder
+        // can pass every on-disk check and still carry no game data (a damaged or half-downloaded copy), and
+        // opening an empty palette with nothing said is the failure this loop exists to prevent.
+        while (true)
         {
-            (index, catalog, sprites, parts) = await Ui.OffThread(() =>
+            try
             {
-                var idx = DataIndex.Load(env);
-                var cat = Catalog.Build(idx);
-                var spr = new SpriteCache();
-                // thumbnails built here so first palette paint is instant (all frozen)
-                var vms = cat.Parts.Select(p => new PartVM(p, spr.Thumb(p))).ToList();
-                // The Items tab: every renderable loose item (the whole loose universe), re-tagged into the synthetic
-                // ItemsCategory so it lands in its own tab. Only DefName is used when one is dropped, so the cloned
-                // category never leaks into placement/export. Skip defs with no sprite on disk (can't be drawn/ghosted).
-                vms.AddRange(cat.LooseItems
-                    .Where(p => p.SpriteAbs is not null)
-                    .Select(p => new PartVM(p with { Category = ItemsCategory }, spr.Thumb(p), isLoose: true)));
-                // The Special tab: the installed structure the game places but never offers a build job for
-                // (asteroids, signs, station fixtures). Same re-tagging trick as Items, but these are ordinary
-                // installed placements rather than loose drops, so they arm and build like any palette part.
-                vms.AddRange(cat.SpecialItems
-                    .Where(p => p.SpriteAbs is not null)
-                    .Select(p => new PartVM(p with { Category = SpecialCategory }, spr.Thumb(p))));
-                return (idx, cat, spr, vms);
-            });
-        }
-        catch (Exception ex)
-        {
-            Dlg.Error(this, "Ostraplan", $"Could not load game data.\n\n{ex.Message}");
-            Close();
-            return;
+                env = GameEnv.Locate(_settings.GameRootOverride, _settings.SavesDirOverride);
+            }
+            catch (DirectoryNotFoundException ex)
+            {
+                if (!ShowInstallGate(ex.Message)) return;
+                continue;
+            }
+
+            TxtLoading.Text = "Loading game data…";
+            try
+            {
+                var loaded = env;   // the loop's env, pinned for the off-thread closure
+                (index, catalog, sprites, parts) = await Ui.OffThread(() =>
+                {
+                    var idx = DataIndex.Load(loaded);
+                    var cat = Catalog.Build(idx);
+                    var spr = new SpriteCache();
+                    // thumbnails built here so first palette paint is instant (all frozen)
+                    var vms = cat.Parts.Select(p => new PartVM(p, spr.Thumb(p))).ToList();
+                    // The Items tab: every renderable loose item (the whole loose universe), re-tagged into the synthetic
+                    // ItemsCategory so it lands in its own tab. Only DefName is used when one is dropped, so the cloned
+                    // category never leaks into placement/export. Skip defs with no sprite on disk (can't be drawn/ghosted).
+                    vms.AddRange(cat.LooseItems
+                        .Where(p => p.SpriteAbs is not null)
+                        .Select(p => new PartVM(p with { Category = ItemsCategory }, spr.Thumb(p), isLoose: true)));
+                    // The Special tab: the installed structure the game places but never offers a build job for
+                    // (asteroids, signs, station fixtures). Same re-tagging trick as Items, but these are ordinary
+                    // installed placements rather than loose drops, so they arm and build like any palette part.
+                    vms.AddRange(cat.SpecialItems
+                        .Where(p => p.SpriteAbs is not null)
+                        .Select(p => new PartVM(p with { Category = SpecialCategory }, spr.Thumb(p))));
+                    return (idx, cat, spr, vms);
+                });
+            }
+            catch (Exception ex)
+            {
+                Dlg.Error(this, "Ostraplan", $"Could not load game data.\n\n{ex.Message}");
+                Close();
+                return;
+            }
+
+            // A folder can pass every on-disk check and still hold none of the game's parts. That used to open the
+            // planner on an empty palette with nothing said, which is the whole complaint, so it goes back to the
+            // gate rather than through.
+            if (catalog.Parts.Count == 0)
+            {
+                TxtLoading.Text = "Waiting for the Ostranauts install…";
+                if (!ShowInstallGate(
+                        $"'{env.GameRoot}' passes as an install, but none of the game's parts loaded from it.\n" +
+                        "That is what a damaged or half-downloaded copy of the game does.")) return;
+                continue;
+            }
+
+            _env = env;
+            break;
         }
 
         _index = index;
@@ -5809,6 +5877,9 @@ public partial class MainWindow : Window
                 "\n\nYou can keep using this version, or download the latest release manually.");
         }
     }
+
+    /// <summary>The game's own Steam page, offered at the install gate so "get the game" is a click, not a search.</summary>
+    private const string StorePageUrl = "https://store.steampowered.com/app/1022980/Ostranauts/";
 
     private static void OpenUrl(string url) => Process.Start(new ProcessStartInfo(url) { UseShellExecute = true });
 

@@ -184,7 +184,7 @@ public class CargoInfoTests
         finally { File.Delete(tmp); }
     }
 
-    [Fact]
+    [SkippableFact]
     public void Only_the_factions_the_cargo_references_are_written()
     {
         // A save carries a few hundred factions, nearly all of them the per-person ones the game mints as it

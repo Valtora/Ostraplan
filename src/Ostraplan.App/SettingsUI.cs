@@ -189,16 +189,18 @@ public sealed class SettingsDialog : Window
     {
         var dlg = new OpenFolderDialog
         {
-            Title = "Pick the Ostranauts folder (inside steamapps\\common)",
+            Title = $"Pick the Ostranauts folder (the one holding {GameEnv.GameExeName})",
             InitialDirectory = _env?.GameRoot ?? "",
         };
         if (dlg.ShowDialog(this) != true) return;
 
-        if (!Directory.Exists(Path.Combine(dlg.FolderName, "Ostranauts_Data")))
+        // The same check the startup gate applies, so a folder accepted here cannot fail at the next launch.
+        if (GameEnv.InstallProblem(dlg.FolderName) is { } why)
         {
             Dlg.Warn(this, "Settings",
-                $"'{dlg.FolderName}' doesn't look like an Ostranauts install.\n\n" +
-                "The folder should hold an Ostranauts_Data folder beside the game's exe.");
+                why + "\n\n" +
+                $"The folder to pick is the one holding {GameEnv.GameExeName} and the Ostranauts_Data folder, " +
+                "usually steamapps\\common\\Ostranauts.");
             return;
         }
         ApplyGameRoot(dlg.FolderName);

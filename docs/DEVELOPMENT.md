@@ -11,7 +11,7 @@ see [SCOPE.md](SCOPE.md).
 |---|---|
 | **.NET 10 SDK** | Required. |
 | **Windows** | Required. The app is WPF, so it neither builds nor runs anywhere else. |
-| **An Ostranauts install** | Optional for building, required for the game-gated tests. Without it those tests report as *skipped*, never as passed. |
+| **An Ostranauts install** | Optional for building, required for the game-gated tests. Without it those tests report as *skipped*, never as passed. A **mod deploy target** does not count: `Ostranauts_Data\Mods` with no game around it is not an install and is refused as one (see [CONVENTIONS.md](CONVENTIONS.md)). |
 | **`vpk`** (Velopack CLI) | Only for cutting a release: `dotnet tool install -g vpk`. |
 
 ## Repo layout
