@@ -9,7 +9,7 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.11**).
 
-## [Unreleased]
+## [1.7.0] 2026-08-25, the wiring that makes a device run, and a strike that reports the ship
 
 ### Added
 - **Simulate says what a hit cost the ship, not what is wrong with the ship.** After a strike the
