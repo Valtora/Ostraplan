@@ -48,10 +48,22 @@ public class FlightDynamicsTests(ITestOutputHelper output)
         // The game's own G' × M / r². It reads about 2% under the real figures throughout, because its
         // gravitational constant is written 2E-44f and a float that small is subnormal, so it stores
         // 1.9618E-44. These are the game's numbers, not physics', and that is the point.
-        Assert.Equal(8.43, Body(g.Index, "Venus").SurfaceGravity, 1);   // really 8.87
+        Assert.Equal(8.73, Body(g.Index, "Venus").SurfaceGravity, 1);   // really 8.87
         Assert.Equal(9.66, Body(g.Index, "Earth").SurfaceGravity, 1);   // really 9.81
         Assert.Equal(3.66, Body(g.Index, "Mars").SurfaceGravity, 1);    // really 3.71
         Assert.Equal(1.34, Body(g.Index, "Titan").SurfaceGravity, 1);   // really 1.35
+    }
+
+    [SkippableFact]
+    public void A_body_authored_twice_is_taken_from_the_system_the_player_flies_in()
+    {
+        var g = TestData.RequireGame();
+
+        // Venus is authored four times in stock 1.0.0.13, all four with ten bands, so the atmosphere table cannot
+        // separate them: the system a new game starts in gives it the real 4.87e24 kg, and three test rigs give it
+        // 4.7e24. Taking a rig's copy costs 0.3 m/s2 of surface gravity and everything downstream of it, and the
+        // old ordering avoided that only because "NewGame" sorts ahead of "OKLG_AND_VENUS".
+        Assert.InRange(Body(g.Index, "Venus").MassKg, 4.8e24, 4.9e24);
     }
 
     [SkippableFact]

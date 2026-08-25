@@ -156,18 +156,22 @@ public static class Atmosphere
     /// <summary>
     /// Every body with an authored atmosphere, name-sorted.
     ///
-    /// <para>The same body appears in more than one authored system (the real system plus the developers' test
-    /// environments), so entries are de-duplicated by name, keeping the richest table — the one with the most
-    /// bands — and breaking a tie on the system name so the result never depends on file enumeration order.</para>
+    /// <para>The same body appears in more than one authored system (the one a new game starts in, plus the
+    /// developers' test environments), and the copies disagree about the body itself, so entries are
+    /// de-duplicated by name and the pick is the copy from the <b>fullest</b> system. See the ordering below for
+    /// why that is the discriminator and not the richest atmosphere table.</para>
     /// </summary>
     public static IReadOnlyList<CelestialBody> LoadBodies(DataIndex index)
     {
-        var found = new List<CelestialBody>();
+        // Paired with the number of bodies in the system each was authored in, which is what tells the system the
+        // player actually flies in from a two-body test rig. See the ordering at the end.
+        var found = new List<(CelestialBody Body, int SystemSize)>();
         foreach (var (systemName, (el, _)) in index.Type("star_systems"))
         {
             if (!el.TryGetProperty("aSpawnBodies", out var bodies) || bodies.ValueKind != JsonValueKind.Array)
                 continue;
 
+            var systemSize = bodies.GetArrayLength();
             foreach (var b in bodies.EnumerateArray())
             {
                 if (b.ValueKind != JsonValueKind.Object) continue;
@@ -180,14 +184,26 @@ public static class Atmosphere
                 var mass = Json.Dbl(b, "fMassKG");
                 if (radius <= 0 || mass <= 0) continue;                // can't place an altitude or a gravity on it
 
-                found.Add(new CelestialBody(systemName, name, radius, mass, bands));
+                found.Add((new CelestialBody(systemName, name, radius, mass, bands), systemSize));
             }
         }
 
+        // The copies of a body disagree about the body, not only about its air: stock 1.0.0.13 gives Venus the real
+        // 4.87e24 kg in the system a new game starts in and 4.7e24 kg in three test rigs, which is 8.73 m/s2 of
+        // surface gravity against 8.43. Every figure downstream (gravity, lift, drag, whether a design holds
+        // altitude) rides on which copy is taken, so take the one from the fullest system: the solar system is 55
+        // bodies where a rig is two or three, and it is the only one a player is ever in. Band count breaks a tie
+        // between equally complete systems, and the name settles it after that, so the answer never depends on
+        // file enumeration order.
+        //
+        // This used to lead on band count with the system name as the tie-break. All four Venuses carry ten bands,
+        // so that landed on the right one purely because "NewGame" sorts ahead of "OKLG_AND_VENUS": renaming the
+        // system would have moved every atmospheric figure onto a test rig's numbers with nothing to show for it.
         return found
-            .GroupBy(b => b.Name, StringComparer.Ordinal)
-            .Select(g => g.OrderByDescending(b => b.Bands.Count)
-                          .ThenBy(b => b.SystemName, StringComparer.Ordinal).First())
+            .GroupBy(f => f.Body.Name, StringComparer.Ordinal)
+            .Select(g => g.OrderByDescending(f => f.SystemSize)
+                          .ThenByDescending(f => f.Body.Bands.Count)
+                          .ThenBy(f => f.Body.SystemName, StringComparer.Ordinal).First().Body)
             .OrderBy(b => b.Name, StringComparer.OrdinalIgnoreCase)
             .ToList();
     }
