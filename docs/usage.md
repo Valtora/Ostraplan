@@ -441,20 +441,35 @@ fires. Drag another to fire again. Damage builds up across strikes and is
   apart. The mark covers the object itself, not the clearance around it, so a dead LHe tank
   marks the tank rather than the deck it stands on.
 - **It tells you what the hit did to the ship, not only to the parts.** After every strike the
-  ordinary design checks are re-run against the hull as the strike left it, and anything they
-  say now that they did not say before is reported: a compartment opened to vacuum, a device the
-  crew can no longer reach. That is the difference between a reactor with a dent in it and a
-  reactor running in a vacuum, which a count of damaged parts cannot express. It is still a
-  measurement of one instant: what happens *next* (fire, venting, a reactor cooking off over
-  time) is a simulation and is out of scope.
+  hull is asked four questions, and only the answers that *changed* are reported:
+  - **which compartments lost their air.** The compartments are the ones the *undamaged* ship
+    had, so a hit that merges two rooms by taking the wall between them is reported as the
+    rooms you drew losing their seal rather than as a new room appearing. Where a compartment
+    sits inside a zone you named, the report calls it by that name.
+  - **what the crew can no longer get to** — fittings that were operable on foot and are not
+    any more, and deck that is still standable but has no route back to the main body. A
+    damaged or unpowered closed door is a solid wall to pathing, so a stuck door counts.
+  - **what lost power**, to a cut conduit run or a dead battery.
+  - **which of the ship's own systems stopped working** — the reactor, its He3 and D2O, the
+    thrusters, their distributor and reaction mass, backup power, and life support's pumps,
+    stores, heat and cool. These are the rows off the game's own nav-console diagnostic, in its
+    own words, so a line here reads exactly as the console would.
+
+  Faults the design already had are never reported here. A ship that was leaking before you
+  fired says so in the **PROBLEMS** panel, and this list is only what the strike cost you.
+  It is still a measurement of one instant: what happens *next* (fire, venting, a reactor
+  cooking off over time) is a simulation and is out of scope.
 - **Nothing has to breach to get inside.** A strike is a damage budget spent along its line, and
   a wall it only cracks costs it that wall's damage and no more. The rest carries on into the
   compartment behind, which is why you will see interior damage under a hull that is still
   standing. That is the game's own rule, not an approximation here.
 - **A wreck is a smaller target than the thing it used to be.** Breaking a part replaces it, so
-  what a later strike meets is whatever is there now. An LHe tank presents three tiles of
-  target while it stands and one once it is a heap of scrap, and a line that grazed the tank
-  will pass straight over the scrap and reach whatever is behind it.
+  what a later strike meets is whatever is there now, at whatever size that is.
+- **Broken and destroyed are different things, and scrap counts as destroyed.** A wall that
+  breaks into a damaged wall is still a wall: it still holds air, and it reads **broken**. A
+  storage bay or an LHe tank whose chain ends in scrap is not a part any more, whatever the
+  game calls the heap it leaves, so it reads **destroyed** and the tile is treated as clear.
+  The report still names the wreckage, so you know what is lying there.
 - **Two very different things can hit you**, and the game treats them nothing alike:
   - a **micrometeoroid** advances a part exactly one stage, so it cracks a wall and can never
     finish it in one strike;
@@ -480,9 +495,21 @@ Draw the aim, set the **strike strength**, and it fires on release.
 - **Strike strength is measured in damage**, because damage is what a hull meets, and the range
   is the one the game allows for a micrometeoroid. It is read out of your install rather than
   hard-coded: the bottom is the floor the game clamps to, and the top is the fastest strike any
-  authored atmosphere band can deliver, so a mod that adds one moves it. It opens on **55**,
-  which is what a micrometeoroid does at every spawn the game can reach away from a planet's
-  atmosphere. **Type a figure** for an exact one, and **Reset** puts 55 back.
+  authored atmosphere band can deliver, so a mod that adds one moves it. **Type a figure** for
+  an exact one, and **Reset** puts 55 back.
+- **Almost everywhere, the answer is just 55.** The game spawns micrometeoroids from two places
+  and only one of them reaches normal play: it fires anywhere in the system at a ship that is
+  not docked, not on a station, not running the torch and not inside an atmosphere, and it
+  always fires at full strength. The other spawn rolls per atmosphere shell, and in stock data
+  only **Earth's** shells declare a chance at all — which is why the whole range above 55
+  describes one planet's air and nowhere the game is usually played. The window says which
+  bodies those are on your install, and the slider carries a tick at 55 so the standard strike
+  is a landmark rather than a position on a track. Above it, the faster you are going through
+  that air the harder you are hit.
+- **The figure is the worst case, not the average.** The game rolls every strike's strength and
+  this is the top of the roll, so a hull that survives the number on the slider survives all of
+  them. That is the figure worth designing against, and it is why firing the same line twice
+  gives the same answer here and would not in game.
 
 ### Weapon impact
 

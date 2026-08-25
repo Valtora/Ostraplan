@@ -53,11 +53,10 @@ public sealed class DamageState
     ///
     /// <para><b>Not the same thing as destroyed, and it is this rather than destroyed that the game tests.</b>
     /// Both <c>FindPointsOfImpact</c> and <c>ApplyDamageToCell</c> skip a part on
-    /// <c>|CurrentDamage − GetMaxHealth()| &lt; ε</c>, never asking what form it ended up in. The two part
-    /// company whenever a chain finishes on something the game still names: <c>ItmStorageBin2x101</c> ends as
-    /// <c>ItmScrapTrash</c>, loose debris that is not installed and so is not counted by
-    /// <see cref="Catalog.MaxHealth"/>, which leaves the bin full but never <see cref="IsDestroyed"/>. Reading
-    /// destroyed alone left such a part standing as an obstacle for ever, and since a bin carries
+    /// <c>|CurrentDamage − GetMaxHealth()| &lt; ε</c>, never asking what form it ended up in. So a part can be
+    /// spent without <see cref="IsDestroyed"/> ever being reached: one driven to <see cref="Catalog.MaxHealth"/>
+    /// by the projectile solver's whole-chain pricing has nothing left to give whatever form it is sitting in.
+    /// Reading destroyed alone left such a part standing as an obstacle for ever, and since a bin carries
     /// <c>IsRigid</c> that was enough to detonate every later missile on the same tile as the first.</para>
     ///
     /// <para>A part that declares no damage pool at all is spent from the start, both here and in the game: its
@@ -103,12 +102,29 @@ public sealed class DamageState
     ///
     /// <para>Filling the form's pool breaks it: the game's <c>DestCheck.DamageCheck</c> fires the break
     /// interaction, subtracts the ceiling and clears <c>IsPristine</c>, so the part lands in its next form with
-    /// whatever damage overflowed. A form that breaks into nothing the catalog names is destroyed and stops
-    /// absorbing.</para>
+    /// whatever damage overflowed.</para>
+    ///
+    /// <para><b>A break that leaves loose debris destroys the part.</b> A chain does not have to end in nothing
+    /// for the ship to have lost a part. <c>ItmWall1x1</c> breaks into <c>ItmWall1x1Dmg</c>, which is still
+    /// <c>IsInstalled</c> and still carries <c>IsWall</c>: the ship changed, but a part is still standing there.
+    /// <c>ItmStorageBin2x101</c> ends as <c>ItmScrapTrash</c> and <c>ItmCanisterLHe02</c> as
+    /// <c>ItmScrapAluminum</c>, both of which the catalog can name and neither of which is installed. Asking
+    /// whether the break form <i>has</i> a name cannot tell those two apart, so it read a heap of scrap as a part
+    /// that had merely broken — which is how it was reported ("a storage bay becoming aluminium should count as
+    /// destroyed, not damaged, and yet it's highlighted yellow").</para>
+    ///
+    /// <para>The test is <see cref="Catalog.IsInstalledForm"/>, which is the line the game's own
+    /// <c>DataCO.GetMaxHealth</c> stops its chain walk at, so the two agree about where a part's life ends.
+    /// <see cref="PartDamage.Def"/> still carries the debris so a report can say what was left behind; what
+    /// changes is that the design no longer owns anything on that tile. Both solvers pass over it from then on,
+    /// which is what <see cref="IsSpent"/> already did for the projectile one: before this the two disagreed and a
+    /// micrometeoroid went on chewing through the scrap's own pool.</para>
     /// </summary>
-    /// <returns>Whether the part broke, and the form it broke into (null when destroyed or unchanged).</returns>
-    public (bool Broke, string? ToDef) Apply(Placement p, string fromDef, double amount, Catalog catalog)
+    /// <returns>Whether the part broke, the form it broke into (null when it broke into nothing the game names),
+    /// and whether the ship has lost the part outright.</returns>
+    public (bool Broke, string? ToDef, bool Gone) Apply(Placement p, string fromDef, double amount, Catalog catalog)
     {
+        ArgumentNullException.ThrowIfNull(catalog);
         var prior = _parts.GetValueOrDefault(p.Id);
         var stages = prior?.Stages ?? 0;
         var damage = (prior?.Damage ?? 0) + amount;
@@ -117,14 +133,16 @@ public sealed class DamageState
         if (ceiling <= 0 || damage < ceiling)
         {
             _parts[p.Id] = new PartDamage(fromDef, damage, stages, Destroyed: false);
-            return (false, null);
+            return (false, null, false);
         }
 
         // The pool filled. The game subtracts the whole ceiling rather than clamping, so the overflow carries into
-        // the next form — which matters for a chain, where one large hit can cross more than one stage.
+        // the next form — which matters for a chain, where one large hit can cross more than one stage. There is
+        // nothing to carry it into once the part is gone, so the overflow is dropped with it.
         var next = catalog.BreakForm(fromDef);
-        _parts[p.Id] = new PartDamage(next ?? fromDef, next is null ? 0 : damage - ceiling, stages + 1, next is null);
-        return (true, next);
+        var gone = next is null || !catalog.IsInstalledForm(next);
+        _parts[p.Id] = new PartDamage(next ?? fromDef, gone ? 0 : damage - ceiling, stages + 1, gone);
+        return (true, next, gone);
     }
 
     /// <summary>
@@ -158,6 +176,13 @@ public sealed class DamageState
     ///
     /// <para>A part that broke into a form the catalog does not name is dropped rather than left standing as its
     /// old self, which would have the wreck go on sealing a compartment it no longer seals.</para>
+    ///
+    /// <para><b>Each surviving part keeps its <see cref="Placement.Id"/>.</b> A projection is the same ship with
+    /// damage on it, so a part in it is the <i>same</i> part, and anything comparing the two hulls needs to be able
+    /// to say so. <see cref="ShipDocument.Snapshot"/> deliberately does not do this — it mints fresh ids, because
+    /// what it produces is an independent document rather than a view of this one — which is why
+    /// <see cref="DamageFallout"/> is handed projections at both ends and never a snapshot. A pristine state
+    /// projects a document unchanged, which is how it gets the intact side.</para>
     /// </summary>
     public ShipDocument Project(ShipDocument doc)
     {
@@ -173,6 +198,7 @@ public sealed class DamageState
             if (doc.Catalog.Lookup(def) is null) continue;
             copy.Add(new Placement
             {
+                Id = p.Id,
                 DefName = def, X = p.X, Y = p.Y, Rot = p.Rot, IsGiven = p.IsGiven,
                 OriginStrID = p.OriginStrID, SwappedFromStrID = p.SwappedFromStrID, SwappedFromDef = p.SwappedFromDef,
             });

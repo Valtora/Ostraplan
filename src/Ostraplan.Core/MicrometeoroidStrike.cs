@@ -29,11 +29,13 @@ public sealed record StrikeAnchor(double DocX, double DocY, StrikeFrame Frame);
 /// <param name="FromDef">The form the part was in when the ray arrived.</param>
 /// <param name="Absorbed">Damage this part took out of the pool.</param>
 /// <param name="Broke">True when the pool filled and the part changed form.</param>
-/// <param name="ToDef">The form it broke into, or null when it broke into nothing the game names — which is what
-/// destroyed means.</param>
+/// <param name="ToDef">The form it broke into, or null when it broke into nothing the game names. Not the test
+/// for destroyed: a break into loose debris is named and is still the end of the part (see
+/// <see cref="DamageState.Apply"/>).</param>
+/// <param name="Destroyed">True when the ship has lost the part outright, whether or not the wreckage has a name.</param>
 /// <param name="Distance">Distance along the ray to the part's collider, for ordering and for drawing.</param>
 public sealed record StrikeHit(
-    Guid PlacementId, string FromDef, double Absorbed, bool Broke, string? ToDef, double Distance);
+    Guid PlacementId, string FromDef, double Absorbed, bool Broke, string? ToDef, bool Destroyed, double Distance);
 
 /// <summary>The result of one strike. <see cref="StartDoc"/> and <see cref="EndDoc"/> are the line as it was
 /// drawn; the strike itself runs along that heading until it leaves the design, so a hit past
@@ -129,6 +131,28 @@ public static class MicrometeoroidStrike
                 if (speed > fastest) fastest = speed;
             }
         return fastest;
+    }
+
+    /// <summary>
+    /// The bodies whose atmosphere can produce a strike harder than the standard one, name-sorted.
+    ///
+    /// <para>The answer to "when does a micrometeoroid hit harder than 55", and it is a property of the loaded
+    /// data rather than of the code. The system-wide spawn site passes <c>fMult: 1f</c> outright, so the only
+    /// place strength varies at all is inside an atmosphere shell that declares an
+    /// <see cref="AtmosphereBand.MicrometeoroidChance"/> — and in stock data that is Earth and nowhere else, which
+    /// is why the whole range above the standard strike describes one planet. Derived rather than written down, so
+    /// a mod that gives another body a micrometeoroid band is named here like any other.</para>
+    ///
+    /// <para>Empty when nothing declares one, which means the standard strike is the only strike there is.</para>
+    /// </summary>
+    public static IReadOnlyList<string> StrongStrikeBodies(IReadOnlyList<CelestialBody> bodies)
+    {
+        ArgumentNullException.ThrowIfNull(bodies);
+        return [.. bodies
+            .Where(b => b.Bands.Any(band => band.MicrometeoroidChance > 0))
+            .Select(b => b.Name)
+            .Distinct(StringComparer.Ordinal)
+            .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)];
     }
 
     /// <summary>The slowest impact velocity worth asking about, <c>750 × 0.5</c>. The multiplier floors at
@@ -257,7 +281,9 @@ public static class MicrometeoroidStrike
         {
             if (remaining <= 0) break;
             // A destroyed part is not on the tile any more, so it neither absorbs nor shields. Without this it
-            // would soak its last form's pool again on every subsequent strike and never stop.
+            // would soak its last form's pool again on every subsequent strike and never stop. It covers a chain
+            // that ended in loose debris as well as one that ended in nothing: the scrap is a real object in the
+            // game, but it is not a part of the ship and the plan does not draw it (see DamageState.Apply).
             if (state.IsDestroyed(placement)) continue;
             var from = state.CurrentDef(placement);
             // DmgLeft on the CURRENT form only. A part with no pool at all absorbs nothing and the ray goes on
@@ -267,8 +293,8 @@ public static class MicrometeoroidStrike
 
             var taken = Math.Min(remaining, left);
             remaining -= taken;
-            var (broke, to) = state.Apply(placement, from, taken, doc.Catalog);
-            hits.Add(new StrikeHit(placement.Id, from, taken, broke, to, distance));
+            var (broke, to, gone) = state.Apply(placement, from, taken, doc.Catalog);
+            hits.Add(new StrikeHit(placement.Id, from, taken, broke, to, gone, distance));
         }
 
         return new StrikeResult(speed, mult, pool, remaining, startDoc, endDoc, hits);
@@ -395,10 +421,13 @@ public static class MicrometeoroidStrike
     ///
     /// <para><b>The target is the form the part is in now, not the one the design names.</b> A break replaces the
     /// object outright (<c>CondOwner.ModeSwitch</c> swaps in a new <c>CondOwner</c> with its own <c>Item</c>), so
-    /// the next ray meets the new form's collider. It matters because the change can be drastic: an
-    /// <c>ItmCanisterLHe02</c> ends its chain as <c>ItmScrapAluminum</c>, 3×3 down to 1×1, and reading the
-    /// original def would leave a heap of scrap shielding the compartment behind it as though the tank were still
-    /// standing. 140 of the 1152 stock break pairs change sprite size this way.</para>
+    /// the next ray meets the new form's collider, and 140 of the 1152 stock break pairs change sprite size that
+    /// way. Reading the original def would leave the wreck shielding the compartment behind it at the size the
+    /// part used to be.</para>
+    ///
+    /// <para>A part whose chain has ended in loose debris is not here at all: <see cref="DamageState.Apply"/>
+    /// destroys it and <see cref="Fire"/> passes over it, because the design no longer owns that tile. So this
+    /// walk only ever sees a form the ship still has.</para>
     /// </summary>
     private static List<(Placement Part, double Distance)> Along(ShipDocument doc, Ray ray, DamageState state)
     {

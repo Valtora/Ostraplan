@@ -381,42 +381,58 @@ public class MicrometeoroidTests
     // ---- the collider follows the form ----
 
     /// <summary>
-    /// A part that has broken presents its NEW form's sprite to the next ray, because the game replaces the object
-    /// outright: <c>CondOwner.ModeSwitch</c> swaps in a fresh <c>CondOwner</c> carrying its own <c>Item</c>, and
-    /// <c>Item.ResetTransforms</c> scales that item's quad by its own <c>vScale</c>.
+    /// The collider is the <b>sprite</b>, not the socket footprint: every item is one prefab whose unit
+    /// <c>BoxCollider</c> is scaled by <c>Item.SetData</c>'s <c>vScale</c>, so a 7×7 tank presents a 3×3 target.
     ///
-    /// <para>Game-gated because the effect needs two defs whose sprites differ, and a synthetic fixture has no
-    /// texture on disk so every part in one is 1×1. <c>ItmCanisterLHe02</c> is the clearest case in stock data:
-    /// a 3×3 tank that breaks straight into <c>ItmScrapAluminum</c>, 1×1.</para>
+    /// <para>Game-gated because the effect needs a def whose sprite and footprint differ, and a synthetic fixture
+    /// has no texture on disk so every part in one is 1×1. <c>ItmCanisterLHe02</c> is the clearest case in stock
+    /// data: a 3×3 sprite inside a 7×7 socket.</para>
     /// </summary>
     [SkippableFact]
-    public void A_broken_part_shields_with_its_new_form_not_its_old_one()
+    public void The_collider_is_the_sprite_rather_than_the_footprint()
+    {
+        var g = TestData.RequireGame();
+        var doc = Fixtures.Doc(g.Catalog, Fixtures.P("ItmCanisterLHe02", 10, 10));
+        Skip.IfNot(doc.Placements.Count == 1, "ItmCanisterLHe02 not in this install");
+
+        // Footprint 7×7 anchored at (10,10) puts the transform, and so the collider centre, on (13,13). The 3×3
+        // sprite reaches to 14.5, so y = 14 grazes it and y = 16 is well inside the socket but past the object.
+        Assert.Single(MicrometeoroidStrike.Fire(doc, (0.0, 14.0), (30.0, 14.0), 7700, new DamageState()).Hits);
+        Assert.Empty(MicrometeoroidStrike.Fire(doc, (0.0, 16.0), (30.0, 16.0), 7700, new DamageState()).Hits);
+    }
+
+    /// <summary>
+    /// A chain that ends in loose debris takes the part off the plan, and the ray then passes through the tile.
+    ///
+    /// <para><c>ItmCanisterLHe02</c> breaks straight into <c>ItmScrapAluminum</c>, which the catalog can name but
+    /// which is not <c>IsInstalled</c>: the design owns nothing there any more. So the tank is destroyed at that
+    /// point rather than reading as one more break into something named, and the wreck neither absorbs nor
+    /// shields — the same call <see cref="DamageState.Project"/> makes when it drops the tile, and what the
+    /// overlay draws when it paints the part red.</para>
+    ///
+    /// <para>It is a deviation from the physics, and a deliberate one: the scrap is a real object in the game with
+    /// a collider of its own. It is not a part of the ship, the plan does not draw it, and a planner asked "what
+    /// does a hit here do to my ship" should not answer with a pile of metal the design does not contain.</para>
+    /// </summary>
+    [SkippableFact]
+    public void A_part_that_breaks_into_loose_debris_leaves_the_tile_clear()
     {
         var g = TestData.RequireGame();
         var doc = Fixtures.Doc(g.Catalog, Fixtures.P("ItmCanisterLHe02", 10, 10));
         Skip.IfNot(doc.Placements.Count == 1, "ItmCanisterLHe02 not in this install");
         var tank = doc.Placements[0];
 
-        // Footprint 7×7 anchored at (10,10) puts the transform, and so the collider centre, on (13,13). The 3×3
-        // sprite reaches to 14.5 and the 1×1 scrap only to 13.5, so y = 14 grazes the tank and clears the scrap.
-        const double grazing = 14.0;
-
-        var pristine = MicrometeoroidStrike.Fire(doc, (0.0, grazing), (30.0, grazing), 7700, new DamageState());
-        Assert.Single(pristine.Hits);
-
         var broken = new DamageState();
-        broken.Apply(tank, "ItmCanisterLHe02", g.Catalog.Health("ItmCanisterLHe02"), g.Catalog);
+        var (_, to, gone) = broken.Apply(tank, "ItmCanisterLHe02", g.Catalog.Health("ItmCanisterLHe02"), g.Catalog);
+
+        Assert.Equal("ItmScrapAluminum", to);
+        Assert.True(gone);
+        Assert.True(broken.IsDestroyed(tank));
+        // The wreckage is still named, so the report can say what was left behind.
         Assert.Equal("ItmScrapAluminum", broken.CurrentDef(tank));
 
-        // Same line, same ship, but the tank is a heap of scrap now and the ray goes over it. Reading the
-        // placement's original def instead left the wreck shielding the compartment behind it at full size.
-        var after = MicrometeoroidStrike.Fire(doc, (0.0, grazing), (30.0, grazing), 7700, broken);
-        Assert.Empty(after.Hits);
-
-        // Straight through the middle still finds it, so this is the collider shrinking rather than the part
-        // dropping out of the raycast altogether.
-        var centred = MicrometeoroidStrike.Fire(doc, (0.0, 13.0), (30.0, 13.0), 7700, broken);
-        Assert.Single(centred.Hits);
+        // Straight through the middle of where the tank stood, and there is nothing there to hit.
+        Assert.Empty(MicrometeoroidStrike.Fire(doc, (0.0, 13.0), (30.0, 13.0), 7700, broken).Hits);
     }
 
     // ---- the canvas frame ----

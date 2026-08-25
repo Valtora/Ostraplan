@@ -19,7 +19,8 @@ public enum DamageGrade
     /// state that actually changes a design, and the one a summary counting "parts damaged" hides.</summary>
     Broken,
 
-    /// <summary>It broke into nothing the game names. The tile is empty.</summary>
+    /// <summary>The ship has lost the part. The design owns nothing on that tile any more, whether the break
+    /// ended in nothing at all or in loose debris the game still names (see <see cref="DamageState.Apply"/>).</summary>
     Destroyed,
 }
 
@@ -35,7 +36,8 @@ public enum DamageGrade
 /// tile is no longer the part the design names.</param>
 /// <param name="OriginalDef">The form the design names, for saying what it used to be.</param>
 /// <param name="CurrentDef">The form it is in now: a damaged wall is a different def from the wall that was
-/// drawn there.</param>
+/// drawn there. On a <see cref="DamageGrade.Destroyed"/> part this is the wreckage it left, which is worth
+/// naming even though the design no longer owns it.</param>
 /// <param name="Body">The part's <b>body</b> in document coords as one rectangle, which is what gets drawn: the
 /// object itself rather than its socket clearance. See <see cref="ShipDocument.BodyBounds"/>.</param>
 public sealed record DamagedPart(

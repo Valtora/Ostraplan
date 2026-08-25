@@ -149,6 +149,30 @@ public static class ShipDiagnostics
         // items weigh too. Deliberately not ShipRating.Mass, which counts installed parts only.
         Add(1, Kg0(propulsion.PartsMass + propulsion.LooseMass), DiagState.Neutral);
 
+        rows.AddRange(SystemRows(grid, catalog, propulsion));
+        return new ShipDiagnosticReport(rows);
+    }
+
+    /// <summary>
+    /// The fourteen <b>system</b> rows, rows 2 through 15: everything the console reports as working or not.
+    ///
+    /// <para>Split out because the two rows above them are the only ones that need a rating, and both are
+    /// <see cref="DiagState.Neutral"/> — a code and a mass, never a pass or a fail. So a caller asking "which of
+    /// this ship's systems are working" does not have to certify every room first to find out, which is what
+    /// <see cref="DamageFallout"/> needs: it asks this of a hull twice, once whole and once wrecked, and the
+    /// rating code is not part of the answer either time.</para>
+    /// </summary>
+    public static IReadOnlyList<DiagnosticRow> SystemRows(
+        ShipGrid grid, Catalog catalog, PropulsionEstimate propulsion)
+    {
+        ArgumentNullException.ThrowIfNull(grid);
+        ArgumentNullException.ThrowIfNull(catalog);
+        ArgumentNullException.ThrowIfNull(propulsion);
+
+        var rows = new List<DiagnosticRow>(Names.Length - 2);
+        void Add(int i, string value, DiagState state, string? note = null) =>
+            rows.Add(new DiagnosticRow(Names[i], value, state, note));
+
         // 2. TRANSPONDER — see the divergence note on the class: the game prints the registration ID.
         var xpdrs = Matching(grid, catalog, XpdrTrigger);
         var xpdrOn = xpdrs.Count(p => !p.Part.Has(OffCond));
@@ -300,7 +324,7 @@ public static class ShipDiagnostics
                 on > 0 ? null : found.Count == 0 ? missing : $"{Count(found.Count, noun)} installed but switched off.");
         }
 
-        return new ShipDiagnosticReport(rows);
+        return rows;
     }
 
     // --- helpers

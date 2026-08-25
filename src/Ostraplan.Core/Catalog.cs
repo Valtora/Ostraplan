@@ -547,6 +547,18 @@ public sealed class Catalog
     public bool IsDestructable(string defName) => Lookup(defName)?.StartingCondValues.ContainsKey("StatDamageMax") is true;
 
     /// <summary>
+    /// True when this def is <b>installed structure</b> rather than something lying on the deck — the game's own
+    /// <c>IsInstalled</c>, and the same line <see cref="MaxHealth"/> stops its walk at.
+    ///
+    /// <para>It is what separates the two things a break can produce. <c>ItmWall1x1</c> breaks into
+    /// <c>ItmWall1x1Dmg</c>, which is still installed and still a wall: the ship changed, but there is still a part
+    /// there. <c>ItmStorageBin2x101</c> ends as <c>ItmScrapTrash</c> and <c>ItmCanisterLHe02</c> as
+    /// <c>ItmScrapAluminum</c>, neither of which is installed and neither of which is a part of the ship any more.
+    /// Both are named defs, so asking whether the catalog can name the break form cannot tell them apart.</para>
+    /// </summary>
+    public bool IsInstalledForm(string defName) => Lookup(defName)?.StartingConds.Contains("IsInstalled") is true;
+
+    /// <summary>
     /// This form's own damage pool — its <c>StatDamageMax</c> (the game's <c>DataCO.Health</c>), 0 when it declares
     /// none. Filling it is what breaks the part into <see cref="BreakForm"/>; it is <b>not</b> what destroys it,
     /// for which see <see cref="MaxHealth"/>.

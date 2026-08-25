@@ -286,9 +286,10 @@ public class WeaponImpactTests
 
     /// <summary>
     /// Wall as above, plus a bin whose chain ends on <b>scrap</b>: a form the game still names but does not
-    /// install. <see cref="Catalog.MaxHealth"/> counts scrap's own pool and stops there rather than following it
-    /// on, so the bin is full at 35 while <see cref="DamageState.IsDestroyed"/> stays false. That is the shape
-    /// that broke repeated fire, because a bin carries <c>IsRigid</c> and a missile triggers on that.
+    /// install. The two figures deliberately disagree. <see cref="Catalog.MaxHealth"/> is the game's own
+    /// <c>DataCO.GetMaxHealth</c> and counts scrap's pool before stopping, so it reads 35; the ship loses the bin
+    /// one form earlier, at 30, because scrap is not a part it owns. That is the shape that broke repeated fire,
+    /// because a bin carries <c>IsRigid</c> and a missile triggers on that.
     /// </summary>
     private static Catalog CatWithScrap() => new Fixtures()
         .Part("Wall", startingConds: ["IsInstalled", "IsWall"],
@@ -310,7 +311,7 @@ public class WeaponImpactTests
         .Build();
 
     [Fact]
-    public void A_chain_that_ends_in_scrap_is_spent_without_ever_being_destroyed()
+    public void A_chain_that_ends_in_scrap_destroys_the_part_at_the_last_installed_form()
     {
         var cat = CatWithScrap();
         var doc = Fixtures.Doc(cat, Fixtures.P("Bin", 0, 0));
@@ -318,37 +319,56 @@ public class WeaponImpactTests
         var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (8.0, 0.0))!;
 
         // 10 + 20 + 5: the whole chain the game prices this bin against, MaxHealth stopping at scrap because
-        // scrap is not installed.
+        // scrap is not installed. Ported as it stands, so this is not the figure that moved.
         Assert.Equal(35, cat.MaxHealth("Bin"), 6);
         WeaponImpact.Fire(doc, Attack("MassDriver", ImpactType.Ray, 35), entry, state);
 
         var bin = doc.Placements[0];
-        // It broke all the way through into a form the catalog still names, so it is NOT destroyed, and that is
-        // exactly why destroyed is the wrong question to ask about it.
-        Assert.False(state.IsDestroyed(bin));
+        // BinDmg breaking into scrap is where the ship loses the bin: scrap is loose debris, not a part. It is
+        // destroyed there rather than reading as one more break into something named.
+        Assert.True(state.IsDestroyed(bin));
         Assert.True(state.IsSpent(bin, cat));
-        Assert.Equal(35, state.TotalDamage(bin, cat), 6);
+        // The wreckage is still named, so a report can say what was left on the deck.
+        Assert.Equal("Scrap", state.CurrentDef(bin));
+        // 10 + 20, and NOT scrap's own 5: the part stopped absorbing when it stopped being a part.
+        Assert.Equal(30, state.TotalDamage(bin, cat), 6);
     }
 
     [Fact]
-    public void A_missile_detonates_past_a_part_that_is_spent_but_not_destroyed()
+    public void Damage_a_destroyed_part_cannot_absorb_goes_to_the_next_part_on_the_tile()
+    {
+        var cat = CatWithScrap();
+        // Both on one tile, the bin first, so the cell's budget is offered to the bin before the wall.
+        var doc = Fixtures.Doc(cat, Fixtures.P("Bin", 0, 0), Fixtures.P("Wall", 0, 0));
+        var state = new DamageState();
+        var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (8.0, 0.0))!;
+
+        // 35 is what MaxHealth offers the bin, but it can only take 30. The 5 it cannot absorb must reach the
+        // wall behind it rather than being charged to the bin and lost.
+        WeaponImpact.Fire(doc, Attack("MassDriver", ImpactType.Ray, 35), entry, state);
+
+        Assert.Equal(30, state.TotalDamage(doc.Placements[0], cat), 6);
+        Assert.Equal(5, state.TotalDamage(doc.Placements[1], cat), 6);
+    }
+
+    [Fact]
+    public void A_missile_detonates_past_a_part_that_is_spent()
     {
         var cat = CatWithScrap();
         // The bin sits on the hull line with a wall three tiles further in. Both carry a trigger cond.
         var doc = Fixtures.Doc(cat, Fixtures.P("Bin", 0, 0), Fixtures.P("Wall", 3, 0));
         var state = new DamageState();
         var entry = WeaponImpact.EntryAlong(doc, (-3.0, 0.0), (8.0, 0.0))!;
-        // Radius 0, so the blast is its centre alone, applied twice: 40 into a 35-point chain empties the bin.
+        // Radius 0, so the blast is its centre alone, applied twice: 40 into the bin empties it.
         var missile = Attack("Missile", ImpactType.Circular, 20, radius: 0, triggers: ["IsWall", "IsRigid"]);
 
         var first = WeaponImpact.Fire(doc, missile, entry, state);
         Assert.Equal((0, 0), first.Centre);
         Assert.True(state.IsSpent(doc.Placements[0], cat));
-        Assert.False(state.IsDestroyed(doc.Placements[0]));
 
-        // The bin has nothing left to give, so the game walks straight past it. Asking whether it was DESTROYED
-        // instead left a heap of scrap standing in for structure, and every later missile went off on the same
-        // tile as the first however many were fired.
+        // The bin has nothing left to give, so the game walks straight past it. Reading only the def name of what
+        // it broke into left a heap of scrap standing in for structure, and every later missile went off on the
+        // same tile as the first however many were fired.
         var second = WeaponImpact.Fire(doc, missile, entry, state);
 
         Assert.Equal((3, 0), second.Centre);

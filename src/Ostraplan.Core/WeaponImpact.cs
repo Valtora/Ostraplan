@@ -365,8 +365,6 @@ public static class WeaponImpact
             if (left <= 0) continue;
 
             var take = Math.Min(budget, left);
-            budget -= take;
-            used += take;
 
             // Drive the part through as many stages as the damage covers: unlike a micrometeoroid, one cell of a
             // blast can carry a wall the whole way.
@@ -381,12 +379,22 @@ public static class WeaponImpact
                 if (room <= 0) break;
                 var bite = Math.Min(remaining, room);
                 remaining -= bite;
-                var (broke, to) = state.Apply(p, cur, bite, doc.Catalog);
+                var (broke, _, gone) = state.Apply(p, cur, bite, doc.Catalog);
                 if (!broke) break;
                 stages++;
-                if (to is null) { destroyed = true; break; }
+                if (gone) { destroyed = true; break; }
             }
-            hits.Add(new ImpactHit(p.Id, from, take, stages, destroyed, cell.X, cell.Y));
+
+            // Charge for what actually landed, not for what was offered. The ceiling above is
+            // <see cref="Catalog.MaxHealth"/>, which is the game's own figure and counts the pool of the loose
+            // wreckage a chain ends in; the walk stops one form earlier, at the point the ship loses the part. A
+            // cell's damage is shared along the parts on it, so the difference has to go back to the budget or it
+            // is charged to this part and never reaches the next one.
+            var absorbed = take - remaining;
+            if (absorbed <= 0) continue;
+            budget -= absorbed;
+            used += absorbed;
+            hits.Add(new ImpactHit(p.Id, from, absorbed, stages, destroyed, cell.X, cell.Y));
         }
         return used;
     }

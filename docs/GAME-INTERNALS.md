@@ -2654,8 +2654,11 @@ Four rows ask about a *running* ship rather than a design, and are answered diff
   newly bought ship reads, not a claim about a save in progress.
 
 > **Ported in Ostraplan:** `ShipDiagnostics` (`Build` for the rows, `Analyze` for the whole
-> run), with the cutoffs in `ShipDiagnosticsThresholds` and the readout on its own
-> **Diagnostics** toolbar action. Backup power goes through
+> run, `SystemRows` for rows 2–15 alone), with the cutoffs in `ShipDiagnosticsThresholds` and
+> the readout on its own **Diagnostics** toolbar action. Rows 0 and 1 are the only ones needing
+> a rating and both are neutral, so `SystemRows` answers "which of this ship's systems work"
+> without certifying every room first — which is what lets `DamageFallout` ask it of a hull
+> twice, once whole and once wrecked, and report the rows that flipped. Backup power goes through
 > `PowerNetwork.PowerConnectedTo`; O2 through `ShipValue.ScanO2Supply` (which
 > `CountO2Pumps` now delegates to); mass and remass through `Propulsion`. The four
 > divergences above are stated in the report's own text, not hidden.
@@ -3512,6 +3515,20 @@ cell using the part's own ship attack, or `DefaultExplosion` when it declares no
 > canvas marks the convergence point, so the difference is visible rather than hidden.
 > The randomness is not reproduced: the roll is pinned to its worst case, aim variance is
 > off, and the fire chance is not rolled at all (§26 "What a planner cannot reproduce").
+> **A chain that ends in loose debris ends the part.** The game names what a bin or a tank
+> leaves behind (`ItmScrapTrash`, `ItmScrapAluminum`), so "did the break form resolve" cannot
+> tell a wall becoming a damaged wall from a rack becoming a pile of metal. `Catalog.IsInstalledForm`
+> is the test instead, which is the line `DataCO.GetMaxHealth` already stops its own chain walk
+> at. A part that reaches it is destroyed, `DamageState.Project` drops the tile and both solvers
+> pass over it. That last part is a deliberate deviation: the scrap is a real collider in the
+> game, but it is not a part of the ship and the plan does not draw it.
+> **A damaged wall still seals.** `ItmWall1x1Dmg` carries `IsWall`, `IsCheckRoom` and
+> `IsInstalled` exactly as `ItmWall1x1` does, and takes *more* damage before it is gone
+> (`StatDamageMax` 15 → 30). What it loses is half its burst pressure: `StatGasPressureMax`
+> 4000 → 2000, and `ItmWallWindow1x1Dmg` the same. So a broken hull course reads amber on the
+> plan and goes on holding air, which is the game's answer and is asked about often enough to
+> be worth writing down. Ostraplan does not yet model structural `StatGasPressureMax` anywhere
+> (`ContainerFill` uses it for canister burst only), so the halved ceiling is not reported.
 > **Re-verify on a major game version:** the
 > `AModeMicrometeoroid` and `shipAttacks` numbers, `AttackModeMapping`'s ordering, the
 > `prefabQuad` collider, the `ATC_SPEED_LIMIT` constant, whether `−vStart.normalized` has

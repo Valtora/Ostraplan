@@ -58,6 +58,12 @@ public sealed class SimulateWindow : Window
         // (or without) game data can never offer a strength the data does not stand behind.
         Maximum = MicrometeoroidStrike.StandardDamage,
         Value = MicrometeoroidStrike.StandardDamage,
+        // One tick, on the only figure in the range that is a real place: the strike you get everywhere the game
+        // is actually played. Without it the track reads as a continuum with no landmark, and the default position
+        // looks like a midpoint rather than the answer.
+        Ticks = [MicrometeoroidStrike.StandardDamage],
+        TickPlacement = System.Windows.Controls.Primitives.TickPlacement.BottomRight,
+        IsSnapToTickEnabled = false,
     };
     private readonly TextBox _damageBox = new()
     {
@@ -93,20 +99,20 @@ public sealed class SimulateWindow : Window
 
     /// <summary>
     /// What the strike broke <b>about the ship</b>, as against about the parts: a compartment opened to vacuum, a
-    /// device the crew can no longer reach.
+    /// device the crew can no longer reach, a run of conduit cut, a system that has stopped working.
     ///
     /// <para>This is the half a part count cannot reach. "4 parts damaged" is the same sentence whether the ship
-    /// still holds air or not, and the design checks that answer it are static properties of a layout, so asking
-    /// them of the damaged layout takes no simulation: it is the same one-off measurement the strike is. What is
-    /// still out of scope is what happens <i>next</i> — the fire, the venting, the reactor cooking off.</para>
+    /// still holds air or not. See <see cref="DamageFallout"/> for what is compared and why it is not the design
+    /// warning scan. What is still out of scope is what happens <i>next</i> — the fire, the venting, the reactor
+    /// cooking off.</para>
     /// </summary>
     private readonly StackPanel _falloutList = new();
     private readonly Border _falloutBox = new() { Visibility = Visibility.Collapsed };
 
-    /// <summary>The problems the design already had, so only what the strike added is reported. Computed once when
-    /// the window opens; the document cannot be edited from behind a modeless report without the window being
+    /// <summary>The intact ship's own answers, so only what the strike cost is reported. Computed once on the
+    /// first shot and kept: the document cannot be edited from behind a modeless report without the window being
     /// rebuilt, and a strike never edits it.</summary>
-    private HashSet<string>? _baselineProblems;
+    private DamageBaseline? _baseline;
 
     /// <summary>Discards a consequence scan that a later strike has already superseded. The scans run off-thread
     /// and a user firing repeatedly at one line will start several, which can finish in any order.</summary>
@@ -352,6 +358,14 @@ public sealed class SimulateWindow : Window
         Text = text, Foreground = Ink, Margin = margin ?? new Thickness(0, 0, 0, 2),
     };
 
+    /// <summary>An English list: "Earth", "Earth and Ceres", "Earth, Ceres and Mars".</summary>
+    private static string Join(IReadOnlyList<string> names) => names.Count switch
+    {
+        0 => "",
+        1 => names[0],
+        _ => string.Join(", ", names.Take(names.Count - 1)) + " and " + names[^1],
+    };
+
     /// <summary>
     /// Set the strength range from the game's own bodies.
     ///
@@ -366,8 +380,15 @@ public sealed class SimulateWindow : Window
         _syncingDamage = true;
         _damage.Maximum = max;
         _syncingDamage = false;
+        // Which bodies can produce a stronger strike than the standard one, read off the same data the ceiling
+        // is: in stock content that is Earth alone, and a mod that adds a micrometeoroid band is named too.
+        _strongBodies = MicrometeoroidStrike.StrongStrikeBodies(bodies);
         UpdateLabels();
     }
+
+    /// <summary>The bodies whose atmosphere can hit harder than <see cref="MicrometeoroidStrike.StandardDamage"/>.
+    /// Empty until the game data arrives, and empty afterwards on data that declares none.</summary>
+    private IReadOnlyList<string> _strongBodies = [];
 
     /// <summary>Fill the weapon list from the loaded data, so a mod's attack appears without a code change.</summary>
     public void SetAttacks(IReadOnlyDictionary<string, ShipAttackDef> attacks)
@@ -409,10 +430,22 @@ public sealed class SimulateWindow : Window
 
     private void UpdateLabels()
     {
-        // One line, and it says what the range is rather than editorialising about where you fly. Every other term
-        // the mechanism has (the multiplier, the speed limit, the spawn sites, the shell names) belongs to the code
-        // that implements it: the only word the game says to a player is "micrometeoroid".
-        _speedLabel.Text = "The range of strike strengths the game allows for a micrometeoroid.";
+        // Where the range comes from, in terms of where you fly rather than of how it is computed. The mechanism's
+        // own vocabulary (the multiplier, the speed limit, the spawn sites, the shell names) still belongs to the
+        // code: what is said here is only what a player can act on. It used to say nothing but "the range the game
+        // allows", which left the obvious questions unanswered — "do the velocities have presets, is it a bell
+        // curve, are certain ones only present in certain conditions" — when the data answers all three.
+        var standard = $"{MicrometeoroidStrike.StandardDamage:0}";
+        var where = _strongBodies.Count switch
+        {
+            0 => "Every micrometeoroid in the game hits at exactly " + standard + ".",
+            _ => $"Anywhere you fly, a micrometeoroid hits at exactly {standard}. Only inside "
+                 + Join(_strongBodies) + "'s atmosphere can one hit harder, and the faster you are going "
+                 + "through it the harder it is.",
+        };
+        // The one thing the number on the slider does not say for itself: the game rolls the strength of every
+        // strike and this is the top of that roll, so a hull that survives this survives all of them.
+        _speedLabel.Text = where + " This is the hardest a strike can land: the game rolls under it.";
         _speedLabel.Foreground = Dim;
         _damageReset.IsEnabled = Math.Abs(_damage.Value - MicrometeoroidStrike.StandardDamage) >= 0.5;
 
@@ -490,8 +523,8 @@ public sealed class SimulateWindow : Window
 
     private static Tally TallyOf(StrikeResult r) => new(
         r.Hits.Count,
-        r.Hits.Count(h => h.Broke && h.ToDef is not null),
-        r.Hits.Count(h => h.Broke && h.ToDef is null));
+        r.Hits.Count(h => h.Broke && !h.Destroyed),
+        r.Hits.Count(h => h.Destroyed));
 
     /// <summary>The weapon solver reports per <b>cell</b>, so a part spanning several is in the list several times.
     /// Folded to one entry each, and to that part's worst outcome, or a wide part would count as many.</summary>
@@ -530,6 +563,9 @@ public sealed class SimulateWindow : Window
             _tallyLine.Text = "The ship is undamaged.";
             _tallyLine.Foreground = Dim;
             _legend.Visibility = Visibility.Collapsed;
+            // Start over discards the run, so any consequence scan still in flight is describing a ship that no
+            // longer exists. Without the bump it would land afterwards and put the box back up.
+            _falloutGeneration++;
             _falloutBox.Visibility = Visibility.Collapsed;
             ShowChanges(ov);
             return;
@@ -566,6 +602,11 @@ public sealed class SimulateWindow : Window
             line.Inlines.Add(part.Destroyed
                 ? new Run("destroyed") { Foreground = Warn, FontWeight = FontWeights.SemiBold }
                 : new Run(Friendly(part.CurrentDef)) { Foreground = Warn });
+            // What a destroyed part left on the deck. Most chains end in nothing, but the ones that end in scrap
+            // end in something the player will find lying there, and saying so is the difference between "it is
+            // gone" and "it is gone and here is the pile".
+            if (part.Destroyed && part.CurrentDef != part.OriginalDef)
+                line.Inlines.Add(new Run($"  ({Friendly(part.CurrentDef)})") { Foreground = Dim });
             _changesList.Children.Add(line);
         }
     }
@@ -573,58 +614,51 @@ public sealed class SimulateWindow : Window
     private string Friendly(string defName) => _doc.Catalog.Lookup(defName)?.Friendly ?? defName;
 
     /// <summary>
-    /// Re-run the ordinary design checks against the hull the strike has left, and report what they say now that
-    /// they did not say before.
+    /// Ask the damaged hull what the strike cost the ship, and show what it says.
     ///
-    /// <para>Off-thread, because a scan of a station-sized design is not a UI-thread operation, and generation
-    /// guarded because firing repeatedly at one line is the whole point of the tool and starts a scan each time.
-    /// The projection is built on the calling thread and handed over whole, so nothing the worker touches is
-    /// shared with the document being edited.</para>
+    /// <para>Off-thread, because four analyses over a station-sized design are not a UI-thread operation, and
+    /// generation guarded because firing repeatedly at one line is the whole point of the tool and starts a scan
+    /// each time. The document is snapshotted on the calling thread, so nothing the worker touches is shared with
+    /// the design being edited.</para>
     /// </summary>
     private async void UpdateFallout()
     {
         var generation = ++_falloutGeneration;
         var catalog = _doc.Catalog;
-        var projected = _state.Project(_doc);
-        var intact = _state.IsPristine ? null : _doc.Snapshot();
+        // Both hulls are projections rather than snapshots, and that is load-bearing: a projection carries each
+        // part's own id across and a snapshot mints new ones, so only this way can the two sides agree that a
+        // device on one is the device on the other. Built here, on the UI thread, so the worker below touches
+        // nothing the editor holds. The intact side is wanted only until the baseline exists.
+        var damaged = _state.Project(_doc);
+        var intact = _baseline is null ? new DamageState().Project(_doc) : null;
 
-        List<Problem> after;
-        HashSet<string> before;
+        DamageFalloutReport report;
+        DamageBaseline? baseline;
         try
         {
-            var baseline = _baselineProblems;
-            (after, before) = await Ui.OffThread(() =>
+            var known = _baseline;
+            (report, baseline) = await Ui.OffThread(() =>
             {
-                var scanned = ProblemScan.Scan(projected, catalog);
-                var basis = baseline ?? (intact is null
-                    ? []
-                    : ProblemScan.Scan(intact, catalog).Select(Key).ToHashSet(StringComparer.Ordinal));
-                return (scanned, basis);
+                var basis = known ?? (intact is null ? null : DamageFallout.Baseline(intact, catalog));
+                return basis is null
+                    ? (DamageFalloutReport.Empty, basis)
+                    : (DamageFallout.Compare(damaged, catalog, basis), basis);
             });
         }
         catch (Exception) { return; }   // a scan that cannot run is not worth taking the window down for
 
         if (generation != _falloutGeneration) return;   // superseded by a later strike
-        _baselineProblems ??= before;
+        _baseline ??= baseline;
 
-        // Only what the strike added. A design that was already leaking says so in the PROBLEMS panel, and
-        // repeating it here would bury the one line that is actually about the hit.
-        var added = after.Where(p => !_baselineProblems.Contains(Key(p))).ToList();
-        _falloutBox.Visibility = added.Count == 0 ? Visibility.Collapsed : Visibility.Visible;
+        _falloutBox.Visibility = report.IsEmpty ? Visibility.Collapsed : Visibility.Visible;
         _falloutList.Children.Clear();
-        foreach (var p in added)
+        foreach (var c in report.Consequences)
         {
             var line = new TextBlock { TextWrapping = TextWrapping.Wrap, FontSize = 11, Margin = new Thickness(0, 1, 0, 1) };
-            line.Inlines.Add(new Run(p.Title) { Foreground = Warn, FontWeight = FontWeights.SemiBold });
-            if (!string.IsNullOrWhiteSpace(p.Detail))
-                line.Inlines.Add(new Run("  " + p.Detail) { Foreground = Dim });
+            line.Inlines.Add(new Run(c.Title) { Foreground = Warn, FontWeight = FontWeights.SemiBold });
+            if (!string.IsNullOrWhiteSpace(c.Detail))
+                line.Inlines.Add(new Run("  " + c.Detail) { Foreground = Dim });
             _falloutList.Children.Add(line);
         }
     }
-
-    /// <summary>A problem's identity for the before/after comparison. Title plus the tiles it points at, so the
-    /// same complaint about a different compartment reads as new and the same one about the same compartment does
-    /// not.</summary>
-    private static string Key(Problem p) =>
-        p.Title + "|" + (p.Cells is null ? "" : string.Join(",", p.Cells.Select(c => $"{c.X}:{c.Y}")));
 }
