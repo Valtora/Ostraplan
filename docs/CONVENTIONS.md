@@ -200,6 +200,23 @@ real content first with the prose out of the way and hold it to that.
 `InventoryWindow.FitHintToContent` is the working example of the second, and is worth preferring
 where the real content's width varies: it keeps the window sized to the thing it exists to show.
 
+**The same omission has two different symptoms, so neither one tells you the rule.** A wrapping
+`TextBlock` widens a `SizeToContent` window; a **non**-wrapping one in a window with a declared
+width is cut off at the frame with no ellipsis and no scrollbar, and the reader never learns there
+was more. Both shipped, a release apart: the inventory hint widened its window, and the
+micrometeoroid strength note was clipped mid-word in a window 470px wide.
+
+So the test is not "will this wrap badly", it is **whose length decides this string**. If the data
+decides, it wraps. Every line whose text is built from a count, a name, a path, a money figure or a
+list of bodies read out of game data belongs in that group however short today's example reads,
+because today's example is not the long one. A heading, a fixed caption and a table cell in a sized
+column do not, and a cell should take `TextTrimming` instead so a long value ends in an ellipsis
+rather than being silently cut. Status-bar items are the one deliberate exception: the bar is one
+line by construction and a wrapped item would push the strip open.
+
+`ShipInfoUI`'s `SideValue` style and `WizardStep.Note` set it for every label that goes through
+them, which is why the misses are always the hand-rolled `TextBlock` that skipped the helper.
+
 ## Tunable parameters are user controls, not constants
 
 When a visual or behavioural parameter is a **feel** knob (a display level, a brightness

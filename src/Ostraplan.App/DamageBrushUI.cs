@@ -160,6 +160,9 @@ public sealed class DamageBrushWindow : Window
         _statusLine.Foreground = Ink;
         _statusLine.FontSize = 12;
         _statusLine.Margin = new Thickness(0, 12, 0, 0);
+        // A sentence in a 380px window, and it grows a clause once a stroke crosses something that cannot take
+        // wear. Unwrapped it is cut off at the frame rather than shortened.
+        _statusLine.TextWrapping = TextWrapping.Wrap;
         root.Children.Add(_statusLine);
 
         return root;

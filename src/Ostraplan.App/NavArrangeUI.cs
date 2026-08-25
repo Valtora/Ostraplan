@@ -117,6 +117,10 @@ public sealed class NavArrangeWindow : Window
         _status.Foreground = Dim;
         _status.FontSize = 11;
         _status.Margin = new Thickness(0, 10, 0, 0);
+        // A sentence, and the longest of them runs to about 180 characters. The window sizes to its content, so
+        // without this the line does not wrap, it widens the window (CONVENTIONS.md).
+        _status.TextWrapping = TextWrapping.Wrap;
+        _status.MaxWidth = BoardW + 260;
         root.Children.Add(_status);
 
         var buttons = new StackPanel

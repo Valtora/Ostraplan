@@ -256,9 +256,16 @@ public sealed class SimulateWindow : Window
         _resultLine.TextWrapping = TextWrapping.Wrap;
         _resultLine.Margin = new Thickness(12, 8, 12, 0);
 
+        // Everything here is prose of a length the data decides, so all of it wraps. The window has a declared
+        // width, so wrapping cannot widen it (CONVENTIONS.md) and a line that does not wrap is simply cut off at
+        // the frame: the strength note runs to two lines on a stock install and more once a mod adds a body, and
+        // the tally grows a clause per outcome.
+        _speedLabel.TextWrapping = TextWrapping.Wrap;
+
         _tallyLine.Foreground = Dim;
         _tallyLine.Margin = new Thickness(12, 4, 12, 0);
         _tallyLine.FontSize = 11;
+        _tallyLine.TextWrapping = TextWrapping.Wrap;
 
         _pathLabel.Foreground = Dim;
         _pathLabel.TextWrapping = TextWrapping.Wrap;

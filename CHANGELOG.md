@@ -9,6 +9,15 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.11**).
 
+## [Unreleased]
+
+### Fixed
+- **Text in a window is wrapped instead of being cut off at the frame.** The micrometeoroid strike
+  window explained its strength range in a sentence and then clipped it mid-word, and the same
+  omission was in the strike tally, the Damage Brush status line, the nav console arrange status
+  and the cost caption on the save-edit step. Anything whose length is decided by your data now
+  wraps.
+
 ## [1.7.0] 2026-08-25, the wiring that makes a device run, and a strike that reports the ship
 
 ### Added

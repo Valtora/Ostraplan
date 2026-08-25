@@ -177,7 +177,12 @@ public sealed class UpdateTargetStep : WizardStep
             BorderThickness = new Thickness(1), CornerRadius = new CornerRadius(4), Child = track,
         });
 
-        _meterCaption = new TextBlock { Foreground = Dim, FontSize = 11, Margin = new Thickness(0, 3, 0, 0) };
+        // A sentence carrying two formatted figures, so its length follows the numbers rather than the layout.
+        _meterCaption = new TextBlock
+        {
+            Foreground = Dim, FontSize = 11, Margin = new Thickness(0, 3, 0, 0),
+            TextWrapping = TextWrapping.Wrap,
+        };
         stack.Children.Add(_meterCaption);
 
         return Add(body, new Border { Margin = new Thickness(24, 10, 8, 0), Child = stack });
