@@ -2206,6 +2206,26 @@ the floor plan by `Ship.InitShip`) and `origin` (re-rolled from the `TXTShipOrig
 letter of RegID>` loot whenever it reads `"$TEMPLATE"`, on the save path as well as the
 template one).
 
+> **`objSS.size` is a constant on a station, so it is no use as a clearance.** *Measured
+> across a mature save, 144 ship records.* A **ship** gets a hull-derived figure: always a
+> multiple of 20, tracking the grid's **x** extent only (a 15×65 hull reads the same 220 as a
+> 15×24 one), running here to 2020 on a 105×57 hull, i.e. about **19.25 per tile**. Every
+> **station** reads exactly **1500** — an 11×13 apartment and a 190×65 residential block
+> alike, LA Construction Zone #4 at 167×167 included. So a clearance test that trusts the
+> number is measuring a constant, and the spawn band's 3 km floor is not necessarily outside
+> a station that declares 1.5 km and is three times that. This is the mechanism behind a
+> granted ship spawning intersecting the station it was granted at (reported against 1.7.1);
+> the game's own broker path has the same blind spot. Note the units are not metres anywhere
+> else in the game — the flight model puts a tile at 0.32 m — but they are the units the spawn
+> geometry is reckoned in.
+>
+> **Ported in Ostraplan:** `GrantAnchor.RadiusMetres` takes the larger of the reported size
+> and `SaveGrant.HullRadius` over the anchor's own `nCols`/`nRows` (the longest dimension,
+> since the game's own figure ignores the other one), and `DrawSpawnPoint` clears **both**
+> hulls rather than counting the anchor's twice. When the anchor is wider than the whole 3–5
+> km band, the fallback stands off past it by the 3 km floor instead of returning the outer
+> radius, which was not a clearance at all: 5 km is inside a 5 km hull.
+
 > **Ported in Ostraplan:** `SaveGrant` (build + write), surfaced as the Export dialog's
 > "Into a save game" tab. Writes to a copy of the save; the original is never opened for
 > writing. **Re-verify per patch:** the two spawn radii, the ferry range, and whether

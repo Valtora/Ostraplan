@@ -13,7 +13,8 @@ namespace Ostraplan.Core;
 /// <para><see cref="SizeMetres"/> is the anchor's <c>objSS.size</c>, its collision radius in metres
 /// (<c>ShipSitu.GetRadiusAU</c> = <c>size × 6.684587E-12</c>). The game recomputes this for every ship on load
 /// (<c>Ship.InitShip</c> → <c>SilhouetteUtility.GetSilhouetteLength</c>), so a granted ship writes 0 and lets the
-/// game fill it in; it is read here only to keep the spawn clear of the anchor.</para>
+/// game fill it in; it is read here only to keep the spawn clear of the anchor — and it is not enough on its own,
+/// which is what <see cref="Cols"/> and <see cref="RadiusMetres"/> are for.</para>
 /// </summary>
 public sealed record GrantAnchor(
     double PosX, double PosY, double VelX, double VelY, string? BoPorShip, bool BoLocked, int SizeMetres)
@@ -27,7 +28,27 @@ public sealed record GrantAnchor(
     /// <inheritdoc cref="BoOffsetX"/>
     public double BoOffsetY { get; init; }
 
-    /// <summary>Read the anchor out of a save's ship record (<c>ships/&lt;RegID&gt;.json</c>'s <c>objSS</c>).</summary>
+    /// <summary>The anchor's own grid, straight off its record. Zero when it was not read (a hand-built anchor),
+    /// in which case <see cref="RadiusMetres"/> falls back to <see cref="SizeMetres"/> alone.</summary>
+    public int Cols { get; init; }
+
+    /// <inheritdoc cref="Cols"/>
+    public int Rows { get; init; }
+
+    /// <summary>
+    /// How far the spawn has to stay off this anchor: its reported <see cref="SizeMetres"/>, or the extent its own
+    /// grid implies (<see cref="SaveGrant.HullRadius"/>), whichever is larger.
+    ///
+    /// <para><b>A station's reported size carries no information.</b> Across a mature save, every station reads
+    /// <c>size</c> exactly 1500, from an 11×13 apartment to a 190×65 residential block; only ships get a figure
+    /// derived from their hull, and those run to 2020 on a 105-column one. So a station three times the size of
+    /// another declares the same radius, and a clearance test that trusts the number is measuring a constant — the
+    /// case behind a granted ship spawning inside the station it was granted at.</para>
+    /// </summary>
+    public double RadiusMetres => Math.Max(SizeMetres, SaveGrant.HullRadius(Cols, Rows));
+
+    /// <summary>Read the anchor out of a save's ship record (<c>ships/&lt;RegID&gt;.json</c>'s <c>objSS</c>), with
+    /// the grid off the record itself (see <see cref="RadiusMetres"/> for why the situation block is not enough).</summary>
     public static GrantAnchor FromShipRecord(JsonNode shipRecord)
     {
         var ss = (shipRecord as JsonObject)?["objSS"] as JsonObject;
@@ -37,6 +58,8 @@ public sealed record GrantAnchor(
         {
             BoOffsetX = Dbl(ss, "vBOOffsetx"),
             BoOffsetY = Dbl(ss, "vBOOffsety"),
+            Cols = (int)Math.Round(Dbl(shipRecord, "nCols")),
+            Rows = (int)Math.Round(Dbl(shipRecord, "nRows")),
         };
     }
 
@@ -174,6 +197,27 @@ public static class SaveGrant
     /// band above sits at a fifth of it or less. Exposed so the UI can say so.</summary>
     public const double FerryRangeAu = 3.342293712194078E-05;
 
+    /// <summary>
+    /// The <c>objSS.size</c> units one grid tile is worth, for estimating a hull the game's own figure
+    /// under-reports (see <see cref="GrantAnchor.RadiusMetres"/>).
+    ///
+    /// <para>Fitted to real save data rather than assumed: a ship's <c>size</c> is always a multiple of 20 and
+    /// tracks its grid, and the steepest ratio across 36 ships in a mature save is the 105×57 hull that reads
+    /// 2020, i.e. 19.24 per tile. Taking the steepest rather than the mean is deliberate — this figure exists to
+    /// stop a spawn landing inside something, so it must not under-estimate. Applied to the <b>longest</b> grid
+    /// dimension, where the game measures only the x extent: a 15×65 hull reads the same 220 as a 15×24 one, which
+    /// is fine for the game's own purposes and useless for keeping clear of a long station.</para>
+    ///
+    /// <para>These units are not metres in any other part of the game — the flight model puts a tile at 0.32 m
+    /// (<see cref="FlightDynamics.TileMetres"/>) — but they are the units the spawn geometry is reckoned in, which
+    /// is what matters here.</para>
+    /// </summary>
+    private const double SizeUnitsPerTile = 19.25;
+
+    /// <summary>The clearance radius a hull of <paramref name="cols"/>×<paramref name="rows"/> tiles implies, in
+    /// <c>objSS.size</c> units. Zero for an unknown grid, so a caller with nothing to go on is no worse off.</summary>
+    public static double HullRadius(int cols, int rows) => Math.Max(0, Math.Max(cols, rows)) * SizeUnitsPerTile;
+
     /// <summary>The game's <c>MathUtils.RandType.Low</c> draw: uniform squared, so the result is biased toward
     /// <paramref name="min"/>. Ported so a granted ship clusters at the same end of the band a bought one does.</summary>
     private static double RandLow(Random rng, double min, double max)
@@ -193,13 +237,20 @@ public static class SaveGrant
     /// anchor shares the anchor's coordinates exactly</b>, so one check against the anchor covers the entire
     /// docking group. Undocked third parties are elsewhere in the system and not a factor at 5&#160;km. The body
     /// test needs the orbit table, which lives in the character record we deliberately do not parse.</para>
+    ///
+    /// <para><paramref name="shipCols"/>/<paramref name="shipRows"/> are the granted ship's own grid, so the
+    /// clearance is the two hulls rather than the anchor's counted twice. Zero for a caller that does not know
+    /// them yet, which only makes the guard smaller.</para>
     /// </summary>
-    public static (double X, double Y, double DistanceKm) DrawSpawnPoint(GrantAnchor anchor, Random rng)
+    public static (double X, double Y, double DistanceKm) DrawSpawnPoint(
+        GrantAnchor anchor, Random rng, int shipCols = 0, int shipRows = 0)
     {
-        // Keep clear of the anchor: its own radius, plus the same figure again for the granted ship, whose size
-        // the game will not compute until it loads the record. Like-for-like is the honest assumption, and the
-        // draw floor of 3 km clears the largest hull in core data (a station reads size 1500, i.e. 1.5 km) anyway.
-        var clearanceAu = 2.0 * anchor.SizeMetres * RadiusAuPerMetre;
+        // Keep both hulls clear: the anchor's real extent (NOT its reported size, which is a flat 1500 on every
+        // station — see GrantAnchor.RadiusMetres) plus the granted ship's, whose own size the game will not
+        // compute until it loads the record. The anchor's figure is the floor for that second term, which is the
+        // like-for-like assumption this used to make for both, so the guard is never smaller than it was.
+        var clearanceAu = (anchor.RadiusMetres + Math.Max(anchor.SizeMetres, HullRadius(shipCols, shipRows)))
+                          * RadiusAuPerMetre;
 
         double x = 0, y = 0, r = 0;
         for (var attempt = 0; attempt < PlacementAttempts; attempt++)
@@ -210,11 +261,13 @@ public static class SaveGrant
             y = anchor.PosY + Math.Cos(theta) * r;
             if (r > clearanceAu) break;
         }
-        // Every draw was inside the clearance (an implausibly large anchor). Fall back to the outer radius rather
-        // than returning a point known to overlap.
+        // Every draw was inside the clearance: the anchor is bigger than the whole band, which a large station
+        // genuinely is. Stand off past both hulls by the game's own 3 km floor. The outer radius was the previous
+        // answer and is not one — 5 km is inside a station that needs 6, which is exactly how a granted ship ended
+        // up intersecting one.
         if (r <= clearanceAu)
         {
-            r = MaxRadiusAu;
+            r = clearanceAu + MinRadiusAu;
             x = anchor.PosX;
             y = anchor.PosY + r;
         }
@@ -303,7 +356,9 @@ public static class SaveGrant
         }
         else
         {
-            var (x, y, drawnKm) = DrawSpawnPoint(anchor, opts.PlacementSeed is { } seed ? new Random(seed) : new Random());
+            var (x, y, drawnKm) = DrawSpawnPoint(
+                anchor, opts.PlacementSeed is { } seed ? new Random(seed) : new Random(),
+                exported.NCols, exported.NRows);
             ship["objSS"] = BuildSitu(anchor, x, y, epoch);
             distanceKm = drawnKm;
         }

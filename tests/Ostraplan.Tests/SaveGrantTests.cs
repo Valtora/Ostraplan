@@ -409,17 +409,50 @@ public class SaveGrantTests
     }
 
     [Fact]
-    public void Spawn_clears_an_implausibly_large_anchor_rather_than_landing_inside_it()
+    public void Spawn_clears_an_anchor_bigger_than_the_whole_band_instead_of_stopping_at_its_outer_edge()
     {
-        // 5,000 m radius is larger than anything in core data (a station reads 1,500), so every draw in the band
-        // is inside it and the fallback has to take over.
+        // An anchor wider than 5 km leaves no draw in the band that clears it, so the fallback has to stand off
+        // past the hull. It used to fall back to the outer radius, which is not a clearance at all: 5 km is inside
+        // a 5 km hull, and returning it is how a granted ship ended up intersecting the station it was granted at.
         var anchor = Anchor(sizeMetres: 5000);
 
-        var (x, y, _) = SaveGrant.DrawSpawnPoint(anchor, new Random(3));
+        var (x, y, km) = SaveGrant.DrawSpawnPoint(anchor, new Random(3));
 
-        var dx = x - anchor.PosX;
-        var dy = y - anchor.PosY;
-        Assert.Equal(SaveGrant.MaxRadiusAu, Math.Sqrt(dx * dx + dy * dy), 12);
+        var separation = Math.Sqrt(Math.Pow(x - anchor.PosX, 2) + Math.Pow(y - anchor.PosY, 2));
+        Assert.True(separation > SaveGrant.MaxRadiusAu);
+        Assert.True(km > 2 * 5.0);                 // both hulls cleared...
+        Assert.True(km < SaveGrant.FerryRangeAu * SaveGrant.MetresPerAu / 1000.0);   // ...and still ferry-reachable
+    }
+
+    [Fact]
+    public void A_stations_reported_size_is_a_constant_so_the_clearance_reads_its_grid_instead()
+    {
+        // Verified against a mature save: every station reads objSS.size exactly 1500, from an 11x13 apartment to
+        // a 190x65 residential block, while ships get a hull-derived figure running to 2020. So a station three
+        // times the size of another declares the same radius, and a guard that trusts it is measuring a constant.
+        var small = Anchor(sizeMetres: 1500) with { Cols = 28, Rows = 18 };
+        var huge = Anchor(sizeMetres: 1500) with { Cols = 190, Rows = 65 };
+
+        Assert.Equal(small.SizeMetres, small.RadiusMetres);      // small enough that the reported figure still wins
+        Assert.True(huge.RadiusMetres > 2 * huge.SizeMetres);    // the big one is not 1,500 of anything
+        Assert.True(huge.RadiusMetres / SaveGrant.MetresPerAu > SaveGrant.MinRadiusAu);   // past the 3 km draw floor
+
+        // and the spawn is pushed out past it rather than landing 3 km from the centre of a hull that is wider
+        var (x, y, _) = SaveGrant.DrawSpawnPoint(huge, new Random(3), shipCols: 15, shipRows: 25);
+
+        var separationAu = Math.Sqrt(Math.Pow(x - huge.PosX, 2) + Math.Pow(y - huge.PosY, 2));
+        Assert.True(separationAu * SaveGrant.MetresPerAu > huge.RadiusMetres);
+    }
+
+    [Fact]
+    public void An_ordinary_anchor_is_unaffected_by_the_grid_check()
+    {
+        // The correction must not move every grant: a hull the band already clears keeps the game's own draw.
+        var anchor = Anchor(sizeMetres: 200) with { Cols = 15, Rows = 22 };
+
+        var (_, _, km) = SaveGrant.DrawSpawnPoint(anchor, new Random(7), shipCols: 15, shipRows: 25);
+
+        Assert.InRange(km, 3.0, 5.0);
     }
 
     [Fact]
