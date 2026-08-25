@@ -9,6 +9,32 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.11**).
 
+## [Unreleased]
+
+### Fixed
+- **A copy keeps what you gave the part.** Copy/paste and **Duplicate** used to take a part's def,
+  where it sat and what was inside it, and drop everything else: the name you gave it, a container's
+  fill, painted condition, device settings and stacking order all came back blank. Copying a bank of
+  labelled, filled tanks and getting unlabelled empty ones is not a copy. They all ride across now.
+  The one thing a copy still cannot take is the pasted part's link back to a save game, because two
+  parts cannot be the same save item. Thanks to RedTwinkleToes.
+- **The nav console's arrange screen shows the console the ship actually has.** A console somebody
+  has sat at in game remembers where they put each module, and Ostraplan was not reading it — so the
+  arrange window laid the screen out from the factory defaults instead, with modules in places the
+  game does not put them and a strip of screen reading as free when in game it is occupied. Worse,
+  arranging such a console here wrote the wrong layout back over the one you had made. An imported
+  ship's own arrangement now comes in with it. Thanks to RedTwinkleToes.
+- **A module dropped flush against its neighbour is no longer refused.** Butting a nav module up
+  against the panel beside it read as an overlap and tinted red over visibly clear screen, because
+  the arithmetic ran a fraction past the edge where the game's own lands exactly on it. Edges that
+  touch fit, which is what lets the stock set tile the screen in the first place. Thanks to
+  RedTwinkleToes.
+- **A ship granted into a save keeps clear of a large station.** Every station in the game reports
+  the same collision size regardless of how big it is, so the spawn was parked 3 km from the middle
+  of a station that is wider than that, and arrived inside it. The clearance is now measured from
+  the station's own floor plan, and from both hulls rather than the anchor's counted twice. Thanks
+  to RedTwinkleToes.
+
 ## [1.7.1] 2026-08-25, text that wraps instead of being cut off
 
 ### Fixed
