@@ -2715,8 +2715,16 @@ public sealed class ShipCanvas : FrameworkElement
         var c = new Point(_pan.X + sx / tiles.Count * Zoom, _pan.Y + sy / tiles.Count * Zoom);
         var ft = MakeLabel(string.IsNullOrWhiteSpace(z.Name) ? "zone" : z.Name);
         var box = new Rect(c.X - ft.Width / 2 - 5, c.Y - ft.Height / 2 - 2, ft.Width + 10, ft.Height + 4);
+
+        // the render pass is rotated by ViewRot; counter-rotate about the centroid so the name reads upright,
+        // the same as the room labels, the connector badges and the origin marker
+        var rotate = ViewRot != 0;
+        if (rotate) dc.PushTransform(new RotateTransform(-ViewRot, c.X, c.Y));
+
         dc.DrawRoundedRectangle(LabelBg, null, box, 3, 3);
         dc.DrawText(ft, new Point(c.X, c.Y - ft.Height / 2));
+
+        if (rotate) dc.Pop();
     }
 
     // ---- zone painting (a working tile set, previewed live, committed as one SetZoneTilesCommand) ----

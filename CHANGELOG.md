@@ -9,6 +9,13 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.11**).
 
+## [Unreleased]
+
+### Fixed
+- **Zone names read the right way up when the plan is turned.** Rotating the view with Q/E left
+  every zone label mirrored or on its side; room labels, connector badges and the origin marker
+  always turned with you, and zones now do too. Thanks to RedTwinkleToes.
+
 ## [1.4.0] 2026-08-24, large designs are much faster to work on
 
 A performance release. The editor did work in proportion to the size of the design rather

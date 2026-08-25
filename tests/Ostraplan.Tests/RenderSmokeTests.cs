@@ -395,6 +395,109 @@ public class RenderSmokeTests
         });
     }
 
+    /// <summary>
+    /// Every word drawn on the plan reads left to right, at every view rotation.
+    ///
+    /// <para>The whole render pass runs under a <c>RotateTransform</c> of <c>ViewRot</c>, so a label is upside
+    /// down at 180 degrees unless it counter-rotates about its own anchor. Room labels, connector badges and the
+    /// origin marker always did; the zone name did not, and a design turned round showed its zones mirrored.
+    /// Asserted as a class rather than one label at a time, so the next thing to draw text on the canvas is held
+    /// to it without anyone remembering to add a case.</para>
+    /// </summary>
+    [SkippableTheory]
+    [InlineData(0)]
+    [InlineData(90)]
+    [InlineData(180)]
+    [InlineData(270)]
+    public void Every_label_on_the_plan_reads_upright_at_any_view_rotation(int viewRot)
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var canvas = TextHeavyCanvas(g);
+            canvas.SetViewRot(viewRot);
+            canvas.UpdateLayout();
+
+            // Force the render pass, then read back the drawing it produced.
+            new RenderTargetBitmap(900, 640, 96, 96, PixelFormats.Pbgra32).Render(canvas);
+
+            var glyphs = new List<(GlyphRunDrawing Run, Matrix At)>();
+            Collect(VisualTreeHelper.GetDrawing(canvas), Matrix.Identity, glyphs);
+
+            Assert.NotEmpty(glyphs);   // a scene with no text at all would pass this test vacuously
+            foreach (var (run, at) in glyphs)
+            {
+                // Upright means the baseline still runs along +x and the ascent still runs up: no rotation and no
+                // flip in the accumulated transform. A tolerance rather than an equality, because the transform is
+                // built by composing rotations that do not land on exact zeros.
+                var what = string.Concat(run.GlyphRun.Characters);
+                Assert.True(Math.Abs(at.M12) < 1e-6 && Math.Abs(at.M21) < 1e-6,
+                    $"\"{what}\" is drawn rotated at ViewRot {viewRot} (M12 {at.M12}, M21 {at.M21})");
+                Assert.True(at.M11 > 0 && at.M22 > 0,
+                    $"\"{what}\" is drawn mirrored at ViewRot {viewRot} (M11 {at.M11}, M22 {at.M22})");
+            }
+        });
+    }
+
+    /// <summary>Walk a drawing tree, accumulating each group's transform, and collect every glyph run with the
+    /// transform in force where it is drawn.</summary>
+    private static void Collect(Drawing? drawing, Matrix at, List<(GlyphRunDrawing, Matrix)> into)
+    {
+        switch (drawing)
+        {
+            case GlyphRunDrawing glyphs:
+                into.Add((glyphs, at));
+                break;
+            case DrawingGroup group:
+                if (group.Transform is { } t) { at = Matrix.Multiply(t.Value, at); }
+                foreach (var child in group.Children) Collect(child, at, into);
+                break;
+        }
+    }
+
+    /// <summary>A design carrying as much on-canvas text as the editor can show at once: the origin marker, a
+    /// named zone, the RoomViz compartment labels, and a selected powered part's IN/OUT connector badges.</summary>
+    private static ShipCanvas TextHeavyCanvas((GameEnv Env, DataIndex Index, Catalog Catalog) g)
+    {
+        var doc = new ShipDocument(g.Catalog);
+        new PlaceCommand(new Placement { DefName = Catalog.PrimaryDocksysDef, X = 0, Y = 0 }).Do(doc);
+        for (var x = 1; x < 7; x++)
+            for (var y = 1; y < 6; y++)
+                new PlaceCommand(new Placement { DefName = "ItmFloorGrate01", X = x, Y = y }).Do(doc);
+        for (var x = 0; x < 8; x++)
+        {
+            new PlaceCommand(new Placement { DefName = "ItmWall1x1", X = x, Y = 0 }).Do(doc);
+            new PlaceCommand(new Placement { DefName = "ItmWall1x1", X = x, Y = 6 }).Do(doc);
+        }
+        for (var y = 1; y < 6; y++)
+        {
+            new PlaceCommand(new Placement { DefName = "ItmWall1x1", X = 0, Y = y }).Do(doc);
+            new PlaceCommand(new Placement { DefName = "ItmWall1x1", X = 7, Y = y }).Do(doc);
+        }
+        new CreateZoneCommand(new ShipZone { Name = "Hold", Tiles = [(2, 2), (3, 2), (2, 3), (3, 3)] }).Do(doc);
+
+        var canvas = new ShipCanvas { Sprites = new SpriteCache() };
+        canvas.SetDocument(doc);
+        canvas.SetShowZones(true);
+        canvas.SetShowRooms(true);
+        canvas.SetRoomOverlay(RoomOverlay.Build(doc, g.Catalog, RoomCertifier.LoadSpecs(g.Index)));
+
+        // A powered part selected draws its IN/OUT connector badges, which is the other family of canvas text.
+        var powered = g.Catalog.Parts.FirstOrDefault(pd => pd.IsPowered && pd.Item.Width == 1 && pd.Item.Height == 1);
+        if (powered is not null)
+        {
+            var part = new Placement { DefName = powered.DefName, X = 3, Y = 4 };
+            new PlaceCommand(part).Do(doc);
+            canvas.SelectedIds.Add(part.Id);
+        }
+
+        canvas.Measure(new Size(900, 640));
+        canvas.Arrange(new Rect(0, 0, 900, 640));
+        canvas.FitContent();
+        canvas.UpdateLayout();
+        return canvas;
+    }
+
     private static void RunSta(Action action)
     {
         Exception? failure = null;

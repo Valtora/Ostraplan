@@ -63,6 +63,24 @@ by the next person through. `SimulateWindow` is the working example, and it conv
 If you add anything that takes a position from the canvas and hands it to Core, decide which frame the Core side
 is in and say so in its doc comment.
 
+## All text on the plan reads upright
+
+`ShipCanvas.OnRender` runs the whole pass under a `RotateTransform` of `ViewRot`, so **anything textual has to
+counter-rotate about its own anchor** or it is upside down at 180 degrees and sideways at 90:
+
+```csharp
+var rotate = ViewRot != 0;
+if (rotate) dc.PushTransform(new RotateTransform(-ViewRot, anchor.X, anchor.Y));
+```
+
+Room labels, connector badges and the origin marker did this from the start; the zone name did not, and a design
+turned round showed its zones mirrored. `RenderSmokeTests.Every_label_on_the_plan_reads_upright_at_any_view_rotation`
+now holds every glyph on the canvas to it at all four rotations, so a new label that forgets fails a test rather
+than shipping.
+
+Sprites are the opposite case and rotate with the view on purpose, as does a part's facing needle: those are
+about the ship's orientation, not the reader's.
+
 ## Theming and control styles
 
 The app themes its chrome with WPF's **Fluent `ThemeMode`**, set in `ThemeManager.Apply`

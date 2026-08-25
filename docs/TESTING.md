@@ -97,6 +97,13 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 | Auto-save rotation (per path, per untitled slot) | `AutoSaveTests` | — |
 | UI scale (clamp, popup layer) | `SettingsTests`, `UiScalePopupTests`† | — |
 
+`RenderSmokeTests` is mostly smoke — it writes PNGs for eyeballing and asserts only that they are not blank.
+`Every_label_on_the_plan_reads_upright_at_any_view_rotation` is the exception and is a real assertion: it renders
+a scene carrying every kind of on-canvas text, reads the drawing back with `VisualTreeHelper.GetDrawing`, and
+checks each glyph run's accumulated transform has no rotation and no flip. That holds the whole class of "text on
+the plan" to the rule rather than one label at a time, which is how the zone name came to be the only label that
+did not counter-rotate.
+
 \* `TemplateLoaderTests` loads a real core ship, so it is gated too.
 
 † These build WPF controls, so each runs its body on an STA thread of its own (see the `RunSta` helper each declares). `MainWindowTabsTests` constructs the real `MainWindow`, which is game-free because game data loads on `Loaded` and that is never raised — but it does mean it catches a constructor that throws, which is a crash on launch rather than a bug anyone could report.
