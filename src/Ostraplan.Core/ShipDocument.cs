@@ -187,11 +187,16 @@ public sealed class Placement
     public IReadOnlyList<CargoItem> Cargo { get; set; } = [];
 
     /// <summary>
-    /// A nav console's own screen arrangement, when the user has laid one out: the game's <c>NavModConfig</c> map,
-    /// module GUI-prefab key → anchor rect (<c>"xMin|yMin|xMax|yMax"</c>), with <c>""</c> for a module that is
-    /// aboard but shelved in the console's edit menu. Null on every other part, and on a console left at the
-    /// arrangement the game itself would produce (<see cref="NavConsole.Arrange"/> computes that on demand, so a
-    /// design does not carry a copy of the defaults around).
+    /// A nav console's own screen arrangement: the game's <c>NavModConfig</c> map, module GUI-prefab key → anchor
+    /// rect (<c>"xMin|yMin|xMax|yMax"</c>), with <c>""</c> for a module that is aboard but shelved in the console's
+    /// edit menu. Null on every other part, and on a console left at the arrangement the game itself would produce
+    /// (<see cref="NavConsole.Arrange"/> computes that on demand, so a design does not carry a copy of the
+    /// defaults around).
+    ///
+    /// <para>Two ways to acquire one: the user lays it out in <c>NavArrangeWindow</c>, or the ship arrives already
+    /// carrying it — a console somebody has sat at in game holds their screen in this map, and an import reads it
+    /// (<see cref="NavConsole.StoredLayout"/>). Without that read the planner showed a recomputed stock screen for
+    /// a console the ship had arranged differently, which is what made the arrange dialog and the game disagree.</para>
     ///
     /// <para>A key the map does not mention falls back to that computed default, so a module added to the console
     /// after the arrangement was made still lands somewhere sensible rather than vanishing.</para>

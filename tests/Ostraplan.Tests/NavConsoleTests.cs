@@ -214,6 +214,94 @@ public class NavConsoleTests
         Assert.Null(NavConsole.ParseRect(""));                                                // the shelved marker
     }
 
+    [Fact]
+    public void A_panel_butted_against_its_neighbour_fits_even_when_the_arithmetic_says_otherwise()
+    {
+        // The game does this in float32, where 0.05f + 0.10f is 0.15f exactly. In double it is
+        // 0.15000000000000002 — a hair past a neighbour starting at 0.15 — so a drop the game accepts read as
+        // an overlap and the arrange dialog tinted visibly clear screen red (reported against 1.7.1).
+        var neighbour = new NavConsole.NavRect(0.15, 0.4, 0.25, 0.8);   // NavModTargetData's own rect
+        var flush = new NavConsole.NavRect(0.05, 0.5, 0.05 + (0.25 - 0.15), 0.5 + (0.8 - 0.6));
+
+        Assert.True(flush.X1 > 0.15);   // the artefact itself: the edges are equal, the doubles are not
+        Assert.True(NavConsole.RectFits(flush, [neighbour]));
+        // and a real overlap, one whole hundredth of the screen, is still refused
+        Assert.False(NavConsole.RectFits(flush.MovedTo(0.06, 0.5), [neighbour]));
+    }
+
+    [Fact]
+    public void A_console_carrying_the_defs_own_config_is_not_treated_as_arranged()
+    {
+        // Every console in the core data/ships files carries NavModConfig as a verbatim copy of its def's, because
+        // that is what the item spawns with. Storing that would put a redundant map on every imported console and
+        // make the save write-back stamp it over one it should leave alone.
+        var cat = Catalog();
+        var def = cat.Lookup("Nav")!;
+        var asSpawned = new Dictionary<string, string>(System.StringComparer.Ordinal)
+        {
+            ["NavModMap"] = Slice(1, NavConsole.StandardModules.Count),
+            ["NavModControls"] = Slice(2, NavConsole.StandardModules.Count),
+        };
+
+        Assert.Null(NavConsole.StoredLayout(cat, def, asSpawned));
+        Assert.Null(NavConsole.StoredLayout(cat, def, new Dictionary<string, string>()));
+        Assert.Null(NavConsole.StoredLayout(cat, def, null));
+    }
+
+    [Fact]
+    public void A_console_somebody_arranged_in_game_keeps_the_arrangement_it_carries()
+    {
+        var cat = Catalog();
+        var def = cat.Lookup("Nav")!;
+        // what SaveModules writes when a player closes the console: every key blanked, the active ones re-anchored
+        var arranged = new Dictionary<string, string>(System.StringComparer.Ordinal)
+        {
+            ["NavModMap"] = "0.00|0.00|0.30|0.50",
+            ["NavModControls"] = "",
+        };
+
+        Assert.Same(arranged, NavConsole.StoredLayout(cat, def, arranged));
+    }
+
+    [SkippableFact]
+    public void A_screen_arranged_in_game_survives_an_import()
+    {
+        // The console GUI writes SaveModules on close, so a console the player has sat at holds their screen in
+        // its own NavModConfig. Dropping it left the arrange dialog showing a recomputed stock layout for a ship
+        // that had been arranged differently, which is what made the planner and the game disagree (RedTwinkleToes,
+        // 1.7.1): Diagnostics on the wrong side, the tomographer trayed, and a strip of screen reading as free.
+        var g = TestData.RequireGame();
+        Skip.If(g.Catalog.Lookup("ItmStationNav") is not { } d || !NavConsole.IsConsole(d));
+
+        var ship = ShipTemplate.ParseFile("""
+            [{
+              "strName": "TestShip", "nCols": 4, "nRows": 4,
+              "vShipPos": { "x": 0.0, "y": 0.0 },
+              "aItems": [
+                { "strName": "ItmStationNav", "fX": 0.0, "fY": 0.0, "fRotation": 0.0, "strID": "nav",
+                  "aGPMSettings": [ { "strName": "NavModConfig", "dictGUIPropMap": [
+                      "NavModDiagnostics", "0.00|0.40|0.10|0.80",
+                      "NavModDuhrt", "0.10|0.40|0.20|0.60",
+                      "NavModMap", "" ] } ] }
+              ]
+            }]
+            """).Single();
+
+        Assert.Equal("0.00|0.40|0.10|0.80", ship.Items[0].NavLayout!["NavModDiagnostics"]);
+
+        var console = TemplateImport.FromTemplate(ship, g.Catalog).Doc.Placements
+            .Single(p => p.DefName == "ItmStationNav");
+        Assert.Equal("0.00|0.40|0.10|0.80", console.NavLayout!["NavModDiagnostics"]);
+        Assert.Equal("", console.NavLayout["NavModMap"]);   // "" is the game's own shelved marker, not a gap
+
+        // and the arrangement the planner computes from it is the ship's, not the stock one
+        var slots = NavConsole.Arrange(g.Catalog, g.Catalog.Lookup("ItmStationNav")!,
+            ["ItmNavModDiagnostics", "ItmNavModDuhrt", "ItmNavModMap"], console.NavLayout);
+        Assert.Equal("0.00|0.40|0.10|0.80", slots[0].Pos);
+        Assert.Equal("0.10|0.40|0.20|0.60", slots[1].Pos);   // on screen, where stock would have shelved it
+        Assert.Null(slots[2].Pos);
+    }
+
     // ---- stocking an empty console ----
 
     /// <summary>A catalog with a 5×4 nav console (the real <c>ItmStationNav</c> grid), every standard module as a

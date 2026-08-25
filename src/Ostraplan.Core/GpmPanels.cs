@@ -14,6 +14,9 @@ namespace Ostraplan.Core;
 /// </summary>
 public static class GpmPanels
 {
+    /// <summary>The panel a nav console keeps its screen arrangement in (see <see cref="NavConsole"/>).</summary>
+    public const string NavConfigPanel = "NavModConfig";
+
     /// <summary>The <c>Electrical</c> panel's name, and the two connection keys on it.</summary>
     public const string ElectricalPanel = "Electrical";
     public const string InputConnectionsKey = "inputConnections";
@@ -76,6 +79,21 @@ public static class GpmPanels
             if (id.Length > 0) ids.Add(id);
         }
         return ids;
+    }
+
+    /// <summary>
+    /// A nav console's own screen arrangement as the item carries it: the <c>NavModConfig</c> panel, module GUI
+    /// prefab → anchor rect, with <c>""</c> for a module the console holds but does not show. Null when the item
+    /// carries no such panel at all.
+    ///
+    /// <para>A null value is read as <c>""</c>, which is what the game means by one: <c>SaveModules</c> blanks
+    /// every key before writing the active anchors, so an empty entry is the shelved marker rather than a gap.</para>
+    /// </summary>
+    public static IReadOnlyDictionary<string, string>? NavConfig(
+        IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>> panels)
+    {
+        if (!panels.TryGetValue(NavConfigPanel, out var keys) || keys.Count == 0) return null;
+        return keys.ToDictionary(kv => kv.Key, kv => kv.Value ?? "", StringComparer.Ordinal);
     }
 
     /// <summary>The device panel settings this item carries (see <see cref="DeviceSettings"/>), or null when it

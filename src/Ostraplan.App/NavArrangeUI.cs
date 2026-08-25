@@ -355,10 +355,21 @@ public sealed class NavArrangeWindow : Window
 
     /// <summary>Write the arrangement onto the console as an undoable edit. A layout that matches what the game
     /// would produce anyway is stored as <c>null</c>, so a design only carries an arrangement the user actually
-    /// chose and a later change to the stock set still reaches consoles nobody has touched.</summary>
+    /// chose and a later change to the stock set still reaches consoles nobody has touched.
+    ///
+    /// <para>A console that came in <b>carrying</b> an arrangement (<see cref="NavConsole.StoredLayout"/>) never
+    /// reaches that null: its map names prefabs this console does not hold, so it cannot equal the stock set, and
+    /// it should not — the ship really does carry a screen somebody laid out, and on the save write-back a stored
+    /// layout is what stops the arrangement being taken from container order instead.</para></summary>
     private void Apply()
     {
-        var layout = new Dictionary<string, string>(StringComparer.Ordinal);
+        // Start from what the console already carries, so a key for a module that is NOT aboard right now survives
+        // — an imported console's map names every prefab the game knows, blanked, and dropping the ones this
+        // console happens not to hold would throw away the arrangement for a module swapped back in later. It also
+        // keeps opening and closing the dialog a no-op rather than an undo entry (see Same, below).
+        var layout = _console.NavLayout is { } carried
+            ? new Dictionary<string, string>(carried, StringComparer.Ordinal)
+            : new Dictionary<string, string>(StringComparer.Ordinal);
         foreach (var mod in _mods)
             layout[mod.Key] = _placed.TryGetValue(mod.Key, out var r) ? NavConsole.FormatRect(r) : "";
 

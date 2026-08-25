@@ -1718,6 +1718,22 @@ Two consequences worth knowing:
 > the computed arrangement. The one deviation from the game: it lets a module be dropped
 > overlapping another and resolves it by shelving one on the next load, while the dialog
 > snaps such a drop back, since a design should not record an outcome decided later.
+>
+> An import **reads** the panel too (`NavConsole.StoredLayout`), so a console somebody sat at
+> in game arrives arranged the way they left it. Only a map that differs from the console
+> def's own is kept: **all 120 consoles in the core `data/ships` files carry `NavModConfig`
+> as a verbatim copy of the def's**, because that is what the item spawns with, and storing
+> that would put a redundant map on every imported console and make the write-back stamp it
+> over one it should have left alone. Without this read the arrange dialog showed a recomputed
+> stock screen for a ship that had been arranged differently — reported against 1.7.1, with
+> Diagnostics on the wrong side and a strip of screen reading as free that in game was not.
+>
+> **The fit test needs float slack.** The game compares anchors in **float32**, where a panel
+> butted against its neighbour lands on the neighbour's edge exactly: `0.05f + 0.10f` is
+> `0.15f`. In double it is `0.15000000000000002`, a hair past a neighbour starting at `0.15`,
+> so a drop the game accepts read as an overlap (the same 1.7.1 report: red over visibly clear
+> screen). `NavConsole` compares every edge with `1e-6` of slack — four orders of magnitude
+> below the 2dp granularity every real anchor has, so it cannot mask a genuine collision.
 
 ### Ship identity on spawn
 

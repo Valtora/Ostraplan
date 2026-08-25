@@ -34,6 +34,12 @@ public sealed record TemplateItem(string DefName, double FX, double FY, double F
     /// <summary>The device panel settings this item carries — bus knob and modes (see
     /// <see cref="DeviceSettings"/>). Null for an item at its def's defaults, which is most of them.</summary>
     public DeviceSettings? Device { get; init; }
+
+    /// <summary>This item's <c>NavModConfig</c> panel, verbatim — a nav console's screen arrangement (see
+    /// <see cref="NavConsole.StoredLayout"/>). Null on everything that is not a console, and on a console that
+    /// carries no such panel. It is read for every item rather than only for consoles because the panels are read
+    /// once here and the def is not resolved until the import walks them.</summary>
+    public IReadOnlyDictionary<string, string>? NavLayout { get; init; }
 }
 
 /// <summary>A room as the game computed and baked it into the template: the tile
@@ -181,6 +187,7 @@ public sealed class ShipTemplate
                 SensorInputId = GpmPanels.SensorInput(panels, strId),
                 ElectricalOutputs = GpmPanels.Connections(panels, GpmPanels.OutputConnectionsKey),
                 Device = GpmPanels.Settings(panels),
+                NavLayout = GpmPanels.NavConfig(panels),
             });
         }
 

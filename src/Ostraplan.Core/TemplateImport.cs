@@ -293,6 +293,12 @@ public static class TemplateImport
                     // one. Clamped to what this def actually offers, so a stale flag on an imported ship cannot
                     // travel back out (see DeviceSettings).
                     Device = item.Device?.ClampTo(part).OrNull(),
+                    // A nav console's own screen arrangement, off the same panel the game writes it to. Kept only
+                    // when it differs from the console def's (see NavConsole.StoredLayout) — a template's console
+                    // carries a verbatim copy of the defaults and has nothing to say.
+                    NavLayout = NavConsole.IsConsole(part)
+                        ? NavConsole.StoredLayout(catalog, part, item.NavLayout)
+                        : null,
                 };
                 new PlaceCommand(placement).Do(doc);
                 if (item.StrID is { Length: > 0 } sid) placedByStrId[sid] = placement;

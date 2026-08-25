@@ -304,9 +304,50 @@ public static class NavConsole
     /// its item def name). Null when the def is not a nav module.</summary>
     public static string? KeyFor(Catalog catalog, string moduleDefName) => ConfigKey(catalog, catalog.Lookup(moduleDefName));
 
-    private static bool InBounds(NavRect r) => r.X0 >= 0 && r.Y0 >= 0 && r.X1 <= 1 && r.Y1 <= 1 && r.X0 < r.X1 && r.Y0 < r.Y1;
+    /// <summary>
+    /// The arrangement an imported console is actually carrying, for <see cref="Placement.NavLayout"/>: the
+    /// <c>NavModConfig</c> panel off its own item (<see cref="GpmPanels.NavConfig"/>), or <b>null</b> when it says
+    /// nothing its def does not already say.
+    ///
+    /// <para>Reading it is what makes the planner agree with the game. A console the player has sat at holds their
+    /// layout in this panel — <c>SaveModules</c> writes it whenever the console GUI closes — and dropping it left
+    /// the arrange dialog showing a recomputed stock screen instead of the ship's own, with modules in the wrong
+    /// places and a strip of screen reading as free when in game it is occupied. Worse, applying an arrangement
+    /// from that state wrote the recomputed one back over the player's.</para>
+    ///
+    /// <para>The null case is not an optimisation, it is the common one: <b>all 120 consoles across the core
+    /// <c>data/ships</c> files carry this panel as a verbatim copy of the def's own</b>, because that is what the
+    /// item spawns with and nobody has opened it. Storing that would put a redundant map on every imported console,
+    /// carry it into every <c>.oplan</c>, and — since a stored layout is the design speaking rather than a default
+    /// — make the save write-back stamp it over a console it should have left alone
+    /// (<see cref="SaveEdit"/>'s <c>onlyFillEmpty</c>). Only a map that differs from the def's is an arrangement
+    /// somebody chose.</para>
+    /// </summary>
+    public static IReadOnlyDictionary<string, string>? StoredLayout(
+        Catalog catalog, PartDef consoleDef, IReadOnlyDictionary<string, string>? fromItem)
+    {
+        if (fromItem is not { Count: > 0 }) return null;
+        var fromDef = ConfigMap(catalog, consoleDef);
+        return fromItem.All(kv => fromDef.GetValueOrDefault(kv.Key) == kv.Value) ? null : fromItem;
+    }
 
-    /// <summary><c>EditMenu.AreAnchorsOverlapping</c>: strict, so rects that merely share an edge fit.</summary>
+    /// <summary>
+    /// The slack every edge comparison carries, and the reason it has to exist: the game does this arithmetic in
+    /// <b>float32</b>, where a panel butted against its neighbour lands on the neighbour's edge exactly, and this
+    /// does it in double, where it does not. A module 0.10 wide dropped at 0.05 has a right edge of
+    /// <c>0.05 + 0.10 = 0.15000000000000002</c>, a hair past a neighbour starting at <c>0.15</c> — so a drop the
+    /// game accepts read as an overlap, and the arrange dialog tinted it red over visibly clear screen. Every rect
+    /// in play is a 2dp anchor (<c>SaveModules</c> writes two decimals, <see cref="NavRect.MovedTo"/> rounds to
+    /// them), so this is four orders of magnitude below anything real and cannot mask a genuine collision.
+    /// </summary>
+    private const double Edge = 1e-6;
+
+    private static bool InBounds(NavRect r) =>
+        r.X0 >= -Edge && r.Y0 >= -Edge && r.X1 <= 1 + Edge && r.Y1 <= 1 + Edge
+        && r.X1 - r.X0 > Edge && r.Y1 - r.Y0 > Edge;
+
+    /// <summary><c>EditMenu.AreAnchorsOverlapping</c>: strict, so rects that merely share an edge fit (see
+    /// <see cref="Edge"/> for why sharing one has to be tested with slack).</summary>
     private static bool Overlaps(NavRect a, NavRect b) =>
-        a.X0 < b.X1 && a.X1 > b.X0 && a.Y0 < b.Y1 && a.Y1 > b.Y0;
+        a.X0 + Edge < b.X1 && a.X1 > b.X0 + Edge && a.Y0 + Edge < b.Y1 && a.Y1 > b.Y0 + Edge;
 }
