@@ -2,6 +2,10 @@ using System.IO;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
+// The file's own SensorLinks property shadows the static class of that name inside this type, and the migration
+// below needs both. Aliasing the class is less noise than renaming a persisted property away from its JSON key.
+using SensorWiring = Ostraplan.Core.SensorLinks;
+
 namespace Ostraplan.Core;
 
 /// <summary>
@@ -45,6 +49,15 @@ public sealed class OplanFile
     /// array order is preserved, so an index pair round-trips a link. A pair referencing a part that was dropped on
     /// load (a missing-mod part) is skipped. Additive at format v1, like <see cref="Zones"/>.</summary>
     [JsonPropertyName("links")] public List<OplanLink> Links { get; set; } = [];
+    /// <summary>The design's sensor connections (see <see cref="SensorLink"/>) — which sensor each device follows.
+    /// Same shape as <see cref="Links"/>, a directed pair of indices into <see cref="Parts"/>, and additive at
+    /// format v1 for the same reason: an older build ignores the key and round-trips it via <see cref="Extra"/>.
+    ///
+    /// <para>Kept apart from <see cref="Links"/> rather than tagged, because the two channels are stored
+    /// differently in the game, validated differently, and a device takes exactly one of these against any number
+    /// of those. A file written before this existed has none, and its breaker links are migrated on load (see
+    /// <see cref="ToDocument"/>).</para></summary>
+    [JsonPropertyName("sensorLinks")] public List<OplanLink> SensorLinks { get; set; } = [];
     /// <summary>Problem-warning keys the user dismissed (see <see cref="ShipDocument.DismissedAlerts"/>). Additive
     /// at format v1, like <see cref="Zones"/>.</summary>
     [JsonPropertyName("dismissedAlerts")] public List<string> DismissedAlerts { get; set; } = [];
@@ -110,6 +123,10 @@ public sealed class OplanFile
                            Fill = p.Fill is { } fill
                                ? new Dictionary<string, double>(fill, StringComparer.Ordinal) : null,
                            Cond = p.Condition,
+                           Device = p.Device is { } dev ? new OplanDevice
+                           {
+                               Bus = dev.Bus.ToString(), Turbo = dev.Turbo, Reverse = dev.Reverse, Slow = dev.Slow,
+                           } : null,
                        })
                        .ToList(),
             Zones = doc.Zones.Select(ToOplanZone).ToList(),
@@ -132,6 +149,10 @@ public sealed class OplanFile
         foreach (var l in doc.Links)
             if (indexById.TryGetValue(l.Source, out var si) && indexById.TryGetValue(l.Target, out var ti))
                 file.Links.Add(new OplanLink { Src = si, Tgt = ti });
+        // Sensor links the same way, in their own array (see OplanFile.SensorLinks).
+        foreach (var l in doc.SensorLinks)
+            if (indexById.TryGetValue(l.Source, out var si) && indexById.TryGetValue(l.Target, out var ti))
+                file.SensorLinks.Add(new OplanLink { Src = si, Tgt = ti });
         file.DismissedAlerts = doc.DismissedAlerts.OrderBy(k => k, StringComparer.Ordinal).ToList();
         // Only the factions this design's cargo actually references, sorted for a readable diff. A save carries a
         // few hundred, nearly all of them the per-person ones the game mints as it goes, and writing those into
@@ -191,6 +212,9 @@ public sealed class OplanFile
                 // Clamped rather than trusted: the field is hand-editable and a value outside 0..1 would drive
                 // the wear shader and the export's StatDamage past the pool the part actually has.
                 Condition = Paint.Clamp(part.Cond),
+                // Clamped to what the def offers for the same reason: the file is hand-editable, and a turbo flag
+                // on a def with no IsTurbo would zero the pump's rate rather than doing nothing (see DeviceSettings).
+                Device = FromOplanDevice(part.Device)?.ClampTo(catalog.Lookup(part.Def)).OrNull(),
             };
             doc.Add(placement);
             byIndex[i] = placement;
@@ -206,12 +230,42 @@ public sealed class OplanFile
                 if (part.CargoOwn ?? true) doc.MarkCargoEdited(placement);
             }
         }
-        // Device links: resolve each (source, target) index pair to its placements; skip a pair whose endpoint was
-        // dropped (missing-mod part) so a stale index can never wire the wrong parts.
+        // Sensor links: resolve each (sensor, device) index pair to its placements; skip a pair whose endpoint was
+        // dropped (missing-mod part) so a stale index can never wire the wrong parts. Read before the breaker
+        // links, because their migration below has to see which devices already have a sensor.
+        foreach (var l in SensorLinks)
+        {
+            var (src, tgt) = Resolve(l);
+            if (src is not null && tgt is not null) doc.AddSensorLink(new SensorLink(src.Id, tgt.Id));
+        }
+
+        // Breaker links, same resolution. Files written before the two channels were told apart put every
+        // connection here, including the alarm-drives-pump ones that only ever worked on the sensor channel — the
+        // editor allowed them and the export wrote them, and in game they did nothing. Such a pair is moved to the
+        // channel it belongs on, since the intent is unambiguous and it is the difference between a pump that runs
+        // and one that does not.
+        //
+        // Anything else is kept as a breaker link exactly as written, even where the current rules would not let
+        // the user draw it. Loading a design must not delete what is in it: an unrecognised pair may be a modded
+        // breaker this build cannot identify, and it is inert rather than harmful now that the input side is
+        // written as On (an unsignalled input used to hold its target shut down — see ShipExport.ElectricalGpm).
+        // The editor and the export both leave what they find alone, the same latitude an imported ship gets.
         foreach (var l in Links)
-            if (l.Src >= 0 && l.Src < byIndex.Length && l.Tgt >= 0 && l.Tgt < byIndex.Length
-                && byIndex[l.Src] is { } src && byIndex[l.Tgt] is { } tgt)
+        {
+            var (src, tgt) = Resolve(l);
+            if (src is null || tgt is null) continue;
+            if (!DeviceLinks.CanSource(doc, src)
+                && SensorWiring.CanDrive(doc, src, tgt)
+                && SensorWiring.Driving(doc, tgt) is null)
+                doc.AddSensorLink(new SensorLink(src.Id, tgt.Id));
+            else
                 doc.AddLink(new DeviceLink(src.Id, tgt.Id));
+        }
+
+        (Placement? Src, Placement? Tgt) Resolve(OplanLink l) =>
+            l.Src >= 0 && l.Src < byIndex.Length && l.Tgt >= 0 && l.Tgt < byIndex.Length
+                ? (byIndex[l.Src], byIndex[l.Tgt])
+                : (null, null);
         doc.LoadDismissedAlerts(DismissedAlerts);
         if (Factions is { Count: > 0 }) doc.LoadFactionNames(Factions);
         foreach (var z in Zones) doc.AddZone(FromOplanZone(z));
@@ -231,6 +285,17 @@ public sealed class OplanFile
                 });
         return (doc, missing);
     }
+
+    /// <summary>Rebuild a device's panel settings from its snapshot. An unrecognised bus name reads as
+    /// <see cref="DeviceBusMode.Auto"/> — follow the sensor, force nothing — which is the reading that cannot
+    /// brick a device the file is confused about.</summary>
+    private static DeviceSettings? FromOplanDevice(OplanDevice? o) => o is null ? null : new DeviceSettings
+    {
+        Bus = Enum.TryParse<DeviceBusMode>(o.Bus, ignoreCase: true, out var bus) ? bus : DeviceBusMode.Auto,
+        Turbo = o.Turbo,
+        Reverse = o.Reverse,
+        Slow = o.Slow,
+    };
 
     /// <summary>Persist a zone: its editable fields plus its tiles as document <c>[x,y]</c> pairs (the doc plane
     /// is unbounded and can be negative, so tiles are stored as coordinates, not flat indices).</summary>
@@ -423,6 +488,22 @@ public sealed class OplanPart
     /// an older build ignores it and round-trips it through <see cref="Extra"/>, so a design opened in one exports
     /// on the whole-ship wear setting alone but loses nothing.</summary>
     [JsonPropertyName("cond")] public double? Cond { get; set; }
+    /// <summary>What the designer set on this device's own control panel (see <see cref="Placement.Device"/>).
+    /// Null — and omitted — for a part left as its def ships it, which is nearly all of them. Additive at format
+    /// v1, like the rest: an older build ignores it and round-trips it through <see cref="Extra"/>.</summary>
+    [JsonPropertyName("device")] public OplanDevice? Device { get; set; }
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
+}
+
+/// <summary>A device's authored panel settings in the file (see <see cref="DeviceSettings"/>). The bus knob is
+/// written as a name rather than its number so the file stays readable; an unrecognised one reads back as
+/// <see cref="DeviceBusMode.Auto"/>, which is the safe default (follow the sensor, force nothing).</summary>
+public sealed class OplanDevice
+{
+    [JsonPropertyName("bus")] public string? Bus { get; set; }
+    [JsonPropertyName("turbo")] public bool Turbo { get; set; }
+    [JsonPropertyName("reverse")] public bool Reverse { get; set; }
+    [JsonPropertyName("slow")] public bool Slow { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }
 

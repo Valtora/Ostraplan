@@ -19,6 +19,21 @@ public sealed record TemplateItem(string DefName, double FX, double FY, double F
     /// equipped gear) — null exactly when <see cref="Contained"/> is false. Lets an import walk a contained item to
     /// its root holder, which is what tells crew-carried gear apart from a rack's contents.</summary>
     public string? ParentId { get; init; }
+
+    /// <summary>The <c>strID</c> of the sensor this device follows (<c>strInput01</c> on its own control panel),
+    /// or null when it follows none — including the game's "points at itself" form (see
+    /// <see cref="GpmPanels.SensorInput"/>). This is the link nearly every stock ship uses to make its pumps and
+    /// coolers run, and it used to be dropped wholesale on import.</summary>
+    public string? SensorInputId { get; init; }
+
+    /// <summary>The item <c>strID</c>s this one drives over the breaker channel (its <c>Electrical</c> panel's
+    /// <c>outputConnections</c>). Only the driving side is read: the driven side's <c>inputConnections</c> is the
+    /// same set of relationships seen from the other end, and reading both would double every link.</summary>
+    public IReadOnlyList<string> ElectricalOutputs { get; init; } = [];
+
+    /// <summary>The device panel settings this item carries — bus knob and modes (see
+    /// <see cref="DeviceSettings"/>). Null for an item at its def's defaults, which is most of them.</summary>
+    public DeviceSettings? Device { get; init; }
 }
 
 /// <summary>A room as the game computed and baked it into the template: the tile
@@ -153,11 +168,19 @@ public sealed class ShipTemplate
             if (string.IsNullOrEmpty(def)) continue;
             var parentId = Json.Str(it, "strParentID") is { Length: > 0 } pp ? pp
                 : Json.Str(it, "strSlotParentID") is { Length: > 0 } sp ? sp : null;
+            // Every panel on the item, read once: the rename, the sensor it follows, its breaker outputs and its
+            // own settings all live in aGPMSettings, and walking it four times would be four times the work on a
+            // file with thousands of items.
+            var strId = Json.Str(it, "strID");
+            var panels = GpmPanels.Read(it);
             items.Add(new TemplateItem(def!, Json.Dbl(it, "fX"), Json.Dbl(it, "fY"),
-                Json.Dbl(it, "fRotation"), Json.Str(it, "strID"), parentId is not null)
+                Json.Dbl(it, "fRotation"), strId, parentId is not null)
             {
                 CustomName = Rename.FromItem(it),
                 ParentId = parentId,
+                SensorInputId = GpmPanels.SensorInput(panels, strId),
+                ElectricalOutputs = GpmPanels.Connections(panels, GpmPanels.OutputConnectionsKey),
+                Device = GpmPanels.Settings(panels),
             });
         }
 

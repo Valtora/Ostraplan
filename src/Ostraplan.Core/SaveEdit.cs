@@ -80,6 +80,7 @@ public static class SaveEdit
         // The optional wear pass (below) re-rolls StatDamage on exactly this set — the installed structure the
         // Ship Rating's Condition slot averages over — leaving cargo, crew and system spawners alone.
         var structuralIds = new HashSet<string>(StringComparer.Ordinal);
+        var saveIdByPlacement = new Dictionary<Guid, string>();   // placement → the save item id it writes as, for wiring
         // Condition the designer painted on a part, keyed by the CO strID that part ends up as. An authored value
         // beats the roll and applies whether or not the wear pass is armed, so a battered station written back
         // over a ship arrives battered even on a "keep the existing condition" pass.
@@ -383,9 +384,16 @@ public static class SaveEdit
             }
 
             structuralIds.Add(containerId);
+            saveIdByPlacement[p.Id] = containerId;
             if (p.Condition is { } painted) paintedById[containerId] = painted;
             EmitCargo(p.Cargo, containerId, fx, fy);
         }
+
+        // Both signal channels, written after every part has its save item id. Like the rename above this runs for
+        // kept parts as well as new ones, and for the same reason: the design is what the user edited, an import
+        // reads the ship's existing wiring into it, so what the design says now is the intent — including a wire
+        // they removed, which has to be cleared from the save's own item rather than left behind.
+        ApplyWiring(doc, catalog, outItemsById, saveIdByPlacement);
 
         // Loose floor items (the Items palette): each is a free-standing top-level item at its tile. Unlike a
         // template, a save load skips any item without a CO (DataHandler.SpawnItems), so every one needs a
@@ -1428,6 +1436,118 @@ public static class SaveEdit
         foreach (var (instance, dict) in settings)
             arr.Add(new JsonObject { ["strName"] = instance, ["dictGUIPropMap"] = JsonNode.Parse(dict.GetRawText()) });
         return arr;
+    }
+
+    /// <summary>
+    /// Write the design's wiring onto the save's items — both signal channels (see GAME-INTERNALS §14).
+    ///
+    /// <para>Panels are <b>merged key by key</b> rather than replaced, which is what keeps a write-back honest on a
+    /// kept item: a breaker the player set to AND with a two-second delay keeps its gate and delay, and only the
+    /// connection lists are restated. A device that the design says is unwired has its keys written <b>empty</b>
+    /// rather than omitted, so removing a wire in Ostraplan actually removes it.</para>
+    ///
+    /// <para>Endpoints are the save item ids the parts are being written as, so a link between two parts the
+    /// player already owns reuses their real ids and a link to a newly-placed device uses the fresh one minted for
+    /// it above.</para>
+    /// </summary>
+    private static void ApplyWiring(
+        ShipDocument doc, Catalog catalog, Dictionary<string, JsonObject> outItemsById,
+        Dictionary<Guid, string> saveIdByPlacement)
+    {
+        var outputs = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        var inputs = new Dictionary<string, List<string>>(StringComparer.Ordinal);
+        foreach (var (_, source, target) in DeviceLinks.Resolved(doc))
+        {
+            if (!saveIdByPlacement.TryGetValue(source.Id, out var sId)
+                || !saveIdByPlacement.TryGetValue(target.Id, out var tId)) continue;
+            (outputs.TryGetValue(sId, out var o) ? o : outputs[sId] = []).Add(tId);
+            (inputs.TryGetValue(tId, out var i) ? i : inputs[tId] = []).Add(sId);
+        }
+
+        var sensorByTarget = new Dictionary<Guid, string>();
+        foreach (var (_, source, target) in SensorLinks.Resolved(doc))
+            if (saveIdByPlacement.TryGetValue(source.Id, out var sId))
+                sensorByTarget[target.Id] = sId;
+
+        foreach (var placement in doc.Placements)
+        {
+            if (!saveIdByPlacement.TryGetValue(placement.Id, out var saveId)) continue;
+            if (outItemsById.GetValueOrDefault(saveId) is not { } item) continue;
+            if (catalog.Lookup(placement.DefName) is not { } part) continue;
+
+            // The breaker channel. Written when the design has connections for this part, and also when the save's
+            // item already carries the panel — that second case is what lets a wire the user pulled be cleared
+            // rather than merely left out. A part that has neither is not touched at all, so a write-back does not
+            // sprinkle empty panels across every signalable device aboard.
+            var hasBreakerWiring = inputs.ContainsKey(saveId) || outputs.ContainsKey(saveId);
+            if (hasBreakerWiring || HasPanel(item, GpmPanels.ElectricalPanel))
+                MergePanel(item, GpmPanels.ElectricalPanel,
+                [
+                    (GpmPanels.InputConnectionsKey, JoinConnections(inputs.GetValueOrDefault(saveId) ?? [], 2)),
+                    (GpmPanels.OutputConnectionsKey, JoinConnections(outputs.GetValueOrDefault(saveId) ?? [], 0)),
+                ]);
+
+            if (DevicePanels.SensorPanel(catalog, part) is not { } panel) continue;
+            var settings = (placement.Device ?? DeviceSettings.Default).ClampTo(part);
+            var sensor = sensorByTarget.GetValueOrDefault(placement.Id);
+            if (sensor is null && settings.IsDefault && !HasPanel(item, panel.Instance)) continue;
+
+            var keys = new List<(string, string)>
+            {
+                (DevicePanel.SensorInputKey, sensor ?? ""),
+                ("nKnobBus", ((int)settings.Bus).ToString()),
+            };
+            if (DeviceSettings.Applicable(part, DevicePanels.TurboCond)) keys.Add(("bTurbo", Flag(settings.Turbo)));
+            if (DeviceSettings.Applicable(part, DevicePanels.ReverseCond)) keys.Add(("bReverse", Flag(settings.Reverse)));
+            if (DeviceSettings.Applicable(part, DevicePanels.SlowCond)) keys.Add(("bSlowMode", Flag(settings.Slow)));
+            MergePanel(item, panel.Instance, keys);
+        }
+
+        static string Flag(bool value) => value ? "true" : "false";
+    }
+
+    /// <summary>Whether this item already carries a panel of that name — the test for "there is something here to
+    /// restate or clear", as against a device the design has nothing to say about.</summary>
+    private static bool HasPanel(JsonObject item, string panelName) =>
+        item["aGPMSettings"] is JsonArray panels && panels.OfType<JsonObject>().Any(p => Str(p, "strName") == panelName);
+
+    /// <summary>A comma-joined connection list in the game's
+    /// <c>&lt;strID&gt;#&lt;signalType&gt;#&lt;switchStatus&gt;#&lt;nickName&gt;</c> form. The signal type differs
+    /// by side — <c>On</c> (2) on the input side, <c>None</c> (0) on the output side — see
+    /// <see cref="ShipExport"/> for why an input at anything but <c>On</c> holds the device shut down.</summary>
+    private static string JoinConnections(List<string> ids, int signalType) =>
+        string.Join(",", ids.Select(id => $"{id}#{signalType}#true#"));
+
+    /// <summary>
+    /// Write key/value pairs into one of an item's GPM panels, creating the panel if it has none, and rewriting a
+    /// key already there in place. Every other key on the panel is left alone, which is what lets a write-back
+    /// restate a connection without discarding the gate, delay and override a player set in game.
+    ///
+    /// <para>The map is the game's <b>flat alternating</b> key/value array, and a duplicate panel of the same name
+    /// merges last-wins on load (<c>Ship.CreatePart</c>), so the <b>last</b> matching panel is the one written —
+    /// the one the game would end up reading.</para>
+    /// </summary>
+    private static void MergePanel(JsonObject item, string panelName, IReadOnlyList<(string Key, string Value)> keys)
+    {
+        if (keys.Count == 0) return;
+        if (item["aGPMSettings"] is not JsonArray panels) item["aGPMSettings"] = panels = [];
+
+        var panel = panels.OfType<JsonObject>().LastOrDefault(p => Str(p, "strName") == panelName);
+        if (panel is null)
+        {
+            panel = new JsonObject { ["strName"] = panelName, ["dictGUIPropMap"] = new JsonArray() };
+            panels.Add(panel);
+        }
+        if (panel["dictGUIPropMap"] is not JsonArray flat) panel["dictGUIPropMap"] = flat = [];
+
+        foreach (var (key, value) in keys)
+        {
+            var at = -1;
+            for (var i = 0; i + 1 < flat.Count; i += 2)
+                if (flat[i]?.GetValue<string>() == key) { at = i + 1; break; }
+            if (at < 0) { flat.Add(key); flat.Add(value); continue; }
+            flat[at] = value;
+        }
     }
 
     /// <summary>

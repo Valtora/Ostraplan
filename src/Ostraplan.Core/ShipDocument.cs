@@ -152,7 +152,7 @@ public sealed class Placement
             // So does Fill: uninstalling a tank does not empty it, and the loose form is the same shell with the
             // same volume and rating. A line the target def does not have is dropped where the fill is applied.
             DefName = targetDef, X = X, Y = Y, Rot = rot, IsGiven = false, Cargo = Cargo, CustomName = CustomName,
-            ZBias = ZBias, NavLayout = NavLayout, Fill = Fill, Condition = Condition,
+            ZBias = ZBias, NavLayout = NavLayout, Fill = Fill, Condition = Condition, Device = Device,
             OriginStrID = backHome ? carriedId : null,
             SwappedFromStrID = backHome ? null : carriedId,
             SwappedFromDef = backHome || carriedId is null ? null : carriedDef,
@@ -213,6 +213,22 @@ public sealed class Placement
     /// dropped by duplicate / paste along with the rest of the part's identity.</para>
     /// </summary>
     public IReadOnlyDictionary<string, double>? Fill { get; set; }
+
+    /// <summary>
+    /// What the designer set on this device's own control panel — bus knob and optional modes (see
+    /// <see cref="DeviceSettings"/>). Null on every part left as its def ships it, which is nearly all of them,
+    /// and on every part that has no such panel.
+    ///
+    /// <para>The sensor a device follows is <b>not</b> here: that is a <see cref="SensorLink"/> between two
+    /// placements. This holds only the per-device switches.</para>
+    ///
+    /// <para>It rides through a move and through <see cref="Restate"/> — switching a pump off does not turn its
+    /// reverse knob back, and uninstalling then reinstalling one must not lose it — and is dropped by duplicate /
+    /// paste along with the rest of the part's identity. It is carried <b>unclamped</b> so that round trip is
+    /// lossless; <see cref="DeviceSettings.ClampTo"/> drops what the current def does not offer at the point the
+    /// settings are written or shown.</para>
+    /// </summary>
+    public DeviceSettings? Device { get; set; }
 }
 
 /// <summary>
@@ -254,7 +270,8 @@ public sealed class ShipDocument
     private readonly List<LooseObject> _loose = [];   // loose items lying on the decks (overlay), in insertion order
     private readonly HashSet<Guid> _looseIds = [];    // membership for _loose, so a drop is not an O(n) scan
     private readonly Dictionary<(int, int), List<LooseObject>> _looseByTile = [];   // spatial index: tile -> items covering it
-    private readonly List<DeviceLink> _links = [];   // signal connections between signalable devices (overlay, by Placement.Id)
+    private readonly List<DeviceLink> _links = [];   // breaker connections (Electrical GPM) — overlay, by Placement.Id
+    private readonly List<SensorLink> _sensorLinks = [];   // sensor→device connections (strInput01) — overlay, by Placement.Id
     private readonly HashSet<string> _dismissedAlerts = new(StringComparer.Ordinal);   // problem warnings the user hid (by DismissKey)
 
     public Catalog Catalog { get; }
@@ -491,6 +508,11 @@ public sealed class ShipDocument
     /// only render, persist and export. Held by <see cref="Placement.Id"/>. All mutation goes through the command
     /// stack (the <c>internal</c> mutators below).</summary>
     public IReadOnlyList<DeviceLink> Links => _links;
+
+    /// <summary>The sensors driving devices (see <see cref="SensorLink"/>) — the design's other signal channel,
+    /// and the one an air pump or a cooler needs to run at all. Same overlay terms as <see cref="Links"/>: held by
+    /// <see cref="Placement.Id"/>, no tile conditions, all mutation through the command stack.</summary>
+    public IReadOnlyList<SensorLink> SensorLinks => _sensorLinks;
 
     /// <summary>The placement with this <see cref="Placement.Id"/>, or null — the reverse of the id a
     /// <see cref="DeviceLink"/> stores.</summary>
@@ -1201,6 +1223,24 @@ public sealed class ShipDocument
     /// <summary>Remove a signal connection.</summary>
     internal void RemoveLink(DeviceLink link) { if (_links.Remove(link)) RaiseChangedOrderIntact(); }
 
+    /// <summary>Add a sensor connection (no-op if the identical one already exists). The one-sensor-per-device
+    /// rule is enforced by the command (see <see cref="AddSensorLinkCommand"/>), not here, so undo can put the
+    /// displaced link back.</summary>
+    internal void AddSensorLink(SensorLink link)
+    {
+        if (!_sensorLinks.Contains(link)) { _sensorLinks.Add(link); RaiseChangedOrderIntact(); }
+    }
+
+    /// <summary>Remove a sensor connection.</summary>
+    internal void RemoveSensorLink(SensorLink link) { if (_sensorLinks.Remove(link)) RaiseChangedOrderIntact(); }
+
+    /// <summary>Set or clear a device's panel settings (see <see cref="Placement.Device"/>).</summary>
+    internal void SetDeviceSettings(Placement p, DeviceSettings? settings)
+    {
+        p.Device = settings?.OrNull();
+        RaiseChangedOrderIntact();
+    }
+
     internal void Clear()
     {
         _placements.Clear();
@@ -1214,6 +1254,7 @@ public sealed class ShipDocument
         _looseByTile.Clear();
         LooseConds.Clear();
         _links.Clear();
+        _sensorLinks.Clear();
         _dismissedAlerts.Clear();
         _seq = 0;
         RaiseChanged();

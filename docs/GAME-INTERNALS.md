@@ -32,7 +32,7 @@ run one**. See [When a sweep is warranted](#when-a-sweep-is-warranted) in sectio
 - [11. Ship value (`Ship.GetShipValue`)](#11-ship-value-shipgetshipvalue)
 - [12. Operational vs installed state](#12-operational-vs-installed-state)
 - [13. The power network](#13-the-power-network)
-- [14. Device signal connections (the `Electrical` GPM)](#14-device-signal-connections-the-electrical-gpm)
+- [14. Device signal connections (two channels)](#14-device-signal-connections-two-channels)
 - [15. Rendering](#15-rendering)
 - [16. Lighting](#16-lighting)
 - [17. Ship serialization (templates and saves)](#17-ship-serialization-templates-and-saves)
@@ -1096,42 +1096,148 @@ power.
 
 ---
 
-## 14. Device signal connections (the `Electrical` GPM)
+## 14. Device signal connections (two channels)
 
-The game's **signal-wiring** system (sensor → alarm/pump/light, controllers, logic
-gates) is distinct from the power network. It is driven by an **`Electrical`** GPM
-component (`strGPMKey = "Electrical"`) attached to every condowner whose
-`aStartingConds` carry **`IsSignalable`** (alarms, air pumps, sensors, switches,
-lights, …).
+The game has **two entirely separate** ways one device drives another, stored differently,
+validated differently, and consumed by different code. Getting this wrong is what made
+Ostraplan's exported pumps, scrubbers, heaters and coolers do nothing, so the distinction
+is the whole of this section.
 
-- **The model is directional and ID-based, not geometric.** `Electrical` holds
-  `outputConnections` and `inputConnections`, each a `Dictionary<string,
-  ElectricalConnection>` **keyed by the connected item's `strID`**.
-  `Electrical.SetUpConnection(co)` adds `co.strID` to *this* device's
-  **`outputConnections`** (so this device **drives** `co`). So **A→B means A's
-  `outputConnections` lists B and B's `inputConnections` lists A.** There is **no**
-  distance / adjacency / conduit requirement in the persisted model — a connection is
-  a pair of `strID` references. (In game it is *created* with a rewire tool
-  (`IsToolWireCutter`), whose interaction has its own proximity rules, but the stored
-  connection is pure ID.)
+*Verified against game `1.0.0.13`.*
+
+| | **Breaker channel** | **Sensor channel** |
+| --- | --- | --- |
+| What it does | switches a device on and off remotely | a device *follows* a sensor and runs while it is tripped |
+| Created by | `GUIBreaker.SetInput` → `Electrical.SetUpConnection` | `GUIAirPump.SetInput`, which writes a key and nothing else |
+| Stored in | the `Electrical` GPM's `inputConnections` / `outputConnections` | `strInput01` on the **driven device's own** panel |
+| Read by | `Electrical.ResolveSignalQueue`, then `Powered.Run` | `GasPump.UpdateRemote` / `Heater.UpdateRemote` |
+| Sources | `ItmElectricalBox01` only, in all of `data/ships` | any alarm, or the thermostat |
+| Cardinality | unlimited (`HasUnlimitedPorts`) | one sensor **per device**; a sensor drives any number |
+| Stock usage | 274 wired items | **1,780** links |
+
+### 14a. The breaker channel (the `Electrical` GPM)
+
+An **`Electrical`** GPM component (`strGPMKey = "Electrical"`) is attached to every
+condowner whose `aStartingConds` carry **`IsSignalable`** — alarms, pumps, sensors,
+lights, doors, RCS, antennae.
+
+- **Directional and ID-based, with no geometry.** `Electrical` holds `outputConnections`
+  and `inputConnections`, each a `Dictionary<string, ElectricalConnection>` **keyed by the
+  connected item's `strID`**. `Electrical.SetUpConnection(co)` adds `co.strID` to *this*
+  device's **`outputConnections`**, so **A→B means A's `outputConnections` lists B and B's
+  `inputConnections` lists A.** There is no distance, adjacency or conduit requirement in
+  the persisted model.
+- **Only a breaker box creates one.** `GUIBreaker.SetInput` is the sole caller of
+  `SetUpConnection`. Its panel's `strValidCOTrigger01` is `TIsSignalOpen` =
+  `IsSignalable` ∧ `IsInstalled`, which is what the box may drive. Across all of
+  `data/ships` the only def ever appearing as the source of an `outputConnections` entry
+  is `ItmElectricalBox01` (and its Off/Damaged forms); everything else is only ever a sink.
+  The box's own panel labels these "inputs" while storing them as outputs, which is a UI
+  quirk, not a second direction.
 - **Runtime semantics.** A wired sink gains **`IsConnected`** (via `TUpConnected`) and
-  **`IsSignalledOn`** (via `TUpSignalled`); **`TIsConnctedSignalledOff`** =
-  `IsConnected` ∧ ¬`IsSignalledOn` fires the device's power-info `strShutDownCT`, i.e.
-  a connected device is held off until its source signals it on. `gate` (a
-  `GateMode`), `positives`, and the threshold slider are per-device *logic* (AND / OR
-  / threshold over inputs), not connection legality.
-- **Persist shape.** The wiring rides on each item's **`aGPMSettings`** entry `{
-  "strName": "Electrical", "dictGUIPropMap": [ …flat key/value… ] }`. A connections
-  value is a **comma-joined list of `<targetStrID>#<signalType>#<status>#<name>`**
-  entries (e.g. `…#0#true#N2 Pressure Alarm`).
-- **Legality.** Both endpoints must be **installed** parts carrying `IsSignalable`, on
-  the same ship; a device may not connect to itself, and duplicate links collapse.
-  That is the whole rule — there is no geometric constraint.
+  **`IsSignalledOn`** (via `TUpSignalled`); **`TIsConnctedSignalledOff`** = `IsConnected` ∧
+  ¬`IsSignalledOn` is the `strShutDownCT` of 73 power-infos. `Electrical.ResolveSignalQueue`
+  counts inputs whose `signalType` is `On`; under the default `OR` gate a device holding a
+  connection that is *not* `On` resolves false, raises **`IsSignalOff`**, and
+  `Powered.Run` shuts it down.
+- **A source with no inputs of its own never signals anything.** `ResolveSignalQueue`
+  propagates only when its gate result *changes*, and a device with `inputConnections.Count
+  == 0` resolves true at load and stays there. So an alarm wired to a pump on **this**
+  channel does nothing at all — and worse, leaves the pump held off. That is why the
+  editor restricts sourcing to breaker boxes.
+- **Persist shape.** The wiring rides on the item's **`aGPMSettings`** entry
+  `{ "strName": "Electrical", "dictGUIPropMap": [ …flat key/value… ] }`. The canonical key
+  set is exactly `status`, `inputConnections`, `outputConnections`, `signalQueue`,
+  `sendQueue`, `override`, `delay`, `gate`. A connection value is a comma-joined list of
+  `<targetStrID>#<signalType>#<switchStatus>#<nickName>`.
+- **`SignalType` is per side, and this bites.**
+  `Ostranauts.Electrical.SignalType { None=0, Off=1, On=2, Toggle=3, Cycle=4, Connect=5,
+  Disconnect=6 }`. Stock ships write **`0` on every one of their 203 output entries** and
+  **`1` or `2` on every input entry** (175 On, 79 Off). Writing `0` on the input side, as
+  Ostraplan did until 1.6.0, leaves the driven device permanently shut down by the rule
+  above. `gate` is a `GateMode { OR=0, AND=1, NOR=2, NAND=3 }`; `delay` is `0.0` and
+  `override` `true` on essentially every stock item.
+- **`inputIDs`, `outputIDs` and `positives` are not real.** `Electrical` neither reads nor
+  writes them. They survive in three legacy stock ships (`_Chromastronauts`, `_meatTest`,
+  `_box`) and nowhere else.
 
-> **Ported in Ostraplan:** `DeviceLink` (a directed part-id pair), `DeviceLinks`
-> (validity), baked on export into each wired item's `Electrical` GPM
-> (`ShipExport.WireDeviceLinks`). Gate/threshold logic is out of scope — that is the
-> in-game signal box's job.
+### 14b. The sensor channel (`Panel A` `strInput01`)
+
+This is the channel nearly every ship in the game actually uses, and it never touches
+`Electrical`.
+
+- **A device names the sensor it follows on its own control panel.**
+  `GUIAirPump.SetInput(co)` writes `dictPropMap["strInput01"] = co.strID` and sets
+  `bUpdateRemote`; it creates no `Electrical` connection. `GasPump.UpdateRemote` (for air
+  pumps and both atmo scrubbers) and `Heater.UpdateRemote` (for heaters and coolers) read
+  that key back into `strRemoteID`.
+- **What it decides.** `GasPump.Pump` / `Heater.Heat` resolve, in order: `IsOverrideOn` →
+  run; `IsOverrideOff` → stop; no sensor → test **itself**; otherwise → test the **sensor**.
+  The test is the gas-respire's `strSignalCTMain` (`TIsReadyPumpAir` for `AirPump`,
+  `AirPump02`, `AtmoScrubber02`) or the panel's `strCondMonitor01` (`DcGasTemp01` for a
+  heater, `DcGasTemp03` for a cooler).
+- **So an unwired device never runs.** `IsReadyPumpAir` is carried only by a **tripped**
+  alarm (`ItmAlarm*OnR`, plus `ItmAlarmCO2OnY`) and by `OutfitEVA01` — never by a pump. The
+  temperature conds are carried only by `ItmAlarmTempOnB`/`OnR`. A device testing itself can
+  therefore never pass, and only a hand-set bus knob will start it.
+  **The one exception is the CO2 scrubber**: `AtmoScrubber01`'s gas-respire names no
+  `strSignalCTMain`, `DataHandler.GetCondTrigger(null)` returns the `Blank` trigger, and
+  `CondTrigger.Triggered` returns true immediately for a blank one, so it runs regardless.
+- **Validity is per device, from its own panel's `strValidCOTrigger01`.**
+
+  | Panel (`data/guipropmaps`) | Devices | Valid sensor | Monitored cond |
+  | --- | --- | --- | --- |
+  | `AirPump` | air pumps | `TIsAlarm2` (any alarm) | `IsReadyPumpAir` |
+  | `AtmoScrubber` | CO2 scrubber | `TIsAlarm2` | `IsReadyHeat` |
+  | `AtmoScrubber02` | contaminant scrubber | `TIsAlarm2` | `IsReadyPumpAir` |
+  | `Cooler` | coolers | `TIsAlarmTemp` (thermostat) | `DcGasTemp03` |
+  | `Heater` | heaters | `TIsAlarmTemp` | `DcGasTemp01` |
+
+  `TIsAlarm2` requires `IsAlarm2`, carried by all seven alarm families in every state;
+  `TIsAlarmTemp` requires `IsAlarmTemp`, carried by the thermostat alone.
+- **The limit is one sensor per device, not one device per sensor.** The key lives on the driven
+  device, so nothing stops several naming the same sensor, and `CrewSim.ShowInputSelector` highlights
+  every condowner satisfying the trigger with no exclusion for one already in use. The stock ships
+  bear it out: of their 941 wired sensors, **307 drive more than one device** — commonly one
+  thermostat running a deck's heaters and coolers together, and up to eight devices off a single
+  sensor.
+- **"No sensor" is written as the device's own `strID`.** `SetInput(null)` falls back to
+  `COSelf`, so 337 stock devices point at themselves. `Heater` tests for it explicitly and
+  `GasPump` reaches the same outcome by testing itself. An empty string reads as unwired
+  too, since `GetCOByID("")` is null.
+- **The authored keys.** Of the 2,124 stock devices carrying a `Panel A`, everything except
+  five keys is a template constant materialised from the def. The five a player can set are
+  `strInput01`, `nKnobBus` (`0` forced off → `IsOverrideOff`, `1` auto, `2` forced on →
+  `IsOverrideOn`; 1,405 / 173 / 180 of the 1,758 that carry it), `bTurbo`, `bReverse` and
+  `bSlowMode`.
+- **A mode key is only safe where the def declares its cond.** `GUIAirPump.LoadCOStats`
+  hides a checkbox whose cond (`IsTurbo` / `IsReverse` / `IsSlowMode`) is absent, but
+  `GasPump.UpdateRemote` applies `bTurbo` regardless — and the rate multiplier it then reads
+  off `IsTurbo` is **zero** on a def that does not declare it, so an ungated turbo flag stops
+  the pump. On stock 1.0.0.13 only `ItmAirPump02*` declares `IsReverse`/`IsSlowMode`, and
+  **nothing** declares `IsTurbo`.
+
+### 14c. Why a partial panel is enough to write
+
+`CondOwner.SetData` materialises **every** panel a def declares out of `data/guipropmaps`
+(a fresh copy per instance, `DataHandler.GetGUIPropMap`) before anything else touches the
+condition owner — on the save path as much as the template path, since `SetData` takes the
+def and the save record together. `Ship.CreatePart` then merges the item's own
+`aGPMSettings` on top **key by key**, last duplicate winning.
+
+So an exported item only has to carry the keys it is actually authoring. Baking a copy of
+a game template into every ship would work today and go stale the first time the game or a
+mod changed one.
+
+> **Ported in Ostraplan:** `DeviceLink`/`DeviceLinks` (breaker) and
+> `SensorLink`/`SensorLinks` (sensor), both validated from the defs' declared panels via
+> `DevicePanels` rather than from any hardcoded def list, so mods get the same rules.
+> `DeviceSettings` carries the bus knob and modes. Written by
+> `ShipExport.WireDeviceLinks` / `WireSensorLinks` on the template path and
+> `SaveEdit.ApplyWiring` on the save path; read back by `GpmPanels` on import, so a ship's
+> existing wiring survives a round trip. Gate, threshold and delay logic is left to the
+> in-game signal box: Ostraplan authors connections and the per-device switches, not logic.
+
 
 ### The `Rename` GPM — an object's own name
 
@@ -3560,7 +3666,9 @@ sets), giving a 220-ship rooms **and** certification gate. Only **Babak / Babak 
 | Crew walkability + JPS adjacency (`Tile.IsWalkable`, `JumpPointSearch`) | ported (fire and the EVA-gravity gate excluded; door pressure approximated by room Void) | `WalkNetwork` |
 | Interaction reach (`Interaction.Triggered` range + LOS) | ported | `WalkNetwork`, `LineOfSight` |
 | Crew pathing itself (costs, occupancy, doors opening over time) | excluded (a simulation, not a plan) | never ported |
-| Device signal connections (`Electrical` GPM) | ported | `DeviceLink` / `DeviceLinks`, `ShipExport.WireDeviceLinks` |
+| Device signal connections, breaker channel (`Electrical` GPM, `GUIBreaker`) | ported (§14) | `DeviceLink` / `DeviceLinks`, `ShipExport.WireDeviceLinks` |
+| Device signal connections, sensor channel (`Panel A` `strInput01`, `GasPump`/`Heater`) | ported (§14) | `SensorLink` / `SensorLinks`, `DevicePanels`, `ShipExport.WireSensorLinks` |
+| Device panel settings (`nKnobBus`, `bTurbo`, `bReverse`, `bSlowMode`) | ported (§14) | `DeviceSettings`, `Placement.Device` |
 | Object rename (`CondOwner.Rename` / `CheckForRename`, the `Rename` GPM) | ported (§14) | `Rename`, `Placement.CustomName`, `LooseObject.CustomName` |
 | Power-state switching (`PreferPoweredState` both ways; alarm sensing) | ported (nominal states only, §12) | `Catalog.PowerToggle` |
 | Deferred lighting (`Visibility` + `LoSPass`) | ported (preview only) | `LightNetwork`, `VisibilityMesh`, `LightComposite` |

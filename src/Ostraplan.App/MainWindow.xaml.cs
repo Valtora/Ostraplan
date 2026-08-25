@@ -182,7 +182,8 @@ public partial class MainWindow : Window
         board.ShowLightChanged += OnShowLightChanged;   // same for the interior-lighting flood
         board.ShowWalkChanged += OnShowWalkChanged;     // same for the crew-access analysis
         board.ShowAccessChanged += OnShowAccessChanged; // the same analysis, read one part at a time
-        board.WireModeChanged += OnWireModeChanged;     // swap the status hint for the wiring instructions
+        board.ShowWireChanged += SyncViewToggles;       // keep the toolbar's WireViz button in step
+        board.WirePickChanged += OnWirePickChanged;     // swap the status hint while a wiring pick runs
         board.SurfaceModeChanged += OnSurfaceModeChanged;   // show/hide the Surfaces bar and swap the status hint
         board.LinkToggleRequested += OnLinkToggleRequested;   // connect/disconnect two devices via the command stack
         board.ActiveZoneChanged += UpdateZones;   // reflect which zone (if any) is being painted
@@ -2147,23 +2148,24 @@ public partial class MainWindow : Window
         if (Board.ShowLight) ScheduleScan();
     }
 
-    private string? _defaultHint;   // the status-bar hint to restore when wire mode turns off
+    private string? _defaultHint;   // the status-bar hint to restore when no editing mode is on
 
-    /// <summary>Wire mode toggled: swap the status-bar hint for the wiring instructions (and back).</summary>
-    private void OnWireModeChanged()
+    /// <summary>A wiring pick was armed or dropped: swap the status-bar hint for the picking instructions (and
+    /// back), and re-check the WireViz button, since arming a pick turns the overlay on.</summary>
+    private void OnWirePickChanged()
     {
         SyncViewToggles();
         UpdateModeHint();
     }
 
-    /// <summary>The status-bar hint belongs to whichever editing mode is on, so both modes route through here rather
-    /// than each writing the bar and the later toggle winning. Wire mode takes precedence: its clicks intercept
-    /// everything, Surfaces mode only changes what a click lands on.</summary>
+    /// <summary>The status-bar hint belongs to whichever editing mode is on, so both route through here rather
+    /// than each writing the bar and the later toggle winning. A wiring pick takes precedence: its clicks
+    /// intercept everything, Surfaces mode only changes what a click lands on.</summary>
     private void UpdateModeHint()
     {
         _defaultHint ??= TxtHint.Text;
         TxtHint.Text =
-            Board.WireMode ? "WIRE MODE · click a device, then another to connect · click a connected one to disconnect · right-click/Esc to cancel"
+            Board.WirePickArmed ? "WIRING · click the part to wire this to · click a connected one to disconnect · right-click/Esc to cancel"
             : Board.SurfaceMode ? "SURFACES · drag to paint a wall/floor skin over the deck · Shift+drag boxes an area · Ctrl at release = outline only · double-click a tile to flood-select its run"
             : _defaultHint;
     }
@@ -2387,13 +2389,39 @@ public partial class MainWindow : Window
         return menu;
     }
 
-    /// <summary>Connect two devices, or disconnect them if the directed link already exists — one undo step. The
-    /// canvas only offers connectable targets, so the add path is validated (a redundant guard keeps it honest).</summary>
+    /// <summary>
+    /// Connect two devices, or disconnect them if that connection already exists — one undo step. Which of the two
+    /// signal channels this is falls out of the source: a breaker box drives over the <c>Electrical</c> graph, a
+    /// sensor is followed through the driven device's own panel (see <see cref="WireChannel"/>). The canvas only
+    /// offers targets the source can act on, so the add paths are validated as a redundant guard.
+    ///
+    /// <para>A device follows at most one sensor, so pointing it at a new one <b>displaces</b> the old in the same
+    /// undo step — otherwise undoing a re-point would leave the device following nothing rather than following
+    /// what it did before.</para>
+    /// </summary>
     private void OnLinkToggleRequested(Placement source, Placement target)
     {
         if (_doc is null) return;
-        var link = new DeviceLink(source.Id, target.Id);
         string Name(Placement p) => _doc.Part(p)?.Friendly ?? p.DefName;
+
+        var sensorLink = new SensorLink(source.Id, target.Id);
+        if (_doc.SensorLinks.Contains(sensorLink))
+        {
+            _stack.Push(_doc, new RemoveSensorLinkCommand(sensorLink));
+            AuditLog.Add($"{Name(target)} no longer follows {Name(source)}.");
+            return;
+        }
+        if (SensorLinks.CanDrive(_doc, source, target))
+        {
+            var displaced = SensorLinks.Replacing(_doc, sensorLink);
+            _stack.Push(_doc, new AddSensorLinkCommand(sensorLink, displaced));
+            AuditLog.Add(displaced is { } old && _doc.ById(old.Source) is { } prev
+                ? $"{Name(target)} now follows {Name(source)} (was {Name(prev)})."
+                : $"{Name(target)} now follows {Name(source)}.");
+            return;
+        }
+
+        var link = new DeviceLink(source.Id, target.Id);
         if (_doc.Links.Contains(link))
         {
             _stack.Push(_doc, new RemoveLinkCommand(link));
@@ -2404,6 +2432,60 @@ public partial class MainWindow : Window
             _stack.Push(_doc, new AddLinkCommand(link));
             AuditLog.Add($"Connected {Name(source)} → {Name(target)}.");
         }
+    }
+
+    /// <summary>
+    /// The wiring entries for one part's context menu: one way in, plus what it is already wired to.
+    ///
+    /// <para><b>Wiring…</b> rather than a label per channel. Which end of a connection the part is settles itself
+    /// — a signal box and a sensor drive, a pump or a cooler is driven, and nothing is both — so naming the two
+    /// cases in the menu asks the user to classify a part the app has already classified. What they then click is
+    /// filtered to what will actually work, which is where that information belongs.</para>
+    /// </summary>
+    private void AddWiringItems(ContextMenu menu, Placement p, Func<string, string, RoutedEventHandler, bool, MenuItem> item)
+    {
+        if (_doc is null) return;
+
+        // Which end this part is. Driving wins where a part could be both, since that is the connection it can
+        // make several of; a driven part has one input and would only ever replace what it had.
+        var end = DeviceLinks.CanSource(_doc, p) || SensorLinks.CanSource(_doc, p) ? WireEnd.Driver
+                : SensorLinks.CanTarget(_doc, p) ? WireEnd.Driven
+                : (WireEnd?)null;
+
+        // Everything this part is already wired to, in both directions and on both channels, as the pair the
+        // toggle handler wants. Names come from the OTHER end, since that is what the entry is about.
+        string Name(Placement other) => Rename.Display(other, _doc.Part(other));
+        var connected = new List<(string Label, Placement Driver, Placement Driven)>();
+        foreach (var (_, source, target) in SensorLinks.Resolved(_doc))
+        {
+            if (ReferenceEquals(target, p)) connected.Add(($"Disconnect from {Name(source)}", source, target));
+            else if (ReferenceEquals(source, p)) connected.Add(($"Disconnect {Name(target)}", source, target));
+        }
+        foreach (var (_, source, target) in DeviceLinks.Resolved(_doc))
+        {
+            if (ReferenceEquals(source, p)) connected.Add(($"Disconnect {Name(target)}", source, target));
+            else if (ReferenceEquals(target, p)) connected.Add(($"Disconnect from {Name(source)}", source, target));
+        }
+
+        if (end is null && connected.Count == 0) return;
+
+        menu.Items.Add(new Separator());
+        if (end is { } wireEnd)
+            menu.Items.Add(item("Wiring…", "", (_, _) => Board.BeginWirePick(p, wireEnd), true));
+
+        // A signal box can drive a great many things, so past a couple these fold into a submenu rather than
+        // burying the rest of the menu under a list of disconnects.
+        if (connected.Count == 0) return;
+        if (connected.Count <= 2)
+        {
+            foreach (var (label, driver, driven) in connected)
+                menu.Items.Add(item(label, "", (_, _) => OnLinkToggleRequested(driver, driven), true));
+            return;
+        }
+        var sub = new MenuItem { Header = $"Disconnect ({connected.Count})" };
+        foreach (var (label, driver, driven) in connected)
+            sub.Items.Add(item(label, "", (_, _) => OnLinkToggleRequested(driver, driven), true));
+        menu.Items.Add(sub);
     }
 
     private void OnAddZoneClick(object sender, RoutedEventArgs e)
@@ -3336,6 +3418,13 @@ public partial class MainWindow : Window
             menu.Items.Add(Item(rt.CustomName is null ? "Rename…" : "Rename or clear…", "", (_, _) => RenamePart(rt)));
         }
 
+        // wiring — a single part that takes part in a signal connection. Starting a wire is a two-step gesture
+        // (arm here, then click the partner in the plan), so it belongs on the part rather than on a mode: the
+        // menu is where you already are when you decide a pump should follow that alarm. The Wire toolbar button
+        // only shows the wiring, the way the other overlay toggles only show their own thing.
+        var wireTarget = multi ? null : (selected.Count == 1 ? selected[0] : stack[0]);
+        if (wireTarget is { } wireOn) AddWiringItems(menu, wireOn, Item);
+
         // installed ⇄ loose form: uninstall a placed fixture to its packaged (loose) form on the tile, or
         // re-install a loose one. Eligibility is the game's own uninstall/install jobs, so only real fixtures
         // qualify (raw hull, walls and the fixed airlock have no such job and never appear).
@@ -3707,11 +3796,13 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.Escape:
-                if (Board.WireMode)
+                if (Board.WirePickArmed)
                 {
-                    if (Board.ArmedPart is not null) { Board.SetArmed(null); ClearPaletteSelection(); }   // drop a held brush first
-                    else if (Board.WireSourceArmed) Board.ClearWireSource();   // then the armed wire source
-                    else Board.SetWireMode(false);                            // finally leave wire mode
+                    // A wiring pick is the most transient thing on screen, so Escape drops it before anything
+                    // else — except a held brush, which is more transient still. WireViz stays on: it is a view,
+                    // and Escape has never turned a view off.
+                    if (Board.ArmedPart is not null) { Board.SetArmed(null); ClearPaletteSelection(); }
+                    else Board.ClearWirePick();
                 }
                 else if (Board.AirSelection.Count > 0)
                 {
@@ -3932,6 +4023,92 @@ public partial class MainWindow : Window
         var painted = lonePart?.Condition
                       ?? (Board.ArmedPart is null && lone ? Board.SelectedLoose?.Condition : null);
         PopulateStats(part, lonePart, painted);
+        PopulateDeviceBlock(part, lonePart);
+    }
+
+    /// <summary>True while <see cref="PopulateDeviceBlock"/> is writing the controls, so the change handlers can
+    /// tell the user's own edits from the refresh that follows one. Every populate-then-handle pair in this window
+    /// needs this; without it, setting the combo below pushes a command that re-enters here.</summary>
+    private bool _deviceBlockLoading;
+
+    /// <summary>
+    /// Fill the DEVICE block: which sensor this device follows and the switches its own panel offers. Shown only
+    /// for a lone selected placement whose def declares a sensor-input panel — a pump, either scrubber, a heater
+    /// or a cooler. An armed palette part gets nothing, because these are properties of a placed device rather
+    /// than of a def.
+    ///
+    /// <para>Each mode checkbox appears only where the def declares the matching condition, which is exactly how
+    /// the game gates its own panel, and matters more than tidiness: a turbo flag on a def with no
+    /// <c>IsTurbo</c> zeroes the pump's rate rather than doing nothing (see <see cref="DeviceSettings"/>).</para>
+    /// </summary>
+    private void PopulateDeviceBlock(PartDef part, Placement? lonePart)
+    {
+        if (_doc is null || lonePart is null || DevicePanels.SensorPanel(_doc.Catalog, part) is null)
+        {
+            DeviceBlock.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        _deviceBlockLoading = true;
+        try
+        {
+            DeviceBlock.Visibility = Visibility.Visible;
+            var settings = (lonePart.Device ?? DeviceSettings.Default).ClampTo(part);
+
+            var driver = SensorLinks.Driving(_doc, lonePart) is { } link ? _doc.ById(link.Source) : null;
+            InsSensor.Text = driver is not null
+                ? $"Follows {Rename.Display(driver, _doc.Part(driver))}."
+                : settings.Bus == DeviceBusMode.On
+                    ? "No sensor. Forced on, so it runs regardless."
+                    : "No sensor — it will never run. Wire it to an alarm, or force it on below.";
+            InsSensor.Opacity = driver is null && settings.Bus != DeviceBusMode.On ? 1.0 : 0.75;
+
+            if (InsDeviceBus.Items.Count == 0)
+            {
+                InsDeviceBus.Items.Add("Off");
+                InsDeviceBus.Items.Add("Auto (follow the sensor)");
+                InsDeviceBus.Items.Add("On");
+            }
+            InsDeviceBus.SelectedIndex = (int)settings.Bus;
+
+            SetMode(InsDeviceTurbo, DevicePanels.TurboCond, settings.Turbo);
+            SetMode(InsDeviceReverse, DevicePanels.ReverseCond, settings.Reverse);
+            SetMode(InsDeviceSlow, DevicePanels.SlowCond, settings.Slow);
+
+            void SetMode(System.Windows.Controls.CheckBox box, string cond, bool value)
+            {
+                var offered = DeviceSettings.Applicable(part, cond);
+                box.Visibility = offered ? Visibility.Visible : Visibility.Collapsed;
+                box.IsChecked = value;
+            }
+        }
+        finally { _deviceBlockLoading = false; }
+    }
+
+    private void OnDeviceBusChanged(object sender, SelectionChangedEventArgs e) => CommitDeviceSettings();
+
+    private void OnDeviceModeChanged(object sender, RoutedEventArgs e) => CommitDeviceSettings();
+
+    /// <summary>Push whatever the DEVICE block now reads onto the selected part, as one undo step. A no-op change
+    /// (the refresh that follows the last one) pushes nothing, so the undo stack holds one entry per real edit.</summary>
+    private void CommitDeviceSettings()
+    {
+        if (_deviceBlockLoading || _doc is null) return;
+        if (Board.ArmedPart is not null || Board.SelectionCount != 1) return;
+        if (Board.SelectedPlacements() is not [var p]) return;
+        if (_doc.Part(p) is not { } part) return;
+
+        var before = p.Device;
+        var after = new DeviceSettings
+        {
+            Bus = InsDeviceBus.SelectedIndex >= 0 ? (DeviceBusMode)InsDeviceBus.SelectedIndex : DeviceBusMode.Auto,
+            Turbo = InsDeviceTurbo.IsChecked == true,
+            Reverse = InsDeviceReverse.IsChecked == true,
+            Slow = InsDeviceSlow.IsChecked == true,
+        }.ClampTo(part).OrNull();
+
+        if (Equals(before, after)) return;
+        _stack.Push(_doc, new SetDeviceSettingsCommand(p, before, after));
     }
 
     // ---- the PART name row: renaming in place, the way the game's own object panel does (#30) ----
@@ -4651,7 +4828,7 @@ public partial class MainWindow : Window
     private void OnLightToggleClick(object sender, RoutedEventArgs e) => Board.ToggleLight();
     private void OnWalkToggleClick(object sender, RoutedEventArgs e) => Board.ToggleWalk();
     private void OnAccessToggleClick(object sender, RoutedEventArgs e) => Board.ToggleAccess();
-    private void OnWireToggleClick(object sender, RoutedEventArgs e) => Board.ToggleWireMode();
+    private void OnWireToggleClick(object sender, RoutedEventArgs e) => Board.ToggleShowWire();
 
     /// <summary>Reflect the live overlay state onto the toolbar toggle buttons' IsChecked, so the Fluent theme paints
     /// the active view with its own (theme-aware, correct-contrast) checked accent. Called at startup and from every
@@ -4665,7 +4842,7 @@ public partial class MainWindow : Window
         BtnLight.IsChecked = Board.ShowLight;
         BtnWalk.IsChecked = Board.ShowWalk;
         BtnAccess.IsChecked = Board.ShowAccess;
-        BtnWire.IsChecked = Board.WireMode;
+        BtnWire.IsChecked = Board.ShowWire;
         BtnSurface.IsChecked = Board.SurfaceMode;
     }
 
@@ -5624,7 +5801,8 @@ public partial class MainWindow : Window
             ("Walk overlay", "K", "Show/hide WalkViz: every tile crew can stand on, tinted by which connected zone it belongs to — two tiles sharing a colour are reachable from each other on foot, two colours mean no route. Fittings nobody can operate are ringed in red at the spot they'd have to stand, and a doorway with vacuum on one side is dashed amber (crossable, but only in a suit). Note a closed door only seals if it is unpowered, locked or damaged; a powered one crew simply open. The View menu can count spacewalks and choose whether Forbid zones apply."),
             ("Access overlay", "J", "Point at a fitting and see the tiles a crew member would work it from, the way the game marks them on the deck. The plan alone cannot tell you an arcade cabinet is usable from one side only, or which side that is. Selecting a part pins its marks so you can look elsewhere; with nothing selected they follow the cursor. Amber instead of blue means it is reachable only from outside the hull, which is normal for hull-mounted equipment. It reads the same analysis as the Walk overlay, so the same View menu switches apply."),
             ("Surfaces mode", "T", "Treat the deck as a canvas: everything outside the focused layer is ghosted and steps out of the way of clicks, so the floor under a bed is one click away, and a 1×1 wall/floor brush re-skins whatever is already on a tile instead of refusing to land on it. Paint, box-fill (Shift+drag), outline (Ctrl at release) and the compartment fill on a bare room all work as they always did — they just re-skin whatever they land on now. In the Surfaces bar: a second brush and a checkerboard or stripe pattern; SHOW picks the focused layer (Both / Floors / Walls — Floors ghosts the walls too, which is how you reach the floors under them); PAINT picks what a stroke may do (Replace only, the default, so a stroke never spills new deck past a room's edge; Both; or Fill only). View ▸ Surfaces sets how visible the ghosted layers stay. Light Viz switches off while it is on, because a lit composite has no layers left to ghost."),
-            ("Wire mode", "Toolbar toggle", "Wire signalable devices: click a device to arm it as the signal source, then click another to connect (or a connected one to disconnect). Connectable devices ring violet, wires draw source→target. Esc / right-click cancels."),
+            ("Wire overlay", "Toolbar toggle", "Show the ship's signal wiring. Each wire draws from the driving device to the one it drives, with a dot at the driven end: GREEN for a sensor a device follows, VIOLET for a signal box switching one. It is a view like Power or Rooms and changes nothing about what a click does."),
+            ("Wiring things up", "Right-click ▸ Wiring…", "Wiring is started from the part itself: right-click any device that can be wired, choose Wiring…, then click its partner in the plan. Valid partners ring while you are picking, and clicking one that is already connected disconnects it instead. You are never asked which kind of wire you are drawing — a sensor or a signal box drives, a pump or a cooler is driven, and the app knows which. A sensor or a box stays armed so you can wire it to several devices (one thermostat commonly runs every heater and cooler on a deck); a device is done after one, since it follows a single sensor. Esc or right-click cancels. The same menu lists what a part is already wired to, so you can disconnect from either end. A SENSOR link is the one that matters most: a pump with no sensor never runs unless somebody forces it on by hand. Each device's own knob and modes are on the DEVICE panel in the inspector."),
             ("Delete", "Del", "Delete the selection."),
             ("Select all", "Ctrl+A", "Select every part in the design."),
             ("Copy / paste / duplicate", "Ctrl+C / V / D", "Copy · paste at the cursor · duplicate the selection."),

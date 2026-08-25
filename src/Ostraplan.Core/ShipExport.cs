@@ -372,9 +372,11 @@ public static class ShipExport
             }
         }
 
-        // Device signal connections (the Electrical GPM): bake each wired part's inputConnections/outputConnections
-        // so the wiring spawns with the ship. Only resolved links (both endpoints present) reach here.
+        // Device signal connections, both channels: the breaker graph on each wired part's Electrical panel, and
+        // each device's own panel naming the sensor it follows. Only resolved links (both endpoints present)
+        // reach either. See GAME-INTERNALS §14.
         WireDeviceLinks(doc, exportIdByPlacementId, itemByExportId);
+        WireSensorLinks(doc, catalog, exportIdByPlacementId, itemByExportId, byPlacementId);
 
         if (itemIdByPlacementId is not null)
             foreach (var (placementId, exportId) in exportIdByPlacementId)
@@ -791,6 +793,7 @@ public static class ShipExport
     {
         var outputs = new Dictionary<string, List<string>>();   // source export id → target export ids it drives
         var inputs = new Dictionary<string, List<string>>();    // target export id → source export ids driving it
+        var live = new Dictionary<string, bool>();              // export id → whether its def is a powered state
 
         static void Add(Dictionary<string, List<string>> map, string key, string value)
         {
@@ -805,6 +808,10 @@ public static class ShipExport
                 continue;
             Add(outputs, sId, tId);
             Add(inputs, tId, sId);
+            // A device whose def is an Off state loads with its breaker status false, exactly as the stock ships
+            // write it (77 of their 274 wired items). Anything else loads live.
+            live[sId] = doc.Part(source) is not { } sDef || !sDef.StartingConds.Contains("IsOff");
+            live[tId] = doc.Part(target) is not { } tDef || !tDef.StartingConds.Contains("IsOff");
         }
 
         foreach (var id in outputs.Keys.Union(inputs.Keys))
@@ -814,8 +821,70 @@ public static class ShipExport
                 item.AGPMSettings =
                 [
                     .. item.AGPMSettings ?? [],
-                    ElectricalGpm(inputs.GetValueOrDefault(id) ?? [], outputs.GetValueOrDefault(id) ?? []),
+                    ElectricalGpm(
+                        inputs.GetValueOrDefault(id) ?? [],
+                        outputs.GetValueOrDefault(id) ?? [],
+                        live.GetValueOrDefault(id, true)),
                 ];
+    }
+
+    /// <summary>
+    /// Bake the design's <b>sensor</b> connections and device panel settings. Unlike the breaker graph this
+    /// writes nothing to <c>Electrical</c>: a device follows a sensor through a single <c>strInput01</c> key on
+    /// its <b>own</b> control panel, which is what <c>GasPump.UpdateRemote</c> and <c>Heater.UpdateRemote</c> read
+    /// each time they wake. Without it a pump, contaminant scrubber, heater or cooler tests itself for a condition
+    /// only a tripped alarm carries and so never runs.
+    ///
+    /// <para>Only the <b>authored</b> keys are written. The rest of the panel (its prefab, title, valid-source
+    /// trigger, monitored cond, heat points) is template data the game itself materialises from the def on spawn
+    /// — <c>CondOwner.SetData</c> copies every declared panel out of <c>data/guipropmaps</c> before
+    /// <c>Ship.CreatePart</c> merges the item's own panels over it <b>per key</b>. So a partial panel is not just
+    /// safe, it is better: baking a copy of a game template into every exported ship would go stale the first
+    /// time the game or a mod changed one.</para>
+    ///
+    /// <para>A mode key is written only where the def declares the matching cond, which is the gate the game's own
+    /// panel applies. It is not cosmetic: <c>GasPump.UpdateRemote</c> grants <c>IsTurboOn</c> from <c>bTurbo</c>
+    /// unconditionally, while the rate multiplier it reads off <c>IsTurbo</c> is zero on a def that does not
+    /// declare it, so an ungated turbo flag would stop the pump.</para>
+    /// </summary>
+    private static void WireSensorLinks(
+        ShipDocument doc, Catalog catalog, Dictionary<string, string> exportIdByPlacementId,
+        Dictionary<string, ExportedItem> itemByExportId, Dictionary<string, Placement> byPlacementId)
+    {
+        var sensorByTarget = new Dictionary<Guid, string>();   // target placement id → source export id
+        foreach (var (_, source, target) in SensorLinks.Resolved(doc))
+            if (exportIdByPlacementId.TryGetValue(source.Id.ToString(), out var sourceExportId))
+                sensorByTarget[target.Id] = sourceExportId;   // one sensor per device; a later link wins
+
+        foreach (var placement in byPlacementId.Values)
+        {
+            if (catalog.Lookup(placement.DefName) is not { } part) continue;
+            if (DevicePanels.SensorPanel(catalog, part) is not { } panel) continue;
+
+            var settings = (placement.Device ?? DeviceSettings.Default).ClampTo(part);
+            var sensor = sensorByTarget.GetValueOrDefault(placement.Id);
+            // Nothing to say about a device left wholly alone: the def's own panel already reads "no sensor, bus
+            // on auto, no modes", so writing that back would be noise in every exported ship.
+            if (sensor is null && settings.IsDefault) continue;
+            if (!exportIdByPlacementId.TryGetValue(placement.Id.ToString(), out var exportId)) continue;
+            if (!itemByExportId.TryGetValue(exportId, out var item)) continue;
+
+            var keys = new List<object?>();
+            if (sensor is not null) { keys.Add(DevicePanel.SensorInputKey); keys.Add(sensor); }
+            keys.Add("nKnobBus");
+            keys.Add(((int)settings.Bus).ToString());
+            if (DeviceSettings.Applicable(part, DevicePanels.TurboCond)) { keys.Add("bTurbo"); keys.Add(Bool(settings.Turbo)); }
+            if (DeviceSettings.Applicable(part, DevicePanels.ReverseCond)) { keys.Add("bReverse"); keys.Add(Bool(settings.Reverse)); }
+            if (DeviceSettings.Applicable(part, DevicePanels.SlowCond)) { keys.Add("bSlowMode"); keys.Add(Bool(settings.Slow)); }
+
+            item.AGPMSettings =
+            [
+                .. item.AGPMSettings ?? [],
+                new ExportedGpmSetting { StrName = panel.Instance, DictGUIPropMap = [.. keys] },
+            ];
+        }
+
+        static string Bool(bool value) => value ? "true" : "false";
     }
 
     /// <summary>The <c>Rename</c> GPM panel for a part the user named (see <see cref="Rename"/>).</summary>
@@ -833,25 +902,48 @@ public static class ShipExport
         DictGUIPropMap = [.. entries.SelectMany(e => new object?[] { e.Key, e.Value })],
     };
 
-    /// <summary>Build the <c>Electrical</c> GPM panel for a wired item: the game's flat, order-sensitive
-    /// <c>dictGUIPropMap</c> with <c>inputConnections</c>/<c>outputConnections</c> as comma-joined
-    /// <c>&lt;strID&gt;#0#true#</c> entries (type 0, on, no name — the format observed on real templates).</summary>
-    private static ExportedGpmSetting ElectricalGpm(List<string> inputIds, List<string> outputIds)
+    /// <summary>
+    /// Build the <c>Electrical</c> GPM panel for a wired item — the canonical eight keys of the game's own
+    /// <c>Electrical</c> prop map, in its order. A connection entry is
+    /// <c>&lt;strID&gt;#&lt;signalType&gt;#&lt;switchStatus&gt;#&lt;nickName&gt;</c>.
+    ///
+    /// <para><b>The signal type differs by side, and getting it wrong stops the driven device.</b> An output entry
+    /// carries <c>None</c> (0) and an input entry carries <c>On</c> (2) — the stock ships are unanimous, 203 of 203
+    /// outputs at 0 and every one of their inputs at 1 (Off) or 2 (On). The reason is in
+    /// <c>Electrical.ResolveSignalQueue</c>: it counts inputs whose type is <c>On</c>, and under the default
+    /// <c>OR</c> gate a device with a connection that is not <c>On</c> resolves false, raises <c>IsSignalOff</c>
+    /// and is shut down by <c>Powered.Run</c>. Ostraplan wrote 0 on both sides, so every wire it exported held its
+    /// own target off. A source cannot rescue it either: a device propagates only when its gate result
+    /// <i>changes</i>, and one with no inputs of its own never changes.</para>
+    ///
+    /// <para>The three keys this used to invent — <c>inputIDs</c>, <c>outputIDs</c>, <c>positives</c> — are gone.
+    /// <c>Electrical</c> neither reads nor writes them (they survive in three legacy stock ships and nowhere
+    /// else), and <c>positives</c> was actively misleading, carrying the input count where stock carries 0.
+    /// <c>sendQueue</c>, <c>override</c> and <c>delay</c> are now written, at the values every stock template
+    /// uses.</para>
+    /// </summary>
+    /// <param name="status">Whether the device loads live. False for an Off-state def, which is how the stock
+    /// ships write it; a false status raises <c>IsSignalOff</c> at load, exactly as intended for something the
+    /// design says is switched off.</param>
+    private static ExportedGpmSetting ElectricalGpm(List<string> inputIds, List<string> outputIds, bool status)
     {
-        static string Join(List<string> ids) => string.Join(",", ids.Select(id => id + "#0#true#"));
+        // SignalType: None = 0, Off = 1, On = 2 (Ostranauts.Electrical.SignalType).
+        static string Join(List<string> ids, int signalType) =>
+            string.Join(",", ids.Select(id => $"{id}#{signalType}#true#"));
+
         return new ExportedGpmSetting
         {
             StrName = "Electrical",
             DictGUIPropMap =
             [
-                "status", "true",
-                "inputIDs", "",
-                "outputIDs", "",
-                "positives", inputIds.Count.ToString(),
-                "inputConnections", Join(inputIds),
-                "outputConnections", Join(outputIds),
+                "status", status ? "true" : "false",
+                "inputConnections", Join(inputIds, 2),    // On — anything else holds this device shut down
+                "outputConnections", Join(outputIds, 0),  // None — the driving side carries no signal of its own
                 "signalQueue", "",
-                "gate", "0",
+                "sendQueue", "",
+                "override", "true",
+                "delay", "0.0",
+                "gate", "0",                              // GateMode.OR
             ],
         };
     }

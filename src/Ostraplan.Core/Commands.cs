@@ -370,6 +370,49 @@ public sealed class RemoveLinkCommand(DeviceLink link) : IDocCommand
     public void Undo(ShipDocument doc) => doc.AddLink(link);
 }
 
+// ---- sensor-link commands (a sensor driving a device — see SensorLink) ----
+
+/// <summary>
+/// Point a device at the sensor it should follow. A device has a single <c>strInput01</c>, so this <b>displaces</b>
+/// whatever sensor it followed before; both halves are one undo step, or undoing a re-point would leave the device
+/// following nothing rather than following what it used to.
+/// </summary>
+public sealed class AddSensorLinkCommand(SensorLink link, SensorLink? displaced) : IDocCommand
+{
+    /// <summary>The link this one pushed off the target, or null when the device was unwired. Resolved by the
+    /// caller through <see cref="SensorLinks.Replacing"/> before the command is pushed.</summary>
+    public SensorLink? Displaced => displaced;
+
+    public void Do(ShipDocument doc)
+    {
+        if (displaced is { } old) doc.RemoveSensorLink(old);
+        doc.AddSensorLink(link);
+    }
+
+    public void Undo(ShipDocument doc)
+    {
+        doc.RemoveSensorLink(link);
+        if (displaced is { } old) doc.AddSensorLink(old);
+    }
+}
+
+/// <summary>Stop a device following its sensor.</summary>
+public sealed class RemoveSensorLinkCommand(SensorLink link) : IDocCommand
+{
+    public void Do(ShipDocument doc) => doc.RemoveSensorLink(link);
+    public void Undo(ShipDocument doc) => doc.AddSensorLink(link);
+}
+
+/// <summary>Set a device's own panel settings — bus knob and modes (see <see cref="DeviceSettings"/>).</summary>
+public sealed class SetDeviceSettingsCommand(Placement part, DeviceSettings? before, DeviceSettings? after)
+    : IDocCommand, IAuditDescribable
+{
+    public void Do(ShipDocument doc) => doc.SetDeviceSettings(part, after);
+    public void Undo(ShipDocument doc) => doc.SetDeviceSettings(part, before);
+    public string Describe(Func<string, string?> f) =>
+        $"Set {AuditFmt.Name(f, part.DefName)} bus {(after ?? DeviceSettings.Default).Bus} {AuditFmt.At(part.X, part.Y)}";
+}
+
 // ---- loose-object commands (items dropped on the floor — see LooseObject) ----
 
 /// <summary>Drop a loose item onto a tile.</summary>

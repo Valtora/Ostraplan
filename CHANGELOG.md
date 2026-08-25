@@ -11,7 +11,43 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **Sensor wiring: the wiring that actually makes a pump run.** Ostranauts has two separate kinds
+  of device wiring and Ostraplan only knew about one of them, so the wire tool only ever did
+  anything for the signal box. The missing one is the important one: an air pump, either atmo
+  scrubber, a heater and a cooler each *follow* one sensor, and until they have it they sit there
+  doing nothing at all. The game's own ships use it 1,780 times. Ostraplan now draws and edits both.
+  Thanks to Fuji.
+- **Wiring is started from the part, not from a mode.** Right-click any device that can be wired,
+  choose **Wiring…**, then click its partner in the plan. Everything that partner could legally be
+  is ringed while you pick, so you choose from what will work rather than guessing, and clicking
+  something already connected disconnects it. You are never asked which kind of wire you are drawing
+  or which end you are at: a sensor and a signal box drive, a pump and a cooler are driven, and the
+  app already knows which. The same menu lists what a part is wired to, so you can disconnect from
+  either end.
+- **Every device's own control panel, in the inspector.** Select a pump, scrubber, heater or cooler
+  and a **DEVICE** block shows which sensor it follows, its three-position **bus** knob
+  (**Off** / **Auto** / **On**) and whatever modes that model offers — **Reverse** and **Slow mode**
+  on the standard air pump. **On** forces a device to run regardless of any sensor, which is the
+  only way an unwired one ever does anything. Only the modes a device really has are offered:
+  giving a pump a mode it has no rating for makes the game run it at nothing.
+- **Importing a ship keeps the wiring it came with.** Both kinds. An import used to throw away
+  every connection on a ship, so opening one of the game's own ships and exporting it again quietly
+  unwired the whole thing.
+
+### Changed
+- **The Wire toolbar button is a view now, and only a view.** It shows the wiring — green for a
+  sensor a device follows, violet for a signal box switching one — and changes nothing about what a
+  click does, the same as Power, Rooms, Light and Walk. It used to be an editing mode that took over
+  the left mouse button for as long as it was on.
+
 ### Fixed
+- **Wired devices no longer spawn switched off.** Every connection Ostraplan exported was written in
+  a shape that tells the game "connected, but not signalled", and a device in that state is held shut
+  down. So the wiring that did get exported was worse than none. It is now written the way the game's
+  own ships write it. Thanks to Fuji.
+- **The exported wiring panel matches the game's.** Three keys Ostraplan invented are gone (nothing
+  in the game ever read them), and the three it left out are written.
 - **Zone names read the right way up when the plan is turned.** Rotating the view with Q/E left
   every zone label mirrored or on its side; room labels, connector badges and the origin marker
   always turned with you, and zones now do too. Thanks to RedTwinkleToes.

@@ -92,17 +92,35 @@ public sealed class ShipCanvas : FrameworkElement
     private static readonly Brush PowerWarnBrush = Frozen(new SolidColorBrush(Color.FromArgb(0x55, 0xE0, 0xB0, 0x40)));   // unconnected-plug warning fill
     private static readonly Pen PowerWarnPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xE0, 0xF0, 0xB8, 0x40)), 2));
 
-    // Device signal connections (wire mode). Violet, to stand apart from the blue selection and the cyan power flow.
+    // Breaker connections (WireViz). Violet, to stand apart from the blue selection and the cyan power flow.
     // Drawn heavy: a wire crosses a busy, high-contrast deck at any angle, and a hairline was lost in it. The
     // preview matches the committed width so a wire doesn't change weight the moment it is committed — the dashes
     // and the lower alpha are what separate the two.
     private const double WireWidth = 4;
     private const double WireDotRadius = 4;
+
+    // The rings drawn around what a wiring pick may land on, and around the part it started from. These only ever
+    // appear while a pick is running, so they are the affordance for that gesture rather than ambient decoration —
+    // they can afford to be loud, and being easy to miss on a busy deck is the only way they can fail. A candidate
+    // is drawn at three quarters of the wire's own weight and the anchor at its full weight, so the thing you
+    // started from still reads as the strongest mark on screen.
+    private const double WireNodeWidth = 3;
+    private const double WireAnchorWidth = WireWidth;
     private static readonly Brush WireDotBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xC0, 0x8C, 0xF0)));
     private static readonly Pen WirePen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xCC, 0xC0, 0x8C, 0xF0)), WireWidth) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round });
     private static readonly Pen WirePreviewPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x99, 0xD8, 0xB0, 0xFF)), WireWidth) { DashStyle = new DashStyle([2, 2], 0), StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round });
-    private static readonly Pen WireNodePen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x70, 0xC0, 0x8C, 0xF0)), 1.2));
-    private static readonly Pen WireSourcePen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0xD8, 0xB0, 0xFF)), 2.5));
+    private static readonly Pen WireNodePen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xD0, 0xC0, 0x8C, 0xF0)), WireNodeWidth) { LineJoin = PenLineJoin.Round });
+    private static readonly Pen WireSourcePen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0xD8, 0xB0, 0xFF)), WireAnchorWidth) { LineJoin = PenLineJoin.Round });
+
+    // Sensor connections (the other signal channel — an alarm driving a pump). Green, because every other colour
+    // on this canvas is taken: violet is the breaker wiring above, cyan is power flow, blue is the selection,
+    // red is an orphaned conduit run and amber is an unfed device. Same weights as the breaker wires, so the two
+    // read as one family of connections distinguished by hue rather than as two unrelated kinds of line.
+    private static readonly Brush SensorDotBrush = Frozen(new SolidColorBrush(Color.FromRgb(0x70, 0xE0, 0x90)));
+    private static readonly Pen SensorPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xCC, 0x70, 0xE0, 0x90)), WireWidth) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round });
+    private static readonly Pen SensorPreviewPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x99, 0xA0, 0xF0, 0xB8)), WireWidth) { DashStyle = new DashStyle([2, 2], 0), StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round });
+    private static readonly Pen SensorNodePen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xD0, 0x70, 0xE0, 0x90)), WireNodeWidth) { LineJoin = PenLineJoin.Round });
+    private static readonly Pen SensorSourcePen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0xA0, 0xF0, 0xB8)), WireAnchorWidth) { LineJoin = PenLineJoin.Round });
 
     private static T Frozen<T>(T freezable) where T : Freezable
     {
@@ -212,11 +230,87 @@ public sealed class ShipCanvas : FrameworkElement
     public bool ShowLight { get; private set; }        // Light Viz overlay (toolbar/L toggle) — OFF by default: the plan opens on the plain sprite ship, not the in-game dark (an unlit airlock reads as black)
     public bool ShowWalk { get; private set; }         // WalkViz crew-access overlay (toolbar/K toggle)
 
-    /// <summary>When true the canvas is in <b>wire mode</b>: click a signalable device to arm it as the signal
-    /// source, then click another to connect them (click a connected one again to disconnect). See
-    /// <see cref="DeviceLink"/> / <see cref="LinkToggleRequested"/>. Wires always render; this mode drives editing.</summary>
-    public bool WireMode { get; private set; }
-    private Placement? _wireSource;   // the armed signal source awaiting a target (wire mode)
+    /// <summary>WireViz: show the design's signal connections (see <see cref="DeviceLink"/> /
+    /// <see cref="SensorLink"/>). A <b>view</b> toggle like Power, Rooms, Light and Walk, and nothing more —
+    /// wiring is edited from a part's own context menu (see <see cref="BeginWirePick"/>), so turning the overlay
+    /// on never changes what a click does.</summary>
+    public bool ShowWire { get; private set; }
+
+    /// <summary>
+    /// A wiring pick in progress: the part it was started from and which end of the connection that part is. Armed
+    /// from the part's context menu, then the next left-click in the plan picks the partner.
+    ///
+    /// <para>Which end matters because both are natural gestures. From an alarm or a signal box you are choosing
+    /// what it <b>drives</b>; from a pump you are choosing the sensor it <b>follows</b>. The channel and the
+    /// direction of the resulting link fall out of the pair, so the user is never asked about either.</para>
+    /// </summary>
+    private (Placement Anchor, WireEnd End)? _wirePick;
+
+    /// <summary>True while a wiring pick is waiting for its partner.</summary>
+    public bool WirePickArmed => _wirePick is not null;
+
+    /// <summary>Start a wiring pick from <paramref name="anchor"/>. Turns WireViz on, because a pick you cannot
+    /// see the candidates for is a guess.</summary>
+    public void BeginWirePick(Placement anchor, WireEnd end)
+    {
+        _wirePick = (anchor, end);
+        SetShowWire(true);
+        WirePickChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    /// <summary>Abandon the pick without wiring anything (Esc, right-click, or finishing one).</summary>
+    public void ClearWirePick()
+    {
+        if (_wirePick is null) return;
+        _wirePick = null;
+        WirePickChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    /// <summary>
+    /// The channel <paramref name="p"/> would wire on when it is the <b>driving</b> end, or null when it can drive
+    /// nothing. A breaker box drives over the <c>Electrical</c> graph and a sensor is followed through the driven
+    /// device's own panel; no stock part does both, and breaker wins if a modded def manages it, since that is the
+    /// channel it declared a panel for.
+    /// </summary>
+    private WireChannel? ChannelOf(Placement p) =>
+        Doc is null ? null
+        : DeviceLinks.CanSource(Doc, p) ? WireChannel.Breaker
+        : SensorLinks.CanSource(Doc, p) ? WireChannel.Sensor
+        : null;
+
+    /// <summary>Whether <paramref name="target"/> is something <paramref name="source"/> can act on: a legal new
+    /// connection, or an existing one to break. Both are a click, which is what makes wiring and unwiring the same
+    /// gesture. The channel is passed in rather than re-derived, since the draw pass asks this of every placement
+    /// and the answer is the same for all of them.</summary>
+    private bool IsWireTarget(Placement source, Placement target, WireChannel? channel) => Doc is not null && channel switch
+    {
+        WireChannel.Breaker => Doc.Links.Contains(new DeviceLink(source.Id, target.Id))
+                               || DeviceLinks.CanConnect(Doc, source, target),
+        WireChannel.Sensor => Doc.SensorLinks.Contains(new SensorLink(source.Id, target.Id))
+                              || SensorLinks.CanDrive(Doc, source, target),
+        _ => false,
+    };
+
+    /// <summary>
+    /// Whether <paramref name="candidate"/> is a valid partner for the pick in progress. From the driving end that
+    /// is whatever the anchor can drive; from the driven end it is <b>either</b> channel — a pump can be driven by
+    /// its alarm and switched by a signal box, and both are things you might be reaching for.
+    /// </summary>
+    private bool IsWirePartner(Placement candidate)
+    {
+        if (Doc is null || _wirePick is not { } pick || ReferenceEquals(candidate, pick.Anchor)) return false;
+        if (pick.End == WireEnd.Driver) return IsWireTarget(pick.Anchor, candidate, ChannelOf(pick.Anchor));
+        return IsWireTarget(candidate, pick.Anchor, ChannelOf(candidate));
+    }
+
+    /// <summary>The colour family a pick is drawn in: the anchor's own channel from the driving end, and the
+    /// sensor channel from the driven end, since that is what a pump is really reaching for.</summary>
+    private WireChannel PickChannel =>
+        _wirePick is { } pick && pick.End == WireEnd.Driver && ChannelOf(pick.Anchor) == WireChannel.Breaker
+            ? WireChannel.Breaker
+            : WireChannel.Sensor;
 
     /// <summary>
     /// When true the canvas is in <b>Surfaces mode</b>: the deck is the subject. Everything that is not a wall or
@@ -397,9 +491,10 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action? ShowRoomsChanged;              // the RoomViz overlay was toggled (update the toolbar caption + trigger a scan)
     public event Action? ShowLightChanged;              // the Light Viz overlay was toggled (update the menu check + trigger a scan)
     public event Action? ShowWalkChanged;               // the WalkViz overlay was toggled (update the toolbar caption + trigger a scan)
-    public event Action? WireModeChanged;               // wire mode was toggled (update the hint / menu check)
+    public event Action? ShowWireChanged;               // WireViz was toggled (update the toolbar check)
+    public event Action? WirePickChanged;               // a wiring pick was armed or dropped (update the hint)
     public event Action? SurfaceModeChanged;            // Surfaces mode was toggled (update the toolbar highlight / hint / pattern bar)
-    public event Action<Placement, Placement>? LinkToggleRequested;   // connect source→target, or disconnect if already linked
+    public event Action<Placement, Placement>? LinkToggleRequested;   // connect driver→driven, or disconnect if already linked
     public event Action? ActiveZoneChanged;             // the painted zone changed (sync the zones panel selection)
     /// <summary>A zone paint/erase/box/room-fill stroke finished: (zone id, tiles before, tiles after). The window
     /// turns this into one <c>SetZoneTilesCommand</c> undo step. Not raised when the stroke changed nothing.</summary>
@@ -430,6 +525,7 @@ public sealed class ShipCanvas : FrameworkElement
         LooseSelectionChanged?.Invoke();
         ActiveZoneId = null;   // a zone id from the previous document is stale
         _zoneWorking = null;
+        ClearWirePick();       // and so is a wiring pick anchored to a part of the previous design
         _staticShip = null;
         InvalidateWear();      // a different design has a different grid anchor, so every world position moves
         ClearAirSelection();
@@ -562,26 +658,16 @@ public sealed class ShipCanvas : FrameworkElement
         InvalidateVisual();
     }
 
-    /// <summary>True while a signal source is armed and awaiting its target (wire mode).</summary>
-    public bool WireSourceArmed => _wireSource is not null;
+    /// <summary>Toggle WireViz (see <see cref="ShowWire"/>). Turning it off also drops any pick in progress:
+    /// finishing one you can no longer see would be a guess.</summary>
+    public void ToggleShowWire() => SetShowWire(!ShowWire);
 
-    /// <summary>Drop the armed signal source without leaving wire mode (Esc, first press).</summary>
-    public void ClearWireSource()
+    public void SetShowWire(bool on)
     {
-        if (_wireSource is null) return;
-        _wireSource = null;
-        InvalidateVisual();
-    }
-
-    /// <summary>Toggle wire mode (device signal connections). Leaving the mode clears the armed source.</summary>
-    public void ToggleWireMode() => SetWireMode(!WireMode);
-
-    public void SetWireMode(bool on)
-    {
-        if (WireMode == on) return;
-        WireMode = on;
-        _wireSource = null;
-        WireModeChanged?.Invoke();
+        if (ShowWire == on) return;
+        ShowWire = on;
+        if (!on) ClearWirePick();
+        ShowWireChanged?.Invoke();
         InvalidateVisual();
     }
 
@@ -1526,20 +1612,32 @@ public sealed class ShipCanvas : FrameworkElement
             return;
         }
 
-        // Wire mode: left-click a signalable device to arm it as the signal source, then click another to
-        // connect (or click a connected one to disconnect); the source stays armed so you can wire it to several
-        // targets. Right-click drops what's "in hand" first — a held palette brush, else the armed wire source —
-        // so a cursor item isn't stranded while wiring (#7). Intercepts before the normal select/place/zone logic.
-        if (WireMode && Doc is not null)
+        // A wiring pick armed from a part's context menu: the next left-click picks the partner. It intercepts
+        // before the normal select/place/zone logic, so the click that finishes the wire cannot also move
+        // something. Right-click drops what's "in hand" first — a held palette brush, else the pick — so a cursor
+        // item isn't stranded while wiring (#7).
+        // An anchor can be deleted while its pick is armed (a delete does not run through this handler), so the
+        // pick is dropped here rather than left intercepting clicks for a part that is gone.
+        if (_wirePick is { } stale && Doc is not null && Doc.ById(stale.Anchor.Id) is null) ClearWirePick();
+        if (_wirePick is { } wirePick && Doc is not null)
         {
             var wc = CellAt(screen);
             if (e.ChangedButton == MouseButton.Left)
             {
-                var target = Doc.HitTestStack(wc.X, wc.Y).FirstOrDefault(p => DeviceLinks.IsConnectable(Doc, p));
-                if (target is null) _wireSource = null;                       // empty / non-device → clear
-                else if (_wireSource is null) _wireSource = target;           // arm the source
-                else if (ReferenceEquals(_wireSource, target)) _wireSource = null;   // clicked source again → disarm
-                else LinkToggleRequested?.Invoke(_wireSource, target);        // connect / disconnect (source stays armed)
+                if (Doc.HitTestStack(wc.X, wc.Y).FirstOrDefault(IsWirePartner) is { } partner)
+                {
+                    // Direction comes from which end the pick was anchored at, so the handler always receives
+                    // (driver, driven) whichever way round the user worked.
+                    var (driver, driven) = wirePick.End == WireEnd.Driver
+                        ? (wirePick.Anchor, partner)
+                        : (partner, wirePick.Anchor);
+                    LinkToggleRequested?.Invoke(driver, driven);
+                    // A driving anchor stays armed, since a signal box usually drives several things and one alarm
+                    // often drives a pump and a scrubber both. A driven one is finished: a device follows exactly
+                    // one sensor, so a second pick would only replace what was just set.
+                    if (wirePick.End == WireEnd.Driven) ClearWirePick();
+                }
+                else ClearWirePick();   // empty tile, or nothing here this can be wired to
                 InvalidateVisual();
                 e.Handled = true;
                 return;
@@ -1547,7 +1645,7 @@ public sealed class ShipCanvas : FrameworkElement
             if (e.ChangedButton == MouseButton.Right)
             {
                 if (ArmedPart is not null) { SetArmed(null); Disarmed?.Invoke(); }   // discard the held brush first
-                else _wireSource = null;                                             // otherwise drop the wire source
+                else ClearWirePick();
                 InvalidateVisual();
                 e.Handled = true;
                 return;
@@ -2846,7 +2944,9 @@ public sealed class ShipCanvas : FrameworkElement
         DrawOutOfBounds(dc, view);
         DrawOriginMarker(dc);
         if (ShowPower) DrawPowerOverlay(dc);
-        if (WireMode) DrawDeviceLinks(dc);   // wiring is an overlay like the rest: gated here, not half-gated inside
+        // WireViz is an overlay like the rest, gated here rather than half-gated inside. Arming a pick
+        // turns it on, so the candidates are always visible while one is running.
+        if (ShowWire) DrawDeviceLinks(dc);
         if (SymMode != SymmetryMode.Off) DrawSymmetryAxes(dc, view);
 
         foreach (var p in Doc.Placements.Where(p => SelectedIds.Contains(p.Id)))
@@ -3883,40 +3983,75 @@ public sealed class ShipCanvas : FrameworkElement
         dc.DrawEllipse(pen.Brush, null, centre, dot, dot);
     }
 
-    /// <summary>Draw the device signal connections: a violet line from each source device's centre to its target,
-    /// a dot at the target end (source → target = signaller → driven). It also rings every connectable device,
-    /// brightly rings the armed source, and previews a wire to the device under the cursor.
-    /// <para>Wire-mode only, gated by the caller. The committed wires used to draw whatever the mode was, so a
-    /// wired-up ship stayed criss-crossed with violet lines over every other view.</para></summary>
+    /// <summary>Draw the device signal connections: a line from each driving device's centre to the one it
+    /// drives, with a dot at the driven end. While a wiring pick is running it also rings every valid partner,
+    /// brightly rings the part the pick started from, and previews the wire to the device under the cursor.
+    /// <para>WireViz only, gated by the caller. The committed wires used to draw whatever the mode was, so a
+    /// wired-up ship stayed criss-crossed with lines over every other view.</para></summary>
     private void DrawDeviceLinks(DrawingContext dc)
     {
         if (Doc is null) return;
 
+        // Both channels, each in its own colour: violet for a breaker switching devices, green for a sensor a
+        // device follows. Sensors are drawn over breakers because they are the wiring that decides whether a pump
+        // runs at all, so they should not be lost under a busy distribution board.
         foreach (var (_, source, target) in DeviceLinks.Resolved(Doc))
-        {
-            var a = DeviceCentre(source);
-            var b = DeviceCentre(target);
-            dc.DrawLine(WirePen, a, b);
-            dc.DrawEllipse(WireDotBrush, null, b, WireDotRadius, WireDotRadius);
-        }
+            DrawConnection(dc, source, target, WirePen, WireDotBrush);
+        foreach (var (_, source, target) in SensorLinks.Resolved(Doc))
+            DrawConnection(dc, source, target, SensorPen, SensorDotBrush);
 
+        // With no pick running the overlay is purely informative, so nothing is ringed: a design where every
+        // device wears a box tells you less about its wiring than the wires themselves do. Rings are the
+        // affordance for a pick, and appear only while one is waiting for its partner.
+        if (_wirePick is not { } pick || Doc.ById(pick.Anchor.Id) is null) return;
+
+        var sensor = PickChannel == WireChannel.Sensor;
         foreach (var p in Doc.Placements)
-            if (DeviceLinks.IsConnectable(Doc, p))
-            {
-                var (bx, by, bw, bh) = Doc.BodyBounds(p);
-                dc.DrawRectangle(null, WireNodePen, CellRect(bx, by, bw, bh));
-            }
+            if (IsWirePartner(p))
+                DrawWireRing(dc, p, sensor ? SensorNodePen : WireNodePen, WireNodeWidth);
 
-        if (_wireSource is not null && Doc.ById(_wireSource.Id) is not null)
+        DrawWireRing(dc, pick.Anchor, sensor ? SensorSourcePen : WireSourcePen, WireAnchorWidth);
+
+        // The preview always runs anchor → partner in the direction the wire will actually take, whichever end
+        // the pick started from, so the dashed line reads the same way the committed one will.
+        if (_hoverCell is { } hc
+            && Doc.HitTestStack(hc.X, hc.Y).FirstOrDefault(IsWirePartner) is { } hoverPartner)
         {
-            var (sx, sy, sw, sh) = Doc.BodyBounds(_wireSource);
-            dc.DrawRectangle(null, WireSourcePen, CellRect(sx, sy, sw, sh));
-
-            if (_hoverCell is { } hc
-                && Doc.HitTestStack(hc.X, hc.Y).FirstOrDefault(p => DeviceLinks.IsConnectable(Doc, p)) is { } hoverTarget
-                && !ReferenceEquals(hoverTarget, _wireSource))
-                dc.DrawLine(WirePreviewPen, DeviceCentre(_wireSource), DeviceCentre(hoverTarget));
+            var (from, to) = pick.End == WireEnd.Driver ? (pick.Anchor, hoverPartner) : (hoverPartner, pick.Anchor);
+            dc.DrawLine(sensor ? SensorPreviewPen : WirePreviewPen, DeviceCentre(from), DeviceCentre(to));
         }
+    }
+
+    /// <summary>One connection: a line from the driving device's centre to the driven one's, with a dot at the
+    /// driven end so the direction reads without hovering.</summary>
+    private void DrawConnection(DrawingContext dc, Placement source, Placement target, Pen pen, Brush dot)
+    {
+        var a = DeviceCentre(source);
+        var b = DeviceCentre(target);
+        dc.DrawLine(pen, a, b);
+        dc.DrawEllipse(dot, null, b, WireDotRadius, WireDotRadius);
+    }
+
+    private Rect CellRect((int X, int Y, int W, int H) bounds) => CellRect(bounds.X, bounds.Y, bounds.W, bounds.H);
+
+    /// <summary>
+    /// Ring a part's above-floor body for a wiring pick. The stroke is <b>inset</b> by half its width so the
+    /// border sits on the part rather than straddling its edge: a pen that thick, centred on the boundary, would
+    /// spill half of itself onto whatever is on the next tile, and on a packed deck that reads as the neighbour
+    /// being a candidate too.
+    ///
+    /// <para>The inset is capped at a third of the smaller side, so a 1×1 fixture at low zoom still gets a ring
+    /// rather than collapsing to nothing. Below that it is not drawn at all: a rectangle smaller than its own
+    /// stroke is a blob, and a blob says less than the wires already do.</para>
+    /// </summary>
+    private void DrawWireRing(DrawingContext dc, Placement p, Pen pen, double width)
+    {
+        var r = CellRect(Doc!.BodyBounds(p));
+        if (r.Width <= 0 || r.Height <= 0) return;
+        var inset = Math.Min(width / 2, Math.Min(r.Width, r.Height) / 3);
+        var ring = Rect.Inflate(r, -inset, -inset);
+        if (ring.IsEmpty || ring.Width <= 0 || ring.Height <= 0) return;
+        dc.DrawRectangle(null, pen, ring);
     }
 
     /// <summary>Screen-space centre of a placement's above-floor body — the anchor a wire connects to.</summary>

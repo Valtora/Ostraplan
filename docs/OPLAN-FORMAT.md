@@ -99,13 +99,13 @@ A complete file, with every section populated:
   `DefaultIgnoreCondition = WhenWritingNull`: a `null` field is **omitted**, but an
   empty **array** is written (`"zones": []`, `"links": []`, …). So a minimal
   from-scratch design still carries empty `mods` / `zones` / `looseObjects` /
-  `links` / `dismissedAlerts` arrays, and omits `extraMassKg` (zero) and any per-part
+  `links` / `sensorLinks` / `dismissedAlerts` arrays, and omits `extraMassKg` (zero) and any per-part
   `origin` / `swappedFrom` / `swappedFromDef` / `cargo` / `cargoOwn` / `fill` that is
   null. Note that `fill` is the one field where an **empty** value is meaningful — an
   emptied tank writes `"fill": {}`, which is not the same as omitting it.
 - Property order follows the field order below (`formatVersion`, `viewRot`, `game`,
-  `mods`, `meta`, `parts`, `zones`, `looseObjects`, `links`, `dismissedAlerts`,
-  `extraMassKg`, `autoSaveOf`).
+  `mods`, `meta`, `parts`, `zones`, `looseObjects`, `links`, `sensorLinks`,
+  `dismissedAlerts`, `extraMassKg`, `autoSaveOf`).
 - Rotations are one of `0`, `90`, `180`, `270`, normalized on load.
 
 ## Field reference
@@ -123,7 +123,8 @@ A complete file, with every section populated:
 | `parts` | array | The whole design, in draw/overlap order (below). |
 | `zones` | array | Painted crew/trade zones (below). Additive since v1. |
 | `looseObjects` | array | Loose floor cargo (below). Additive since v1. |
-| `links` | array | Device signal connections (below). Additive since v1. |
+| `links` | array | Breaker connections — a signal box switching devices on and off (below). Additive since v1. |
+| `sensorLinks` | array | Sensor connections — which sensor each device follows (below). Additive since v1. |
 | `dismissedAlerts` | array of string | Problem-warning keys the user dismissed, so a dismissed warning stays dismissed across reopens. Additive since v1. |
 | `factions` | object / absent | Friendly names for the factions this design's cargo belongs to, raw id → name. A save **invents** factions at runtime (a stock playthrough carries about 400, one per person among the rest) and nothing under the game install lists any of them, so a design that named none of its own would lose them the moment it left the save. Only the ids the cargo actually references are written. Omitted for a design whose cargo belongs to none, which is every design drawn from scratch. Additive since v1. |
 | `extraMassKg` | double / absent | Dead weight the design is expected to haul (a tow, or a hold of salvage), in kg. Feeds the **propulsion** figures only, dividing in exactly where the game puts a docked ship's mass; it is not reaction mass. **Omitted when zero.** Additive since v1. |
@@ -182,6 +183,7 @@ The design itself, in draw order (array order is preserved). Each entry:
 | `cargoOwn` | bool / absent | Whether `cargo` is the design's **own** (authored in the inventory editor) rather than contents that arrived with an import and are still the ship's. Only the latter are refreshed from the ship a write-back is about to write over. Absent when the container holds nothing, and in a file from before this field, where a snapshot was only ever written for an edited container and so reads back as owned. |
 | `fill` | object / absent | How much of what this canister or tank holds: payload condition (`StatGasMolO2`, `StatLiqD2O`, …) → amount. Absent for a part left at the amounts its def ships with, which is nearly all of them. An **empty object is not the same as absent**: it is a container deliberately emptied, and absent means "whatever the def carries". Amounts are moles for a gas and kilograms for a liquid or solid. |
 | `cond` | double / absent | The condition the **Damage Brush** painted on this part: `1.0` pristine, `0.0` gone. Absent for a part nobody painted, which is nearly all of them, and which takes whatever the export's own wear setting decides. A painted value beats that setting everywhere, including a repair pass. Clamped to 0–1 on load, since the file is hand-editable and a value outside it would drive the export's `StatDamage` past the pool the part has. Additive since v1. |
+| `device` | object / absent | What the designer set on this device's own control panel: `bus` (`"Off"` / `"Auto"` / `"On"`, the game's three-position knob), and `turbo` / `reverse` / `slow`. Absent for a part left as its def ships it, which is nearly all of them, and for anything with no such panel. Which sensor the device follows is **not** here: that is a relationship between two parts and lives in `sensorLinks`. A mode the def does not declare is dropped on load, because the game applies it anyway and a pump given turbo it has no rating for runs at zero. Additive since v1. |
 
 **Cargo snapshot node** (`cargo[]`, recursive via `children`):
 
@@ -240,19 +242,33 @@ on load. One per tile — a later duplicate at the same tile overwrites.
 An item's own pockets are re-seeded on load, so a file written before deck items held
 anything still opens with them and a file that has them is left alone.
 
-### `links`
+### `links` and `sensorLinks`
 
-Device signal connections (the game's `Electrical` wiring). Parts have no stable id
-in the file, but `parts` array order is preserved, so each link is a directed pair
-of **indices into `parts`**.
+The design's device wiring. The game has two separate signal channels and so does the
+file: `links` holds **breaker** connections (a signal box switching devices on and off,
+the game's `Electrical` GPM) and `sensorLinks` holds **sensor** connections (which alarm
+or thermostat a pump, scrubber, heater or cooler follows). See GAME-INTERNALS §14 for why
+they are not the same thing; in short, an alarm-to-pump link on the breaker channel does
+nothing in game.
+
+Parts have no stable id in the file, but `parts` array order is preserved, so each link in
+either array is a directed pair of **indices into `parts`**.
 
 | Field | Type | Meaning |
 |---|---|---|
-| `src` | int | Index of the source (driving) part in `parts`. |
-| `tgt` | int | Index of the target (driven) part in `parts`. |
+| `src` | int | Index of the driving part in `parts` — the signal box, or the sensor. |
+| `tgt` | int | Index of the driven part in `parts`. |
 
 A link whose either endpoint was dropped on load (a missing-mod part, below) is
-skipped, so a stale index can never wire the wrong parts.
+skipped, so a stale index can never wire the wrong parts. A device follows at most one
+sensor; if a hand-edited file gives one several, the last wins.
+
+**Files written before `sensorLinks` existed** put every connection in `links`, including
+alarm-to-pump pairs that only ever worked as sensor links. On load each such pair is moved
+to the channel it belongs on, since the intent is unambiguous. Anything else stays in
+`links` exactly as written, even a pair the editor would no longer let you draw: loading a
+design never deletes what is in it, and an unrecognised pair may be a modded breaker this
+build cannot identify.
 
 ## Opening a file
 
@@ -265,7 +281,7 @@ skipped, so a stale index can never wire the wrong parts.
   objects and link endpoints whose defs/parts are missing are likewise dropped
   rather than guessed. (In the app you can then enable the mods and reopen, or
   confirm the drop and continue.)
-- **Everything else is rebuilt.** Zones, loose items, links, dismissed alerts, and
+- **Everything else is rebuilt.** Zones, loose items, both link arrays, dismissed alerts, and
   container cargo snapshots are restored; rooms, rating, and materials are
   recomputed. Nothing is read from a save game.
 

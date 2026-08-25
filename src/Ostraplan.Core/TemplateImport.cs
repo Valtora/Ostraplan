@@ -289,10 +289,20 @@ public static class TemplateImport
                     // A name the ship already carried, from its Rename panel. Core ships use it and so do players
                     // labelling their racks, and it used to be dropped on the way in (see Rename).
                     CustomName = item.CustomName,
+                    // Bus knob and modes off the device's own panel, the same way the name comes off its Rename
+                    // one. Clamped to what this def actually offers, so a stale flag on an imported ship cannot
+                    // travel back out (see DeviceSettings).
+                    Device = item.Device?.ClampTo(part).OrNull(),
                 };
                 new PlaceCommand(placement).Do(doc);
                 if (item.StrID is { Length: > 0 } sid) placedByStrId[sid] = placement;
             }
+
+            // Both signal channels, restored from the items' own panels. Until now an import dropped every
+            // connection a ship had, so a round trip through Ostraplan silently unwired the 1,780 sensor links the
+            // stock ships carry. Endpoints that were not placed (a system item, a missing-mod part, a loose form)
+            // simply do not resolve and their links are skipped.
+            RestoreWiring(doc, tmpl, placedByStrId);
 
             // Container contents. The save-edit path passes no shipNode: it attaches cargo itself from the full
             // context it keeps, and doing it twice would be wasted work. Everything else gets it here, which is
@@ -426,6 +436,33 @@ public static class TemplateImport
             deckTaken += CountCargo(forest);
         }
         return (taken, deckTaken);
+    }
+
+    /// <summary>
+    /// Rebuild both signal channels from the imported items' own panels: each device's sensor
+    /// (<c>strInput01</c>) and each breaker's driven set (<c>outputConnections</c>).
+    ///
+    /// <para>Validity is <b>not</b> re-checked here. An imported ship is given structure — the same reason
+    /// <see cref="Placement.IsGiven"/> exempts it from the placement law — and a link the game itself wrote is a
+    /// fact about that ship whether or not Ostraplan's rules would have let the user draw it. Re-validating would
+    /// quietly delete wiring on the way in and then on the way out. The only thing dropped is a link whose
+    /// endpoint did not become a placement.</para>
+    /// </summary>
+    private static void RestoreWiring(ShipDocument doc, ShipTemplate tmpl, Dictionary<string, Placement> placedByStrId)
+    {
+        foreach (var item in tmpl.Items)
+        {
+            if (item.StrID is not { Length: > 0 } id || !placedByStrId.TryGetValue(id, out var self)) continue;
+
+            if (item.SensorInputId is { Length: > 0 } sensorId
+                && placedByStrId.TryGetValue(sensorId, out var sensor)
+                && sensor.Id != self.Id)
+                doc.AddSensorLink(new SensorLink(sensor.Id, self.Id));
+
+            foreach (var targetId in item.ElectricalOutputs)
+                if (placedByStrId.TryGetValue(targetId, out var target) && target.Id != self.Id)
+                    doc.AddLink(new DeviceLink(self.Id, target.Id));
+        }
     }
 
     /// <summary>Every node in a cargo forest, nested ones included.</summary>

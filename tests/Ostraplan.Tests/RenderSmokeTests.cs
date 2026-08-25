@@ -129,16 +129,23 @@ public class RenderSmokeTests
     }
 
     [SkippableFact]
-    public void Render_device_links_wire_mode()
+    public void Render_device_links_wireviz()
     {
-        // Drives the device-connection overlay end to end: place signalable devices on a floor, wire one to two
-        // others, turn on wire mode (rings + armed source), and prove DrawDeviceLinks produces a real frame.
+        // Drives the device-connection overlay end to end: place devices on a floor, wire a breaker box to two of
+        // them and a sensor to a third, turn WireViz on, and prove DrawDeviceLinks produces a real frame.
         var g = TestData.RequireGame();
         if (!g.Catalog.ByDefName.ContainsKey("ItmFloorGrate01")) return;
+        var box = g.Catalog.Parts.FirstOrDefault(p => DevicePanels.BreakerPanel(g.Catalog, p) is not null);
+        Skip.If(box is null, "no breaker-box part in this install");
         var devices = g.Catalog.Parts
-            .Where(p => p.IsSignalable && p.StartingConds.Contains("IsInstalled"))
-            .DistinctBy(p => p.DefName).Take(3).ToList();
-        Skip.If(devices.Count < 3, "no three signalable installed parts in this install");
+            .Where(p => p.DefName != box!.DefName && p.IsSignalable && p.StartingConds.Contains("IsInstalled"))
+            .DistinctBy(p => p.DefName).Take(2).ToList();
+        Skip.If(devices.Count < 2, "no two other signalable installed parts in this install");
+        // A real sensor/device pair too, so the green channel is exercised alongside the violet one.
+        var sink = g.Catalog.Parts.FirstOrDefault(p => DevicePanels.SensorPanel(g.Catalog, p) is not null);
+        var sensor = sink is null ? null : g.Catalog.Parts.FirstOrDefault(p => p.DefName != sink.DefName
+            && p.StartingConds.Contains("IsInstalled")
+            && DevicePanels.Satisfies(g.Catalog, p, DevicePanels.SensorPanel(g.Catalog, sink)!.ValidSourceTrigger));
         RunSta(() =>
         {
             var doc = new ShipDocument(g.Catalog);
@@ -146,15 +153,24 @@ public class RenderSmokeTests
                 for (var y = 0; y < 5; y++)
                     new PlaceCommand(new Placement { DefName = "ItmFloorGrate01", X = x, Y = y }).Do(doc);
             Placement Dev(string def, int x, int y) { var p = new Placement { DefName = def, X = x, Y = y }; new PlaceCommand(p).Do(doc); return p; }
-            var hub = Dev(devices[0].DefName, 1, 2);
-            var a = Dev(devices[1].DefName, 5, 1);
-            var b = Dev(devices[2].DefName, 5, 3);
+            var hub = Dev(box!.DefName, 1, 2);
+            var a = Dev(devices[0].DefName, 5, 1);
+            var b = Dev(devices[1].DefName, 5, 3);
             new AddLinkCommand(new DeviceLink(hub.Id, a.Id)).Do(doc);
             new AddLinkCommand(new DeviceLink(hub.Id, b.Id)).Do(doc);
+            if (sink is not null && sensor is not null)
+            {
+                var driven = Dev(sink.DefName, 7, 2);
+                var driver = Dev(sensor.DefName, 3, 4);
+                new AddSensorLinkCommand(new SensorLink(driver.Id, driven.Id), null).Do(doc);
+            }
 
             var canvas = new ShipCanvas { Sprites = new SpriteCache() };
             canvas.SetDocument(doc);
-            canvas.SetWireMode(true);
+            canvas.SetShowWire(true);
+            // Arm a pick from the breaker box, so the candidate rings and the anchor ring are drawn too — they
+            // only appear while a pick is running, and are otherwise never exercised by a render test.
+            canvas.BeginWirePick(hub, WireEnd.Driver);
             canvas.Measure(new Size(900, 640));
             canvas.Arrange(new Rect(0, 0, 900, 640));
             canvas.FitContent();

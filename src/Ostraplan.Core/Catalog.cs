@@ -352,6 +352,45 @@ public sealed class Catalog
         return result;
     }
 
+    private readonly ConcurrentDictionary<string, IReadOnlyList<DevicePanel>> _devicePanels = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// The <b>device control panels</b> <paramref name="part"/> declares, resolved from the same (instance,
+    /// template) pairs as <see cref="GpmSettingsFor"/> but read for their wiring metadata rather than their raw
+    /// contents (see <see cref="DevicePanel"/>). This is what decides which parts can be wired to which, on both
+    /// signal channels. Cached per def, since the wire editor asks it for every placement on every repaint.
+    /// </summary>
+    public IReadOnlyList<DevicePanel> DevicePanels(PartDef part) =>
+        _devicePanels.GetOrAdd(part.DefName, _ => Core.DevicePanels.Parse(this, part));
+
+    private IReadOnlyList<string>? _sensorSourceTriggers;
+
+    /// <summary>
+    /// Every distinct <c>strValidCOTrigger01</c> named by a sensor-input panel in this catalog — stock gives
+    /// <c>TIsAlarm2</c> (pumps, both scrubbers) and <c>TIsAlarmTemp</c> (heaters, coolers). A part satisfying any
+    /// of them is a sensor: something that could drive <i>some</i> device, which is what the wire editor rings
+    /// before a target has been picked. Computed once over the resolvable defs.
+    /// </summary>
+    public IReadOnlyList<string> SensorSourceTriggers => _sensorSourceTriggers ??=
+        ByDefName.Values
+            .SelectMany(DevicePanels)
+            .Where(p => p.HasSensorInput)
+            .Select(p => p.ValidSourceTrigger)
+            .OfType<string>()
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+    private readonly ConcurrentDictionary<string, bool> _isSensorSource = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// Whether this def could drive <b>something</b> over the sensor channel — it satisfies at least one of
+    /// <see cref="SensorSourceTriggers"/>. Cached per def because the wire editor asks it for every placement on
+    /// every repaint, and the answer costs a condtrigger evaluation, which on a station-sized design is tens of
+    /// thousands of set builds a frame.
+    /// </summary>
+    public bool IsSensorSource(PartDef part) => _isSensorSource.GetOrAdd(part.DefName,
+        _ => SensorSourceTriggers.Any(t => Core.DevicePanels.Satisfies(this, part, t)));
+
     /// <summary>Ticker templates by name (from <c>data/tickers</c>) — the full <c>JsonTicker</c> (strCondLoot,
     /// fPeriod, bRepeat, …) each named ticker (e.g. "Power") expands to. Used to bake a device's <c>aTickers</c>
     /// so it works on load. Empty in synthetic test catalogs.</summary>

@@ -45,7 +45,7 @@ right, but treat a mismatch as "double-check in-game".
 | **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**, an **ITEMS** tab for loose floor cargo, a **SPECIAL** tab for the structure the game places but never lets you build, and a **FAV/REC** tab at the front for the parts you pinned and the ones you just placed. Search by friendly or internal name. Modded parts show a small origin badge. |
 | **Canvas** (centre) | The tile grid. Place, paint, select, pan and zoom here. A **tab strip** appears above it as soon as a second design is open, and disappears again when you are back to one. |
 | **Inspector** (right) | The selected part's details, ship stats, the **Problems** list, and the **Law report**. |
-| **Toolbar** (top) | Grouped **File · Edit · Design · Analyse**, then the view overlay toggles **Zones · Rooms · Power · Light · Walk · Wire** (each highlights in the accent colour while active) and the **View ▾** menu (fit, symmetry, Light Viz daylight, walk-overlay switches), with **⚙ Settings** and the **Help ▾** menu on the right. When a newer release exists it is downloaded in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
+| **Toolbar** (top) | Grouped **File · Edit · Design · Analyse**, then the view overlay toggles **Zones · Rooms · Power · Light · Walk · Wire** (each highlights in the accent colour while active; each shows something and none of them changes what a click does) and the **View ▾** menu (fit, symmetry, Light Viz daylight, walk-overlay switches), with **⚙ Settings** and the **Help ▾** menu on the right. When a newer release exists it is downloaded in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
 
 ### Settings
 
@@ -1204,19 +1204,65 @@ something Ostraplan can honestly compute.
 
 ### Wiring devices together
 
-Signalable devices (a sensor and an alarm, a switch and a pump) can be wired the way
-the in-game rewire tool does it. Turn on **Wire mode** (the **Wire** toolbar button), click a signalable
-installed device to arm it as the signal **source**, then click another to **connect**
-(or a connected one to **disconnect**). The source stays armed so you can wire it to
-several targets; **Esc** or right-click cancels. Connectable devices ring violet, and
-each link draws as a violet line from source to target. The wiring is part of Wire mode,
-so it shows while that mode is on and is out of the way the rest of the time: a
-thoroughly wired ship is not left criss-crossed with violet lines over every other view.
-The connection is directional
-(source drives target) and has no distance requirement, so the only rule is "two
-distinct installed signalable parts". The wiring is baked into an **exported** ship, so
-it spawns already connected. Gate and threshold logic stays with the in-game signal
-box — Ostraplan authors plain connections only.
+Ostranauts has **two** kinds of device wiring, and a working ship usually needs both.
+
+**Sensor wiring (green) is the one that makes things run.** An **air pump**, either
+**atmo scrubber**, a **heater** and a **cooler** each follow one sensor and do nothing
+until they have it: they spend their time asking "is my alarm going off?", and with no
+alarm to ask they ask themselves and the answer is always no. So wire each pump to a
+pressure alarm, each scrubber to its CO2 or contaminants alarm, and the heater and cooler
+to the thermostat. Pumps and scrubbers accept any alarm; the heater and cooler accept only
+the thermostat. Each device follows exactly one sensor, so pointing it at a second one
+replaces the first. (The CO2 scrubber is the one thing that runs unwired, because the game
+never gives it a signal to wait for.)
+
+**Signal box wiring (violet) switches things on and off.** The **'SB-8011' Signal Box** is
+the only thing that can drive this channel, and it can drive anything installed and
+signalable: lights, vents, doors, pumps, the lot. It is a breaker board, not a sensor, so
+wiring an alarm straight to a pump here does nothing in game — that is what the sensor
+channel above is for, and Ostraplan will only offer you the connection that actually works.
+
+#### Wiring something up
+
+Start from the part. **Right-click** it, choose **Wiring…**, then **click its partner** in
+the plan. Everything that part can legally be wired to rings while you are picking, so you
+are choosing from what will work rather than guessing; clicking one that is already
+connected disconnects it instead. **Esc** or a right-click cancels.
+
+You are never asked which kind of wire you are drawing, or which end you are at. A sensor
+or a signal box drives, a pump or a cooler is driven, and no part is both, so the answer is
+already known from what you right-clicked.
+
+**A sensor can drive as many devices as you like.** One thermostat commonly runs every
+heater and cooler on a deck, and the game's own ships take this quite far — `02.json` runs
+three air pumps off a single O2 alarm. So a sensor or a box stays armed after each pick and
+you can keep clicking. The limit is at the other end: a device follows exactly **one**
+sensor, because it has a single input to name one in, so a device is finished after one
+pick and pointing it at a second sensor replaces the first.
+
+The same right-click menu lists what the part is already wired to, as **Disconnect…**
+entries, so you can unwire from either end without hunting for the other one.
+
+#### Seeing the wiring
+
+The **Wire** toolbar button is a view, like **Power** or **Rooms**: it shows the wiring and
+changes nothing about what a click does. Each link draws from the driving device to the one
+it drives with a dot at the driven end, green for a sensor and violet for a signal box.
+Starting a wire turns the view on for you, since a pick you cannot see is a guess.
+
+#### A device's own panel
+
+Selecting a device that takes a sensor gives you its control panel under **DEVICE** in the
+inspector: which sensor it is following (or a warning that it has none), its
+three-position **bus** knob (**Off** / **Auto** / **On**), and whatever modes that model
+offers — **Reverse** and **Slow mode** on the standard air pump. **Auto** is the normal
+setting and means "follow the sensor". **On** forces the device to run regardless, which is
+the only way an unwired one ever does anything, and **Off** stops it dead.
+
+All of this is baked into an **exported** ship and written back into an **edited save**, so
+the ship spawns already wired, and importing a ship reads the wiring it already had rather
+than throwing it away. Gate, threshold and delay logic stays with the in-game signal box —
+Ostraplan authors the connections and the per-device switches, not the logic.
 
 ## Zones
 

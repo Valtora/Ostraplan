@@ -169,7 +169,7 @@
                     <ToggleButton x:Name="BtnAccess" Content="Access" Style="{StaticResource OverlayToggle}" Click="OnAccessToggleClick"
                             ToolTip="Access overlay (J): point at a fitting to see the tiles a crew member would work it from"/>
                     <ToggleButton x:Name="BtnWire" Content="Wire" Style="{StaticResource OverlayToggle}" Click="OnWireToggleClick"
-                            ToolTip="Wire mode: show the signal wiring, and click a device then another to connect them"/>
+                            ToolTip="WireViz: show the ship's signal wiring — green for a sensor a device follows, violet for a signal box switching one. To wire something up, right-click it and choose Wiring"/>
                     <ToggleButton x:Name="BtnSurface" Content="Surfaces" Style="{StaticResource OverlayToggle}" Click="OnSurfaceToggleClick"
                             ToolTip="Surfaces mode (T): ghost everything but walls and floors, and paint skins straight onto the deck"/>
 
@@ -267,6 +267,23 @@
                 <StackPanel x:Name="StatsBlock" Visibility="Collapsed">
                     <TextBlock Text="STATS" Style="{StaticResource SideHeader}"/>
                     <StackPanel x:Name="StatsList"/>
+                </StackPanel>
+                <!-- The device's own control panel: which sensor it follows, and the switches the game's panel
+                     offers for it. Only shown for a selected part that actually has one (a pump, scrubber, heater
+                     or cooler), and only the modes its def declares. -->
+                <StackPanel x:Name="DeviceBlock" Visibility="Collapsed">
+                    <TextBlock Text="DEVICE" Style="{StaticResource SideHeader}"/>
+                    <TextBlock x:Name="InsSensor" Style="{StaticResource SideValue}" FontSize="12"
+                               TextWrapping="Wrap" Margin="0,0,0,4"/>
+                    <TextBlock Text="Bus" Style="{StaticResource SideValue}" FontSize="11" Opacity="0.6"/>
+                    <ComboBox x:Name="InsDeviceBus" Margin="0,2,0,4" FontSize="12"
+                              SelectionChanged="OnDeviceBusChanged"/>
+                    <CheckBox x:Name="InsDeviceTurbo" Content="Turbo" FontSize="12" Margin="0,2,0,0"
+                              Foreground="{DynamicResource Ink}" Click="OnDeviceModeChanged"/>
+                    <CheckBox x:Name="InsDeviceReverse" Content="Reverse" FontSize="12" Margin="0,2,0,0"
+                              Foreground="{DynamicResource Ink}" Click="OnDeviceModeChanged"/>
+                    <CheckBox x:Name="InsDeviceSlow" Content="Slow mode" FontSize="12" Margin="0,2,0,0"
+                              Foreground="{DynamicResource Ink}" Click="OnDeviceModeChanged"/>
                 </StackPanel>
                 <TextBlock Text="SOURCE" Style="{StaticResource SideHeader}"/>
                 <TextBlock x:Name="InsOrigin" Style="{StaticResource SideValue}"/>
