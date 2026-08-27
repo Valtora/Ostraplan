@@ -459,10 +459,16 @@ public static class ProblemScan
     ///
     /// <para>Registration order only breaks ties within a class: <c>Insert(0, …)</c> means the
     /// <i>last</i> non-TypeB port registered lands at index 0, while <c>Add(…)</c> means the
-    /// <i>first</i> TypeB port does. We read <see cref="ShipDocument.Placements"/> as that order
-    /// (it is the order an export emits <c>aItems</c>, which is the order the game spawns and
-    /// registers them). Both ties are unreachable in practice: core ships carry exactly one
-    /// Primary, and Ostraplan seeds exactly one per document.</para>
+    /// <i>first</i> TypeB port does. We read <see cref="ShipDocument.Placements"/> as that order,
+    /// which is the order the game spawns and registers them in. Both ties are unreachable in
+    /// practice anyway: core ships carry exactly one Primary, and Ostraplan seeds exactly one per
+    /// document.</para>
+    ///
+    /// <para>Document order is no longer <i>identical</i> to the emitted <c>aItems</c> order, since
+    /// <c>ShipExport.TriggerFirst</c> moves trigger-carrying parts to the front (§26). It does not
+    /// matter here: every installed docking port carries <c>IsPortal</c>, which is one of the
+    /// trigger conds, so ports never split across the two groups and the partition is stable, which
+    /// leaves their order relative to each other exactly as it is here.</para>
     /// </summary>
     public static Placement? BoundingPort(ShipDocument doc, Catalog catalog)
     {

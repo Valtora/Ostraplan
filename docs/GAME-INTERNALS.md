@@ -3427,16 +3427,43 @@ cellDamage = fTotalDamage * (1 − distance / max(1, fRadius))
 > it first and the missile stops, **15%** (232 tiles) have one present but not first and the
 > missile goes over. That is why the behaviour reads as "only the outside stops them".
 >
-> **Ostraplan deliberately does not reproduce this.** `ImpactPoint` asks whether the *tile*
-> holds a trigger that still has capacity, not whether its *first* part does.
+> **Ostraplan does not reproduce this, and makes the export agree.** `ImpactPoint` asks whether
+> the *tile* holds a trigger that still has capacity, not whether its *first* part does.
 >
-> The reason is that the game's rule makes the impact point depend on the order parts appear
-> in the ship's item list, which is not a property of the design, is not visible on the plan,
-> and is not something a designer can reason about or change. Two plans identical on screen
-> gave different answers. A planner whose whole job is "what would a hit here break" cannot
-> usefully answer "it depends how the file was written", and there is no tie-break to port
-> because the game does not have one. The effect of the deviation is that a wall stops a
-> missile whenever there is a wall there, which is also what someone reading the plan expects.
+> The reason is that the game's rule makes the impact point depend on the order parts appear in
+> the ship's item list, and there is no tie-break to port because the game does not have one.
+> Two plans identical on screen gave different answers. A planner whose whole job is "what would
+> a hit here break" cannot usefully answer "it depends how the file was written".
+>
+> **This section used to say the order was "not a property of the design", and that was wrong**
+> in the case that matters most. It holds for a ship read out of a save, whose order came from
+> whoever built it. It does not hold for a ship built here: `aItems` is emitted in
+> `ShipDocument.Placements` order (`ShipGrid.FromDocumentFramed` walks it, `ShipExport` walks
+> that), and `.oplan` round-trips that order exactly, because device links are stored as indices
+> into it. So the order is precisely the order the parts were laid down, it survives save and
+> reload, and Ostraplan was deciding whether each exported wall stops a missile — from build
+> order, with nothing on the plan saying so. Floor a deck and then wall it, which is the obvious
+> way to build, and every one of those walls was transparent to missiles in game.
+>
+> **So `ShipExport.TriggerFirst` emits every trigger-carrying part ahead of every part carrying
+> none**, each group keeping its own relative order. The game's rule applied to a trigger-first
+> list yields the intuitive answer, so a ship Ostraplan wrote behaves the way its plan said it
+> would, and the deviation above stops being a deviation and becomes a guarantee about the file.
+> One stable partition satisfies every tile at once: the constraint only ever runs from a trigger
+> part to a non-trigger one, so the graph is bipartite with all edges pointing one way and cannot
+> cycle. The cond set is the union of every attack's `aTriggerConds` in the catalogue rather than
+> a hardcoded list, so a mod that adds an attack is covered.
+>
+> **Deliberately not a toggle.** A "simulate the bug" mode would have to be taken back out if the
+> game is ever fixed, and would expose an ordering the designer cannot see or reorder. Enforcing
+> the order costs nothing if the `break` is ever made conditional: the ordering simply stops
+> mattering.
+>
+> **What this does not cover.** A ship read out of a save keeps its own order until it is
+> re-exported, so the planner's answer for an imported hull can still differ from what that hull
+> does in game. `SaveEdit` also rebuilds `aItems` as surviving originals verbatim plus new parts
+> appended, so a wall added to an existing save lands after the floor already on its tile. Both
+> are open.
 >
 > Everything downstream of the impact point is still the game's arithmetic exactly: the blast
 > falloff, the doubled centre, the soft-edge cap, and what each cell absorbs. Spent parts are

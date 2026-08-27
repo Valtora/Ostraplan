@@ -13,6 +13,7 @@ namespace Ostraplan.Tests;
 /// </summary>
 public sealed class Fixtures
 {
+    private readonly Dictionary<string, ShipAttackDef> _shipAttacks = [];
     private readonly List<PartDef> _parts = [];
     private readonly Dictionary<string, PartDef> _byName = new(StringComparer.Ordinal);
     private readonly Dictionary<string, LootDef> _loots = new(StringComparer.Ordinal);
@@ -267,8 +268,20 @@ public sealed class Fixtures
     public PartDef Get(string name) => _byName[name];
 
     /// <summary>Assemble the synthetic <see cref="Catalog"/> (no <see cref="Catalog.Index"/> — synthetic).</summary>
+    /// <summary>A ship attack, for anything that reads <see cref="Catalog.ShipAttacks"/> — the missile trigger
+    /// conds most of all, which decide both what a strike detonates on and the order an export emits parts in.
+    /// Defaults describe a small contact missile; pass no conds for a shot that hits the first thing it meets.</summary>
+    public Fixtures ShipAttack(string name, string[]? triggerConds = null, double totalDamage = 1000,
+                               float maxRange = 100, int radius = 2)
+    {
+        _shipAttacks[name] = new ShipAttackDef(
+            name, ImpactType.Circular, maxRange, totalDamage, radius, 0, 0, triggerConds ?? [], null);
+        return this;
+    }
+
     public Catalog Build() => new()
     {
+        ShipAttacks = _shipAttacks,
         Parts = _parts,
         ByDefName = _byName,
         Loots = _loots,

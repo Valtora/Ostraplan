@@ -24,6 +24,14 @@ each release was verified against is recorded in
   a 20-wide hull mirrors about its real centre. (#46)
 
 ### Fixed
+- **Walls you build over a floor now stop missiles in game, whichever order you laid them.** The
+  game judges a tile on the first part listed on it and gives up there, so a wall sharing a tile
+  with a floor only stops a missile when the wall is listed first. That listing is the order you
+  placed the parts, so decking a hull and then walling it, which is the obvious way to build, made
+  every one of those walls transparent to missiles, and nothing on the plan said so. Exports now
+  always list a wall, portal or rigid fitting ahead of anything else sharing its tile, so a ship
+  behaves the way Ostraplan said it would. Ships imported from a save keep their own order until
+  they are exported again. (#45) Thanks to nighoggDatatype.
 - **Choosing a symmetry mode from the View menu no longer drops the axes under the menu.** The menu
   is drawn over the plan, so "the tile under the cursor" as you clicked a mode was a tile under the
   *menu*, and the axes landed wherever that item happened to overlay the ship with no chance to aim
