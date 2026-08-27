@@ -17,8 +17,8 @@ public class SymmetryOpsTests
     {
         // axis vertical at cx=10; grab a part on the LEFT (ref x=5), drag right by (+3,+2)
         // left part (x=5) follows the cursor; a right part (x=15) tracks left, y matches (vertical doesn't mirror y)
-        var left = SymmetryOps.MoveDelta(5, 5, 1, 1, 3, 2, cx: 10, cy: 0, refX: 5, refY: 5, vertical: true, horizontal: false);
-        var right = SymmetryOps.MoveDelta(15, 5, 1, 1, 3, 2, cx: 10, cy: 0, refX: 5, refY: 5, vertical: true, horizontal: false);
+        var left = SymmetryOps.MoveDelta(5, 5, 1, 1, 3, 2, SymAxis.OnTile(10, 0), refX: 5, refY: 5, vertical: true, horizontal: false);
+        var right = SymmetryOps.MoveDelta(15, 5, 1, 1, 3, 2, SymAxis.OnTile(10, 0), refX: 5, refY: 5, vertical: true, horizontal: false);
         Assert.Equal((3, 2), left);
         Assert.Equal((-3, 2), right);
     }
@@ -27,8 +27,8 @@ public class SymmetryOpsTests
     public void Grabbing_the_other_side_flips_which_follows_the_cursor()
     {
         // same axis, but grab the RIGHT part (ref x=15): now the right side follows the cursor and the left mirrors
-        var left = SymmetryOps.MoveDelta(5, 5, 1, 1, 3, 2, cx: 10, cy: 0, refX: 15, refY: 5, vertical: true, horizontal: false);
-        var right = SymmetryOps.MoveDelta(15, 5, 1, 1, 3, 2, cx: 10, cy: 0, refX: 15, refY: 5, vertical: true, horizontal: false);
+        var left = SymmetryOps.MoveDelta(5, 5, 1, 1, 3, 2, SymAxis.OnTile(10, 0), refX: 15, refY: 5, vertical: true, horizontal: false);
+        var right = SymmetryOps.MoveDelta(15, 5, 1, 1, 3, 2, SymAxis.OnTile(10, 0), refX: 15, refY: 5, vertical: true, horizontal: false);
         Assert.Equal((-3, 2), left);
         Assert.Equal((3, 2), right);
     }
@@ -37,7 +37,7 @@ public class SymmetryOpsTests
     public void A_part_on_the_axis_cannot_move_along_it()
     {
         // 1x1 centred on the vertical axis tile (x=10): its x-move is pinned to 0 (moving it off-axis breaks symmetry)
-        var onAxis = SymmetryOps.MoveDelta(10, 5, 1, 1, 4, 2, cx: 10, cy: 0, refX: 5, refY: 5, vertical: true, horizontal: false);
+        var onAxis = SymmetryOps.MoveDelta(10, 5, 1, 1, 4, 2, SymAxis.OnTile(10, 0), refX: 5, refY: 5, vertical: true, horizontal: false);
         Assert.Equal((0, 2), onAxis);
     }
 
@@ -45,8 +45,8 @@ public class SymmetryOpsTests
     public void Both_axes_mirror_each_component_independently()
     {
         // grab top-left quadrant (ref 5,5); the bottom-right partner mirrors BOTH x and y
-        var tl = SymmetryOps.MoveDelta(5, 5, 1, 1, 3, 4, 10, 10, 5, 5, vertical: true, horizontal: true);
-        var br = SymmetryOps.MoveDelta(15, 15, 1, 1, 3, 4, 10, 10, 5, 5, vertical: true, horizontal: true);
+        var tl = SymmetryOps.MoveDelta(5, 5, 1, 1, 3, 4, SymAxis.OnTile(10, 10), 5, 5, vertical: true, horizontal: true);
+        var br = SymmetryOps.MoveDelta(15, 15, 1, 1, 3, 4, SymAxis.OnTile(10, 10), 5, 5, vertical: true, horizontal: true);
         Assert.Equal((3, 4), tl);
         Assert.Equal((-3, -4), br);
     }
@@ -66,7 +66,7 @@ public class SymmetryOpsTests
         var (bmx, bmy, brot) = VMirror(a.X, a.Y, a.Rot, a.W, a.H, cx);
         var b = new SymmetryOps.Item("L", bmx, bmy, 1, 3, brot, Sheet: false);
 
-        var poses = SymmetryOps.RotateGroup([a, b], 90, cx, cy: 0, vertical: true, horizontal: false);
+        var poses = SymmetryOps.RotateGroup([a, b], 90, SymAxis.OnTile(cx, 0), vertical: true, horizontal: false);
 
         // A actually rotated (its footprint is now 3x1), and B is exactly the vertical mirror of A's new pose
         Assert.NotEqual((a.X, a.Y, a.Rot), poses[0]);
@@ -79,7 +79,7 @@ public class SymmetryOpsTests
     {
         // a lone selected part (no mirror sibling in the set) still rotates rather than being left untouched
         var lone = new SymmetryOps.Item("X", 3, 3, 1, 3, 0, Sheet: false);
-        var poses = SymmetryOps.RotateGroup([lone], 90, cx: 10, cy: 0, vertical: true, horizontal: false);
+        var poses = SymmetryOps.RotateGroup([lone], 90, SymAxis.OnTile(10, 0), vertical: true, horizontal: false);
         Assert.Single(poses);
         Assert.NotEqual((lone.X, lone.Y, lone.Rot), poses[0]);
     }

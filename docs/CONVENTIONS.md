@@ -89,6 +89,18 @@ by the next person through. `SimulateWindow` is the working example, and it conv
 If you add anything that takes a position from the canvas and hands it to Core, decide which frame the Core side
 is in and say so in its doc comment.
 
+**A symmetry axis is a third unit again, and it is a type rather than an int.** `SymAxis` carries *twice* the
+axis coordinate in the centre frame, so an even value is a column's middle and an odd one the seam between two
+columns. The doubling is what lets an even-width design mirror about its own centre line, which a whole-tile axis
+cannot name at all: a 20-wide hull has no middle column, so it was mirrored half a tile off itself with no way for
+the designer to correct it ([issue #46](https://github.com/Valtora/Ostraplan/issues/46)).
+
+It is a struct and not a pair of ints on purpose. Every one of those parameters used to be a tile index, and an
+int holding halves passed to something expecting tiles compiles perfectly and mirrors the ship to the wrong place.
+The type turns that into a build error, which is how the change to half units found all six call sites at once.
+Cross to the canvas through `SymAxis.Corner` (which goes through `TileFrame` like everything else), and back
+through `SymAxis.NearestTo`.
+
 ## A deck item is its footprint, and it has a condition layer of its own
 
 A `LooseObject` stores one tile, and that tile is the **top-left of its rotated footprint** — not the item. 521

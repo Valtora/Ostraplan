@@ -81,6 +81,14 @@ either back.
   when the selection is a genuine mirror set (its partners are selected too); an
   arbitrary selection, such as a fresh paste on one side of the axis, rotates about its
   own centre and moves rigidly instead.
+  - **Where the axes start.** **M** puts them on the tile under the cursor, so point at
+    the spot before you press it. Choosing a mode from **View ▾** centres them on the
+    design instead, because the menu is covering the plan at the moment you click.
+  - **Moving them.** Drag the diamond handle where the axes cross. It snaps to the
+    nearest half tile, so the axis can run down the middle of a column *or* along the
+    seam between two — an even-width hull needs the seam, and an odd-width one the
+    column. Only the handle drags; the long axis lines are not grab targets, so clicking
+    along them still builds and selects as usual.
 
 ### Parts you can't build — SPECIAL
 

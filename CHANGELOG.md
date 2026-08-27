@@ -9,6 +9,28 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
+## [Unreleased]
+
+### Added
+- **The symmetry axes can be moved.** A diamond handle sits where they cross; drag it and the axes
+  follow, so aiming them is no longer a matter of turning symmetry off and back on with the cursor
+  parked in exactly the right place. It brightens under the pointer, and it is the crossing alone
+  that grabs: the axis lines run the full height and width of the view, and making those draggable
+  would swallow clicks along a whole row and column of the grid. (#46)
+- **An axis can now sit between two columns, not only down the middle of one.** A design of even
+  width has its true centre line on the seam between two tiles, which no whole-tile axis could
+  name, so every even-width hull was mirrored half a tile off its own middle with no way to correct
+  it. Dragging the handle snaps to the nearest half tile, so a seam is as reachable as a column, and
+  a 20-wide hull mirrors about its real centre. (#46)
+
+### Fixed
+- **Choosing a symmetry mode from the View menu no longer drops the axes under the menu.** The menu
+  is drawn over the plan, so "the tile under the cursor" as you clicked a mode was a tile under the
+  *menu*, and the axes landed wherever that item happened to overlay the ship with no chance to aim
+  first. Turning symmetry on from the menu now centres the axes on the design's own bounding box.
+  The `M` key still uses the cursor, because there the pointer really is on the grid. (#46) Thanks
+  to nighoggDatatype.
+
 ## [1.7.3] 2026-08-26, a loud stop when the game is not installed, and a port re-verified against 1.0.0.13
 
 ### Changed

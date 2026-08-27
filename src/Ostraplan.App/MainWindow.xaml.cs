@@ -2713,8 +2713,7 @@ public partial class MainWindow : Window
                     return new SymmetryOps.Item(p.DefName, p.X, p.Y, w, h, p.Rot, _doc.Part(p)?.Item.HasSpriteSheet == true);
                 })
                 .ToList();
-            var (cx, cy) = Board.SymCenter;
-            var symPoses = SymmetryOps.RotateGroup(symItems, delta, cx, cy,
+            var symPoses = SymmetryOps.RotateGroup(symItems, delta, Board.SymCenter,
                 Board.SymMode is SymmetryMode.Vertical or SymmetryMode.Both,
                 Board.SymMode is SymmetryMode.Horizontal or SymmetryMode.Both);
             var symBatch = new List<(Placement, int, int, int)>(parts.Count);

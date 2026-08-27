@@ -137,6 +137,25 @@ public sealed class ShipCanvas : FrameworkElement
         return pen;
     }
 
+    private static readonly Brush SymHandleFill = MakeSymHandleFill(0xB0, 0x4A, 0xE4, 0xE4);
+    private static readonly Brush SymHandleHotFill = MakeSymHandleFill(0xFF, 0x9C, 0xF6, 0xF6);
+    private static readonly Pen SymHandleEdge = MakeSymHandleEdge();
+
+    private static Brush MakeSymHandleFill(byte a, byte r, byte g, byte b)
+    {
+        var brush = new SolidColorBrush(Color.FromArgb(a, r, g, b));
+        brush.Freeze();
+        return brush;
+    }
+
+    private static Pen MakeSymHandleEdge()
+    {
+        // a dark rim, so the handle reads both against its own cyan axes and against a bright hull under it
+        var pen = new Pen(new SolidColorBrush(Color.FromArgb(0xD0, 0x06, 0x1E, 0x1E)), 1.5);
+        pen.Freeze();
+        return pen;
+    }
+
     private static Pen MakeSubfloorPen()
     {
         var pen = new Pen(new SolidColorBrush(Color.FromArgb(0xC0, 0x7A, 0x9E, 0xC8)), 1)
@@ -220,7 +239,9 @@ public sealed class ShipCanvas : FrameworkElement
     private bool _fitPending;                        // FitContent was asked for before this canvas had a size — see FitContentWhenReady
 
     public SymmetryMode SymMode { get; private set; }
-    public (int X, int Y) SymCenter { get; private set; }
+    /// <summary>Where the symmetry axes sit, in half-tile units (see <see cref="SymAxis"/>), so an axis can
+    /// run down a column or along the seam between two. Moved with <see cref="SetSymmetryAxis"/>.</summary>
+    public SymAxis SymCenter { get; private set; }
     public int ViewRot { get; private set; }   // plan-view rotation, 90-degree steps (Q/E)
 
     public bool ShowZones { get; private set; }        // zone overlay visibility (toolbar/key toggle)
@@ -357,12 +378,13 @@ public sealed class ShipCanvas : FrameworkElement
     /// <see cref="AppSettings.AllowModdedOverrides"/>.</summary>
     public bool AllowModdedOverrides { get; set; }
 
-    private enum Drag { None, Pan, Move, Band, Paint, BoxFill, ZonePaint, ZoneBox, Aim, DamagePaint, DamageBox }
+    private enum Drag { None, Pan, Move, Band, Paint, BoxFill, ZonePaint, ZoneBox, Aim, DamagePaint, DamageBox, SymMove }
     private Drag _drag;
     private Point _dragStartScreen;
     private (int X, int Y) _dragStartCell;
     private (int X, int Y) _moveDelta;
     private (int X, int Y)? _hoverCell;
+    private bool _symHandleHot;                      // cursor is over the symmetry handle: the only hint it can be dragged
     private readonly List<IDocCommand> _stroke = [];   // live placements of the current paint/fill stroke
     private HashSet<(int X, int Y)>? _zoneWorking;      // the active zone's tiles being edited this stroke (preview), null when idle
     private HashSet<(int X, int Y)> _zoneBefore = [];   // the active zone's tiles at stroke start (for the undo snapshot)
@@ -1090,7 +1112,7 @@ public sealed class ShipCanvas : FrameworkElement
     {
         if (Doc is null || SymMode == SymmetryMode.Off) yield break;
         var (w, h) = Doc.FootprintOf(p);
-        foreach (var (mx, my, _) in Symmetry.Poses(p.X, p.Y, p.Rot, w, h, SymCenter.X, SymCenter.Y, SymVertical, SymHorizontal).Skip(1))
+        foreach (var (mx, my, _) in Symmetry.Poses(p.X, p.Y, p.Rot, w, h, SymCenter, SymVertical, SymHorizontal).Skip(1))
         {
             var partner = Doc.Placements.FirstOrDefault(q => q.Id != p.Id && q.DefName == p.DefName && q.X == mx && q.Y == my);
             if (partner is not null) yield return partner;
@@ -1125,7 +1147,7 @@ public sealed class ShipCanvas : FrameworkElement
         if (Doc is null || !_symMove) return _moveDelta;
         var (w, h) = Doc.FootprintOf(p);
         return SymmetryOps.MoveDelta(p.X, p.Y, w, h, _moveDelta.X, _moveDelta.Y,
-            SymCenter.X, SymCenter.Y, _dragStartCell.X, _dragStartCell.Y, SymVertical, SymHorizontal);
+            SymCenter, _dragStartCell.X, _dragStartCell.Y, SymVertical, SymHorizontal);
     }
 
     /// <summary>Whether this Move drag preserves symmetry — set once at drag start from <see cref="SelectionIsSymmetric"/>
@@ -1150,7 +1172,7 @@ public sealed class ShipCanvas : FrameworkElement
         var items = parts
             .Select(p => { var (w, h) = Doc.FootprintOf(p); return new Symmetry.SetItem(p.DefName, p.X, p.Y, w, h); })
             .ToList();
-        return Symmetry.IsSymmetricSet(items, SymCenter.X, SymCenter.Y, SymVertical, SymHorizontal);
+        return Symmetry.IsSymmetricSet(items, SymCenter, SymVertical, SymHorizontal);
     }
 
     /// <summary>Start dragging the current selection from <paramref name="cell"/>. Both halves move together, so
@@ -1266,14 +1288,21 @@ public sealed class ShipCanvas : FrameworkElement
         SelectItem(stack[current < 0 ? 0 : (current + 1) % stack.Count]);
     }
 
+    /// <summary>The axes through the middle of the design's own bounding box, which is the sensible place to put
+    /// them when nothing better is known. An odd extent centres on a column and an even one on the seam between
+    /// two, both of which <see cref="SymAxis"/> can now express. The origin on an empty design.</summary>
+    private SymAxis ShipCentreAxis() =>
+        Doc?.Bounds() is { } b ? SymAxis.Centring(b.MinX, b.MaxX, b.MinY, b.MaxY) : SymAxis.OnTile(0, 0);
+
     /// <summary>
-    /// Off -> Vertical -> Horizontal -> Both -> Off. When switching on from Off,
-    /// the axes centre on the tile under the cursor (origin if the mouse is
-    /// elsewhere); cycle to Off and back to re-centre.
+    /// Off -> Vertical -> Horizontal -> Both -> Off. When switching on from Off the axes centre on the tile under
+    /// the cursor, which is the point of driving this from the keyboard: the pointer really is over the grid when
+    /// the key goes down, so it is an aim. With the pointer off the canvas the design's own centre is used.
     /// </summary>
     public void CycleSymmetry()
     {
-        if (SymMode == SymmetryMode.Off) SymCenter = _hoverCell ?? (0, 0);
+        if (SymMode == SymmetryMode.Off)
+            SymCenter = _hoverCell is { } c ? SymAxis.OnTile(c.X, c.Y) : ShipCentreAxis();
         SymMode = SymMode switch
         {
             SymmetryMode.Off => SymmetryMode.Vertical,
@@ -1285,15 +1314,52 @@ public sealed class ShipCanvas : FrameworkElement
         InvalidateVisual();
     }
 
-    /// <summary>Set the symmetry mode directly (the View menu's radio options). Turning symmetry on centres the
-    /// axes on the tile under the cursor, matching <see cref="CycleSymmetry"/>.</summary>
+    /// <summary>
+    /// Set the symmetry mode directly (the View menu's radio options). Turning symmetry on centres the axes on the
+    /// design's own bounding box.
+    ///
+    /// <para><b>Deliberately not the tile under the cursor</b>, which is what this did until issue #46. The menu is
+    /// a popup drawn over the canvas, so the "tile under the cursor" as one of its items is clicked is a tile under
+    /// the MENU: choosing a mode dropped the axes wherever that item happened to overlay the grid, and there was no
+    /// opportunity to aim first because opening the menu is what put the pointer there.
+    /// <see cref="CycleSymmetry"/> keeps the cursor because a keypress leaves the pointer where the user put it.</para>
+    /// </summary>
     public void SetSymmetry(SymmetryMode mode)
     {
         if (SymMode == mode) return;
-        if (SymMode == SymmetryMode.Off && mode != SymmetryMode.Off) SymCenter = _hoverCell ?? (0, 0);
+        if (SymMode == SymmetryMode.Off && mode != SymmetryMode.Off) SymCenter = ShipCentreAxis();
         SymMode = mode;
         SymmetryChanged?.Invoke();
         InvalidateVisual();
+    }
+
+    /// <summary>Move the axes. The single write path, so the drag handle and anything added later agree on what
+    /// repainting and notifying a move costs.</summary>
+    public void SetSymmetryAxis(SymAxis axis)
+    {
+        if (SymCenter == axis) return;
+        SymCenter = axis;
+        SymmetryChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    /// <summary>How close, in screen pixels, the cursor has to be to the axis crossing to grab it. A fixed screen
+    /// size rather than a tile fraction so the handle stays usable at every zoom.</summary>
+    private const double SymHandleRadius = 9;
+
+    /// <summary>Whether a screen point is on the axis-crossing handle.
+    ///
+    /// <para><b>Only the crossing is grabbable, never the axis lines themselves.</b> Those run the full width and
+    /// height of the viewport, so making them draggable would capture left-clicks along an entire row and column
+    /// of the grid, and the user would lose placements to a drag they never meant to start. That is a worse bug
+    /// than the one the handle exists to fix.</para></summary>
+    private bool HitsSymHandle(Point screen)
+    {
+        if (SymMode == SymmetryMode.Off) return false;
+        var doc = DocPointAt(screen);
+        var (ax, ay) = SymCenter.Corner;
+        var tol = SymHandleRadius / Zoom;
+        return Math.Abs(doc.X - ax) <= tol && Math.Abs(doc.Y - ay) <= tol;
     }
 
     public void RotateView(int delta)
@@ -1718,6 +1784,17 @@ public sealed class ShipCanvas : FrameworkElement
         if (e.ChangedButton != MouseButton.Left || Doc is null) return;
         var cell = CellAt(screen);
 
+        // Grabbing the symmetry handle takes priority over placing and selecting. It is a small target that only
+        // exists while symmetry is on, and the cost of losing to it is one tile that has to be built after the
+        // axes are aimed; the cost of losing the other way is an axis that cannot be moved at all (issue #46).
+        if (HitsSymHandle(screen))
+        {
+            _drag = Drag.SymMove;
+            CaptureMouse();
+            e.Handled = true;
+            return;
+        }
+
         // Alt+LMB is the eyedropper: pick the (topmost) part under the cursor as the brush, at its own rotation.
         // Works whether or not something is already armed, and takes priority over placing/selecting so an
         // Alt-click never edits.
@@ -1949,6 +2026,12 @@ public sealed class ShipCanvas : FrameworkElement
     protected override void OnMouseMove(MouseEventArgs e)
     {
         var screen = e.GetPosition(this);
+
+        // Tracked on every move, ahead of the mode-specific early returns below, so the handle never stays lit
+        // after the cursor has left it. It is the only affordance saying the axes are draggable.
+        var symHot = _drag == Drag.None && HitsSymHandle(screen);
+        if (symHot != _symHandleHot) { _symHandleHot = symHot; InvalidateVisual(); }
+
         // Aiming reads a continuous position, not a cell: snapping the ghost path to tile centres makes it jump.
         if (_aiming && _drag == Drag.Aim && _aimStart is { } from)
         {
@@ -1995,6 +2078,12 @@ public sealed class ShipCanvas : FrameworkElement
                 _moveDelta = (cell.X - _dragStartCell.X, cell.Y - _dragStartCell.Y);
                 InvalidateVisual();
                 break;
+            case Drag.SymMove:
+                // The pointer carries the crossing itself, snapped to the nearest half-tile, so a seam is as
+                // reachable as a column and the axes never land somewhere they cannot be drawn.
+                var d = DocPointAt(screen);
+                SetSymmetryAxis(SymAxis.NearestTo((d.X, d.Y)));
+                break;
             case Drag.Band:
             case Drag.DamageBox:
                 InvalidateVisual();
@@ -2008,6 +2097,11 @@ public sealed class ShipCanvas : FrameworkElement
         var drag = _drag;
         _drag = Drag.None;
         ReleaseMouseCapture();
+
+        // The handle keeps its lit look when the pointer is still on it after the release, so letting go does not
+        // look like it shrank away from under the cursor. The unconditional repaint at the end of this method
+        // shows whichever it is.
+        if (drag == Drag.SymMove) _symHandleHot = HitsSymHandle(e.GetPosition(this));
 
         // Releasing commits the strike path. The dialog decides whether to fire on it; the canvas only says a line
         // was finished.
@@ -2242,7 +2336,7 @@ public sealed class ShipCanvas : FrameworkElement
     /// (unit-tested in Core) with this canvas's axis centre and active axes. Cursor pose first; coincident copies
     /// are the caller's to dedup.</summary>
     private IEnumerable<(int X, int Y, int Rot)> WithSymmetry(int x, int y, int rot, int w, int h) =>
-        Symmetry.Poses(x, y, rot, w, h, SymCenter.X, SymCenter.Y,
+        Symmetry.Poses(x, y, rot, w, h, SymCenter,
             vertical: SymMode is SymmetryMode.Vertical or SymmetryMode.Both,
             horizontal: SymMode is SymmetryMode.Horizontal or SymmetryMode.Both);
 
@@ -2268,6 +2362,7 @@ public sealed class ShipCanvas : FrameworkElement
     protected override void OnMouseLeave(MouseEventArgs e)
     {
         _hoverCell = null;
+        _symHandleHot = false;
         HoverChanged?.Invoke(null);
         InvalidateVisual();
     }
@@ -4062,15 +4157,39 @@ public sealed class ShipCanvas : FrameworkElement
         return new Point(r.X + r.Width / 2, r.Y + r.Height / 2);
     }
 
+    /// <summary>
+    /// The symmetry axes and the handle that moves them.
+    ///
+    /// <para>The handle is a fixed-size diamond on the crossing rather than an outline of the axis tile, because
+    /// an axis on a seam has no tile of its own to outline and the marker has to mean the same thing on either
+    /// side of that. It brightens under the cursor, which is the only thing on the plan saying the axes can be
+    /// moved at all — before issue #46 they could not be, and there was nothing to advertise.</para>
+    ///
+    /// <para>A diamond is also rotation-proof: <see cref="OnRender"/> runs this pass under the view rotation, and
+    /// unlike a label it looks the same at all four of them, so it needs no counter-rotation.</para>
+    /// </summary>
     private void DrawSymmetryAxes(DrawingContext dc, Rect view)
     {
-        var cx = Math.Round(_pan.X + (SymCenter.X + 0.5) * Zoom) + 0.5;
-        var cy = Math.Round(_pan.Y + (SymCenter.Y + 0.5) * Zoom) + 0.5;
+        var (docX, docY) = SymCenter.Corner;
+        var cx = Math.Round(_pan.X + docX * Zoom) + 0.5;
+        var cy = Math.Round(_pan.Y + docY * Zoom) + 0.5;
         if (SymMode is SymmetryMode.Vertical or SymmetryMode.Both)
             dc.DrawLine(SymPen, new Point(cx, view.Y), new Point(cx, view.Bottom));
         if (SymMode is SymmetryMode.Horizontal or SymmetryMode.Both)
             dc.DrawLine(SymPen, new Point(view.X, cy), new Point(view.Right, cy));
-        dc.DrawRectangle(null, SymPen, CellRect(SymCenter.X, SymCenter.Y, 1, 1));
+
+        var hot = _symHandleHot || _drag == Drag.SymMove;
+        var r = hot ? SymHandleRadius : SymHandleRadius * 0.7;
+        var diamond = new StreamGeometry();
+        using (var g = diamond.Open())
+        {
+            g.BeginFigure(new Point(cx, cy - r), isFilled: true, isClosed: true);
+            g.LineTo(new Point(cx + r, cy), true, false);
+            g.LineTo(new Point(cx, cy + r), true, false);
+            g.LineTo(new Point(cx - r, cy), true, false);
+        }
+        diamond.Freeze();
+        dc.DrawGeometry(hot ? SymHandleHotFill : SymHandleFill, SymHandleEdge, diamond);
     }
 
     private void DrawGrid(DrawingContext dc, Rect view)
