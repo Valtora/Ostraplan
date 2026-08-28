@@ -117,6 +117,8 @@ public partial class MainWindow : Window
         _autoSaveTimer.Tick += (_, _) => RunAutoSave();
         RestartAutoSaveTimer();   // off unless the user has opted in
 
+        RestorePaneWidths();   // the palette / inspector widths the user last dragged, and whether either is hidden
+
         // The tab the app opens on, built last because activating it touches the timers and the freeze gate above.
         // Its document arrives with the game data (LoadDataAsync); the session has to exist before that, because
         // every piece of per-document state below is read through it. ActivateSession seeds the toolbar highlights.
@@ -188,6 +190,7 @@ public partial class MainWindow : Window
         board.ShowWireChanged += SyncViewToggles;       // keep the toolbar's WireViz button in step
         board.WirePickChanged += OnWirePickChanged;     // swap the status hint while a wiring pick runs
         board.SurfaceModeChanged += OnSurfaceModeChanged;   // show/hide the Surfaces bar and swap the status hint
+        board.SymmetryChanged += SyncViewToggles;          // M and the axis drag both land on the toolbar button
         board.LinkToggleRequested += OnLinkToggleRequested;   // connect/disconnect two devices via the command stack
         board.ActiveZoneChanged += UpdateZones;   // reflect which zone (if any) is being painted
 
@@ -1644,6 +1647,87 @@ public partial class MainWindow : Window
         RefreshDocTabs();   // the strip carries the same name and the same unsaved star, for every open design
     }
 
+    // ---- workspace panes (palette / inspector): resize, remember, collapse ----
+
+    /// <summary>The narrowest either pane may be <b>dragged</b>. A panel thinner than this shows nothing useful:
+    /// the palette loses its part names entirely and the inspector's values wrap to one word a line, so a drag
+    /// that goes further is not resizing, it is breaking the panel by accident.</summary>
+    private const double PaneMinWidth = 200;
+
+    /// <summary>Narrower than this and a pane counts as collapsed rather than merely thin. Only the deliberate
+    /// gesture reaches it (F2 / F3, or a double-click on the divider), because <see cref="PaneMinWidth"/> stops a
+    /// drag well above it.</summary>
+    private const double PaneCollapsedBelow = 40;
+
+    /// <summary>Put the panes back at the widths the user last left them. Called once the window is up, because a
+    /// collapsed pane must also be hidden and not merely zero-wide: a Border of zero width still measures its
+    /// content, and the palette's tab strip is not free to measure.</summary>
+    private void RestorePaneWidths()
+    {
+        ApplyPaneWidth(ColPalette, PalettePane, _settings.PaletteWidth);
+        ApplyPaneWidth(ColInspector, InspectorPane, _settings.InspectorWidth);
+    }
+
+    /// <summary>
+    /// Put one pane at a width, or collapse it.
+    ///
+    /// <para><b>The minimum is applied and removed here rather than declared once in XAML</b>, because the two
+    /// things it has to serve pull against each other: a floor that stops a drag making the panel unusable, and a
+    /// collapse that takes it to nothing. A column cannot be driven below its own <c>MinWidth</c>, so a fixed one
+    /// would make the collapse gesture a no-op. It goes on while the pane is shown and comes off to hide it.</para>
+    /// </summary>
+    private static void ApplyPaneWidth(ColumnDefinition col, UIElement pane, double width)
+    {
+        var collapsed = width < PaneCollapsedBelow;
+        col.MinWidth = collapsed ? 0 : PaneMinWidth;
+        col.Width = new GridLength(collapsed ? 0 : Math.Max(width, PaneMinWidth));
+        pane.Visibility = collapsed ? Visibility.Collapsed : Visibility.Visible;
+    }
+
+    /// <summary>Persist both widths once a drag ends, rather than on every pixel of it: the settings file is
+    /// written on save, and a drag would otherwise write it a hundred times.</summary>
+    private void OnSplitterDragCompleted(object sender, System.Windows.Controls.Primitives.DragCompletedEventArgs e)
+    {
+        StorePaneWidth(ColPalette, PalettePane, w => _settings.PaletteWidth = w, w => _settings.PaletteRestoreWidth = w);
+        StorePaneWidth(ColInspector, InspectorPane, w => _settings.InspectorWidth = w, w => _settings.InspectorRestoreWidth = w);
+        _settings.Save();
+    }
+
+    /// <summary>Record a pane's width, and separately the width to spring back to. A drag that collapses a pane
+    /// must not overwrite the restore width with zero, or un-collapsing it would open it at nothing.</summary>
+    private static void StorePaneWidth(ColumnDefinition col, UIElement pane, Action<double> width, Action<double> restore)
+    {
+        var w = col.ActualWidth;
+        ApplyPaneWidth(col, pane, w);
+        if (w < PaneCollapsedBelow) { width(0); return; }   // the restore width is left alone, or reopening gives nothing
+        // Read back what was actually applied rather than what was dragged: pulling a collapsed pane back out
+        // starts from zero with no minimum in force, so the drag can end below the floor and be snapped up to it.
+        width(col.Width.Value);
+        restore(col.Width.Value);
+    }
+
+    private void OnPaletteSplitterDoubleClick(object sender, MouseButtonEventArgs e) => TogglePalettePane();
+    private void OnInspectorSplitterDoubleClick(object sender, MouseButtonEventArgs e) => ToggleInspectorPane();
+
+    /// <summary>Hide the palette, or bring it back at the width it was last dragged to. F2, and a double-click on
+    /// its splitter.</summary>
+    private void TogglePalettePane()
+    {
+        var showing = ColPalette.ActualWidth >= PaneCollapsedBelow;
+        ApplyPaneWidth(ColPalette, PalettePane, showing ? 0 : _settings.PaletteRestoreWidth);
+        _settings.PaletteWidth = showing ? 0 : _settings.PaletteRestoreWidth;
+        _settings.Save();
+    }
+
+    /// <summary>The inspector's equivalent of <see cref="TogglePalettePane"/>. F3.</summary>
+    private void ToggleInspectorPane()
+    {
+        var showing = ColInspector.ActualWidth >= PaneCollapsedBelow;
+        ApplyPaneWidth(ColInspector, InspectorPane, showing ? 0 : _settings.InspectorRestoreWidth);
+        _settings.InspectorWidth = showing ? 0 : _settings.InspectorRestoreWidth;
+        _settings.Save();
+    }
+
     /// <summary>How much width the design's name is entitled to before the view toggles are pushed onto a second
     /// row. Not a minimum the name is held to (it trims, and a narrow window may still leave it less than this):
     /// it is the point at which the ribbon stops being worth keeping on one line.</summary>
@@ -2330,6 +2414,10 @@ public partial class MainWindow : Window
         UpdateModeHint();
         if (!Board.SurfaceMode) _slotBArmed = false;
         _surfaceNoteOnce = null;
+        // The bar only exists while the mode is on, so the slider takes its value from the setting each time it
+        // appears rather than from wherever the last session left the control.
+        SldSurfaceGhost.Value = _settings.SurfaceGhostOpacity * 100;
+        TxtSurfaceGhost.Text = $"{SldSurfaceGhost.Value:0}%";
         UpdateSurfaceBar();
     }
 
@@ -2505,6 +2593,13 @@ public partial class MainWindow : Window
     }
 
     /// <summary>Persist and apply how far Surfaces mode ghosts the non-deck layers (View ▸ Surfaces).</summary>
+    /// <summary>The GHOST slider on the Surfaces bar. Live while dragged, like the menu slider it replaces.</summary>
+    private void OnSurfaceGhostSliderChanged(object sender, RoutedPropertyChangedEventArgs<double> e)
+    {
+        SetSurfaceGhostPercent(e.NewValue);
+        if (TxtSurfaceGhost is not null) TxtSurfaceGhost.Text = $"{e.NewValue:0}%";
+    }
+
     private void SetSurfaceGhostPercent(double percent)
     {
         var opacity = Math.Clamp(percent / 100.0, 0, 1);
@@ -2515,13 +2610,6 @@ public partial class MainWindow : Window
 
     /// <summary>The Surfaces submenu: how visible the ghosted layers stay while painting the deck. Persisted, because
     /// how much of the clutter you want as a landmark is a matter of taste and of what you are painting.</summary>
-    private MenuItem SurfaceOptionsItem()
-    {
-        var menu = new MenuItem { Header = "Surfaces" };
-        menu.Items.Add(MenuSliderRow("Other layers", 0, 100, _settings.SurfaceGhostOpacity * 100, "0",
-            SetSurfaceGhostPercent, suffix: "% visible"));
-        return menu;
-    }
 
     /// <summary>
     /// Connect two devices, or disconnect them if that connection already exists — one undo step. Which of the two
@@ -4016,6 +4104,14 @@ public partial class MainWindow : Window
                 Board.FitContent();
                 e.Handled = true;
                 break;
+            case Key.F2:
+                TogglePalettePane();
+                e.Handled = true;
+                break;
+            case Key.F3:
+                ToggleInspectorPane();
+                e.Handled = true;
+                break;
             case Key.M when !ctrl && !e.IsRepeat:
                 Board.CycleSymmetry();
                 e.Handled = true;
@@ -4088,6 +4184,11 @@ public partial class MainWindow : Window
                    // a selected loose floor item, resolved through the DESIGN's own catalog like the placement
                    // above it: the window's is the same one in practice, but the document is what owns the def
                    ?? (lone && Board.SelectedLoose is { } lo ? _doc?.Catalog.Lookup(lo.DefName) : null);
+
+        // With nothing selected and nothing armed the whole block goes, rather than standing there as five
+        // headings over a row of dashes. A multi-selection still shows it: the PART row carries the count.
+        SelectionBlock.Visibility = part is not null || Board.SelectionCount > 0
+            ? Visibility.Visible : Visibility.Collapsed;
 
         if (part is null)
         {
@@ -4716,7 +4817,7 @@ public partial class MainWindow : Window
     private MenuItem WalkOptionsItem()
     {
         var menu = new MenuItem { Header = "Walk overlay" };
-        menu.Items.Add(MenuAction("Count spacewalks", () => SetWalkOption(exterior: !_settings.WalkIncludeExterior),
+        menu.Items.Add(MenuAction("EVA Access", () => SetWalkOption(exterior: !_settings.WalkIncludeExterior),
             check: _settings.WalkIncludeExterior));
         menu.Items.Add(MenuAction("Respect Forbid zones", () => SetWalkOption(forbid: !_settings.WalkRespectForbidZones),
             check: _settings.WalkRespectForbidZones));
@@ -4967,30 +5068,54 @@ public partial class MainWindow : Window
         OpenMenuUnder(m, BtnDesignMenu);
     }
 
-    /// <summary>The View ▾ dropdown: fit, symmetry, and the Light Viz / Walk overlay options. The overlay toggles
-    /// (Zones / Rooms / Power / Light / Wire) live on the toolbar as highlighted buttons, and the mod-override rule
-    /// moved to Settings (it is a preference, not a view), so neither is duplicated here. State is read live when
-    /// the menu opens (the active symmetry mode / the checkmark).</summary>
-    private void OnViewMenuClick(object sender, RoutedEventArgs e)
+    /// <summary>Fit to ship, the one-shot camera command that used to sit in the View menu among persistent
+    /// settings (#50). Same action as the F key.</summary>
+    private void OnFitClick(object sender, RoutedEventArgs e) => Board.FitContent();
+
+    /// <summary>
+    /// Cycle the symmetry axes: Off, Vertical, Horizontal, Both, Off. The same action as the M key, and the same
+    /// order, so the button and the keyboard are one control with two surfaces rather than two ways to reach
+    /// different behaviour.
+    ///
+    /// <para>No dropdown for the four modes. Cycling reaches every one of them in at most three clicks, which is
+    /// fewer than opening a menu to pick one, and a menu of four radio items is a lot of chrome to choose between
+    /// four states that have an obvious order.</para>
+    ///
+    /// <para>Symmetry sits with Surfaces in the edit-mode cluster because it changes what a click <b>does</b>: a
+    /// placement is mirrored across the axes as it is laid. It is not an overlay, and being filed as one is why it
+    /// spent so long inside a menu named for views.</para>
+    ///
+    /// <para><see cref="ShipCanvas.CycleSymmetry"/> aims the axes at the cursor when it turns them on, and the
+    /// cursor is over this button rather than the grid — so the canvas falls back to the design's own centre, the
+    /// same as the View menu used to (issue #46).</para>
+    /// </summary>
+    private void OnSymmetryToggleClick(object sender, RoutedEventArgs e)
+    {
+        Board.CycleSymmetry();
+        SyncViewToggles();
+    }
+
+    private void OnLightMenuClick(object sender, RoutedEventArgs e) =>
+        OpenOptionsUnder(LightDimmingItem(), BtnLightMenu);
+
+    private void OnWalkMenuClick(object sender, RoutedEventArgs e) =>
+        OpenOptionsUnder(WalkOptionsItem(), BtnWalkMenu);
+
+    /// <summary>
+    /// Open one overlay's options under its own ▾. The three builders each return a <see cref="MenuItem"/> because
+    /// they were written as submenus of the View menu; now that each hangs off its own button there is no parent
+    /// left to nest under, so their children are lifted into a menu of their own rather than leaving the user a
+    /// one-item menu that only opens another one.
+    /// </summary>
+    private void OpenOptionsUnder(MenuItem built, UIElement anchor)
     {
         var m = new ContextMenu();
-        m.Items.Add(MenuAction("Fit to ship", Board.FitContent, gesture: "F"));
-        m.Items.Add(new Separator());
-
-        var sym = new MenuItem { Header = "Symmetry", InputGestureText = "M" };
-        foreach (var (mode, label) in new[]
-                 {
-                     (SymmetryMode.Off, "Off"), (SymmetryMode.Vertical, "Vertical"),
-                     (SymmetryMode.Horizontal, "Horizontal"), (SymmetryMode.Both, "Both"),
-                 })
-            sym.Items.Add(MenuAction(label, () => Board.SetSymmetry(mode), check: Board.SymMode == mode));
-        m.Items.Add(sym);
-
-        m.Items.Add(new Separator());
-        m.Items.Add(LightDimmingItem());
-        m.Items.Add(WalkOptionsItem());
-        m.Items.Add(SurfaceOptionsItem());
-        OpenMenuUnder(m, BtnViewMenu);
+        foreach (var child in built.Items.Cast<object>().ToList())
+        {
+            built.Items.Remove(child);   // a menu item may only have one parent
+            m.Items.Add(child);
+        }
+        OpenMenuUnder(m, anchor);
     }
 
     // ---- toolbar view toggles (promoted from the View menu) ----
@@ -5017,6 +5142,9 @@ public partial class MainWindow : Window
         BtnAccess.IsChecked = Board.ShowAccess;
         BtnWire.IsChecked = Board.ShowWire;
         BtnSurface.IsChecked = Board.SurfaceMode;
+        // Lit whenever any axis is live. The button cycles four states but only reports two, because "mirroring
+        // or not" is what the highlight is for; which axes is answered by the axes drawn on the plan.
+        BtnSymmetry.IsChecked = Board.SymMode != SymmetryMode.Off;
     }
 
     /// <summary>

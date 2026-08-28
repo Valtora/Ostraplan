@@ -45,7 +45,7 @@ right, but treat a mismatch as "double-check in-game".
 | **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**, an **ITEMS** tab for loose floor cargo, a **SPECIAL** tab for the structure the game places but never lets you build, and a **FAV/REC** tab at the front for the parts you pinned and the ones you just placed. Search by friendly or internal name. Modded parts show a small origin badge. |
 | **Canvas** (centre) | The tile grid. Place, paint, select, pan and zoom here. A **tab strip** appears above it as soon as a second design is open, and disappears again when you are back to one. |
 | **Inspector** (right) | The selected part's details, ship stats, the **Problems** list, and the **Law report**. |
-| **Toolbar** (top) | The actions, grouped **File · Edit · Design · Analyse**, with **⚙ Settings** and the **Help ▾** menu on the right, then everything that only changes what you see: the overlay toggles **Zones · Rooms · Power · Light · Walk · Access · Wire · Surfaces** (each highlights in the accent colour while active, and none of them changes what a click does) and the **View ▾** menu (fit, symmetry, Light Viz daylight, walk-overlay switches). Narrow the window past the point where all of that fits on one line and the toggles drop to a second row of their own, returning beside the actions when there is room again. The design's name sits in the middle, with its make, model and designation underneath once you have set them in **Ship Info**. When a newer release exists it is downloaded in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
+| **Toolbar** (top) | The actions, grouped **File · Edit · Design · Analyse**, with **⚙ Settings** and the **Help ▾** menu on the right. Then two groups, divided by what a button does. **Edit modes** change what a click does: **Symmetry** (click to cycle the axes) and **Surfaces**. **Overlays** only change what you see and never affect editing: **Zones · Rooms · Power · Light · Walk · Access · Wire**. Each highlights in the accent colour while active, and **Light** and **Walk** carry a **▾** for their own options. **Fit** frames the design. Narrow the window past the point where all of that fits on one line and the two groups drop to a second row of their own, returning beside the actions when there is room again. The design's name sits in the middle, with its make, model and designation underneath once you have set them in **Ship Info**. When a newer release exists it is downloaded in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
 
 ### Settings
 
@@ -55,6 +55,7 @@ than part of a design. Changes apply as you make them.
 | Setting | What it does |
 |---|---|
 | **Theme** | Follow Windows, or force light or dark. Chrome only: the canvas stays dark, because the game's sprites are pixel art drawn for dark space. |
+| **Panels** | The palette and the inspector are both resizable: drag the divider beside either one, down to a minimum that keeps the panel readable. Double-click a divider, or press **F2** for the palette and **F3** for the inspector, to hide that panel entirely and give the canvas the whole window; the same gesture brings it back at the width you had. Both widths are remembered between sessions. |
 | **UI scale** | 80% to 200%, scaling everything Ostraplan draws, right-click menus, dropdowns and tooltips included. Above 100% for a high-resolution monitor run at 100% Windows scaling, where the app's text would otherwise be tiny; below it to fit more into the window you have, on a laptop panel or beside a second copy of the app. It is a layout scale, not a magnifying glass, so text and vectors stay sharp. Dialogs and reports resize with it; the main window keeps the size you gave it, and below 100% spends the space it saves on the canvas. |
 | **Mod overrides** | Let a modded part be placed where the core-game rules say it doesn't fit (see [The Law](#the-law--live-validation)). |
 | **Ostranauts install** | Where the game's data and sprites are read from. Found through Steam automatically. Read once at launch, so a change takes effect next time you start Ostraplan. |
@@ -76,14 +77,15 @@ either back.
 - **Paint:** left-drag to place along a stroke (one undo step).
 - **Box fill:** **Shift**-drag a rectangle. **Ctrl+Shift**-drag fills only the
   rectangle's border (a hollow room).
-- **Symmetry:** **M** cycles off → vertical → horizontal → both; placements mirror
+- **Symmetry:** the **Symmetry** button or **M**, either of which cycles off → vertical →
+  horizontal → both; placements mirror
   live, positions *and* rotations. Rotating or moving a selection stays symmetric only
   when the selection is a genuine mirror set (its partners are selected too); an
   arbitrary selection, such as a fresh paste on one side of the axis, rotates about its
   own centre and moves rigidly instead.
   - **Where the axes start.** **M** puts them on the tile under the cursor, so point at
-    the spot before you press it. Choosing a mode from **View ▾** centres them on the
-    design instead, because the menu is covering the plan at the moment you click.
+    the spot before you press it. The **Symmetry** button centres them on the design
+    instead, because your cursor is up on the toolbar at the moment you click it.
   - **Moving them.** Drag the diamond handle where the axes cross. It snaps to the
     nearest half tile, so the axis can run down the middle of a column *or* along the
     seam between two — an even-width hull needs the seam, and an odd-width one the
@@ -302,9 +304,9 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   - **Door state matters here**, unlike for rooms and the rating. A closed door only
     seals a section off if it is unpowered, locked or damaged; a powered one crew simply
     open, so it still joins both sides.
-  - Under **View ▸ Walk overlay** you can **count spacewalks** (include routes over the
-    hull, off by default so interior routes are what you see) and choose whether
-    **Forbid zones** apply. Both settings are remembered.
+  - The **▾** beside **Walk** turns on **EVA Access** (include routes over the hull, off
+    by default so interior routes are what you see) and chooses whether **Forbid zones**
+    apply. Both settings are remembered.
 - **Access overlay** — the **Access** toolbar button or **J**. Point at a fitting and it
   marks the tile a crew member would work it from, with a pair of feet, the way the game
   marks it on the deck. The plan on its own cannot tell you an arcade cabinet is usable

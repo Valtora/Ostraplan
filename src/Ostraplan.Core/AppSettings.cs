@@ -86,6 +86,21 @@ public sealed class AppSettings
     /// would otherwise be tiny. Clamped to <see cref="UiScaling.Min"/>..<see cref="UiScaling.Max"/> at use, so a
     /// hand-edited settings file can't produce an unusable window.</summary>
     [JsonPropertyName("uiScale")] public double UiScale { get; set; } = UiScaling.Default;
+
+    /// <summary>Width of the parts palette, in logical pixels, as the user last dragged it. Zero means collapsed;
+    /// the width to restore to is <see cref="PaletteRestoreWidth"/>, so collapsing does not lose the size.</summary>
+    [JsonPropertyName("paletteWidth")] public double PaletteWidth { get; set; } = 330;
+
+    /// <summary>Width of the inspector. Same rules as <see cref="PaletteWidth"/>.</summary>
+    [JsonPropertyName("inspectorWidth")] public double InspectorWidth { get; set; } = 270;
+
+    /// <summary>The width the palette springs back to when it is un-collapsed. Kept apart from
+    /// <see cref="PaletteWidth"/> so a design closed while collapsed still reopens at the size it was dragged to,
+    /// rather than at whatever default the app happens to ship.</summary>
+    [JsonPropertyName("paletteRestoreWidth")] public double PaletteRestoreWidth { get; set; } = 330;
+
+    /// <summary>The inspector's equivalent of <see cref="PaletteRestoreWidth"/>.</summary>
+    [JsonPropertyName("inspectorRestoreWidth")] public double InspectorRestoreWidth { get; set; } = 270;
     [JsonPropertyName("recentFiles")] public List<string> RecentFiles { get; set; } = [];
     [JsonPropertyName("exportAuthor")] public string? ExportAuthor { get; set; }
     [JsonPropertyName("lastExportDir")] public string? LastExportDir { get; set; }

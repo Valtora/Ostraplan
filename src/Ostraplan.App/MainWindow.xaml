@@ -71,6 +71,31 @@
             <Setter Property="Padding" Value="10,3"/>
             <Setter Property="Margin" Value="0,0,3,0"/>
         </Style>
+        <!-- Menu text was hard to read: nothing in the app styled a menu at all, so items wore whatever the
+             Fluent default resolved to over our own panel background. BasedOn keeps the control on the Fluent
+             chain (CONVENTIONS: an explicit style with no BasedOn drops out of the theme and back to the light
+             Aero2 template), and only the two properties that decide legibility are set on top. Ink is the same
+             brush the rest of the chrome reads with, so it re-resolves on a light/dark switch. -->
+        <Style TargetType="MenuItem" BasedOn="{StaticResource {x:Type MenuItem}}">
+            <Setter Property="Foreground" Value="{DynamicResource Ink}"/>
+            <Setter Property="FontSize" Value="13"/>
+        </Style>
+
+        <!-- The left half of a split button: the same overlay toggle with its right margin closed up, so the arrow
+             that follows reads as part of the same control rather than as the next button along. -->
+        <Style x:Key="SplitToggle" TargetType="ToggleButton" BasedOn="{StaticResource OverlayToggle}">
+            <Setter Property="Margin" Value="0"/>
+        </Style>
+        <!-- The right half: the arrow that opens that toggle's own options. Deliberately a plain Button on the
+             Fluent chain rather than anything custom — CONVENTIONS is explicit that a control style adding more
+             than padding and margin drops out of the theme and back to the light Aero2 template. Narrow padding
+             is what makes it read as an appendage; it is not a second button. -->
+        <Style x:Key="SplitArrow" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Padding" Value="4,3"/>
+            <Setter Property="Margin" Value="1,0,3,0"/>
+            <Setter Property="FontSize" Value="9"/>
+            <Setter Property="VerticalAlignment" Value="Stretch"/>
+        </Style>
         <!-- A document tab. Same reasoning as OverlayToggle above: a ToggleButton on the Fluent chain wearing the
              theme's own checked accent for the active tab, rather than a hard-set background that Fluent's hover
              state would then paint over. IsChecked is driven from the active session in MainWindow.RefreshDocTabs. -->
@@ -147,62 +172,91 @@
                 <!-- The actions. Always row 0, always leftmost. -->
                 <StackPanel x:Name="RibbonActions" Grid.Row="0" Grid.Column="0" Orientation="Horizontal">
                     <Button x:Name="BtnFileMenu" Content="File ▾" Padding="10,3" Margin="0,0,3,0" Click="OnFileMenuClick"
-                            ToolTip="New, Open, Save, Auto-save, Import, Export, and write-back to a save"/>
+                            ToolTip="New, open, save, import, export, and write back to a save."/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 
                     <!-- Edit (frequent — kept as direct buttons) -->
                     <Button x:Name="BtnUndo" Content="Undo" Padding="10,3" Margin="0,0,3,0" Click="OnUndoClick"
-                            ToolTip="Undo (Ctrl+Z)"/>
+                            ToolTip="Undo the last edit. (Ctrl+Z)"/>
                     <Button x:Name="BtnRedo" Content="Redo" Padding="10,3" Margin="0,0,3,0" Click="OnRedoClick"
-                            ToolTip="Redo (Ctrl+Y)"/>
+                            ToolTip="Redo the last undone edit. (Ctrl+Y)"/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 
                     <Button x:Name="BtnDesignMenu" Content="Design ▾" Padding="10,3" Margin="0,0,3,0" Click="OnDesignMenuClick"
-                            ToolTip="Ship identity, wall/floor re-skin, snapshot, and the bill of materials"/>
+                            ToolTip="Ship identity, re-skin, repairs, snapshot, bill of materials, and reports."/>
 
                     <Button x:Name="BtnSimulateMenu" Content="Simulate ▾" Padding="10,3" Margin="0,0,3,0" Click="OnSimulateMenuClick"
-                            ToolTip="Fire a micrometeoroid or a weapon at the design and see what breaks"/>
+                            ToolTip="Fire a micrometeoroid or weapon at the design and see what breaks."/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 
                     <!-- Analyse (headline action — kept prominent) -->
                     <Button x:Name="BtnRating" Content="Ship Rating" Padding="10,3" Margin="0,0,3,0" Click="OnShipRatingClick"
                             Background="{DynamicResource AccentBg}" Foreground="{DynamicResource AccentText}"
-                            ToolTip="Analyse rooms, airtightness, certification and the Ship Rating for the current design"/>
+                            ToolTip="Score the design: rooms, airtightness, certification and the game's Ship Rating."/>
                     <Button x:Name="BtnDiagnostics" Content="Diagnostics" Padding="10,3" Margin="0,0,3,0" Click="OnDiagnosticsClick"
-                            ToolTip="The game's own nav-console checklist: transponder, antenna, reactor, thrusters, power and life support"/>
+                            ToolTip="The game's nav-console checklist: power, thrusters, antenna and life support."/>
                 </StackPanel>
 
-                <!-- Everything that only CHANGES WHAT YOU SEE. Row and column are set by RelayoutRibbon, so the
-                     values here are only the wide arrangement it starts in. The keyboard gestures still toggle
-                     these; SyncViewToggles keeps IsChecked in step whichever path fires. Click drives the canvas;
-                     the code-set IsChecked never re-enters Click. -->
+                <!-- Row 2, grouped by WHAT A BUTTON DOES rather than by where its options used to live (#50).
+                     Two clusters, and the separator between them is the whole point of the grouping:
+
+                       * EDIT MODES change what a click does. Symmetry mirrors what you place; Surfaces ghosts
+                         everything but walls and floors AND re-points a click at the deck under the clutter
+                         (ShipCanvas.SurfaceAwareHit). Neither is a view, and both sat among the overlays for
+                         years being described as things that "only change what you see".
+                       * OVERLAYS draw something extra and change nothing about editing.
+
+                     A button with options carries its own, on a ▾ beside it, instead of them living in a View menu
+                     across the ribbon from the button they belong to. That menu is now gone: every one of its
+                     items had a natural owner, and Fit to ship was a one-shot camera command filed among
+                     persistent settings, so it is a button. Overlay order is otherwise unchanged, so anything
+                     already in the fingers still is.
+
+                     Row and column are set by RelayoutRibbon; the values here are only the wide arrangement it
+                     starts in. The keyboard gestures still drive all of these; SyncViewToggles keeps IsChecked in
+                     step whichever path fires. Click drives the canvas; the code-set IsChecked never re-enters
+                     Click. -->
                 <StackPanel x:Name="RibbonToggles" Grid.Row="0" Grid.Column="1" Orientation="Horizontal">
                     <Border x:Name="RibbonTogglesSep" Style="{StaticResource ToolSep}"/>
-                    <ToggleButton x:Name="BtnZones" Content="Zones" Style="{StaticResource OverlayToggle}" Click="OnZonesToggleClick"
-                            ToolTip="Zones overlay (Z): show the crew-assignable zone paint"/>
-                    <ToggleButton x:Name="BtnRooms" Content="Rooms" Style="{StaticResource OverlayToggle}" Click="OnRoomsToggleClick"
-                            ToolTip="Rooms overlay (C): show the compartments the game would flood-fill"/>
-                    <ToggleButton x:Name="BtnPower" Content="Power" Style="{StaticResource OverlayToggle}" Click="OnPowerToggleClick"
-                            ToolTip="Power overlay (P): show the conduit network and orphaned runs"/>
-                    <ToggleButton x:Name="BtnLight" Content="Light" Style="{StaticResource OverlayToggle}" Click="OnLightToggleClick"
-                            ToolTip="Light Viz (L): simulate the in-game interior lighting"/>
-                    <ToggleButton x:Name="BtnWalk" Content="Walk" Style="{StaticResource OverlayToggle}" Click="OnWalkToggleClick"
-                            ToolTip="Walk overlay (K): show which tiles crew can reach, and which fittings they can operate"/>
-                    <ToggleButton x:Name="BtnAccess" Content="Access" Style="{StaticResource OverlayToggle}" Click="OnAccessToggleClick"
-                            ToolTip="Access overlay (J): point at a fitting to see the tiles a crew member would work it from"/>
-                    <ToggleButton x:Name="BtnWire" Content="Wire" Style="{StaticResource OverlayToggle}" Click="OnWireToggleClick"
-                            ToolTip="WireViz: show the ship's signal wiring — green for a sensor a device follows, violet for a signal box switching one. To wire something up, right-click it and choose Wiring"/>
+
+                    <!-- Edit modes. -->
+                    <ToggleButton x:Name="BtnSymmetry" Content="Symmetry" Style="{StaticResource OverlayToggle}" Click="OnSymmetryToggleClick"
+                            ToolTip="Mirror what you place. Click to cycle the axes, drag the handle to move them. (M)"/>
                     <ToggleButton x:Name="BtnSurface" Content="Surfaces" Style="{StaticResource OverlayToggle}" Click="OnSurfaceToggleClick"
-                            ToolTip="Surfaces mode (T): ghost everything but walls and floors, and paint skins straight onto the deck"/>
+                            ToolTip="Ghost all but walls and floors, and paint skins onto the deck. (T)"/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 
-                    <Button x:Name="BtnViewMenu" Content="View ▾" Padding="10,3" Margin="0,0,3,0" Click="OnViewMenuClick"
-                            ToolTip="Fit, symmetry, and the Light Viz / Walk overlay options"/>
+                    <!-- Overlays. -->
+                    <ToggleButton x:Name="BtnZones" Content="Zones" Style="{StaticResource OverlayToggle}" Click="OnZonesToggleClick"
+                            ToolTip="Show the crew-assignable zone paint. (Z)"/>
+                    <ToggleButton x:Name="BtnRooms" Content="Rooms" Style="{StaticResource OverlayToggle}" Click="OnRoomsToggleClick"
+                            ToolTip="Show the compartments the game would flood-fill. (C)"/>
+                    <ToggleButton x:Name="BtnPower" Content="Power" Style="{StaticResource OverlayToggle}" Click="OnPowerToggleClick"
+                            ToolTip="Show the conduit network and any orphaned runs. (P)"/>
+                    <ToggleButton x:Name="BtnLight" Content="Light" Style="{StaticResource SplitToggle}" Click="OnLightToggleClick"
+                            ToolTip="Simulate the in-game interior lighting. (L)"/>
+                    <Button x:Name="BtnLightMenu" Content="▾" Style="{StaticResource SplitArrow}" Click="OnLightMenuClick"
+                            ToolTip="Exterior sun and its angle."/>
+                    <ToggleButton x:Name="BtnWalk" Content="Walk" Style="{StaticResource SplitToggle}" Click="OnWalkToggleClick"
+                            ToolTip="Show which tiles crew can reach and which fittings they can use. (K)"/>
+                    <Button x:Name="BtnWalkMenu" Content="▾" Style="{StaticResource SplitArrow}" Click="OnWalkMenuClick"
+                            ToolTip="Whether EVA access counts, and whether Forbid zones are respected."/>
+                    <ToggleButton x:Name="BtnAccess" Content="Access" Style="{StaticResource OverlayToggle}" Click="OnAccessToggleClick"
+                            ToolTip="Point at a fitting to see where crew would work it from. (J)"/>
+                    <ToggleButton x:Name="BtnWire" Content="Wire" Style="{StaticResource OverlayToggle}" Click="OnWireToggleClick"
+                            ToolTip="Show signal wiring: sensors a device follows, and boxes that switch it."/>
+
+                    <Border Style="{StaticResource ToolSep}"/>
+
+                    <!-- Camera. Nothing to configure, so no arrow. -->
+                    <Button x:Name="BtnFit" Content="Fit" Padding="10,3" Margin="0,0,3,0" Click="OnFitClick"
+                            ToolTip="Frame the whole design in the view. (F)"/>
                 </StackPanel>
+
 
                 <!-- The design's identity, spanning both rows so the byline sits directly under the name in either
                      arrangement. Both strings are as long as the data makes them, so both trim rather than push
@@ -228,9 +282,9 @@
                             ToolTip="A newer release is available — click to open the download page"/>
                     <Button x:Name="BtnSettings" Content="⚙ Settings" Padding="10,3" Margin="6,0,0,0"
                             Click="OnSettingsClick"
-                            ToolTip="Theme, UI scale, mod overrides, and the game folders (Ctrl+,)"/>
+                            ToolTip="Theme, UI scale, mod overrides, and the game folders. (Ctrl+,)"/>
                     <Button x:Name="BtnHelp" Content="Help ▾" Padding="10,3" Margin="6,0,0,0"
-                            Click="OnHelpMenuClick" ToolTip="Controls &amp; keybinds (F1), report a bug, and the activity log"/>
+                            Click="OnHelpMenuClick" ToolTip="Controls and keybinds, report a bug, and the activity log. (F1)"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -249,11 +303,29 @@
             <StatusBarItem><TextBlock x:Name="TxtGhost" Text="" FontWeight="SemiBold" Foreground="{DynamicResource Bad}"/></StatusBarItem>
             <StatusBarItem HorizontalAlignment="Right">
                 <TextBlock x:Name="TxtHint" Opacity="0.7"
-                           Text="drag paint · Shift+drag fill · Ctrl+Shift hollow · RMB menu · R rotate · Q/E view · M symmetry · WASD pan · F1 help"/>
+                           Text="drag paint · Shift+drag fill · Ctrl+Shift hollow · RMB menu · R rotate · Q/E view · WASD pan · F1 help"/>
             </StatusBarItem>
         </StatusBar>
 
-        <Border DockPanel.Dock="Left" Width="330" Background="{DynamicResource PanelBg}" Padding="8"
+        <!-- The workspace: palette, canvas, inspector, with a draggable splitter between each pair. It was a
+             DockPanel with two fixed-width Borders, so a part name longer than 330px was simply truncated and
+             there was nothing the user could do about it. Widths persist in AppSettings, and either pane
+             collapses to nothing (double-click its splitter, F2 / F3) to give the canvas the whole window.
+
+             MinWidth on the centre column, not on the panes: the panes have to reach zero to collapse, and it is
+             the CANVAS that must never be squeezed out of existence. -->
+        <Grid x:Name="Workspace">
+            <Grid.ColumnDefinitions>
+                <!-- MinWidth on the two panes is set from code (RestorePaneWidths / ApplyPaneWidth), not here: it
+                     has to come off to collapse a pane, since a column cannot be driven below its own minimum. -->
+                <ColumnDefinition x:Name="ColPalette" Width="330"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*" MinWidth="240"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition x:Name="ColInspector" Width="270"/>
+            </Grid.ColumnDefinitions>
+
+        <Border x:Name="PalettePane" Grid.Column="0" Background="{DynamicResource PanelBg}" Padding="8"
                 BorderBrush="{DynamicResource PanelBorder}" BorderThickness="0,0,1,0">
             <DockPanel>
                 <TextBox x:Name="TxtSearch" DockPanel.Dock="Top" Margin="0,0,0,6" Padding="4,3"
@@ -262,91 +334,13 @@
             </DockPanel>
         </Border>
 
-        <Border DockPanel.Dock="Right" Width="270" Background="{DynamicResource PanelBg}" Padding="12,8"
-                BorderBrush="{DynamicResource PanelBorder}" BorderThickness="1,0,0,0">
-            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-              <StackPanel Margin="0,0,6,0">
-                <TextBlock Text="PROBLEMS" Style="{StaticResource SideHeader}" Margin="0,0,0,4"/>
-                <StackPanel x:Name="ProblemsPanel"/>
-                <Separator Margin="0,10,0,0" Background="{DynamicResource PanelBorder}"/>
-                <!-- LastChildFill MUST stay False. It defaults to True, and the button is the last child, so with
-                     the default it ignores its Dock and stretches across the whole row: a "+ Add" the width of the
-                     panel, jammed against the ZONES caption. -->
-                <DockPanel Margin="0,10,0,2" LastChildFill="False">
-                    <TextBlock Text="ZONES" DockPanel.Dock="Left" Style="{StaticResource SideHeader}"
-                               Margin="0,0,10,0" VerticalAlignment="Center"/>
-                    <Button x:Name="BtnAddZone" Content="+ Add" DockPanel.Dock="Right" Style="{StaticResource ZoneBtn}"
-                            Click="OnAddZoneClick" ToolTip="Create a zone and start painting its tiles"/>
-                </DockPanel>
-                <StackPanel x:Name="ZonesPanel"/>
-                <Separator Margin="0,10,0,0" Background="{DynamicResource PanelBorder}"/>
-                <TextBlock Text="PART" Style="{StaticResource SideHeader}"/>
-                <TextBox x:Name="InsFriendly" Style="{StaticResource InlineName}" Text="—" IsReadOnly="True" Focusable="False"
-                         PreviewMouseLeftButtonDown="OnPartNamePreviewClick" GotKeyboardFocus="OnPartNameFocused"
-                         LostFocus="OnPartNameLostFocus" KeyDown="OnPartNameKeyDown"/>
-                <TextBlock x:Name="InsInternal" Style="{StaticResource SideValue}" Opacity="0.6" FontSize="11"/>
-                <!-- Opening a container was a right-click-only affordance, which is a hard thing to find if
-                     nobody tells you it is there. Shown for whatever the PART block is describing, placed part
-                     or deck item, whenever that thing can hold something. -->
-                <Button x:Name="BtnContents" Visibility="Collapsed" Margin="0,6,0,0" HorizontalAlignment="Left"
-                        Padding="10,3,10,3" FontSize="12" Click="OnContentsClick"
-                        ToolTip="Open this container (Enter)"/>
-                <StackPanel x:Name="DescBlock" Visibility="Collapsed">
-                    <TextBlock Text="DESCRIPTION" Style="{StaticResource SideHeader}"/>
-                    <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
-                        <TextBlock x:Name="InsDesc" Style="{StaticResource SideValue}" FontSize="12"
-                                   TextWrapping="Wrap" Opacity="0.85"/>
-                    </ScrollViewer>
-                </StackPanel>
-                <TextBlock Text="CATEGORY" Style="{StaticResource SideHeader}"/>
-                <TextBlock x:Name="InsCategory" Style="{StaticResource SideValue}"/>
-                <TextBlock Text="FOOTPRINT" Style="{StaticResource SideHeader}"/>
-                <TextBlock x:Name="InsSize" Style="{StaticResource SideValue}"/>
-                <StackPanel x:Name="PriceBlock" Visibility="Collapsed">
-                    <TextBlock Text="BASE VALUE" Style="{StaticResource SideHeader}"/>
-                    <TextBlock x:Name="InsPrice" Style="{StaticResource SideValue}"/>
-                </StackPanel>
-                <!-- Curated key stats (mass, health, work, power…), from the raw game-data cond values. -->
-                <StackPanel x:Name="StatsBlock" Visibility="Collapsed">
-                    <TextBlock Text="STATS" Style="{StaticResource SideHeader}"/>
-                    <StackPanel x:Name="StatsList"/>
-                </StackPanel>
-                <!-- The device's own control panel: which sensor it follows, and the switches the game's panel
-                     offers for it. Only shown for a selected part that actually has one (a pump, scrubber, heater
-                     or cooler), and only the modes its def declares. -->
-                <StackPanel x:Name="DeviceBlock" Visibility="Collapsed">
-                    <TextBlock Text="DEVICE" Style="{StaticResource SideHeader}"/>
-                    <TextBlock x:Name="InsSensor" Style="{StaticResource SideValue}" FontSize="12"
-                               TextWrapping="Wrap" Margin="0,0,0,4"/>
-                    <TextBlock Text="Bus" Style="{StaticResource SideValue}" FontSize="11" Opacity="0.6"/>
-                    <ComboBox x:Name="InsDeviceBus" Margin="0,2,0,4" FontSize="12"
-                              SelectionChanged="OnDeviceBusChanged"/>
-                    <CheckBox x:Name="InsDeviceTurbo" Content="Turbo" FontSize="12" Margin="0,2,0,0"
-                              Foreground="{DynamicResource Ink}" Click="OnDeviceModeChanged"/>
-                    <CheckBox x:Name="InsDeviceReverse" Content="Reverse" FontSize="12" Margin="0,2,0,0"
-                              Foreground="{DynamicResource Ink}" Click="OnDeviceModeChanged"/>
-                    <CheckBox x:Name="InsDeviceSlow" Content="Slow mode" FontSize="12" Margin="0,2,0,0"
-                              Foreground="{DynamicResource Ink}" Click="OnDeviceModeChanged"/>
-                </StackPanel>
-                <TextBlock Text="SOURCE" Style="{StaticResource SideHeader}"/>
-                <TextBlock x:Name="InsOrigin" Style="{StaticResource SideValue}"/>
-                <TextBlock Text="INSTALL MATERIALS" Style="{StaticResource SideHeader}"/>
-                <TextBlock x:Name="InsInputs" Style="{StaticResource SideValue}" FontSize="12"/>
-                <!-- The full raw game data: every numeric cond verbatim, and the part's condition flags. -->
-                <Expander x:Name="RawExpander" Visibility="Collapsed" Margin="0,12,0,0"
-                          Header="All game data (raw)" Foreground="{DynamicResource Dim}" FontSize="11">
-                    <StackPanel x:Name="RawList" Margin="0,4,0,2"/>
-                </Expander>
-                <Expander x:Name="FlagsExpander" Visibility="Collapsed" Margin="0,4,0,0"
-                          Header="Conditions (flags)" Foreground="{DynamicResource Dim}" FontSize="11">
-                    <TextBlock x:Name="FlagsList" Style="{StaticResource SideValue}" FontSize="11"
-                               TextWrapping="Wrap" Opacity="0.85" Margin="0,4,0,2"/>
-                </Expander>
-              </StackPanel>
-            </ScrollViewer>
-        </Border>
+            <GridSplitter x:Name="SplitPalette" Grid.Column="1" Width="5"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          Background="Transparent" Cursor="SizeWE" ShowsPreview="False"
+                          DragCompleted="OnSplitterDragCompleted" MouseDoubleClick="OnPaletteSplitterDoubleClick"
+                          ToolTip="Drag to resize the palette. Double-click to hide it. (F2)"/>
 
-        <Grid>
+        <Grid Grid.Column="2">
             <Grid.RowDefinitions>
                 <!-- The document tab strip. Auto, and collapsed while one design is open, so a single-document
                      session looks exactly as it did before tabs existed. -->
@@ -427,6 +421,18 @@
                         <ToggleButton x:Name="ModeFill" Content="Fill" Tag="Fill" Padding="8,3"
                                       Click="OnSurfaceModeButtonClick" ToolTip="Only lay on bare tiles, never change what is there"/>
                     </StackPanel>
+                    <!-- How visible the ghosted layers are. It lived in the View menu, then briefly on a ▾ beside
+                         the Surfaces button; it belongs here, on the bar that only exists while the mode is on,
+                         beside the SHOW toggles that decide WHAT is ghosted. -->
+                    <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
+                        <TextBlock Text="GHOST" Foreground="{DynamicResource Dim}" FontSize="10" FontWeight="Bold"
+                                   VerticalAlignment="Center" Margin="0,0,5,0"/>
+                        <Slider x:Name="SldSurfaceGhost" Width="130" Minimum="0" Maximum="100" VerticalAlignment="Center"
+                                ValueChanged="OnSurfaceGhostSliderChanged"
+                                ToolTip="How visible the ghosted layers are"/>
+                        <TextBlock x:Name="TxtSurfaceGhost" VerticalAlignment="Center" Margin="8,0,0,0" MinWidth="38"
+                                   Foreground="{DynamicResource Ink}"/>
+                    </StackPanel>
                     <TextBlock x:Name="TxtSurfaceNote" Foreground="{DynamicResource Dim}" FontSize="11" Margin="0,6,0,0"
                                MaxWidth="420" TextWrapping="Wrap"/>
                 </StackPanel>
@@ -449,6 +455,103 @@
                 <TextBlock x:Name="TxtLoading" Text="Locating Ostranauts…" Foreground="#FFD8DDE4"
                            FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>
+        </Grid>
+
+            <GridSplitter x:Name="SplitInspector" Grid.Column="3" Width="5"
+                          HorizontalAlignment="Stretch" VerticalAlignment="Stretch"
+                          Background="Transparent" Cursor="SizeWE" ShowsPreview="False"
+                          DragCompleted="OnSplitterDragCompleted" MouseDoubleClick="OnInspectorSplitterDoubleClick"
+                          ToolTip="Drag to resize the inspector. Double-click to hide it. (F3)"/>
+
+        <Border x:Name="InspectorPane" Grid.Column="4" Background="{DynamicResource PanelBg}" Padding="12,8"
+                BorderBrush="{DynamicResource PanelBorder}" BorderThickness="1,0,0,0">
+            <ScrollViewer VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+              <StackPanel Margin="0,0,6,0">
+                <TextBlock Text="PROBLEMS" Style="{StaticResource SideHeader}" Margin="0,0,0,4"/>
+                <StackPanel x:Name="ProblemsPanel"/>
+                <Separator Margin="0,10,0,0" Background="{DynamicResource PanelBorder}"/>
+                <!-- LastChildFill MUST stay False. It defaults to True, and the button is the last child, so with
+                     the default it ignores its Dock and stretches across the whole row: a "+ Add" the width of the
+                     panel, jammed against the ZONES caption. -->
+                <DockPanel Margin="0,10,0,2" LastChildFill="False">
+                    <TextBlock Text="ZONES" DockPanel.Dock="Left" Style="{StaticResource SideHeader}"
+                               Margin="0,0,10,0" VerticalAlignment="Center"/>
+                    <Button x:Name="BtnAddZone" Content="+ Add" DockPanel.Dock="Right" Style="{StaticResource ZoneBtn}"
+                            Click="OnAddZoneClick" ToolTip="Create a zone and start painting its tiles"/>
+                </DockPanel>
+                <StackPanel x:Name="ZonesPanel"/>
+                <Separator Margin="0,10,0,0" Background="{DynamicResource PanelBorder}"/>
+                <!-- Everything describing the current selection. Collapsed outright when there is none: these
+                     are five headings that would otherwise sit there announcing their own emptiness, and a column
+                     of labels over "—" reads as a broken panel rather than an idle one. The sub-blocks inside
+                     keep their own visibility, so a selection still only shows the parts of this that apply. -->
+                <StackPanel x:Name="SelectionBlock" Visibility="Collapsed">
+                    <TextBlock Text="PART" Style="{StaticResource SideHeader}"/>
+                    <TextBox x:Name="InsFriendly" Style="{StaticResource InlineName}" Text="—" IsReadOnly="True" Focusable="False"
+                             PreviewMouseLeftButtonDown="OnPartNamePreviewClick" GotKeyboardFocus="OnPartNameFocused"
+                             LostFocus="OnPartNameLostFocus" KeyDown="OnPartNameKeyDown"/>
+                    <TextBlock x:Name="InsInternal" Style="{StaticResource SideValue}" Opacity="0.6" FontSize="11"/>
+                    <!-- Opening a container was a right-click-only affordance, which is a hard thing to find if
+                         nobody tells you it is there. Shown for whatever the PART block is describing, placed part
+                         or deck item, whenever that thing can hold something. -->
+                    <Button x:Name="BtnContents" Visibility="Collapsed" Margin="0,6,0,0" HorizontalAlignment="Left"
+                            Padding="10,3,10,3" FontSize="12" Click="OnContentsClick"
+                            ToolTip="Open this container (Enter)"/>
+                    <StackPanel x:Name="DescBlock" Visibility="Collapsed">
+                        <TextBlock Text="DESCRIPTION" Style="{StaticResource SideHeader}"/>
+                        <ScrollViewer MaxHeight="120" VerticalScrollBarVisibility="Auto" HorizontalScrollBarVisibility="Disabled">
+                            <TextBlock x:Name="InsDesc" Style="{StaticResource SideValue}" FontSize="12"
+                                       TextWrapping="Wrap" Opacity="0.85"/>
+                        </ScrollViewer>
+                    </StackPanel>
+                    <TextBlock Text="CATEGORY" Style="{StaticResource SideHeader}"/>
+                    <TextBlock x:Name="InsCategory" Style="{StaticResource SideValue}"/>
+                    <TextBlock Text="FOOTPRINT" Style="{StaticResource SideHeader}"/>
+                    <TextBlock x:Name="InsSize" Style="{StaticResource SideValue}"/>
+                    <StackPanel x:Name="PriceBlock" Visibility="Collapsed">
+                        <TextBlock Text="BASE VALUE" Style="{StaticResource SideHeader}"/>
+                        <TextBlock x:Name="InsPrice" Style="{StaticResource SideValue}"/>
+                    </StackPanel>
+                    <!-- Curated key stats (mass, health, work, power…), from the raw game-data cond values. -->
+                    <StackPanel x:Name="StatsBlock" Visibility="Collapsed">
+                        <TextBlock Text="STATS" Style="{StaticResource SideHeader}"/>
+                        <StackPanel x:Name="StatsList"/>
+                    </StackPanel>
+                    <!-- The device's own control panel: which sensor it follows, and the switches the game's panel
+                         offers for it. Only shown for a selected part that actually has one (a pump, scrubber, heater
+                         or cooler), and only the modes its def declares. -->
+                    <StackPanel x:Name="DeviceBlock" Visibility="Collapsed">
+                        <TextBlock Text="DEVICE" Style="{StaticResource SideHeader}"/>
+                        <TextBlock x:Name="InsSensor" Style="{StaticResource SideValue}" FontSize="12"
+                                   TextWrapping="Wrap" Margin="0,0,0,4"/>
+                        <TextBlock Text="Bus" Style="{StaticResource SideValue}" FontSize="11" Opacity="0.6"/>
+                        <ComboBox x:Name="InsDeviceBus" Margin="0,2,0,4" FontSize="12"
+                                  SelectionChanged="OnDeviceBusChanged"/>
+                        <CheckBox x:Name="InsDeviceTurbo" Content="Turbo" FontSize="12" Margin="0,2,0,0"
+                                  Foreground="{DynamicResource Ink}" Click="OnDeviceModeChanged"/>
+                        <CheckBox x:Name="InsDeviceReverse" Content="Reverse" FontSize="12" Margin="0,2,0,0"
+                                  Foreground="{DynamicResource Ink}" Click="OnDeviceModeChanged"/>
+                        <CheckBox x:Name="InsDeviceSlow" Content="Slow mode" FontSize="12" Margin="0,2,0,0"
+                                  Foreground="{DynamicResource Ink}" Click="OnDeviceModeChanged"/>
+                    </StackPanel>
+                    <TextBlock Text="SOURCE" Style="{StaticResource SideHeader}"/>
+                    <TextBlock x:Name="InsOrigin" Style="{StaticResource SideValue}"/>
+                    <TextBlock Text="INSTALL MATERIALS" Style="{StaticResource SideHeader}"/>
+                    <TextBlock x:Name="InsInputs" Style="{StaticResource SideValue}" FontSize="12"/>
+                </StackPanel>
+                <!-- The full raw game data: every numeric cond verbatim, and the part's condition flags. -->
+                <Expander x:Name="RawExpander" Visibility="Collapsed" Margin="0,12,0,0"
+                          Header="All game data (raw)" Foreground="{DynamicResource Dim}" FontSize="11">
+                    <StackPanel x:Name="RawList" Margin="0,4,0,2"/>
+                </Expander>
+                <Expander x:Name="FlagsExpander" Visibility="Collapsed" Margin="0,4,0,0"
+                          Header="Conditions (flags)" Foreground="{DynamicResource Dim}" FontSize="11">
+                    <TextBlock x:Name="FlagsList" Style="{StaticResource SideValue}" FontSize="11"
+                               TextWrapping="Wrap" Opacity="0.85" Margin="0,4,0,2"/>
+                </Expander>
+              </StackPanel>
+            </ScrollViewer>
+        </Border>
         </Grid>
     </DockPanel>
 </Window>

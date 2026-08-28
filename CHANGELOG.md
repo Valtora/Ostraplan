@@ -11,7 +11,28 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Changed
+- **The toolbar is grouped by what a button does, and the View menu is gone.** Its contents had
+  little in common: a camera command, a mode selector, and options for three of the overlay
+  buttons sitting across the ribbon from the buttons they configured. Each now lives on the thing
+  it belongs to. **Light** and **Walk** carry a **▾** with their own options, **Surfaces** puts its
+  ghost slider on the Surfaces bar that appears with the mode, **Symmetry** is a button that cycles
+  the axes the way **M** always has, and **Fit** is a button of its own. The row is split into edit
+  modes, which change what a click does, and overlays, which only change what you see. (#50)
+- **The Walk overlay's "Count spacewalks" is now "EVA Access".** Same setting, named for what it
+  is. (#50)
+- **Every toolbar button has a short tooltip** saying what it does and its keyboard shortcut. (#50)
+- **Dropdown menu text is readable.** Nothing in the app styled a menu, so items were drawn in
+  whatever the theme's default resolved to over the panel behind them. (#50)
+
 ### Added
+- **The palette and the inspector are resizable, and can be hidden.** Both were fixed widths, so a
+  part name longer than the palette was simply truncated with nothing you could do about it. Drag
+  the divider beside either panel, down to a minimum that keeps it readable, and double-click a
+  divider (or press **F2** for the palette, **F3** for the inspector) to hide that panel and give
+  the canvas the whole window. Both widths are remembered between sessions. (#50)
+- **The inspector hides its part details when nothing is selected**, instead of showing five
+  headings over a row of dashes. (#50)
 - **The toolbar takes a second row when it needs one, so the ship's name is visible again.** One row
   could not hold the buttons, the eight overlay toggles and the name at the default window size, and
   it was the name that lost: the buttons took their width first and the centre was left with none,
