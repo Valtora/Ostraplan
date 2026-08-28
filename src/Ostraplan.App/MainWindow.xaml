@@ -120,9 +120,32 @@
     <!-- Chrome = everything the user can edit with (toolbar, sidebar, canvas). MainWindow.FreezeDoc disables it as
          one switch while an engine reads the live document off-thread; naming it is what makes that possible. -->
     <DockPanel x:Name="Chrome">
+        <!-- The ribbon is ONE row that becomes two only when it has to (#49).
+             At the default window size a single row could not hold the actions, the eight overlay toggles and the
+             ship's name, and it was the NAME that lost: the fixed-size buttons took their width first and the
+             centre was left with none, so a design opened with no title showing. A permanent second row fixes that
+             and costs a strip of vertical space on every wide window, where everything fitted anyway. So the
+             toggles move between row 0 and row 1 on width, in RelayoutRibbon.
+
+             Four columns rather than three so the switch is two attached properties and no reparenting: the
+             toggles sit in their own Auto column when they are on row 0, and that column collapses to nothing
+             when they drop to row 1. The identity block spans both rows so its byline is centred under its name
+             whichever arrangement is live. -->
         <Border DockPanel.Dock="Top" Background="{DynamicResource PanelBg}" Padding="8,6">
-            <DockPanel>
-                <StackPanel Orientation="Horizontal" DockPanel.Dock="Left">
+            <Grid x:Name="RibbonGrid" SizeChanged="OnRibbonSizeChanged">
+                <Grid.ColumnDefinitions>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="Auto"/>
+                    <ColumnDefinition Width="*"/>
+                    <ColumnDefinition Width="Auto"/>
+                </Grid.ColumnDefinitions>
+                <Grid.RowDefinitions>
+                    <RowDefinition Height="Auto"/>
+                    <RowDefinition Height="Auto"/>
+                </Grid.RowDefinitions>
+
+                <!-- The actions. Always row 0, always leftmost. -->
+                <StackPanel x:Name="RibbonActions" Grid.Row="0" Grid.Column="0" Orientation="Horizontal">
                     <Button x:Name="BtnFileMenu" Content="File ▾" Padding="10,3" Margin="0,0,3,0" Click="OnFileMenuClick"
                             ToolTip="New, Open, Save, Auto-save, Import, Export, and write-back to a save"/>
 
@@ -150,12 +173,14 @@
                             ToolTip="Analyse rooms, airtightness, certification and the Ship Rating for the current design"/>
                     <Button x:Name="BtnDiagnostics" Content="Diagnostics" Padding="10,3" Margin="0,0,3,0" Click="OnDiagnosticsClick"
                             ToolTip="The game's own nav-console checklist: transponder, antenna, reactor, thrusters, power and life support"/>
+                </StackPanel>
 
-                    <Border Style="{StaticResource ToolSep}"/>
-
-                    <!-- View overlays (promoted from the View menu — the Fluent checked state highlights while active).
-                         The keyboard gestures still toggle these; SyncViewToggles keeps IsChecked in step whichever
-                         path fires. Click drives the canvas; the code-set IsChecked never re-enters Click. -->
+                <!-- Everything that only CHANGES WHAT YOU SEE. Row and column are set by RelayoutRibbon, so the
+                     values here are only the wide arrangement it starts in. The keyboard gestures still toggle
+                     these; SyncViewToggles keeps IsChecked in step whichever path fires. Click drives the canvas;
+                     the code-set IsChecked never re-enters Click. -->
+                <StackPanel x:Name="RibbonToggles" Grid.Row="0" Grid.Column="1" Orientation="Horizontal">
+                    <Border x:Name="RibbonTogglesSep" Style="{StaticResource ToolSep}"/>
                     <ToggleButton x:Name="BtnZones" Content="Zones" Style="{StaticResource OverlayToggle}" Click="OnZonesToggleClick"
                             ToolTip="Zones overlay (Z): show the crew-assignable zone paint"/>
                     <ToggleButton x:Name="BtnRooms" Content="Rooms" Style="{StaticResource OverlayToggle}" Click="OnRoomsToggleClick"
@@ -179,23 +204,35 @@
                             ToolTip="Fit, symmetry, and the Light Viz / Walk overlay options"/>
                 </StackPanel>
 
-                <!-- Right side (added right-to-left) -->
-                <Button x:Name="BtnHelp" Content="Help ▾" DockPanel.Dock="Right" Padding="10,3" Margin="6,0,0,0"
-                        Click="OnHelpMenuClick" ToolTip="Controls &amp; keybinds (F1), report a bug, and the activity log"/>
-                <Button x:Name="BtnSettings" Content="⚙ Settings" DockPanel.Dock="Right" Padding="10,3" Margin="6,0,0,0"
-                        Click="OnSettingsClick"
-                        ToolTip="Theme, UI scale, mod overrides, and the game folders (Ctrl+,)"/>
-                <Button x:Name="BtnUpdate" DockPanel.Dock="Right" Padding="10,3" Margin="6,0,0,0"
-                        Visibility="Collapsed" Click="OnUpdateClick"
-                        Background="{DynamicResource AccentBg}" Foreground="{DynamicResource AccentText}"
-                        ToolTip="A newer release is available — click to open the download page"/>
-                <TextBlock x:Name="TxtVersion" DockPanel.Dock="Right" VerticalAlignment="Center"
-                           Foreground="{DynamicResource Dim}" Margin="12,0,0,0"/>
-                <TextBlock x:Name="TxtWarnings" DockPanel.Dock="Right" VerticalAlignment="Center"
-                           Foreground="{DynamicResource Warn}" Margin="12,0,0,0"/>
-                <TextBlock x:Name="TxtDoc" VerticalAlignment="Center" HorizontalAlignment="Center"
-                           Foreground="{DynamicResource Ink}" FontWeight="SemiBold"/>
-            </DockPanel>
+                <!-- The design's identity, spanning both rows so the byline sits directly under the name in either
+                     arrangement. Both strings are as long as the data makes them, so both trim rather than push
+                     the column open (CONVENTIONS: a wrapping TextBlock sets the width, not the other way round). -->
+                <StackPanel x:Name="RibbonIdentity" Grid.Row="0" Grid.Column="2" Grid.RowSpan="2"
+                            HorizontalAlignment="Center" VerticalAlignment="Center" Margin="12,0,12,0">
+                    <TextBlock x:Name="TxtDoc" HorizontalAlignment="Center" TextTrimming="CharacterEllipsis"
+                               Foreground="{DynamicResource Ink}" FontWeight="SemiBold"/>
+                    <TextBlock x:Name="TxtDocByline" HorizontalAlignment="Center" TextTrimming="CharacterEllipsis"
+                               Foreground="{DynamicResource Dim}" FontSize="11" Margin="0,1,0,0"
+                               Visibility="Collapsed"/>
+                </StackPanel>
+
+                <!-- Right side. Always row 0. -->
+                <StackPanel x:Name="RibbonRight" Grid.Row="0" Grid.Column="3" Orientation="Horizontal" HorizontalAlignment="Right">
+                    <TextBlock x:Name="TxtWarnings" VerticalAlignment="Center"
+                               Foreground="{DynamicResource Warn}" Margin="12,0,0,0"/>
+                    <TextBlock x:Name="TxtVersion" VerticalAlignment="Center"
+                               Foreground="{DynamicResource Dim}" Margin="12,0,0,0"/>
+                    <Button x:Name="BtnUpdate" Padding="10,3" Margin="6,0,0,0"
+                            Visibility="Collapsed" Click="OnUpdateClick"
+                            Background="{DynamicResource AccentBg}" Foreground="{DynamicResource AccentText}"
+                            ToolTip="A newer release is available — click to open the download page"/>
+                    <Button x:Name="BtnSettings" Content="⚙ Settings" Padding="10,3" Margin="6,0,0,0"
+                            Click="OnSettingsClick"
+                            ToolTip="Theme, UI scale, mod overrides, and the game folders (Ctrl+,)"/>
+                    <Button x:Name="BtnHelp" Content="Help ▾" Padding="10,3" Margin="6,0,0,0"
+                            Click="OnHelpMenuClick" ToolTip="Controls &amp; keybinds (F1), report a bug, and the activity log"/>
+                </StackPanel>
+            </Grid>
         </Border>
 
         <StatusBar DockPanel.Dock="Bottom" Background="{DynamicResource PanelBg}" Foreground="{DynamicResource Dim}">

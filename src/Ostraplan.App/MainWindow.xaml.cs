@@ -1638,9 +1638,72 @@ public partial class MainWindow : Window
         var star = _stack.Dirty || _stateDirty ? " *" : "";
         var incomplete = _unresolvedParts.Count > 0 ? "  ⚠ MISSING MODS — read-only" : "";
         TxtDoc.Text = name + star + incomplete;
+        SetDocByline();
         Title = $"Ostraplan v{AppVersion} — {name}{star}{incomplete}";
         SyncDocumentKindChrome();
         RefreshDocTabs();   // the strip carries the same name and the same unsaved star, for every open design
+    }
+
+    /// <summary>How much width the design's name is entitled to before the view toggles are pushed onto a second
+    /// row. Not a minimum the name is held to (it trims, and a narrow window may still leave it less than this):
+    /// it is the point at which the ribbon stops being worth keeping on one line.</summary>
+    private const double RibbonNameFloor = 170;
+
+    /// <summary>Which arrangement is live, so the attached properties are written only when it actually changes.
+    /// Null until the first layout pass, which is what makes that first pass apply rather than skip.</summary>
+    private bool? _ribbonOneRow;
+
+    private void OnRibbonSizeChanged(object sender, SizeChangedEventArgs e) => RelayoutRibbon();
+
+    /// <summary>
+    /// Put the view toggles on their own row only when one row cannot hold everything (#49).
+    ///
+    /// <para>A permanent second row fixed the vanishing ship name but spent a strip of vertical space on every
+    /// window wide enough not to need it, and left the name floating in the middle of a mostly empty row. So the
+    /// toggles ride row 0 beside the actions while there is room, and drop to row 1 when there is not.</para>
+    ///
+    /// <para><b>This cannot oscillate</b>, which is the trap with any layout that reacts to its own size. The
+    /// decision is made from the three toolbars' <see cref="UIElement.DesiredSize"/>, and those are the widths of
+    /// the same buttons with the same content either way, so moving the toggles between rows does not change any
+    /// number the decision reads. A test on ActualWidth would flip forever: dropping the toggles widens the name
+    /// column, which then says there is room to bring them back up.</para>
+    /// </summary>
+    private void RelayoutRibbon()
+    {
+        var available = RibbonGrid.ActualWidth;
+        if (available <= 0) return;
+
+        var needed = RibbonActions.DesiredSize.Width + RibbonToggles.DesiredSize.Width
+                   + RibbonRight.DesiredSize.Width + RibbonNameFloor;
+        var oneRow = available >= needed;
+        if (_ribbonOneRow == oneRow) return;
+        _ribbonOneRow = oneRow;
+
+        Grid.SetRow(RibbonToggles, oneRow ? 0 : 1);
+        Grid.SetColumn(RibbonToggles, oneRow ? 1 : 0);
+        Grid.SetColumnSpan(RibbonToggles, oneRow ? 1 : 4);
+        RibbonToggles.Margin = oneRow ? new Thickness(0) : new Thickness(0, 5, 0, 0);
+        // The separator divides the toggles from the actions beside them. On its own row it would be a rule
+        // hanging off the left edge with nothing to its left to divide.
+        RibbonTogglesSep.Visibility = oneRow ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    /// <summary>
+    /// The line under the design's name: its in-game identity, as far as it has one. Make, model and designation
+    /// are what the Ship Info dialog collects and what the export writes onto the ship, so this is the identity a
+    /// player would read off the transponder rather than a second helping of the file name above it.
+    ///
+    /// <para>Hidden outright when none of the three is set, which is every new design. Reserving an empty line
+    /// would push the name off the ribbon's vertical centre and say nothing: the byline is here to use room the
+    /// second row had already taken (#49), not to claim room of its own.</para>
+    /// </summary>
+    private void SetDocByline()
+    {
+        var line = string.Join(" · ", new[] { _meta.Make, _meta.Model, _meta.Designation }
+            .Where(v => !string.IsNullOrWhiteSpace(v))
+            .Select(v => v.Trim()));
+        TxtDocByline.Text = line;
+        TxtDocByline.Visibility = line.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
     }
 
     /// <summary>

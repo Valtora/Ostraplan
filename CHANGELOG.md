@@ -12,6 +12,16 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **The toolbar takes a second row when it needs one, so the ship's name is visible again.** One row
+  could not hold the buttons, the eight overlay toggles and the name at the default window size, and
+  it was the name that lost: the buttons took their width first and the centre was left with none,
+  so a design opened with no title showing. The overlay toggles and **View ▾** now drop to a row of
+  their own once the window is too narrow to fit everything on one, and ride back up beside the
+  actions as soon as there is room. A wide window keeps the single row it always had. (#49) Thanks
+  to nighoggDatatype.
+- **The design's make, model and designation show under its name.** Set them in **Ship Info** and
+  they appear on the toolbar, so the identity the ship will carry in game is readable without
+  opening a dialog. Nothing shows until you set one of them. (#49)
 - **The symmetry axes can be moved.** A diamond handle sits where they cross; drag it and the axes
   follow, so aiming them is no longer a matter of turning symmetry off and back on with the cursor
   parked in exactly the right place. It brightens under the pointer, and it is the crossing alone
