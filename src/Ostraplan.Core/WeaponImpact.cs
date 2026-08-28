@@ -50,7 +50,9 @@ public sealed record ImpactResult(
 /// <para><b>What is deliberately not reproduced.</b> The game jitters every shot before it lands
 /// (<c>AddVariance</c>: ±10° on direction and a slide of ±40% of the grid along the entry edge) and rolls per-part
 /// fire chances. Both are live RNG, so an aim point here is exact and a plan reports the worst case rather than a
-/// sample. Fire and chain explosions past the first step are simulation and out of scope. The path is the user's
+/// sample. Fire past the first step is simulation and out of scope; chain explosions are not modelled because the
+/// game has none, neither a charge nor a loose missile detonating from another's damage (GAME-INTERNALS §26, #42).
+/// The path is the user's
 /// to draw, which is more freedom than the game gives an attacker and is the point: a designer needs to ask what a
 /// hit <i>here</i> would do, not only what the game happens to roll.</para>
 /// </summary>

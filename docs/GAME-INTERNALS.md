@@ -3569,9 +3569,61 @@ cell using the part's own ship attack, or `DefaultExplosion` when it declares no
 > now miss. It does mean a design imported from a save must be measured in the frame it arrived
 > with (`ShipDocument.SourceShipPos`) rather than the one it would be exported into, or the
 > answer describes a different ship from the one the player is flying.
-- **Chain explosions and fire propagate.** Both are modelled here as one step from the
-  triggering hit; the game keeps burning afterwards, which is simulation and excluded by
-  the same rule as gas flow and crew pathing.
+- **Fire propagates.** It is modelled here as one step from the triggering hit; the game
+  keeps burning afterwards, which is simulation and excluded by the same rule as gas flow
+  and crew pathing. Chain explosions are a different case, and are not modelled at all
+  because the game does not have them (see below).
+
+### Chain explosions: there are none to port (#42)
+
+Neither a mining charge nor a loose missile detonates when something else damages it. Checked
+against the shipped data of 1.0.0.13, and worth writing down because the opposite is widely
+believed and one of the two cases looks like an authoring mistake rather than a decision.
+
+Damage response is data, not code: an item's `aUpdateCommands` names the loot to fire when a
+stat reaches its max, in the form `Destructable,<stat>,<loot>,<statMax>,1.0`.
+
+**Mining charges cannot chain, and that is deliberate.** `ItmExplosiveCharge01`/`02` and their
+`…Armed` forms all route damage to `ACTDefaultDestroy`, which is the ordinary destroy path
+(`MSDestroyDefault` → `ItmDefaultDestroyed`). Only the armed forms carry a second command, and
+it is on the fuse rather than on damage:
+
+```
+"Destructable,StatDamage,ACTDefaultDestroy,StatDamageMax,1.0"        // damage → destroyed
+"Destructable,StatFuse,ACTExplosiveChargeExplode,StatFuseMax,1.0"    // timer  → explodes
+```
+
+The item description says so outright, and is the likely source of the confusion because it
+reads at a glance like a warning that damage sets them off: *"While damage activates a failsafe
+killswitch, neglect and disrepair can be hazardous…"*. The killswitch **is** the destroy path.
+Damage is what stops a charge going off, not what sets it off.
+
+**Missiles were given the mechanic and it is not wired up.** The whole chain exists for all
+three live missiles, complete and unreachable:
+
+| Def | State |
+|---|---|
+| `ACTAmmoMissile0*DamageExplode` | **defined** in `loot.json`, referenced by nothing |
+| `MSAmmoMissile0*DamageExplode` | defined, reached only through the above |
+| `ItmAmmoMissile0*DamageExplode` | defined; spawns `SysExplosionMissile0*` plus component loot |
+| `ACTMissile0*Destroy` | **named by `ItmAmmoMissile0*` on damage, and defined nowhere** |
+
+So a live missile's damage command points at a loot that does not exist, while the loot that
+would have exploded it is orphaned. The two names differ by exactly the `Ammo` infix, which
+reads like a rename applied to the loot files and not to the items. `MSMissile01Destroy` and
+`MSMissile02Destroy` are defined and turn a missile into its component shell, but are equally
+unreachable, and `MSMissile03Destroy` was never written at all. Decoy missiles are unaffected:
+they use `ACTDefaultDestroy` like everything else and behave correctly.
+
+None of these names appears in `Assembly-CSharp.dll` in either encoding, so nothing invokes them
+from code either. (`ACTDefaultDestroy` does appear, once, so the engine knows that one by name.)
+
+**Nothing to port, so nothing is simulated.** A damaged loose missile in game today does not
+explode, and a damaged charge is destroyed by design. Ostraplan models neither, which is the
+faithful answer for as long as the data stays this way. If Blue Bottle Games repoints the
+missiles' damage command at the `…DamageExplode` loot, this becomes a real mechanic and the
+solver would need a propagation step; that is the trigger to revisit, and until then a toggle
+would only be a mode to remove later.
 
 > **Ported in Ostraplan:** `MicrometeoroidStrike` and `WeaponImpact` behind
 > **Simulate ▸ Micrometeoroid Strike…** and **Simulate ▸ Weapon Impact…**, sharing one damage
