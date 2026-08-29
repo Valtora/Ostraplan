@@ -343,6 +343,64 @@ public partial class App : Application
         // the game's own rendering of the same part at the same figure. The constants behind it live in compiled
         // GPU code (see WearShader), so no data test can catch them drifting and this is the check that can.
         // Needs the game install.
+        // preview render: draw a page of backdrops (#43) so the composited locale art can be eyeballed without
+        // clicking through Settings for each of the thirty-odd of them. Needs the game install.
+        if (e.Args.Contains("--bgsmoke"))
+        {
+            var dir = e.Args.SkipWhile(a => a != "--bgsmoke").Skip(1).FirstOrDefault() ?? AppContext.BaseDirectory;
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var env = GameEnv.Locate(null);
+                var catalog = Catalog.Build(DataIndex.Load(env));
+                var brushes = new BackdropBrushes(new SpriteCache());
+
+                var samples = new List<(string Label, BackdropSettings Settings)>
+                {
+                    ("Default", BackdropSettings.Default),
+                    ("White", BackdropSettings.Default with { Solid = "#FFFFFF" }),
+                    ("Checker", BackdropSettings.Default with { Kind = BackdropKind.Checker }),
+                };
+                samples.AddRange(ParallaxCatalog.All(catalog).Select(l =>
+                    (l.Display, BackdropSettings.Default with { Kind = BackdropKind.Locale, Locale = l.Name })));
+
+                const int cell = 200, pad = 10, labelH = 16;
+                var cols = 6;
+                var rows = (samples.Count + cols - 1) / cols;
+                int w = cols * (cell + pad) + pad, h = rows * (cell + pad + labelH) + pad;
+
+                var visual = new DrawingVisual();
+                using (var dc = visual.RenderOpen())
+                {
+                    dc.DrawRectangle(Brushes.DimGray, null, new Rect(0, 0, w, h));
+                    for (var i = 0; i < samples.Count; i++)
+                    {
+                        var (label, sample) = samples[i];
+                        var x = pad + i % cols * (cell + pad);
+                        var y = pad + i / cols * (cell + pad + labelH);
+                        var visualFor = brushes.For(sample, catalog);
+                        dc.DrawRectangle(visualFor.Brush, null, new Rect(x, y, cell, cell));
+                        dc.DrawText(
+                            new FormattedText(
+                                visualFor.IsLight ? label + " (dark ink)" : label,
+                                System.Globalization.CultureInfo.InvariantCulture,
+                                FlowDirection.LeftToRight, new Typeface("Segoe UI"), 10, Brushes.White,
+                                VisualTreeHelper.GetDpi(visual).PixelsPerDip),
+                            new Point(x, y + cell + 2));
+                    }
+                }
+                var target = new RenderTargetBitmap(w, h, 96, 96, PixelFormats.Pbgra32);
+                target.Render(visual);
+                var encoder = new PngBitmapEncoder();
+                encoder.Frames.Add(BitmapFrame.Create(target));
+                using var bgFs = File.Create(Path.Combine(dir, "backdrops.png"));
+                encoder.Save(bgFs);
+            }
+            catch (Exception ex) { File.WriteAllText(Path.Combine(dir, "bgsmoke-error.txt"), ex.ToString()); }
+            Shutdown(0);
+            return;
+        }
+
         if (e.Args.Contains("--wearsmoke"))
         {
             var dir = e.Args.SkipWhile(a => a != "--wearsmoke").Skip(1).FirstOrDefault() ?? AppContext.BaseDirectory;

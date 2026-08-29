@@ -54,7 +54,9 @@ than part of a design. Changes apply as you make them.
 
 | Setting | What it does |
 |---|---|
-| **Theme** | Follow Windows, or force light or dark. Chrome only: the canvas stays dark, because the game's sprites are pixel art drawn for dark space. |
+| **Theme** | Follow Windows, or force light or dark. Chrome only. The canvas follows **The plan's backdrop** below instead, not the theme. |
+| **The plan's backdrop** | What the plan is drawn on: a solid colour, a checkerboard, or one of the game's own places. See [The plan's backdrop](#the-plans-backdrop). |
+| **Scale markings** | A brighter grid line every 5, 10 or 20 tiles, for judging the size of a hull at a glance. Off by default. |
 | **Panels** | The palette and the inspector are both resizable: drag the divider beside either one, down to a minimum that keeps the panel readable. Double-click a divider, or press **F2** for the palette and **F3** for the inspector, to hide that panel entirely and give the canvas the whole window; the same gesture brings it back at the width you had. Both widths are remembered between sessions. |
 | **UI scale** | 80% to 200%, scaling everything Ostraplan draws, right-click menus, dropdowns and tooltips included. Above 100% for a high-resolution monitor run at 100% Windows scaling, where the app's text would otherwise be tiny; below it to fit more into the window you have, on a laptop panel or beside a second copy of the app. It is a layout scale, not a magnifying glass, so text and vectors stay sharp. Dialogs and reports resize with it; the main window keeps the size you gave it, and below 100% spends the space it saves on the canvas. |
 | **Mod overrides** | Let a modded part be placed where the core-game rules say it doesn't fit (see [The Law](#the-law--live-validation)). |
@@ -701,7 +703,9 @@ says so once and then only logs it, rather than interrupting you every interval.
 Rating** room map can also be saved as **SVG** (its "Save image…" dialog offers PNG or
 SVG), so the room tints and labels stay crisp at any zoom. Both the plain snapshot and
 the room map render in your current view orientation, so if you've rotated the plan
-with **Q**/**E** the image matches; the room labels stay upright.
+with **Q**/**E** the image matches; the room labels stay upright. The plain snapshot is
+drawn on whatever you set as [the plan's backdrop](#the-plans-backdrop), so a place from the
+game is one way to make a shareable image of a ship.
 
 ## Import & export
 
@@ -1614,9 +1618,44 @@ ship into one image, so there are no layers left in it to ghost.
 
 ## Theming
 
-The **Theme** picker (top-right) switches the app chrome between System / Light /
-Dark; the choice persists. The ship canvas always stays dark — the sprites are
-drawn for dark space.
+The **Theme** picker in **Settings** switches the app chrome between System / Light /
+Dark; the choice persists. It covers the chrome only. What the plan itself is drawn on is
+a separate setting, below, because the two are different questions: the chrome should match
+your desktop, and the backdrop should make *your* ship easy to read.
+
+## The plan's backdrop
+
+The plan was drawn on one near-black for a long time, and a dark hull on a dark backdrop is
+hard to read. **Settings ▸ The plan's backdrop** changes it. Three kinds:
+
+- **Solid colour.** Type any `#RRGGBB`, or click one of the swatches: the app's own dark,
+  black, white, three greys, and seven colours at three brightnesses each.
+- **Checkerboard.** Two colours in squares of a size you set. For when no single colour
+  beats the hull, because a hull cannot match both squares at once.
+- **A place from the game.** Any of the thirty-two the game draws behind your ship, built
+  from its own art: Venus from orbit, Jupiter's cloud tops, the Mars surface, the OKLG
+  boneyard. **Dimming** darkens it so the art stays behind the ship rather than competing
+  with it, and at 0% it is the art as the game draws it.
+
+Each place always composites the same way, so a backdrop you liked for a screenshot is one
+you can go back to. The backdrop holds still while the ship moves over it, so nothing
+drifts about while you pan.
+
+Pick a light backdrop and the grid, the origin marker and the hover ring switch to dark ink
+so they stay visible.
+
+Two things worth knowing. It is **app-wide, not part of a design**: a ship you send somebody
+opens on their backdrop, not yours. And it is what a **PNG snapshot** is drawn on, which is
+the point if you are taking one to show off. The Ship Rating room map keeps its own neutral
+background, and so does the ship portrait art an exported mod ships, because that one sits
+beside the game's own portraits.
+
+### Scale markings
+
+**Scale markings** draws a brighter grid line every 5, 10 or 20 tiles, measured from the
+ship's origin, so you can see how big a hull is getting without counting tiles. The
+one-tile grid stays underneath, so you can still count when you want to. Off unless you
+turn it on.
 
 ## Help & reporting a bug
 

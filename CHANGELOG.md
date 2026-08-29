@@ -11,6 +11,20 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **The plan's backdrop is yours to choose.** It was one hardcoded near-black, which a dark hull
+  like the Ryokka F-01 all but disappears into. **Settings ▸ The plan's backdrop** now offers a
+  solid colour (any `#RRGGBB`, or one of twenty-six swatches), a two-colour checkerboard for the
+  case where no single colour beats the hull, and any of the **thirty-two places from the game**,
+  composited from its own parallax art: Venus from orbit, Jupiter's cloud tops, the OKLG boneyard.
+  A dimming slider keeps the art behind the ship rather than competing with it, and each place
+  always composites the same way, so a screenshot you liked is one you can take again. Whatever you
+  pick is also what a **Snapshot** PNG is drawn on. Pick a light colour and the grid, hover ring and
+  origin marker switch to dark ink so they stay visible. Thanks to nighoggDatatype. (#43)
+- **Scale markings on the grid.** A brighter line every 5, 10 or 20 tiles, measured from the ship's
+  origin, so you can judge how big a hull is getting without counting tiles. The one-tile grid stays
+  underneath, so you can still count when you want to. Off unless you turn it on. (#43)
+
 ### Changed
 - **The toolbar is grouped by what a button does, and the View menu is gone.** Its contents had
   little in common: a camera command, a mode selector, and options for three of the overlay

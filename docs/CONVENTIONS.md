@@ -165,8 +165,8 @@ about the ship's orientation, not the reader's.
 The app themes its chrome with WPF's **Fluent `ThemeMode`**, set in `ThemeManager.Apply`
 (`app.ThemeMode = Dark ? ThemeMode.Dark : ThemeMode.Light`), on top of the app's own
 `DynamicResource` brushes (`AccentBg`, `AccentText`, `Ink`, `Dim`, `PanelBorder`, …),
-which the same method repopulates per theme. The ship canvas always stays dark; only the
-surrounding chrome themes.
+which the same method repopulates per theme. The ship canvas does **not** follow the
+theme; it follows the user's chosen backdrop, which is a separate setting (below).
 
 **Every custom `Button`/`ToggleButton` style must chain to Fluent.**
 
@@ -198,6 +198,36 @@ a central sync method. Assigning `IsChecked` raises `Checked`/`Unchecked` but ne
 Accent and severity colours come from the `ThemeManager` brushes (`AccentBg`/`AccentText`
 is the Ship Rating button look). Reference them with `DynamicResource` so a light/dark
 switch re-resolves them.
+
+**A colour chip is a `Border`, not a `Button`.** The same Fluent rule bites in a second
+place: a swatch has to *be* its colour, and a `Button` carrying a local `Background` loses
+it to the hover state exactly when the pointer is on it, so every swatch greys out as you
+aim at one. `SettingsDialog.SwatchGrid` uses `Border` plus `MouseLeftButtonDown`, which has
+no control template to fight.
+
+## The canvas backdrop decides the plan's ink
+
+The plan used to be drawn on one hardcoded near-black (`#14161A`), so every mark laid over
+it could be white or near-white at a low alpha and be sure of reading. That assumption is
+gone: `BackdropSettings` lets the user pick any colour, a checkerboard, or one of the
+game's parallax locales, and a light one erases faint white ink completely.
+
+So the marks that are **ink** come in two sets, and `Backdrop.IsLight` (WCAG relative
+luminance, threshold 0.5) picks between them. `BackdropBrushes.For` returns the brush and
+that flag together; `ShipCanvas.SetBackdrop` takes both.
+
+Keep the set small. Something belongs in it only if it exists as **a faint scratch on the
+ground**: the grid, the coarse grid, the origin axes, the origin marker, the hover ring.
+Selection blue, the ghost pens, the hazard fills and the room labels all carry their own
+colour at an alpha that reads on anything, and a room label draws on an opaque dark box of
+its own, so none of them switches. Adding a new low-alpha white overlay means adding its
+dark twin at the same time, or it vanishes on a white backdrop and nothing will tell you.
+
+**The backdrop is app-wide, not per design.** It is about the person looking at the plan,
+so a design shared with somebody else opens on *their* backdrop. It also reaches
+`RenderSnapshot`, the plain PNG export. It deliberately does **not** reach the room-diagram
+snapshot (a labelled schematic with its own contrast budget) or the mod's ship portrait art
+(`PreviewBg`, black because it sits beside the game's own portraits in the same UI).
 
 ## A window that sizes to its content must be bounded
 

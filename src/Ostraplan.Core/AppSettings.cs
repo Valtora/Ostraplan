@@ -87,6 +87,14 @@ public sealed class AppSettings
     /// hand-edited settings file can't produce an unusable window.</summary>
     [JsonPropertyName("uiScale")] public double UiScale { get; set; } = UiScaling.Default;
 
+    /// <summary>What the plan is drawn on, and the grid markings over it. Null until the user changes it, so a
+    /// settings file written before this existed reads as the default backdrop rather than as a missing one. Read
+    /// through <see cref="BackdropOrDefault"/>, which also puts a hand-edited file back in range.</summary>
+    [JsonPropertyName("backdrop")] public BackdropSettings? Backdrop { get; set; }
+
+    /// <summary>The backdrop to actually draw: whatever is set, clamped, or the default when nothing is.</summary>
+    public BackdropSettings BackdropOrDefault() => (Backdrop ?? BackdropSettings.Default).Clamped();
+
     /// <summary>Width of the parts palette, in logical pixels, as the user last dragged it. Zero means collapsed;
     /// the width to restore to is <see cref="PaletteRestoreWidth"/>, so collapsing does not lose the size.</summary>
     [JsonPropertyName("paletteWidth")] public double PaletteWidth { get; set; } = 330;

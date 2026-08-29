@@ -43,10 +43,62 @@ public sealed class ShipCanvas : FrameworkElement
     private static double SnapZoomDown(double px) =>
         Math.Clamp(Math.Floor(px / BaseTilePx / ZoomNotch) * ZoomNotch * BaseTilePx, MinZoomPx, MaxZoomPx);
 
-    private static readonly Brush Background = Frozen(new SolidColorBrush(Color.FromRgb(0x14, 0x16, 0x1A)));
+    private static readonly Brush DefaultBackground = Frozen(new SolidColorBrush(Color.FromRgb(0x14, 0x16, 0x1A)));
     private static readonly Pen GridPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x2A, 0xFF, 0xFF, 0xFF)), 1));
     private static readonly Pen AxisPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x55, 0x6A, 0x9F, 0xD8)), 1));
     private static readonly Pen HoverPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x80, 0xFF, 0xFF, 0xFF)), 1));
+
+    // ---- backdrop (#43) ----
+    //
+    // The plan used to be drawn on one hardcoded near-black, and every mark laid over it was therefore white or
+    // near-white at a low alpha. A user-chosen backdrop breaks that assumption in one direction only: a light
+    // colour erases faint white ink completely. So the marks that are *ink* rather than *signal* come in two sets
+    // and the backdrop's own luminance picks between them.
+    //
+    // The set is deliberately small. Selection blue, the ghost pens, the hazard fills and the room labels all
+    // carry their own colour at an alpha that reads on anything, and the room label draws on an opaque dark
+    // rounded box of its own, so none of them belongs here. What does: the grid, the origin marker, and the hover
+    // ring, which are the three things that exist only as a faint scratch on the ground.
+    private static readonly Pen GridPenLight = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x30, 0x00, 0x00, 0x00)), 1));
+    private static readonly Pen FaintGridPenLight = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x1A, 0x00, 0x00, 0x00)), 1));
+    private static readonly Pen CoarseGridPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x5A, 0xFF, 0xFF, 0xFF)), 1));
+    private static readonly Pen CoarseGridPenLight = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x66, 0x00, 0x00, 0x00)), 1));
+    private static readonly Pen AxisPenLight = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x99, 0x1C, 0x4E, 0x8A)), 1));
+    private static readonly Pen HoverPenLight = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x99, 0x00, 0x00, 0x00)), 1));
+    private static readonly Pen OriginPenLight = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xD0, 0x6B, 0x4A, 0x0A)), 1.5));
+    private static readonly Brush OriginBrushLight = Frozen(new SolidColorBrush(Color.FromArgb(0xD0, 0x5A, 0x3E, 0x08)));
+
+    private Brush _backdrop = DefaultBackground;
+    private bool _backdropIsLight;
+
+    /// <summary>What the plan is drawn on, and whether its overlays need dark ink. Set from the app's settings at
+    /// startup and whenever they change; the canvas only draws what it is given, because resolving a backdrop
+    /// needs the sprite cache and the catalogue and neither belongs to this control.</summary>
+    public void SetBackdrop(Brush brush, bool isLight)
+    {
+        if (ReferenceEquals(_backdrop, brush) && _backdropIsLight == isLight) return;
+        _backdrop = brush;
+        _backdropIsLight = isLight;
+        InvalidateVisual();
+    }
+
+    /// <summary>Draw a brighter grid line every this many tiles, or 0 for none. The sense-of-scale marking a
+    /// uniform one-tile grid cannot give (#43).</summary>
+    public int CoarseGrid
+    {
+        get => _coarseGrid;
+        set
+        {
+            if (_coarseGrid == value) return;
+            _coarseGrid = value;
+            InvalidateVisual();
+        }
+    }
+    private int _coarseGrid;
+
+    private Pen HoverInk => _backdropIsLight ? HoverPenLight : HoverPen;
+    private Pen OriginInk => _backdropIsLight ? OriginPenLight : OriginPen;
+    private Brush OriginTextInk => _backdropIsLight ? OriginBrushLight : OriginBrush;
     private static readonly Pen SelectPen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0x4E, 0xA6, 0xFF)), 2));
     private static readonly Brush BandBrush = Frozen(new SolidColorBrush(Color.FromArgb(0x30, 0x4E, 0xA6, 0xFF)));
     private static readonly Pen BandPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x90, 0x4E, 0xA6, 0xFF)), 1));
@@ -2396,7 +2448,7 @@ public sealed class ShipCanvas : FrameworkElement
             RenderOptions.SetBitmapScalingMode(dv, BitmapScalingMode.NearestNeighbor);
             using (var ctx = dv.RenderOpen())
             {
-                ctx.DrawRectangle(Background, null, new Rect(0, 0, outW, outH));
+                ctx.DrawRectangle(_backdrop, null, new Rect(0, 0, outW, outH));
                 ctx.PushTransform(m);
                 foreach (var i in Doc.RenderOrder()) DrawItem(ctx, i, (0, 0));
                 ctx.Pop();
@@ -2990,7 +3042,7 @@ public sealed class ShipCanvas : FrameworkElement
 
     protected override void OnRender(DrawingContext dc)
     {
-        dc.DrawRectangle(Background, null, new Rect(RenderSize));
+        dc.DrawRectangle(_backdrop, null, new Rect(RenderSize));
         if (Doc is null || Sprites is null) return;
 
         var rotated = ViewRot != 0;
@@ -3099,7 +3151,7 @@ public sealed class ShipCanvas : FrameworkElement
         {
             RaiseGhostReason(null);
             if (_hoverCell is { } cell && _drag == Drag.None)
-                dc.DrawRectangle(null, HoverPen, CellRect(cell.X, cell.Y, 1, 1));
+                dc.DrawRectangle(null, HoverInk, CellRect(cell.X, cell.Y, 1, 1));
         }
 
         if (_drag == Drag.Band && _hoverCell is { } bandEnd)
@@ -4192,9 +4244,24 @@ public sealed class ShipCanvas : FrameworkElement
         dc.DrawGeometry(hot ? SymHandleHotFill : SymHandleFill, SymHandleEdge, diamond);
     }
 
+    /// <summary>
+    /// The tile grid, the origin axes, and (when <see cref="CoarseGrid"/> is set) a brighter line every N tiles.
+    ///
+    /// <para>The coarse line is a third weight between the fine grid and the axes rather than a replacement for
+    /// the fine one, so a 10-tile marking still leaves every tile countable inside it. It is measured from the
+    /// origin, not from the corner of the view, which is what makes it a ruler the design can be read against
+    /// instead of a pattern that slides around while you pan (#43).</para>
+    /// </summary>
     private void DrawGrid(DrawingContext dc, Rect view)
     {
-        var pen = Zoom < 24 ? FaintGridPen : GridPen;   // fainter when zoomed out, never gone
+        var light = _backdropIsLight;
+        var fine = Zoom < 24                                     // fainter when zoomed out, never gone
+            ? (light ? FaintGridPenLight : FaintGridPen)
+            : (light ? GridPenLight : GridPen);
+        var coarse = light ? CoarseGridPenLight : CoarseGridPen;
+        var axis = light ? AxisPenLight : AxisPen;
+
+        var every = CoarseGrid;
         var x0 = (int)Math.Floor((view.X - _pan.X) / Zoom);
         var y0 = (int)Math.Floor((view.Y - _pan.Y) / Zoom);
         var x1 = (int)Math.Ceiling((view.Right - _pan.X) / Zoom);
@@ -4203,13 +4270,18 @@ public sealed class ShipCanvas : FrameworkElement
         for (var x = x0; x <= x1; x++)
         {
             var sx = Math.Round(_pan.X + x * Zoom) + 0.5;
-            dc.DrawLine(x == 0 ? AxisPen : pen, new Point(sx, view.Y), new Point(sx, view.Bottom));
+            dc.DrawLine(PenFor(x), new Point(sx, view.Y), new Point(sx, view.Bottom));
         }
         for (var y = y0; y <= y1; y++)
         {
             var sy = Math.Round(_pan.Y + y * Zoom) + 0.5;
-            dc.DrawLine(y == 0 ? AxisPen : pen, new Point(view.X, sy), new Point(view.Right, sy));
+            dc.DrawLine(PenFor(y), new Point(view.X, sy), new Point(view.Right, sy));
         }
+
+        Pen PenFor(int line) =>
+            line == 0 ? axis
+            : every > 0 && line % every == 0 ? coarse
+            : fine;
     }
 
     /// <summary>
@@ -4220,11 +4292,11 @@ public sealed class ShipCanvas : FrameworkElement
     private void DrawOriginMarker(DrawingContext dc)
     {
         var rect = CellRect(0, 0, 1, 1);
-        dc.DrawRectangle(null, OriginPen, rect);
+        dc.DrawRectangle(null, OriginInk, rect);
         if (Zoom >= 32)
         {
             var label = new FormattedText("0,0", CultureInfo.InvariantCulture, FlowDirection.LeftToRight,
-                OriginTypeface, Math.Clamp(Zoom / 4, 9, 14), OriginBrush,
+                OriginTypeface, Math.Clamp(Zoom / 4, 9, 14), OriginTextInk,
                 VisualTreeHelper.GetDpi(this).PixelsPerDip);
             var at = new Point(rect.X + 3, rect.Bottom + 2);
             if (ViewRot != 0) dc.PushTransform(new RotateTransform(-ViewRot, at.X, at.Y));   // keep text upright

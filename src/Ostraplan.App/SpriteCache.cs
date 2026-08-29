@@ -319,6 +319,11 @@ public sealed class SpriteCache
         }
     }
 
+    /// <summary>Any game image by absolute path, cached and frozen like a sprite. For art that is not a part's
+    /// sprite and so has no <see cref="PartDef"/> to ask through, which at present is the parallax backdrop
+    /// layers. Null when the file is missing or unreadable.</summary>
+    public BitmapSource? Image(string absPath) => Load(absPath);
+
     private BitmapSource? Load(string absPath)
     {
         lock (_gate)

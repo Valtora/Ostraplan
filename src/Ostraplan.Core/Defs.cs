@@ -753,6 +753,25 @@ public sealed record LootDef(string Name, string[] Conds, string[] Loots)
         return double.TryParse(amount.Trim(), System.Globalization.CultureInfo.InvariantCulture, out var v)
             ? (neg ? -v : v) : 1.0;
     }
+
+    /// <summary>
+    /// The apply <b>chance</b> of a condition entry: the number BEFORE the 'x' in
+    /// "&lt;Cond&gt;=&lt;chance&gt;x&lt;amount&gt;" ("PlxDebrisSm03=0.35x1" -&gt; 0.35). The counterpart of
+    /// <see cref="CondAmount"/>, which reads the number after it. Almost every entry in the game's data is 1.0,
+    /// which is why nothing needed this until the parallax backdrops (see <see cref="ParallaxLayer"/>), where it
+    /// is the whole of the layer's meaning. A bare name, or anything unparseable, is a certainty.
+    /// </summary>
+    public static double CondChance(string entry)
+    {
+        var s = entry.Trim().TrimStart('-');
+        var eq = s.IndexOf('=');
+        if (eq < 0) return 1.0;
+        var rest = s[(eq + 1)..];
+        var x = rest.IndexOf('x');
+        var chance = x < 0 ? rest : rest[..x];
+        return double.TryParse(chance.Trim(), System.Globalization.CultureInfo.InvariantCulture, out var v)
+            ? v : 1.0;
+    }
 }
 
 /// <summary>

@@ -30,6 +30,7 @@ public partial class MainWindow : Window
     private DataIndex? _index;
     private Catalog? _catalog;
     private SpriteCache? _sprites;   // shared with the canvas; also feeds the inventory viewer
+    private BackdropBrushes? _backdrops;   // built once the sprites exist; caches each composited locale (#43)
     private List<PartVM> _allParts = [];
     private readonly List<ListBox> _paletteLists = [];
     // The ★ quick-access tab: Favorites (top) + Recent (below), each its own list wired into _paletteLists so
@@ -202,6 +203,7 @@ public partial class MainWindow : Window
 
         _sessions.Add(session);
         CanvasHost.Children.Add(board);
+        ApplyBackdrop();   // a new tab starts on the same backdrop as every other one (#43)
         return session;
     }
 
@@ -511,8 +513,10 @@ public partial class MainWindow : Window
         _index = index;
         _catalog = catalog;
         _sprites = sprites;
+        _backdrops = new BackdropBrushes(sprites);
         _allParts = parts;
         foreach (var s in _sessions) s.Board.Sprites = sprites;   // the startup tab; every later one takes it at creation
+        ApplyBackdrop();
 
         BuildPalette();
         NewDocument();
@@ -5881,8 +5885,8 @@ public partial class MainWindow : Window
     {
         if (_settingsDialog is { } open) { open.Activate(); return; }
 
-        var dlg = new SettingsDialog(_settings, _env, new SettingsHooks(
-            SetTheme, SetUiScale, SetModOverrides, SetGameRoot, SetSavesDir))
+        var dlg = new SettingsDialog(_settings, _catalog, _env, new SettingsHooks(
+            SetTheme, SetUiScale, SetBackdrop, SetModOverrides, SetGameRoot, SetSavesDir))
         {
             Owner = this,
         };
@@ -5890,6 +5894,39 @@ public partial class MainWindow : Window
         _settingsDialog = dlg;
         dlg.Show();
     }
+
+    /// <summary>The plan's backdrop: apply and persist. Every open design takes it, because it is an app-wide
+    /// preference like the theme rather than anything belonging to one ship (#43).</summary>
+    private void SetBackdrop(BackdropSettings backdrop)
+    {
+        _settings.Backdrop = backdrop.Clamped();
+        _settings.Save();
+        AuditLog.Setting("Backdrop", BackdropLabel(_settings.BackdropOrDefault()));
+        ApplyBackdrop();
+    }
+
+    /// <summary>Resolve the stored backdrop once and push it to every open design's canvas. Called on load, on a
+    /// settings change, and whenever a design tab is created.</summary>
+    private void ApplyBackdrop()
+    {
+        if (_backdrops is null) return;
+        var backdrop = _settings.BackdropOrDefault();
+        var visual = _backdrops.For(backdrop, _catalog);
+        foreach (var s in _sessions)
+        {
+            s.Board.SetBackdrop(visual.Brush, visual.IsLight);
+            s.Board.CoarseGrid = backdrop.CoarseGrid;
+        }
+    }
+
+    /// <summary>What the activity log records a backdrop change as. The locale's own name rather than its display
+    /// label, because the log is read alongside a settings file that holds the same string.</summary>
+    private static string BackdropLabel(BackdropSettings b) => b.Kind switch
+    {
+        BackdropKind.Checker => $"checker {b.Solid}/{b.CheckerAlt}",
+        BackdropKind.Locale => b.Locale ?? "locale (none chosen)",
+        _ => b.Solid,
+    };
 
     /// <summary>Theme: apply and persist. DynamicResource + Fluent ThemeMode retint the chrome live.</summary>
     private void SetTheme(string mode)

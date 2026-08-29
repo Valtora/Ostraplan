@@ -61,6 +61,7 @@ The app takes a few developer flags, each of which renders something and exits:
 | Flag | What it does |
 |---|---|
 | `--smoke` | Shows and closes a native-backed WPF window. `scripts\publish.ps1` uses it to prove a published build loads its native DLLs. |
+| `--bgsmoke <dir>` | Every plan backdrop on one page: the default, white, the checkerboard and each of the game's parallax locales composited, labelled with whether it flips the overlays to dark ink. Needs the install. |
 | `--dlgsmoke <dir>` | The standard dialogs, light and dark, as PNGs. |
 | `--invsmoke <dir>` | The inventory viewer: a synthesized backpack, an editable one, rotation, the first real save container, and an item's info panel. Needs the install. |
 | `--mansmoke <dir>` | The item manifest off a real save's ship, collapsed and expanded, so the table's columns can be held against each other. Needs the install. |

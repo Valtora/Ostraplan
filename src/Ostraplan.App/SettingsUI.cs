@@ -14,12 +14,14 @@ namespace Ostraplan.App;
 /// </summary>
 /// <param name="Theme">"system" / "light" / "dark".</param>
 /// <param name="Scale">The UI scale factor (1.0 = 100%), already clamped by the dialog.</param>
+/// <param name="Backdrop">What the plan is drawn on, and its grid markings.</param>
 /// <param name="ModOverrides">Whether modded parts may be placed against the core placement law.</param>
 /// <param name="GameRoot">The Ostranauts install folder, or null to go back to auto-detection.</param>
 /// <param name="SavesDir">The Saves folder, or null to go back to auto-detection.</param>
 public sealed record SettingsHooks(
     Action<string> Theme,
     Action<double> Scale,
+    Action<BackdropSettings> Backdrop,
     Action<bool> ModOverrides,
     Action<string?> GameRoot,
     Action<string?> SavesDir);
@@ -40,15 +42,17 @@ public sealed class SettingsDialog : Window
 
     private readonly AppSettings _settings;
     private readonly SettingsHooks _hooks;
+    private readonly Catalog? _catalog;
     private GameEnv? _env;
 
     private readonly TextBlock _gameRootText, _savesText;
     private bool _init = true;   // suppress the combo's SelectionChanged during the initial fill
 
-    public SettingsDialog(AppSettings settings, GameEnv? env, SettingsHooks hooks)
+    public SettingsDialog(AppSettings settings, Catalog? catalog, GameEnv? env, SettingsHooks hooks)
     {
         _settings = settings;
         _hooks = hooks;
+        _catalog = catalog;
         _env = env;
 
         Title = "Settings";
@@ -64,6 +68,13 @@ public sealed class SettingsDialog : Window
         Section(body, "APPEARANCE", first: true);
         body.Children.Add(ThemeRow());
         body.Children.Add(ScaleRow());
+
+        Section(body, "THE PLAN'S BACKDROP");
+        body.Children.Add(BackdropKindRow());
+        body.Children.Add(_solidRow);
+        body.Children.Add(_checkerRow);
+        body.Children.Add(_localeRow);
+        body.Children.Add(CoarseGridRow());
 
         Section(body, "EDITING");
         body.Children.Add(ModOverrideRow());
@@ -89,16 +100,23 @@ public sealed class SettingsDialog : Window
             PickSavesDir,
             () => ApplySavesDir(null)));
 
+        // Close is docked rather than the last child of the scrolling body: the dialog is capped at MaxHeight and
+        // is now long enough to reach it, and a StackPanel gives every child its desired height whatever space it
+        // is arranged into, so a scrolled button ends up under the bottom edge (CONVENTIONS).
         var close = new Button
         {
             Content = "Close", Padding = new Thickness(20, 4, 20, 4), IsDefault = true, IsCancel = true,
-            HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 18, 0, 0),
+            HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(20, 10, 20, 14),
         };
         close.Click += (_, _) => Close();
-        body.Children.Add(close);
 
-        Content = new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto };
+        var root = new DockPanel();
+        DockPanel.SetDock(close, Dock.Bottom);
+        root.Children.Add(close);
+        root.Children.Add(new ScrollViewer { Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto });
+        Content = root;
 
+        SyncBackdropRows();
         RefreshPaths();
         _init = false;
     }
@@ -163,6 +181,217 @@ public sealed class SettingsDialog : Window
             + "a high-resolution monitor run at 100% Windows scaling, where the text would otherwise be tiny; "
             + "below it to fit more into the window you have, on a laptop panel or beside a second copy of the "
             + "app. Dialogs and reports resize with it; the main window keeps the size you gave it.");
+    }
+
+    // ---- the plan's backdrop (#43) ----
+
+    private readonly ContentControl _solidRow = new();
+    private readonly ContentControl _checkerRow = new();
+    private readonly ContentControl _localeRow = new();
+    private ComboBox? _localeCombo;
+
+    /// <summary>The backdrop as the dialog currently has it. Every control edits a copy of this and pushes the
+    /// whole record back, so a change to one field never resets another.</summary>
+    private BackdropSettings Current => _settings.BackdropOrDefault();
+
+    private void Push(BackdropSettings next)
+    {
+        if (_init) return;
+        _hooks.Backdrop(next.Clamped());
+        SyncBackdropRows();
+    }
+
+    /// <summary>Show only the controls the chosen kind actually uses. A checkerboard's second colour and a
+    /// locale's dimming are meaningless to each other, and a dialog that shows every control for every kind makes
+    /// the reader work out which of them is live.</summary>
+    private void SyncBackdropRows()
+    {
+        var kind = Current.Kind;
+        _solidRow.Visibility = kind is BackdropKind.Solid or BackdropKind.Checker ? Visibility.Visible : Visibility.Collapsed;
+        _checkerRow.Visibility = kind == BackdropKind.Checker ? Visibility.Visible : Visibility.Collapsed;
+        _localeRow.Visibility = kind == BackdropKind.Locale ? Visibility.Visible : Visibility.Collapsed;
+    }
+
+    private UIElement BackdropKindRow()
+    {
+        var combo = new ComboBox { Width = 220, HorizontalAlignment = HorizontalAlignment.Left };
+        combo.Items.Add("Solid colour");
+        combo.Items.Add("Checkerboard");
+        combo.Items.Add("A place from the game");
+        combo.SelectedIndex = (int)Current.Kind;
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (combo.SelectedIndex < 0) return;
+            var kind = (BackdropKind)combo.SelectedIndex;
+            var next = Current with { Kind = kind };
+            // Choosing the game's art with nothing picked yet would show the old backdrop and look like a dead
+            // control, so the first locale in the list stands in until the user picks one.
+            if (kind == BackdropKind.Locale && next.Locale is null && Locales().FirstOrDefault() is { } first)
+                next = next with { Locale = first.Name };
+            Push(next);
+            if (_localeCombo is { } lc && lc.SelectedIndex < 0 && lc.Items.Count > 0) lc.SelectedIndex = 0;
+        };
+
+        _solidRow.Content = SolidRow();
+        _checkerRow.Content = CheckerRow();
+        _localeRow.Content = LocaleRow();
+
+        return Row("Backdrop", combo,
+            "What the plan is drawn on. A dark hull on the near-black default is hard to read, which is what this "
+            + "is for. Whatever you pick is also what a Design ▸ Snapshot PNG is drawn on. It applies to every "
+            + "open design and is remembered between sessions; it is not part of a design, so a ship you send "
+            + "somebody opens on their backdrop, not yours.");
+    }
+
+    private UIElement SolidRow()
+    {
+        var hex = new TextBox
+        {
+            Width = 100, Text = Current.Solid, FontFamily = new FontFamily("Consolas"),
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
+        };
+        var swatches = SwatchGrid(pick =>
+        {
+            hex.Text = pick;
+            Push(Current with { Solid = pick });
+        });
+        hex.LostFocus += (_, _) =>
+        {
+            var normalised = Backdrop.NormaliseColour(hex.Text, Current.Solid);
+            hex.Text = normalised;
+            Push(Current with { Solid = normalised });
+        };
+
+        var panel = new StackPanel();
+        var top = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 0, 0, 6) };
+        top.Children.Add(hex);
+        top.Children.Add(new TextBlock
+        {
+            Text = "or pick one below", Foreground = Dim, FontSize = 11, VerticalAlignment = VerticalAlignment.Center,
+        });
+        panel.Children.Add(top);
+        panel.Children.Add(swatches);
+
+        return Row("Colour", panel,
+            "Any #RRGGBB, or one of the swatches. On a light colour the plan's grid, hover ring and origin marker "
+            + "switch to dark ink so they stay visible.");
+    }
+
+    private UIElement CheckerRow()
+    {
+        var hex = new TextBox
+        {
+            Width = 100, Text = Current.CheckerAlt, FontFamily = new FontFamily("Consolas"),
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
+        };
+        hex.LostFocus += (_, _) =>
+        {
+            var normalised = Backdrop.NormaliseColour(hex.Text, Current.CheckerAlt);
+            hex.Text = normalised;
+            Push(Current with { CheckerAlt = normalised });
+        };
+
+        var size = new Slider
+        {
+            Minimum = BackdropSettings.MinCheckerSquare, Maximum = BackdropSettings.MaxCheckerSquare,
+            Value = Current.CheckerSquare, TickFrequency = 8, IsSnapToTickEnabled = true,
+            Width = 180, VerticalAlignment = VerticalAlignment.Center,
+        };
+        var readout = new TextBlock
+        {
+            Text = $"{Current.CheckerSquare} px", Foreground = Ink, Width = 54, TextAlignment = TextAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0),
+        };
+        size.ValueChanged += (_, e) =>
+        {
+            var px = (int)Math.Round(e.NewValue);
+            readout.Text = $"{px} px";
+            Push(Current with { CheckerSquare = px });
+        };
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        row.Children.Add(hex);
+        row.Children.Add(size);
+        row.Children.Add(readout);
+
+        return Row("Second colour and square size", row,
+            "The other half of the checkerboard, against the colour above. A hull never matches both squares at "
+            + "once, which is the whole point of a missing-texture check pattern.");
+    }
+
+    private IReadOnlyList<ParallaxLocale> Locales() =>
+        _catalog is { } c ? ParallaxCatalog.All(c) : [];
+
+    private UIElement LocaleRow()
+    {
+        var locales = Locales();
+        var combo = new ComboBox { Width = 220, HorizontalAlignment = HorizontalAlignment.Left };
+        _localeCombo = combo;
+        foreach (var locale in locales) combo.Items.Add(locale.Display);
+        combo.SelectedIndex = locales.ToList().FindIndex(l => l.Name == Current.Locale);
+        combo.IsEnabled = locales.Count > 0;
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (combo.SelectedIndex >= 0 && combo.SelectedIndex < locales.Count)
+                Push(Current with { Locale = locales[combo.SelectedIndex].Name });
+        };
+
+        var dim = new Slider
+        {
+            Minimum = 0, Maximum = 100, Value = Current.LocaleDimming * 100,
+            TickFrequency = 5, IsSnapToTickEnabled = true,
+            Width = 180, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0),
+        };
+        var readout = new TextBlock
+        {
+            Text = $"{Current.LocaleDimming * 100:0}%", Foreground = Ink, Width = 42, TextAlignment = TextAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0),
+        };
+        dim.ValueChanged += (_, e) =>
+        {
+            readout.Text = $"{e.NewValue:0}%";
+            Push(Current with { LocaleDimming = e.NewValue / 100 });
+        };
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        row.Children.Add(combo);
+        row.Children.Add(dim);
+        row.Children.Add(readout);
+
+        var note = locales.Count > 0
+            ? "The game's own parallax art for a place, composited into one backdrop. Dimming darkens it so the "
+              + "ship stays the thing you are reading; at 0% it is the art as the game draws it. Each place "
+              + "always composites the same way, so a screenshot is repeatable."
+            : "No backdrops found in the loaded game data.";
+
+        return Row("Place and dimming", row, note);
+    }
+
+    private UIElement CoarseGridRow()
+    {
+        int[] presets = [0, 5, 10, 20];
+        var combo = new ComboBox { Width = 220, HorizontalAlignment = HorizontalAlignment.Left };
+        combo.Items.Add("Off");
+        combo.Items.Add("Every 5 tiles");
+        combo.Items.Add("Every 10 tiles");
+        combo.Items.Add("Every 20 tiles");
+        var at = Array.IndexOf(presets, Current.CoarseGrid);
+        if (at < 0)
+        {
+            combo.Items.Add($"Every {Current.CoarseGrid} tiles");
+            at = combo.Items.Count - 1;
+        }
+        combo.SelectedIndex = at;
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (combo.SelectedIndex >= 0 && combo.SelectedIndex < presets.Length)
+                Push(Current with { CoarseGrid = presets[combo.SelectedIndex] });
+        };
+
+        return Row("Scale markings", combo,
+            "A brighter grid line every so many tiles, measured from the ship's origin. The one-tile grid stays, "
+            + "so you can still count tiles inside a marking; this is for judging how big a hull is getting "
+            + "without counting at all.");
     }
 
     // ---- editing ----
@@ -301,6 +530,36 @@ public sealed class SettingsDialog : Window
             Margin = new Thickness(0, 5, 0, 0),
         });
         return panel;
+    }
+
+    /// <summary>
+    /// The offered colours as clickable chips: the app's default, black, white, three greys, and seven hues at
+    /// three brightnesses.
+    ///
+    /// <para>Chips are <see cref="Border"/>s rather than buttons on purpose. A chip has to <b>be</b> its colour,
+    /// and a Button carrying a local Background loses it to Fluent's hover state the moment the pointer crosses
+    /// it (CONVENTIONS), which on a colour picker means every swatch turns grey exactly when you are aiming at
+    /// it. A Border has no control template to fight.</para>
+    /// </summary>
+    private static UIElement SwatchGrid(Action<string> pick)
+    {
+        var wrap = new WrapPanel { MaxWidth = 460 };
+        foreach (var swatch in Backdrop.Palette)
+        {
+            var (r, g, b) = Backdrop.ParseColour(swatch.Hex)!.Value;
+            var chip = new Border
+            {
+                Width = 26, Height = 20, Margin = new Thickness(0, 0, 4, 4), CornerRadius = new CornerRadius(3),
+                Background = new SolidColorBrush(Color.FromRgb(r, g, b)),
+                BorderBrush = ThemeManager.PanelBorder, BorderThickness = new Thickness(1),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                ToolTip = $"{swatch.Name} ({swatch.Hex})",
+            };
+            var hex = swatch.Hex;
+            chip.MouseLeftButtonDown += (_, _) => pick(hex);
+            wrap.Children.Add(chip);
+        }
+        return wrap;
     }
 
     private static TextBlock PathValue() => new()
