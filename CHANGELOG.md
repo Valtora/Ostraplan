@@ -12,6 +12,14 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Footprints show which side a fixture is worked from.** The game marks the spot with a pair of blue
+  footprints while you are installing certain items, and Ostraplan now draws the same mark in the same
+  places: on the part under the build cursor, on a selected part beside its power nubs, and on **every**
+  interactable part at once while the **Access** overlay is on. It is what tells an arcade cabinet's
+  facing apart, since the machine is symmetrical to look at and usable from one side only, and it settles
+  a 1x1 rack at any zoom. This is the part's own declared use point rather than the Access overlay's
+  reachability mark, so it answers "which way did this go down" rather than "can anyone get to it", and
+  both are drawn. 103 of the 355 buildable parts have one. Thanks to nighoggDatatype. (#41)
 - **A reactor's control panel is yours to set, and an imported ship keeps the one it had.** A
   fusion core is design data the game authors and Ostraplan dropped: the shipped ships set the
   reactor panel 57 times, 34 of those spawning the core already running, and none of it survived

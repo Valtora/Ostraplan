@@ -1134,6 +1134,33 @@ power.
 > **Ported in Ostraplan:** `PowerNetwork`; connectors on `PartDef.PowerInputPoints` /
 > `PowerOutputPoint`.
 
+### The build cursor draws three map points, and the `use` one is gated
+
+The same block of `CanvasManager` that places the connector nubs above also puts a sprite
+on two more of the selected part's map points:
+
+| Point | Sprite | Shown when |
+|---|---|---|
+| each `aInputPts` name | `GetPowerInputGridSprite(k)` | the CO has a `jsonPI` with input points and lacks `IsPowerInputIgnore` |
+| `PowerOutput` | `GetPowerOutputGridSprite()` | the point is declared |
+| `use` | `GetUseGridSprite()` (`prefabUsePointTile`, a pair of blue footprints) | the point is declared **and its raw value is not (0, 0)** |
+| `ReactorPlug` | `GetReactorGridSprite()` | the point is declared |
+
+The `(0, 0)` gate on `use` is the interesting one and is worth keeping: the point is
+pixels around the item's own centre, so a zero one is the default a condowner gets and
+marks the item itself rather than a side of it. 103 of the 355 buildable parts on stock
+1.0.0.13 declare an offset one, and it is what distinguishes an arcade cabinet's front
+from its back when the sprite does not.
+
+This is a different question from "can a crew member reach it", which is
+`Pathfinder.GetClosestWalkableDestination` over the built deck (§ *Reaching a device*) and
+needs the whole ship to answer. The `use` point needs only the def and its rotation.
+
+> **Ported in Ostraplan:** `UsePoint` (the gate, and the rotation through
+> `GridMath.MapPoint`), drawn by `ShipCanvas.DrawUsePoint` on the armed ghost, on a
+> selected part and, for every part at once, under the Access overlay. The reachability
+> answer stays with `WalkNetwork`.
+
 ---
 
 ## 14. Device signal connections (two channels)

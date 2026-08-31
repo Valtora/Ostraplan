@@ -325,6 +325,17 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
     normal for hull-mounted kit, not a fault, exactly as it is in the Walk overlay.
   - It reads the same analysis the Walk overlay does, so the **View ▸ Walk overlay**
     switches apply to it too, and turning either one on computes it.
+  - It also draws every part's **declared use point** at once, in a lighter blue — the same
+    pair of footprints the game puts under the build cursor while you install something.
+    That is a different claim from the mark above: it is the side the part is worked from
+    according to its own definition, whether or not anybody can currently stand there, so a
+    deck of racks and cabinets reads at a glance and at any zoom. 103 of the 355 buildable
+    parts have one, and walls, floors and conduit have none.
+- **Use-point footprints while you build.** The same mark appears on the part under the
+  cursor as you place it, and on a selected part beside its power connector nubs, which is
+  exactly where and when the game itself shows it. This needs no overlay turned on. A part
+  whose use point sits at its own centre gets no mark, since that says nothing about which
+  way it faces, and the game skips it for the same reason.
 - **Problems** (inspector): live blocking/warning issues for placement and
   airlock-envelope. Each entry expands for the detail, and a **View** button pans and
   zooms the canvas straight to the offending tiles so it's easy to find on a big ship.

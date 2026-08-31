@@ -3101,8 +3101,13 @@ public sealed class ShipCanvas : FrameworkElement
             var (bx, by, bw, bh) = Doc.BodyBounds(p);   // outline the above-floor body (3×3 for the tanks), not the 7×7 socket
             (int X, int Y) offset = _drag == Drag.Move && !Doc.IsLocked(p) ? MoveDeltaFor(p) : (0, 0);
             dc.DrawRectangle(null, SelectPen, CellRect(bx + offset.X, by + offset.Y, bw, bh));
-            // connector nubs on a selected powered part, so its plugs/feed are visible for wiring
-            if (Doc.Part(p) is { IsPowered: true } pd) DrawConnectorNubs(dc, pd, p.X + offset.X, p.Y + offset.Y, p.Rot);
+            // connector nubs on a selected powered part, so its plugs/feed are visible for wiring, and the use
+            // point beside them — the game's build cursor draws all three from the same block (#41)
+            if (Doc.Part(p) is { } sel)
+            {
+                if (sel.IsPowered) DrawConnectorNubs(dc, sel, p.X + offset.X, p.Y + offset.Y, p.Rot);
+                DrawUsePoint(dc, sel, p.X + offset.X, p.Y + offset.Y, p.Rot);
+            }
         }
 
         if (ArmedPart is not null && _armedLoose && _hoverCell is { } looseHover)
@@ -3445,7 +3450,16 @@ public sealed class ShipCanvas : FrameworkElement
     /// </summary>
     private void DrawAccessOverlay(DrawingContext dc)
     {
-        if (_walkOverlay.Access.Count == 0 || Doc is null) return;
+        if (Doc is null) return;
+
+        // Every part's DECLARED use point, all at once. This is the one thing the smear argument below does not
+        // apply to: it is a single tile per part rather than a spread of them, it is a property of the def and its
+        // rotation rather than of the deck, and reading a bank of racks or an arcade machine's facing at a glance
+        // is exactly what it is for (#41). The reachability marks below still answer for one part at a time.
+        foreach (var p in Doc.Placements)
+            if (Doc.Part(p) is { } part) DrawUsePoint(dc, part, p.X, p.Y, p.Rot);
+
+        if (_walkOverlay.Access.Count == 0) return;
         if (AccessSubject() is not { } access) return;
         if (access.Standing.Count == 0) return;   // nothing can reach it; the Walk overlay is where that is reported
 
@@ -3467,9 +3481,9 @@ public sealed class ShipCanvas : FrameworkElement
     /// <summary>A pair of feet on the tile: the game marks the spot with a footprint sprite, and a shape reads as
     /// "stand here" where a plain tint reads as one more overlay. Drawn rather than lifted, since no game art ships
     /// with the tool.</summary>
-    private static void DrawStandMark(DrawingContext dc, Rect cell, bool evaOnly)
+    private static void DrawStandMark(DrawingContext dc, Rect cell, bool evaOnly, Brush? ink = null)
     {
-        var brush = evaOnly ? AccessEvaMark : AccessMark;
+        var brush = ink ?? (evaOnly ? AccessEvaMark : AccessMark);
         var w = cell.Width * 0.17;
         var h = cell.Height * 0.34;
         if (w < 1.2 || h < 2) return;   // zoomed too far out for the shape to say anything
@@ -3515,6 +3529,30 @@ public sealed class ShipCanvas : FrameworkElement
     private static readonly Pen AccessEvaPen = FrozenPen(Color.FromArgb(200, 245, 190, 90), 1.5);
     private static readonly Brush AccessMark = Frozen(Color.FromArgb(235, 150, 215, 255));
     private static readonly Brush AccessEvaMark = Frozen(Color.FromArgb(235, 250, 205, 120));
+
+    // The declared use point (#41), which is a different claim from the access mark above and is drawn more
+    // lightly to say so: this is the side the part is worked from by its own def, not a tile anybody was checked
+    // to be able to reach. The game's own build cursor draws it in blue, so the hue is the same as the access
+    // mark's and only the weight differs.
+    private static readonly Brush UsePointMark = Frozen(Color.FromArgb(190, 130, 200, 250));
+    private static readonly Pen UsePointPen = FrozenPen(Color.FromArgb(140, 120, 205, 255), 1.0);
+
+    /// <summary>
+    /// The footprints on a part's declared use point: the mark the game puts under the build cursor to say which
+    /// side of the thing a crew member walks up to (see <see cref="UsePoint"/>). Drawn for the part being placed
+    /// and for a selected one, exactly where the game draws it, and for every interactable part at once while the
+    /// Access overlay is on, which is the only way to read a deck's orientation at a glance.
+    ///
+    /// <para><paramref name="gx"/>/<paramref name="gy"/> is the rotated footprint's top-left doc cell, the same
+    /// frame <see cref="DrawConnectorNubs"/> works in.</para>
+    /// </summary>
+    private void DrawUsePoint(DrawingContext dc, PartDef part, int gx, int gy, int rot)
+    {
+        if (UsePoint.At(part, gx, gy, rot) is not { } pt) return;
+        var cell = new Rect(_pan.X + (pt.X - 0.5) * Zoom, _pan.Y + (pt.Y - 0.5) * Zoom, Zoom, Zoom);
+        dc.DrawRoundedRectangle(null, UsePointPen, cell, 2, 2);
+        DrawStandMark(dc, cell, evaOnly: false, UsePointMark);
+    }
 
     private void DrawWalkOverlay(DrawingContext dc)
     {
@@ -4092,6 +4130,7 @@ public sealed class ShipCanvas : FrameworkElement
         dc.DrawRectangle(null, outlinePen, body);
         DrawFacingNeedle(dc, part, body, rot, outlinePen);
         DrawConnectorNubs(dc, part, gx, gy, rot);   // show where this part plugs into power, to orient it before placing
+        DrawUsePoint(dc, part, gx, gy, rot);        // …and which side it is worked from, which is what the game shows here
         return fit;
     }
 
