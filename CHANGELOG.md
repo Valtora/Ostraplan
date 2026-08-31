@@ -12,6 +12,20 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Loot spawners can be set up, and imported ships keep the ones they came with.** A spawner was
+  placeable but did nothing: Ostraplan never wrote its control panel, so the game built one from the
+  def's defaults and it spawned nothing at all. Select one now and a **SPAWNER** block gives you
+  what it makes (objects, a person, or a person from a loot table), a searchable picker for the
+  entry, how far it scatters, how many, and whether it fires on a **new**, **damaged** or
+  **derelict** ship. The picker offers what that kind of spawner can actually name, which is 2,797
+  loot tables for objects and 400 person specs for a person, so the filter box is how you get
+  around it. Importing a ship used to throw every spawner away, along with its person-spawn points,
+  so opening one of the game's stations and exporting it stripped everything it was meant to spawn.
+  Both are kept now. Thanks to NotFuji. (#55)
+- **Where people arrive on your ship is yours to place.** Ostraplan always worked out a boarding
+  and a crew-spawn point for you and still does, but a spawner you place yourself takes that role
+  instead, per role, so you can put an arrival at the airlock you meant rather than the one nearest
+  it. (#55)
 - **The plan's backdrop is yours to choose.** It was one hardcoded near-black, which a dark hull
   like the Ryokka F-01 all but disappears into. **Settings ▸ The plan's backdrop** now offers a
   solid colour (any `#RRGGBB`, or one of twenty-six swatches), a two-colour checkerboard for the

@@ -91,6 +91,18 @@ public sealed class LooseObject
     /// </summary>
     public double? Condition { get; set; }
 
+    /// <summary>
+    /// This item's loot-spawner panel, when it is a <c>SysLootSpawner</c>: what it spawns, how far it scatters,
+    /// and which conditions of ship it fires on. Null for everything else on the deck, and for a spawner nobody
+    /// has configured.
+    ///
+    /// <para>A spawner is a deck item rather than a placement because its def carries no <c>IsInstalled</c>, the
+    /// same line the palette splits structure from clutter on. It is the one deck item whose settings decide
+    /// which array of the exported ship it lands in: a person spawn goes to <c>aShallowPSpecs</c> and everything
+    /// else to <c>aItems</c> (see <see cref="SpawnerSettings.IsPersonSpawn"/>).</para>
+    /// </summary>
+    public SpawnerSettings? Spawner { get; set; }
+
     /// <summary>A new deck item at <paramref name="x"/>,<paramref name="y"/> that is this one in every way the
     /// designer authored — quantity, contents (deep-cloned with fresh ids), name, stacking bias and painted
     /// condition. The loose half of <see cref="Placement.CopyAt"/>, and read that for what a copy cannot be.</summary>
@@ -98,6 +110,6 @@ public sealed class LooseObject
     {
         DefName = DefName, X = x, Y = y, Rot = Rot, Quantity = Quantity,
         Cargo = Ostraplan.Core.Cargo.CloneForest(Cargo),
-        CustomName = CustomName, ZBias = ZBias, Condition = Condition,
+        CustomName = CustomName, ZBias = ZBias, Condition = Condition, Spawner = Spawner,
     };
 }

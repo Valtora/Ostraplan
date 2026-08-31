@@ -735,7 +735,45 @@ hull). A spawnable export must bake both on pressurized (non-void) interior tile
 
 > **Ported in Ostraplan:** `ShipExport.BuildBoardingSpawners` (Boarding on the
 > interior tile nearest the primary airlock, NotBoarding nearest the interior
-> centroid). The save-edit path preserves the original `aShallowPSpecs` verbatim.
+> centroid), **as a fallback only**: a design that authors a spawner for either role
+> takes that role instead, per role, so a designer can put an arrival where they mean
+> it. The save-edit path preserves the original `aShallowPSpecs` verbatim.
+
+### The spawner's type is the array it lives in
+
+A `SysLootSpawner`'s `GUILootSpawn` panel carries `strType`, which takes exactly three
+values, and it is **not** independent of which array the spawner sits in. Measured over
+every spawner in the shipped ship files (core plus archived content):
+
+| `strType` | `aItems` | `aShallowPSpecs` | Names an entry in |
+|---|---:|---:|---|
+| `Loot` | 2,954 | 0 | `data/loot`, `strType "item"` |
+| `Pspec` | 0 | 600 | `data/personspecs` |
+| `Pspec Loot` | 0 | 77 | `data/loot`, `strType "pspec"` |
+
+Neither array ever holds the other kind. So the type decides the destination, which is
+what lets one editor author both: Ostraplan keeps every spawner as a deck item in the
+document and routes it on the way out.
+
+The rest of the panel is `strLoot` (the target), `strRange` (scatter in tiles, 0 on
+2,849 of them), `strCount`, and three condition gates — `strNew`, `strDamaged`,
+`strDerelict` — deciding whether the spawner fires when the game creates the ship new,
+damaged or derelict. The def's `LootSpawn` template declares only `strType`, `strLoot`
+and `strRange`, defaulting to `Loot` / `Blank` / `0`; the rest are written by the panel.
+`Blank` is a real loot entry that yields nothing, so an unconfigured spawner is inert
+rather than broken.
+
+> **Ported in Ostraplan:** `SpawnerSettings` (the panel), `SpawnerCatalog` (what each
+> type may name), `LooseObject.Spawner`. Read on import from **both** arrays, written
+> back to whichever the type selects. The three gates are always written out, because
+> the template declares none of them and a spawner inheriting an unknown default is one
+> whose behaviour cannot be predicted.
+>
+> A loot spawner is the one `IsSystem` object Ostraplan keeps on import. Fire and
+> explosions are still dropped: those are runtime state, while a spawner is what a
+> design says the ship should arrive carrying. Not on the **save-edit** path, though,
+> where `SaveEdit` rebuilds `aItems` from the surviving originals verbatim and so
+> preserves them untouched; importing them there would write a second copy beside each.
 
 ---
 
@@ -3808,6 +3846,7 @@ sets), giving a 220-ship rooms **and** certification gate. Only **Babak / Babak 
 | Device signal connections, breaker channel (`Electrical` GPM, `GUIBreaker`) | ported (§14) | `DeviceLink` / `DeviceLinks`, `ShipExport.WireDeviceLinks` |
 | Device signal connections, sensor channel (`Panel A` `strInput01`, `GasPump`/`Heater`) | ported (§14) | `SensorLink` / `SensorLinks`, `DevicePanels`, `ShipExport.WireSensorLinks` |
 | Device panel settings (`nKnobBus`, `bTurbo`, `bReverse`, `bSlowMode`) | ported (§14) | `DeviceSettings`, `Placement.Device` |
+| Loot spawner panel (`GUILootSpawn`: type, target, range, count, the three condition gates) | ported (§6); the type routes the spawner to `aItems` or `aShallowPSpecs` | `SpawnerSettings`, `SpawnerCatalog`, `LooseObject.Spawner` |
 | Object rename (`CondOwner.Rename` / `CheckForRename`, the `Rename` GPM) | ported (§14) | `Rename`, `Placement.CustomName`, `LooseObject.CustomName` |
 | Power-state switching (`PreferPoweredState` both ways; alarm sensing) | ported (nominal states only, §12) | `Catalog.PowerToggle` |
 | Deferred lighting (`Visibility` + `LoSPass`) | ported (preview only) | `LightNetwork`, `VisibilityMesh`, `LightComposite` |

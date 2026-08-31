@@ -534,6 +534,43 @@
                         <CheckBox x:Name="InsDeviceSlow" Content="Slow mode" FontSize="12" Margin="0,2,0,0"
                                   Foreground="{DynamicResource Ink}" Click="OnDeviceModeChanged"/>
                     </StackPanel>
+                    <!-- A loot spawner's own control panel (#55). What it spawns is the whole of what it is: a
+                         spawner with no panel is built from the def's defaults and makes nothing. -->
+                    <StackPanel x:Name="SpawnerBlock" Visibility="Collapsed">
+                        <TextBlock Text="SPAWNER" Style="{StaticResource SideHeader}"/>
+                        <TextBlock Text="Spawns" Style="{StaticResource SideValue}" FontSize="11" Opacity="0.6"/>
+                        <ComboBox x:Name="InsSpawnerType" Margin="0,2,0,4" FontSize="12"
+                                  SelectionChanged="OnSpawnerTypeChanged"/>
+                        <Button x:Name="BtnSpawnerTarget" Margin="0,2,0,2" FontSize="12" Padding="6,3"
+                                HorizontalContentAlignment="Left" Click="OnSpawnerTargetClick"/>
+                        <TextBlock x:Name="InsSpawnerWarn" Style="{StaticResource SideValue}" FontSize="11"
+                                   TextWrapping="Wrap" Foreground="{DynamicResource Warn}"
+                                   Visibility="Collapsed" Margin="0,2,0,2"/>
+                        <Grid Margin="0,4,0,0">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0,0,4,0">
+                                <TextBlock Text="Scatter (tiles)" Style="{StaticResource SideValue}" FontSize="11" Opacity="0.6"/>
+                                <TextBox x:Name="InsSpawnerRange" FontSize="12" Margin="0,2,0,0"
+                                         LostFocus="OnSpawnerNumberChanged" KeyDown="OnSpawnerNumberKey"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Margin="4,0,0,0">
+                                <TextBlock Text="How many" Style="{StaticResource SideValue}" FontSize="11" Opacity="0.6"/>
+                                <TextBox x:Name="InsSpawnerCount" FontSize="12" Margin="0,2,0,0"
+                                         LostFocus="OnSpawnerNumberChanged" KeyDown="OnSpawnerNumberKey"/>
+                            </StackPanel>
+                        </Grid>
+                        <TextBlock Text="Fires when the ship spawns" Style="{StaticResource SideValue}"
+                                   FontSize="11" Opacity="0.6" Margin="0,6,0,0"/>
+                        <CheckBox x:Name="InsSpawnerNew" Content="New" FontSize="12" Margin="0,2,0,0"
+                                  Foreground="{DynamicResource Ink}" Click="OnSpawnerFlagChanged"/>
+                        <CheckBox x:Name="InsSpawnerDamaged" Content="Damaged" FontSize="12" Margin="0,2,0,0"
+                                  Foreground="{DynamicResource Ink}" Click="OnSpawnerFlagChanged"/>
+                        <CheckBox x:Name="InsSpawnerDerelict" Content="Derelict" FontSize="12" Margin="0,2,0,0"
+                                  Foreground="{DynamicResource Ink}" Click="OnSpawnerFlagChanged"/>
+                    </StackPanel>
                     <TextBlock Text="SOURCE" Style="{StaticResource SideHeader}"/>
                     <TextBlock x:Name="InsOrigin" Style="{StaticResource SideValue}"/>
                     <TextBlock Text="INSTALL MATERIALS" Style="{StaticResource SideHeader}"/>

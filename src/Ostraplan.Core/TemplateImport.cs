@@ -40,8 +40,9 @@ public sealed record ImportOptions(bool ContainerContents = true, bool LooseItem
 /// the ship's name.
 /// </summary>
 /// <param name="ContainedDropped">Contained sub-objects (cargo, tools, installed modules) <b>left behind</b>.</param>
-/// <param name="SystemDropped">System objects (loot spawners) left behind. Always dropped: they populate a ship at
-/// runtime and are not structure.</param>
+/// <param name="SystemDropped">System objects left behind: fire, explosions, and anything else flagged
+/// <c>IsSystem</c> that is runtime state rather than design data. Loot spawners used to be counted here and are
+/// now kept instead (see <see cref="ImportResult.SpawnersKept"/>).</param>
 public sealed record ImportResult(
     ShipDocument Doc, IReadOnlyList<SkippedDef> Skipped, int ContainedDropped, int SystemDropped,
     string ShipName, int PartCount)
@@ -61,6 +62,11 @@ public sealed record ImportResult(
 
     /// <summary>Items lying loose on the deck that were brought in as loose objects, stack members included.</summary>
     public int LooseKept { get; init; }
+
+    /// <summary>Loot spawners brought in with their panel, from both <c>aItems</c> and <c>aShallowPSpecs</c>. They
+    /// used to be dropped with the rest of the <c>IsSystem</c> objects, which stripped an imported station of
+    /// everything it was meant to spawn (#55).</summary>
+    public int SpawnersKept { get; init; }
 
     /// <summary>Items lying loose on the deck that were left behind, stack members included.</summary>
     public int LooseDropped { get; init; }
@@ -193,6 +199,7 @@ public static class TemplateImport
         };
         var skipped = new Dictionary<string, int>(StringComparer.Ordinal);
         var systems = 0;
+        var spawners = 0;
         int looseKept = 0, looseDropped = 0;
 
         // Structural parts by their source strID, so container contents can be hung on the right ones below.
@@ -226,7 +233,22 @@ public static class TemplateImport
                     skipped[item.DefName] = skipped.GetValueOrDefault(item.DefName) + 1;
                     continue;
                 }
-                if (part.StartingConds.Contains("IsSystem"))   // loot spawners, fire, explosions — runtime, not structure
+                // A loot spawner is the one IsSystem object that is design data rather than runtime state: it is
+                // what decides a ship spawns with medical supplies in the infirmary and scrap in a wrecked bay,
+                // and the game's own ships carry 3,631 of them (#55). Everything else flagged IsSystem (fire,
+                // explosions) really is runtime and is still dropped.
+                //
+                // NOT on the save-edit path, though, for the same reason deck items stay placements there: that
+                // import exists to be written back, and SaveEdit rebuilds aItems as the surviving originals
+                // verbatim, so a spawner left alone is already preserved byte for byte. Importing it as a loose
+                // object with no OriginStrID would write a second copy beside the untouched original and double
+                // every spawner on each round trip.
+                if (!retainOrigin && part.StartingConds.Contains("IsLootSpawner"))
+                {
+                    if (TakeSpawner(item, part)) spawners++; else systems++;
+                    continue;
+                }
+                if (part.StartingConds.Contains("IsSystem"))   // fire, explosions — runtime, not structure
                 {
                     systems++;
                     continue;
@@ -344,6 +366,29 @@ public static class TemplateImport
                         zone.Tiles.Add(ZoneGeometry.IndexToDoc(idx, tmpl.NCols));
                 doc.AddZone(zone);
             }
+
+            // The person-spawn points, from the ship's other spawner array. Walked separately because they are
+            // not items on the deck (see ShipTemplate.ShallowPSpecs), and skipped on the save-edit path for the
+            // same reason the aItems spawners are.
+            if (!retainOrigin)
+                foreach (var item in tmpl.ShallowPSpecs)
+                    if (catalog.Lookup(item.DefName) is { } pspecPart && TakeSpawner(item, pspecPart))
+                        spawners++;
+        }
+
+        // A spawner as a deck item carrying its panel. Its position is read the same way any item's is, and its
+        // panel is the whole of what it is, so one that will not parse is left behind rather than imported as a
+        // spawner that makes nothing.
+        bool TakeSpawner(TemplateItem item, PartDef part)
+        {
+            if (!opts.LooseItems || item.Spawner is not { } panel) return false;
+            var (col, row, rot) = ShipGrid.TemplateTile(
+                item.FX, item.FY, item.FRotation, part.Item.Width, part.Item.Height, tmpl.VShipPosX, tmpl.VShipPosY);
+            doc.AddLoose(new LooseObject
+            {
+                DefName = item.DefName, X = col, Y = row, Rot = rot, Spawner = panel.Clamped(),
+            });
+            return true;
         }
 
         // What is each left-behind contained item actually inside? Walking to the root holder splits the tally
@@ -383,6 +428,7 @@ public static class TemplateImport
             CrewDropped = crewDropped,
             DeckDropped = deckDropped,
             LooseKept = looseKept,
+            SpawnersKept = spawners,
             LooseDropped = looseDropped,
             NavConsolesStocked = navConsoles,
             NavModulesInstalled = navModules,

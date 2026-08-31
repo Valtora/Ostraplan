@@ -1354,6 +1354,40 @@ with its gas — keeps that charge across the swap. Re-installing into a spot th
 no longer fits isn't blocked, just flagged in **Problems** (like a move into an
 illegal tile).
 
+## Loot spawners — what a ship arrives carrying
+
+A ship doesn't ship with its cargo baked in. It carries **loot spawners**, invisible markers
+that fill it when the game creates it, which is how one station template yields a clean ship
+with supplies in the infirmary and a wreck strewn with scrap. The game's own ships use
+thousands of them.
+
+Place one from the loose-item picker (**SysLootSpawner**), select it, and the **SPAWNER**
+block in the inspector sets it up.
+
+- **Spawns** — **Objects (loot)** for cargo and clutter, **A person (person spec)** for a
+  named kind of crew or visitor, or **A person (from a loot table)** to let the game pick one.
+- **What** — the button under it opens a searchable picker. The list is long (2,797 loot
+  tables for objects, 400 person specs for a person), so type to filter it. Only entries that
+  kind of spawner can actually use are offered.
+- **Scatter** and **How many** — how far from its own tile it strews what it makes, and how
+  much. Scatter 0 piles everything on the spawner's tile.
+- **Fires when the ship spawns** — **New**, **Damaged**, **Derelict**. A spawner only runs for
+  the conditions you tick, which is how one design fills differently depending on how the game
+  decides to create it.
+
+A spawner you haven't pointed at anything says so: it defaults to the game's empty table and
+makes nothing.
+
+> **Where people arrive.** Ostraplan works out a boarding point and a crew-spawn point for
+> every ship, because one without them drops arrivals at the map origin, often outside the
+> hull. Place a person spawner set to **Boarding** or **NotBoarding** and yours is used
+> instead, for that role only, so you can put an arrival at the airlock you meant. Author
+> neither and nothing changes.
+
+Spawners are saved in the `.oplan`, written into an **exported** ship, and **kept on import** —
+so opening one of the game's stations and exporting it again keeps everything it was meant to
+spawn, which it did not used to.
+
 ## Repairing damage
 
 A ship imported out of a save arrives with everything that has happened to it. There are

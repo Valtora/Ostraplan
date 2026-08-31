@@ -394,6 +394,12 @@ public static class ShipExport
         // copies are members parented to the head (with the pristine marker + bForceLoad so they survive and keep
         // their strIDs), and the head gets a CO whose aStack lists them, the same shape EmitContained bakes for a
         // container's stacked cargo (see CondOwner.PostGameLoad).
+        // Person-spawn points the design authors itself. They are deck items in the document and a separate array
+        // in the file, because the game keeps the two apart absolutely: every spawner in aItems is a Loot one and
+        // every spawner in aShallowPSpecs is a Pspec or Pspec Loot one (#55). So the panel's type is what decides
+        // which array a spawner leaves by, and this collects the ones bound for the other one.
+        var authoredPSpecs = new List<ExportedShallowPSpec>();
+
         foreach (var lo in doc.LooseObjects)
         {
             if (catalog.Lookup(lo.DefName) is not { } part) { warnings?.Add($"Loose item '{lo.DefName}' has no def; skipped."); continue; }
@@ -426,6 +432,24 @@ public static class ShipExport
                     head.ACondOverrides =
                         [new ExportedCondOverride { CondName = "StatDamage", Chance = 1.0, Amount = dmg }];
             }
+            // A loot spawner's panel is the whole of what it is: without it the game builds one from the def's
+            // template defaults (strLoot "Blank") and it spawns nothing at all, which is what every spawner
+            // Ostraplan exported did before #55.
+            if (lo.Spawner is { } spawner)
+            {
+                var panel = new ExportedGpmSetting { DictGUIPropMap = [.. spawner.Clamped().ToPanelKeys()] };
+                if (spawner.IsPersonSpawn)
+                {
+                    authoredPSpecs.Add(new ExportedShallowPSpec
+                    {
+                        StrName = lo.DefName, FX = fx, FY = fy, FRotation = rot, StrID = headId,
+                        AGPMSettings = [panel],
+                    });
+                    continue;   // it leaves by aShallowPSpecs, so it is not an aItems entry and has no stack
+                }
+                head.AGPMSettings = [.. head.AGPMSettings ?? [], panel];
+            }
+
             items.Add(head);
 
             if (qty > 1)
@@ -513,7 +537,18 @@ public static class ShipExport
         var primaryPort = docksysPorts.FirstOrDefault(p => p.PrimaryDef);
         var airlockAnchor = docksysPorts.Count == 0 ? -1
             : primaryPort.Id is not null ? primaryPort.Anchor : docksysPorts[0].Anchor;
-        var shallowPSpecs = BuildBoardingSpawners(grid, partition, airlockAnchor);
+        // Authored beats synthesised, per role. The pair below exists because a ship with no boarding point dumps
+        // an arrival at the map origin, often outside the hull, so it is a fallback rather than a fixture: a
+        // design that says where its own arrivals appear should be obeyed. A design that authors only one of the
+        // two roles still gets the other synthesised, which is why this is per role and not all-or-nothing.
+        var authoredRoles = authoredPSpecs
+            .Select(RoleOf)
+            .Where(r => r is not null)
+            .ToHashSet(StringComparer.Ordinal);
+        var shallowPSpecs = BuildBoardingSpawners(grid, partition, airlockAnchor)
+            .Where(p => RoleOf(p) is not { } role || !authoredRoles.Contains(role))
+            .Concat(authoredPSpecs)
+            .ToArray();
 
         // The shallow-state block the game writes on save (Ship.GetJSON) and reads straight back on a SHALLOW
         // spawn (Ship.InitShip). Every core template carries it; leaving it at zero is not neutral:
@@ -1074,6 +1109,20 @@ public static class ShipExport
             double dx = grid.Col(t) - cx, dy = grid.Row(t) - cy;
             return dx * dx + dy * dy;
         }).First();
+    }
+
+    /// <summary>The <c>strLoot</c> a person-spawn entry names, which for the two synthesised ones is the role
+    /// ("Boarding" / "NotBoarding"). Null when the entry carries no readable panel, which no entry this code
+    /// builds ever does, but an authored one round-tripped from a mod could.</summary>
+    private static string? RoleOf(ExportedShallowPSpec spec)
+    {
+        foreach (var panel in spec.AGPMSettings)
+        {
+            var flat = panel.DictGUIPropMap;
+            for (var i = 0; i + 1 < flat.Length; i += 2)
+                if (flat[i] as string == "strLoot") return flat[i + 1] as string;
+        }
+        return null;
     }
 
     /// <summary>A person-spawn <c>SysLootSpawner</c> (an <c>aShallowPSpecs</c> entry) for the "Boarding" /

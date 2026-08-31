@@ -1118,9 +1118,32 @@ public sealed class ShipDocument
         // count its conditions into LooseConds twice, and only a matching pair of removes would ever clear them.
         if (_looseIds.Contains(o.Id)) return;
         SeedIntrinsics(o, Catalog);
+        SeedSpawner(o, Catalog);
         Occupy(o);
         _order[o.Id] = _seq++;
         RaiseChanged(o.Id);
+    }
+
+    /// <summary>
+    /// Give a loot spawner a panel if it has none, for the same reason the intrinsic seed above exists: it is a
+    /// property of the object rather than of the route it arrived by.
+    ///
+    /// <para>Without it a spawner dropped from the palette exports with no <c>GUILootSpawn</c> panel, so the game
+    /// builds one from the def's template defaults and the spawner sits there making nothing. That is what every
+    /// placed spawner did before #55, and it looked exactly like a working one on the plan.</para>
+    /// </summary>
+    private static void SeedSpawner(LooseObject o, Catalog catalog)
+    {
+        if (o.Spawner is not null) return;
+        if (catalog.Lookup(o.DefName)?.StartingConds.Contains("IsLootSpawner") is true)
+            o.Spawner = SpawnerSettings.Default;
+    }
+
+    /// <summary>Replace a deck item's loot-spawner panel (a command implementation).</summary>
+    internal void SetSpawner(LooseObject o, SpawnerSettings? settings)
+    {
+        o.Spawner = settings?.Clamped();
+        RaiseChangedOrderIntact();
     }
 
     /// <summary>

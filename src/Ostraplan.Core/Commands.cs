@@ -425,6 +425,19 @@ public sealed class PlaceLooseCommand(LooseObject obj) : IDocCommand, IAuditDesc
         $"Drop {AuditFmt.Name(f, obj.DefName)}{(obj.Quantity > 1 ? $" ×{obj.Quantity}" : "")} {AuditFmt.At(obj.X, obj.Y)}";
 }
 
+/// <summary>Retune a loot spawner's control panel (#55).</summary>
+public sealed class SetSpawnerCommand(LooseObject obj, SpawnerSettings? before, SpawnerSettings? after)
+    : IDocCommand, IAuditDescribable
+{
+    public void Do(ShipDocument doc) => doc.SetSpawner(obj, after);
+    public void Undo(ShipDocument doc) => doc.SetSpawner(obj, before);
+    public string Describe(Func<string, string?> f)
+    {
+        var s = after ?? SpawnerSettings.Default;
+        return $"Set spawner {SpawnerSettings.Wire(s.Type)} '{s.Target}' {AuditFmt.At(obj.X, obj.Y)}";
+    }
+}
+
 /// <summary>Remove a loose item from its tile.</summary>
 public sealed class RemoveLooseCommand(LooseObject obj) : IDocCommand, IAuditDescribable
 {

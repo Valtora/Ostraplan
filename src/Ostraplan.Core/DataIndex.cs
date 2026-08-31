@@ -17,8 +17,11 @@ public sealed class DataIndex
     // StatGasMol* condition for (see ContainerFill.Species). A cond the data does not declare cannot be
     // stored in a container at all - CondOwner.AddCondAmount returns early on it - so the list has to come
     // from the data rather than a constant, or a mod that adds a gas would be invisible.
+    // "personspecs" is here for the loot spawner editor: a Pspec spawner names one of these, and the picker has to
+    // offer what this install actually declares rather than a baked list, so a mod's own crew spec is offerable
+    // (see LootSpawner).
     private static readonly string[] WantedTypes =
-        ["items", "condowners", "installables", "cooverlays", "loot", "condtrigs", "rooms", "guipropmaps", "tickers", "slots", "powerinfos", "lights", "colors", "parallax", "interactions", "star_systems", "conditions", "transit", "attackmodes"];
+        ["items", "condowners", "installables", "cooverlays", "loot", "condtrigs", "rooms", "guipropmaps", "tickers", "slots", "powerinfos", "lights", "colors", "parallax", "interactions", "star_systems", "conditions", "transit", "attackmodes", "personspecs"];
 
     public required GameEnv Env { get; init; }
     public required IReadOnlyList<ModSource> Sources { get; init; }

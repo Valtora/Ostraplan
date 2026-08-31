@@ -4253,7 +4253,140 @@ public partial class MainWindow : Window
                       ?? (Board.ArmedPart is null && lone ? Board.SelectedLoose?.Condition : null);
         PopulateStats(part, lonePart, painted);
         PopulateDeviceBlock(part, lonePart);
+        PopulateSpawnerBlock(Board.ArmedPart is null && lone ? Board.SelectedLoose : null);
         PopulateContentsButton(part, lonePart);
+    }
+
+    // ---- the SPAWNER block: what a loot spawner makes when the ship spawns (#55) ----
+
+    /// <summary>True while <see cref="PopulateSpawnerBlock"/> is writing the controls, so the change handlers can
+    /// tell a user edit from the refresh that follows one. Same guard, and same reason, as the DEVICE block's.</summary>
+    private bool _spawnerBlockLoading;
+
+    /// <summary>The deck item the SPAWNER block is editing, captured while it is populated. A spawner is a
+    /// <see cref="LooseObject"/> rather than a <see cref="Placement"/>, so it is not reachable through the
+    /// lone-placement path everything else in the inspector uses.</summary>
+    private LooseObject? _spawnerTarget;
+
+    /// <summary>
+    /// Fill the SPAWNER block for a lone selected loot spawner. Hidden for everything else on the deck.
+    ///
+    /// <para>Unlike the DEVICE block this shows even at the defaults, because a spawner's panel is the whole of
+    /// what it is: an unconfigured one points at the game's empty "Blank" table and makes nothing, and that is a
+    /// state the designer needs to see rather than one to hide as "nothing set".</para>
+    /// </summary>
+    private void PopulateSpawnerBlock(LooseObject? loose)
+    {
+        if (_doc is null || loose?.Spawner is not { } settings)
+        {
+            SpawnerBlock.Visibility = Visibility.Collapsed;
+            _spawnerTarget = null;
+            return;
+        }
+
+        _spawnerBlockLoading = true;
+        try
+        {
+            _spawnerTarget = loose;
+            SpawnerBlock.Visibility = Visibility.Visible;
+
+            if (InsSpawnerType.Items.Count == 0)
+            {
+                InsSpawnerType.Items.Add("Objects (loot)");
+                InsSpawnerType.Items.Add("A person (person spec)");
+                InsSpawnerType.Items.Add("A person (from a loot table)");
+            }
+            InsSpawnerType.SelectedIndex = (int)settings.Type;
+
+            BtnSpawnerTarget.Content = settings.Target;
+            BtnSpawnerTarget.ToolTip = $"{settings.Target} — click to choose what this spawns.";
+            InsSpawnerRange.Text = settings.Range.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            InsSpawnerCount.Text = settings.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
+            InsSpawnerNew.IsChecked = settings.WhenNew;
+            InsSpawnerDamaged.IsChecked = settings.WhenDamaged;
+            InsSpawnerDerelict.IsChecked = settings.WhenDerelict;
+
+            // A warning rather than a block. The game's own ships name three person specs and one loot that
+            // nothing in the data declares, so a design reproducing a stock ship would be refused by a rule that
+            // insisted the target resolve.
+            var unresolved = !SpawnerCatalog.Resolves(_doc.Catalog, settings.Type, settings.Target);
+            InsSpawnerWarn.Text = settings.Target == SpawnerSettings.DefaultTarget
+                ? "Points at the game's empty table, so it spawns nothing."
+                : unresolved
+                    ? $"'{settings.Target}' is not in the loaded data. It will spawn nothing unless a mod supplies it."
+                    : "";
+            InsSpawnerWarn.Visibility = InsSpawnerWarn.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
+
+            // A person spawn leaves by aShallowPSpecs and has no scatter or count in any ship the game ships.
+            var objectSpawn = !settings.IsPersonSpawn;
+            InsSpawnerRange.IsEnabled = objectSpawn;
+            InsSpawnerCount.IsEnabled = objectSpawn;
+        }
+        finally { _spawnerBlockLoading = false; }
+    }
+
+    private void OnSpawnerTypeChanged(object sender, SelectionChangedEventArgs e)
+    {
+        if (_spawnerBlockLoading || InsSpawnerType.SelectedIndex < 0) return;
+        var type = (SpawnerType)InsSpawnerType.SelectedIndex;
+        var current = _spawnerTarget?.Spawner ?? SpawnerSettings.Default;
+        // The target list is per type, so a name carried across almost never resolves in the new one. Reset to the
+        // empty table rather than leave a target that silently spawns nothing.
+        CommitSpawner(current with
+        {
+            Type = type,
+            Target = type == current.Type ? current.Target : SpawnerSettings.DefaultTarget,
+        });
+    }
+
+    private void OnSpawnerFlagChanged(object sender, RoutedEventArgs e)
+    {
+        if (_spawnerBlockLoading || _spawnerTarget?.Spawner is not { } current) return;
+        CommitSpawner(current with
+        {
+            WhenNew = InsSpawnerNew.IsChecked == true,
+            WhenDamaged = InsSpawnerDamaged.IsChecked == true,
+            WhenDerelict = InsSpawnerDerelict.IsChecked == true,
+        });
+    }
+
+    /// <summary>Enter commits a typed number without waiting for focus to leave, which is what a numeric box in
+    /// this app does everywhere else.</summary>
+    private void OnSpawnerNumberKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        OnSpawnerNumberChanged(sender, e);
+        e.Handled = true;
+    }
+
+    private void OnSpawnerNumberChanged(object sender, RoutedEventArgs e)
+    {
+        if (_spawnerBlockLoading || _spawnerTarget?.Spawner is not { } current) return;
+        // An unreadable box keeps what the spawner already had, and the refresh below puts the text back, so a
+        // half-typed "-" cannot commit a nonsense figure.
+        var range = int.TryParse(InsSpawnerRange.Text, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var r) ? r : current.Range;
+        var count = int.TryParse(InsSpawnerCount.Text, System.Globalization.NumberStyles.Integer, System.Globalization.CultureInfo.InvariantCulture, out var c) ? c : current.Count;
+        CommitSpawner(current with { Range = range, Count = count });
+    }
+
+    private void OnSpawnerTargetClick(object sender, RoutedEventArgs e)
+    {
+        if (_doc is null || _spawnerTarget?.Spawner is not { } current) return;
+        var dlg = new SpawnerTargetDialog(_doc.Catalog, current.Type, current.Target) { Owner = this };
+        if (dlg.ShowDialog() == true && dlg.Chosen is { } chosen)
+            CommitSpawner(current with { Target = chosen });
+    }
+
+    /// <summary>Push a retuned panel onto the selected spawner as one undo step. A no-op change pushes nothing, so
+    /// the stack holds one entry per real edit.</summary>
+    private void CommitSpawner(SpawnerSettings next)
+    {
+        if (_doc is null || _spawnerTarget is not { } obj) return;
+        var before = obj.Spawner;
+        var after = next.Clamped();
+        if (Equals(before, after)) { PopulateSpawnerBlock(obj); return; }
+        _stack.Push(_doc, new SetSpawnerCommand(obj, before, after));
+        PopulateSpawnerBlock(obj);
     }
 
     /// <summary>

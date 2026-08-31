@@ -40,6 +40,15 @@ public sealed record TemplateItem(string DefName, double FX, double FY, double F
     /// carries no such panel. It is read for every item rather than only for consoles because the panels are read
     /// once here and the def is not resolved until the import walks them.</summary>
     public IReadOnlyDictionary<string, string>? NavLayout { get; init; }
+
+    /// <summary>This item's <c>GUILootSpawn</c> panel, when it has one (see <see cref="SpawnerSettings"/>). Null
+    /// on everything that is not a loot spawner.</summary>
+    public SpawnerSettings? Spawner { get; init; }
+
+    /// <summary>True when this item came out of the ship's <c>aShallowPSpecs</c> rather than its <c>aItems</c>.
+    /// The two arrays hold the same shape of object and are parsed the same way, but only the person-spawn one
+    /// goes back out to <c>aShallowPSpecs</c>, so the origin is carried rather than re-derived.</summary>
+    public bool FromShallowPSpecs { get; init; }
 }
 
 /// <summary>A room as the game computed and baked it into the template: the tile
@@ -72,6 +81,17 @@ public sealed class ShipTemplate
     public required double VShipPosX { get; init; }
     public required double VShipPosY { get; init; }
     public required IReadOnlyList<TemplateItem> Items { get; init; }
+
+    /// <summary>
+    /// The ship's <c>aShallowPSpecs</c>: its person-spawn points, parsed the same way an <c>aItems</c> entry is
+    /// (see <see cref="TemplateImport"/> and <see cref="SpawnerSettings"/>).
+    ///
+    /// <para>A list of its own rather than folded into <see cref="Items"/>, because these are not items on the
+    /// deck: <see cref="ShipGrid.FromTemplate"/> stamps every entry of <see cref="Items"/> onto the tile it sits
+    /// on, and merging them put an <c>IsLootSpawner</c> cond on tiles the ship does not actually have an object
+    /// on. Everything that walks a ship's items should keep walking <see cref="Items"/> alone.</para>
+    /// </summary>
+    public IReadOnlyList<TemplateItem> ShallowPSpecs { get; init; } = [];
     public required IReadOnlyList<StoredRoom> Rooms { get; init; }
     public required IReadOnlyList<string> Rating { get; init; }
     /// <summary>The ship's painted zones (<c>aZones</c>), verbatim. Empty on the many ships that carry none.</summary>
@@ -188,8 +208,27 @@ public sealed class ShipTemplate
                 ElectricalOutputs = GpmPanels.Connections(panels, GpmPanels.OutputConnectionsKey),
                 Device = GpmPanels.Settings(panels),
                 NavLayout = GpmPanels.NavConfig(panels),
+                Spawner = GpmPanels.Spawner(panels),
             });
         }
+
+        // The person-spawn points, which the game keeps in a second array of the same shape. Ostraplan used to
+        // ignore it entirely and synthesise a generic Boarding/NotBoarding pair on the way out, so importing a
+        // station and exporting it moved every arrival point (see ShipExport.BuildBoardingSpawners).
+        var shallowPSpecs = new List<TemplateItem>();
+        if (e.TryGetProperty("aShallowPSpecs", out var pspecsEl) && pspecsEl.ValueKind == JsonValueKind.Array)
+            foreach (var it in pspecsEl.EnumerateArray())
+            {
+                if (Json.Str(it, "strName") is not { Length: > 0 } def) continue;
+                var panels = GpmPanels.Read(it);
+                if (GpmPanels.Spawner(panels) is not { } spawner) continue;
+                shallowPSpecs.Add(new TemplateItem(def, Json.Dbl(it, "fX"), Json.Dbl(it, "fY"),
+                    Json.Dbl(it, "fRotation"), Json.Str(it, "strID"), false)
+                {
+                    Spawner = spawner,
+                    FromShallowPSpecs = true,
+                });
+            }
 
         var rooms = new List<StoredRoom>();
         if (e.TryGetProperty("aRooms", out var roomsEl) && roomsEl.ValueKind == JsonValueKind.Array)
@@ -220,6 +259,7 @@ public sealed class ShipTemplate
             VShipPosX = px,
             VShipPosY = py,
             Items = items,
+            ShallowPSpecs = shallowPSpecs,
             Rooms = rooms,
             Rating = Json.StrArray(e, "aRating"),
             Zones = zones,

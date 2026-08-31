@@ -125,4 +125,18 @@ public static class GpmPanels
         static bool Flag(IReadOnlyDictionary<string, string?> keys, string key) =>
             keys.TryGetValue(key, out var v) && bool.TryParse(v, out var b) && b;
     }
+
+    /// <summary>The loot-spawner panel this item carries (see <see cref="SpawnerSettings"/>), or null when it is
+    /// not a spawner. Unlike <see cref="Settings"/> this returns the settings even when they equal the default,
+    /// because a spawner IS its panel: an item with no panel to speak of is not a spawner at its defaults, it is
+    /// a spawner Ostraplan failed to read.</summary>
+    public static SpawnerSettings? Spawner(IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>> panels)
+    {
+        foreach (var (name, keys) in panels)
+        {
+            if (name == ElectricalPanel) continue;
+            if (SpawnerSettings.FromPanel(keys) is { } spawner) return spawner;
+        }
+        return null;
+    }
 }

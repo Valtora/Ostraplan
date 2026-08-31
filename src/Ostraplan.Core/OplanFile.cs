@@ -137,6 +137,7 @@ public sealed class OplanFile
                                   Name = lo.CustomName, Z = lo.ZBias == 0 ? null : lo.ZBias,
                                   Cargo = lo.Cargo.Count > 0 ? lo.Cargo.Select(ToOplanCargo).ToList() : null,
                                   Cond = lo.Condition,
+                                  Spawner = ToOplanSpawner(lo.Spawner),
                               })
                               .ToList(),
             ExtraMassKg = doc.ExtraMassKg > 0 ? doc.ExtraMassKg : null,
@@ -282,9 +283,35 @@ public sealed class OplanFile
                     // still opens with them (and a file that has them is left alone).
                     Cargo = FromOplanCargoList(lo.Cargo ?? [], catalog.Lookup(lo.Def), catalog),
                     Condition = Paint.Clamp(lo.Cond),
+                    Spawner = FromOplanSpawner(lo.Spawner),
                 });
         return (doc, missing);
     }
+
+    /// <summary>Persist a loot spawner's panel. Null for every deck item that is not one.</summary>
+    private static OplanSpawner? ToOplanSpawner(SpawnerSettings? s) => s is null ? null : new OplanSpawner
+    {
+        Type = SpawnerSettings.Wire(s.Type),
+        Loot = s.Target,
+        Range = s.Range,
+        Count = s.Count,
+        New = s.WhenNew,
+        Damaged = s.WhenDamaged,
+        Derelict = s.WhenDerelict,
+    };
+
+    /// <summary>Rebuild a loot spawner's panel. The <c>strType</c> is stored as the game's own wire word rather
+    /// than an enum ordinal, so a hand-edited file reads the way the ship file it came from does.</summary>
+    private static SpawnerSettings? FromOplanSpawner(OplanSpawner? o) => o is null ? null : new SpawnerSettings
+    {
+        Type = SpawnerSettings.ParseType(o.Type),
+        Target = o.Loot ?? SpawnerSettings.DefaultTarget,
+        Range = o.Range,
+        Count = o.Count,
+        WhenNew = o.New,
+        WhenDamaged = o.Damaged,
+        WhenDerelict = o.Derelict,
+    }.Clamped();
 
     /// <summary>Rebuild a device's panel settings from its snapshot. An unrecognised bus name reads as
     /// <see cref="DeviceBusMode.Auto"/> — follow the sensor, force nothing — which is the reading that cannot
@@ -579,6 +606,24 @@ public sealed class OplanLoose
     /// <see cref="OplanPart.Cond"/>. Null — and omitted — for an item nobody painted. A stack carries one
     /// condition for the whole pile, which is where the game keeps it.</summary>
     [JsonPropertyName("cond")] public double? Cond { get; set; }
+    /// <summary>This deck item's loot-spawner panel (see <see cref="LooseObject.Spawner"/>). Null — and omitted —
+    /// for every deck item that is not a spawner, which is nearly all of them. Additive: an older build ignores
+    /// it and round-trips it through <see cref="Extra"/>.</summary>
+    [JsonPropertyName("spawner")] public OplanSpawner? Spawner { get; set; }
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
+}
+
+/// <summary>A persisted loot-spawner panel (see <see cref="SpawnerSettings"/>).</summary>
+public sealed class OplanSpawner
+{
+    /// <summary>The game's own word: "Loot", "Pspec" or "Pspec Loot".</summary>
+    [JsonPropertyName("type")] public string? Type { get; set; }
+    [JsonPropertyName("loot")] public string? Loot { get; set; }
+    [JsonPropertyName("range")] public int Range { get; set; }
+    [JsonPropertyName("count")] public int Count { get; set; } = 1;
+    [JsonPropertyName("new")] public bool New { get; set; } = true;
+    [JsonPropertyName("damaged")] public bool Damaged { get; set; } = true;
+    [JsonPropertyName("derelict")] public bool Derelict { get; set; } = true;
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }
 
