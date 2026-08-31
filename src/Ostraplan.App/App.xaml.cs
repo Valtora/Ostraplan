@@ -343,6 +343,78 @@ public partial class App : Application
         // the game's own rendering of the same part at the same figure. The constants behind it live in compiled
         // GPU code (see WearShader), so no data test can catch them drifting and this is the check that can.
         // Needs the game install.
+        // preview render: the palette's category strip, in both themes and at three different selections. Two
+        // things it is here to prove, both of which have shipped as bugs before: that the TabItem style still
+        // chains to Fluent (one that does not falls back to the light Aero2 template), and that a category keeps
+        // its position when another is selected.
+        if (e.Args.Contains("--palsmoke"))
+        {
+            var dir = e.Args.SkipWhile(a => a != "--palsmoke").Skip(1).FirstOrDefault() ?? AppContext.BaseDirectory;
+            Directory.CreateDirectory(dir);
+            try
+            {
+                // Built from markup mirroring MainWindow.xaml's, rather than by assembling controls in code:
+                // the toggle style is what is under test, and a style that has fallen off the Fluent chain still
+                // builds and still runs. It only looks wrong.
+                //
+                // This replaced a TabControl. Its wrapped headers were laid out by a TabPanel, which moves the
+                // row holding the selected header down against the content, so the strip rearranged itself on
+                // every click. ItemsPanel cannot fix it: Fluent's TabControl template hard-codes its TabPanel,
+                // and overriding ItemsPanel with a StackPanel here produced a byte-identical render.
+                string[] headers =
+                    ["FAV/REC", "All", "HULL", "HVAC", "POWR", "SENS", "CTRL", "FURN", "APPS", "MISC", "ITEMS", "SPECIAL"];
+
+                const string tabStyle = """
+                    <ResourceDictionary xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'
+                                        xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'>
+                      <Style x:Key='PaletteTab' TargetType='ToggleButton' BasedOn='{StaticResource {x:Type ToggleButton}}'>
+                        <Setter Property='Padding' Value='7,2'/>
+                        <Setter Property='Margin' Value='0,0,3,3'/>
+                        <Setter Property='FontSize' Value='11'/>
+                        <Setter Property='MinWidth' Value='0'/>
+                      </Style>
+                    </ResourceDictionary>
+                    """;
+
+                void RenderStrip(string mode, int selected, string file)
+                {
+                    ThemeManager.Apply(mode);
+                    var res = (ResourceDictionary)System.Windows.Markup.XamlReader.Parse(tabStyle);
+                    var strip = new System.Windows.Controls.WrapPanel { Width = 330 };
+                    for (var i = 0; i < headers.Length; i++)
+                        strip.Children.Add(new System.Windows.Controls.Primitives.ToggleButton
+                        {
+                            Content = headers[i],
+                            Style = (Style)res["PaletteTab"],
+                            IsChecked = i == selected,
+                        });
+
+                    var host = new System.Windows.Controls.Border
+                    {
+                        Background = ThemeManager.PanelBg, Padding = new Thickness(8), Child = strip,
+                    };
+                    host.Measure(new Size(346, double.PositiveInfinity));
+                    host.Arrange(new Rect(0, 0, 346, host.DesiredSize.Height));
+                    host.UpdateLayout();
+                    var h = Math.Max(1, (int)Math.Ceiling(host.DesiredSize.Height));
+                    var bmp = new RenderTargetBitmap(346, h, 96, 96, PixelFormats.Pbgra32);
+                    bmp.Render(host);
+                    var enc = new PngBitmapEncoder();
+                    enc.Frames.Add(BitmapFrame.Create(bmp));
+                    using var fs = File.Create(Path.Combine(dir, file));
+                    enc.Save(fs);
+                }
+
+                RenderStrip("dark", 1, "palette-strip-dark-all.png");
+                RenderStrip("dark", 7, "palette-strip-dark-furn.png");
+                RenderStrip("dark", 10, "palette-strip-dark-items.png");
+                RenderStrip("light", 1, "palette-strip-light-all.png");
+            }
+            catch (Exception ex) { File.WriteAllText(Path.Combine(dir, "palsmoke-error.txt"), ex.ToString()); }
+            Shutdown(0);
+            return;
+        }
+
         // preview render: draw a page of backdrops (#43) so the composited locale art can be eyeballed without
         // clicking through Settings for each of the thirty-odd of them. Needs the game install.
         if (e.Args.Contains("--bgsmoke"))

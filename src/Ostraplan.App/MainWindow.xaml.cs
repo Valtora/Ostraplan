@@ -603,23 +603,24 @@ public partial class MainWindow : Window
     private const string SpecialCategory = "SPECIAL";
 
     /// <summary>True for the two tabs that are Ostraplan's own rather than the game's build menu. They are kept
-    /// out of "All", which is the buildable catalogue.</summary>
+    /// out of an <b>unsearched</b> "All", which is the buildable catalogue (see <see cref="RefreshPalette"/>).</summary>
     private static bool IsSyntheticCategory(string category) =>
         category is ItemsCategory or SpecialCategory;
 
     private void BuildPalette()
     {
-        Tabs.Items.Clear();
+        PaletteTabStrip.Children.Clear();
         _paletteLists.Clear();
+        _paletteTabs.Clear();
 
-        // ★ Favorites / Recent, always the first tab (see BuildQuickTab).
-        Tabs.Items.Add(BuildQuickTab());
+        // ★ Favorites / Recent, always first (see BuildQuickTab).
+        AddPaletteTab("FAV/REC", BuildQuickTab());
 
         foreach (var category in new[] { "All" }.Concat(Catalog.Categories).Append(ItemsCategory).Append(SpecialCategory))
         {
             var list = NewPaletteList(category == "All" ? null : category);
             _paletteLists.Add(list);
-            Tabs.Items.Add(new TabItem { Header = category, Content = list });
+            AddPaletteTab(category, list);
         }
 
         ApplyFavoriteFlags();
@@ -627,7 +628,35 @@ public partial class MainWindow : Window
 
         // Returning users with pins land on ★ (its whole point is the shortcut); first-timers land on the catalog
         // (All) so an empty ★ tab never hides the parts. Index 1 is All (0 is ★).
-        Tabs.SelectedIndex = _settings.Favorites.Count > 0 || _settings.RecentParts.Count > 0 ? 0 : 1;
+        SelectPaletteTab(_settings.Favorites.Count > 0 || _settings.RecentParts.Count > 0 ? 0 : 1);
+    }
+
+    /// <summary>The category strip's toggles, in the order they were added, which is the order they keep.</summary>
+    private readonly List<ToggleButton> _paletteTabs = [];
+
+    /// <summary>Add one category to the strip, with the content it shows when picked.</summary>
+    private void AddPaletteTab(string header, UIElement content)
+    {
+        var toggle = new ToggleButton
+        {
+            Content = header,
+            Style = (Style)FindResource("PaletteTab"),
+            Tag = content,
+        };
+        // Click, not Checked: assigning IsChecked from SelectPaletteTab must not re-enter here, the same rule the
+        // toolbar's view toggles follow (CONVENTIONS).
+        toggle.Click += (_, _) => SelectPaletteTab(_paletteTabs.IndexOf(toggle));
+        _paletteTabs.Add(toggle);
+        PaletteTabStrip.Children.Add(toggle);
+    }
+
+    /// <summary>Show one category and check its toggle. Clicking the category already showing re-checks it rather
+    /// than clearing it, because a strip with nothing selected would show an empty palette.</summary>
+    private void SelectPaletteTab(int index)
+    {
+        if (index < 0 || index >= _paletteTabs.Count) return;
+        for (var i = 0; i < _paletteTabs.Count; i++) _paletteTabs[i].IsChecked = i == index;
+        PaletteBody.Content = _paletteTabs[index].Tag;
     }
 
     /// <summary>One palette ListBox. <paramref name="category"/> null = the buildable "All" set; a category name =
@@ -654,7 +683,7 @@ public partial class MainWindow : Window
     /// <summary>The ★ tab: a FAVORITES group over a RECENT group, in one scroll region. Each group's own vertical
     /// scrollbar is disabled so both size to their content and the outer ScrollViewer does the scrolling. Both lists
     /// join <see cref="_paletteLists"/> so arming and cross-tab selection-clearing treat them like any other list.</summary>
-    private TabItem BuildQuickTab()
+    private ScrollViewer BuildQuickTab()
     {
         _favList = NewPaletteList(null);
         _recentList = NewPaletteList(null);
@@ -690,27 +719,36 @@ public partial class MainWindow : Window
         stack.Children.Add(_recentHeader);
         stack.Children.Add(_recentList);
 
-        var scroll = new ScrollViewer
+        return new ScrollViewer
         {
             VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
             HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
             Content = stack,
         };
-        return new TabItem { Header = "FAV/REC", Content = scroll };
     }
 
     private void RefreshPalette()
     {
         var search = TxtSearch.Text.Trim();
+        // What "All" means depends on whether the user is searching, and the two answers are both right.
+        //
+        // Browsing, it is the buildable catalogue: the loose universe is thousands of items and the non-buildable
+        // structure hundreds more, and letting either into the list buries the parts a ship is actually built from.
+        // That is why they have tabs of their own.
+        //
+        // Searching, "All" has to mean all of it. Somebody who types "spawner" and gets nothing under All has been
+        // told the app does not have one, which is false: it was two tabs away the whole time. A search is already
+        // the user narrowing the list, so there is nothing left to drown.
+        var searching = search.Length > 0;
         _syncingPalette = true;
         foreach (var list in _paletteLists)
         {
             if (ReferenceEquals(list, _favList) || ReferenceEquals(list, _recentList)) continue;   // ★ lists handled below
             var category = (string?)list.Tag;
-            // The "All" tab (null Tag) is the buildable palette only — the huge loose universe stays in its own
-            // Items tab, and the non-buildable structure in Special, so neither drowns the structure parts.
             list.ItemsSource = _allParts
-                .Where(vm => (category is null ? !IsSyntheticCategory(vm.Part.Category) : vm.Part.Category == category)
+                .Where(vm => (category is null
+                                 ? searching || !IsSyntheticCategory(vm.Part.Category)
+                                 : vm.Part.Category == category)
                              && vm.Matches(search))
                 .ToList();
         }

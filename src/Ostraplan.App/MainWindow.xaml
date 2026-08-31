@@ -71,6 +71,16 @@
             <Setter Property="Padding" Value="10,3"/>
             <Setter Property="Margin" Value="0,0,3,0"/>
         </Style>
+        <!-- One category in the palette's strip. Same chain and the same reasoning as OverlayToggle: the checked
+             state comes from Fluent, so the selected category reads clearly in both themes without anything here
+             hard-setting a background (CONVENTIONS). Tighter than the toolbar's because twelve of these share the
+             width of the palette. -->
+        <Style x:Key="PaletteTab" TargetType="ToggleButton" BasedOn="{StaticResource {x:Type ToggleButton}}">
+            <Setter Property="Padding" Value="7,2"/>
+            <Setter Property="Margin" Value="0,0,3,3"/>
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="MinWidth" Value="0"/>
+        </Style>
         <!-- Menu text was hard to read: nothing in the app styled a menu at all, so items wore whatever the
              Fluent default resolved to over our own panel background. BasedOn keeps the control on the Fluent
              chain (CONVENTIONS: an explicit style with no BasedOn drops out of the theme and back to the light
@@ -330,7 +340,20 @@
             <DockPanel>
                 <TextBox x:Name="TxtSearch" DockPanel.Dock="Top" Margin="0,0,0,6" Padding="4,3"
                          TextChanged="OnSearchChanged" ToolTip="Search parts by name"/>
-                <TabControl x:Name="Tabs" Background="Transparent" BorderThickness="0"/>
+                <!-- The category strip is a row of ToggleButtons, NOT a TabControl, and that is a fix rather than
+                     a preference. WPF's TabControl lays wrapped headers out with a TabPanel, which reorders its
+                     rows so the row holding the SELECTED header sits against the content. With twelve categories
+                     on two rows that rearranged the whole strip on every click, and the category you wanted next
+                     was never where you last saw it. The panel cannot be swapped out: Fluent's TabControl
+                     template hard-codes its TabPanel and ignores ItemsPanel entirely, which was verified by
+                     overriding it with a StackPanel and getting a byte-identical render (the palsmoke preview).
+
+                     A WrapPanel of toggles keeps every category where it was put, and it is the affordance
+                     CONVENTIONS already prescribes for on/off: the Fluent checked state is theme-aware and has
+                     correct contrast in every state, which the old strip's near-invisible selected header did
+                     not. Built in BuildPalette; PaletteBody holds the selected category's list. -->
+                <WrapPanel x:Name="PaletteTabStrip" DockPanel.Dock="Top" Margin="0,0,0,6"/>
+                <ContentControl x:Name="PaletteBody"/>
             </DockPanel>
         </Border>
 

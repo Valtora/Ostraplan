@@ -199,6 +199,20 @@ Accent and severity colours come from the `ThemeManager` brushes (`AccentBg`/`Ac
 is the Ship Rating button look). Reference them with `DynamicResource` so a light/dark
 switch re-resolves them.
 
+**A wrapped `TabControl` reorders itself, and you cannot stop it.** WPF lays a
+TabControl's headers out with a `TabPanel`, which moves the row holding the *selected*
+header down against the content. With enough headers to wrap, the strip therefore
+rearranges on every click and nothing stays where the user last saw it. `ItemsPanel`
+does not help: Fluent's TabControl template hard-codes its `TabPanel` and ignores the
+override entirely, which was confirmed by replacing it with a `StackPanel` and getting a
+byte-identical render.
+
+So **do not use a TabControl for anything whose headers wrap.** The palette's category
+strip is a `WrapPanel` of `ToggleButton`s plus a `ContentControl`, which keeps every
+category where it was put and gets the Fluent checked accent for free. `MainWindow`'s
+`AddPaletteTab` / `SelectPaletteTab` are the working example, and `--palsmoke` renders
+the strip at three selections so a regression is visible without launching the app.
+
 **A colour chip is a `Border`, not a `Button`.** The same Fluent rule bites in a second
 place: a swatch has to *be* its colour, and a `Button` carrying a local `Background` loses
 it to the hover state exactly when the pointer is on it, so every swatch greys out as you

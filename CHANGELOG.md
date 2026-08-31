@@ -83,6 +83,15 @@ each release was verified against is recorded in
   a 20-wide hull mirrors about its real centre. (#46)
 
 ### Fixed
+- **Searching the palette under All now searches everything.** All is the buildable catalogue, so it
+  leaves out the loose items and the non-buildable structure that have tabs of their own, and that is
+  still what you get while browsing. But it applied to searches too, so typing "spawner" under All
+  found nothing while the spawners sat two tabs away. A search now looks through the lot.
+- **The palette's category buttons stay where you put them.** They were a row of tabs, and WPF moves
+  the row holding the selected tab down against the content, so with twelve categories on two rows
+  every click rearranged the whole strip and the one you wanted next was never where you last saw
+  it. They are ordinary buttons now, in a fixed order, and the selected one is properly highlighted
+  rather than a shade darker than its neighbours.
 - **Walls you build over a floor now stop missiles in game, whichever order you laid them.** The
   game judges a tile on the first part listed on it and gives up there, so a wall sharing a tile
   with a floor only stops a missile when the wall is listed first. That listing is the order you
