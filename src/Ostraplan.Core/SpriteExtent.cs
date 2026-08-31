@@ -45,16 +45,31 @@ public static class SpriteExtent
         return part.SpriteAbs is { } path ? Tiles(path) : Unknown;
     }
 
-    /// <summary>The tile size of a PNG on disk: <c>max(round(px / 16), 1)</c> per axis, or <see cref="Unknown"/>
-    /// when the file is missing or is not a readable PNG.</summary>
-    public static (int W, int H) Tiles(string absPath) =>
-        Cache.GetOrAdd(absPath, p =>
-        {
-            var (pw, ph) = PixelSize(p);
-            return pw <= 0 || ph <= 0
-                ? Unknown
-                : (Math.Max(1, (int)Math.Round(pw / 16.0)), Math.Max(1, (int)Math.Round(ph / 16.0)));
-        });
+    /// <summary>
+    /// The tile size of a PNG on disk: <c>max(round(px / 16), 1)</c> per axis, or <see cref="Unknown"/> when the
+    /// file is missing or is not a readable PNG.
+    ///
+    /// <para><b>Only a real measurement is cached.</b> A failed read returns <see cref="Unknown"/> and is measured
+    /// again next time, because the cache is static and lives as long as the process: caching the failure turned
+    /// one transient read error into a part drawn at one tile until the app was restarted, which is exactly what
+    /// issue #57 was. Doors were what showed it, since a closed door's sprite is the rare one measured lazily in
+    /// the middle of a session rather than during the startup bake, and it is measured the instant a door is shut.
+    /// The retry costs a 24-byte read on a path that is failing anyway.</para>
+    /// </summary>
+    public static (int W, int H) Tiles(string absPath)
+    {
+        if (Cache.TryGetValue(absPath, out var hit)) return hit;
+        var (pw, ph) = PixelSize(absPath);
+        if (pw <= 0 || ph <= 0) return Unknown;
+        var tiles = FromPixels(pw, ph);
+        Cache[absPath] = tiles;
+        return tiles;
+    }
+
+    /// <summary>The tile size of a sprite of a known pixel size — <c>Item.SetData</c>'s <c>vScale</c> rule, in one
+    /// place so a caller measuring a decoded bitmap and one reading a PNG header cannot round differently.</summary>
+    public static (int W, int H) FromPixels(int pixelW, int pixelH) =>
+        (Math.Max(1, (int)Math.Round(pixelW / 16.0)), Math.Max(1, (int)Math.Round(pixelH / 16.0)));
 
     /// <summary>A PNG's pixel dimensions straight out of its IHDR, or (0,0) when the file is unreadable or does not
     /// carry the PNG signature. Reads 24 bytes and never decodes.</summary>
@@ -62,7 +77,11 @@ public static class SpriteExtent
     {
         try
         {
-            using var fs = File.OpenRead(absPath);
+            // The widest sharing the API offers, rather than File.OpenRead's FileShare.Read. These files are the
+            // game's own and we only ever read them, so nothing here needs to exclude anybody — while a scanner or
+            // an indexer holding the file open for write is enough to fail an OpenRead, and did (#57).
+            using var fs = new FileStream(absPath, FileMode.Open, FileAccess.Read,
+                FileShare.ReadWrite | FileShare.Delete);
             Span<byte> head = stackalloc byte[24];
             if (fs.ReadAtLeast(head, head.Length, throwOnEndOfStream: false) < head.Length) return (0, 0);
             // 8-byte signature, then the IHDR chunk: 4 length, 4 type, then width and height.

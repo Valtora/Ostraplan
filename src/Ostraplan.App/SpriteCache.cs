@@ -28,9 +28,19 @@ public sealed class SpriteCache
     /// which for the large fuel tanks is smaller than the socket footprint
     /// (nCols x adds/nCols): the tank's 3x3 canister sprite sits centered in a 7x7
     /// footprint whose outer ring is abstracted sub-floor storage, not the tank.
+    ///
+    /// <para><b>Measured off the bitmap we are about to draw</b> whenever there is one, rather than off the PNG
+    /// header. The two are the same number, but they are read through different file handles at different moments,
+    /// and when the header read is the one that fails the part draws its real texture squeezed into a single tile
+    /// (#57). Taking the size from the decoded image makes that disagreement impossible. The header read stays as
+    /// the fallback for a sprite that is not loaded yet, which is what <see cref="SpriteExtent"/> exists for.</para>
     /// </summary>
-    public (int W, int H) SpriteTiles(PartDef part) =>
-        part.SpriteAbs is { } path ? SpriteExtent.Tiles(path) : SpriteExtent.Unknown;
+    public (int W, int H) SpriteTiles(PartDef part)
+    {
+        if (part.SpriteAbs is not { } path) return SpriteExtent.Unknown;
+        if (Load(path) is { } bmp) return SpriteExtent.FromPixels(bmp.PixelWidth, bmp.PixelHeight);
+        return SpriteExtent.Tiles(path);
+    }
 
     /// <summary>Cell size in px follows GetMaterialSheet: footprint tiles x 16.</summary>
     public (int Cols, int Rows) SheetDims(PartDef part)
@@ -140,7 +150,7 @@ public sealed class SpriteCache
             wb.Freeze();
             result = wb;
         }
-        lock (_gate) { _norms[(absPath, rot)] = result; }
+        if (result is not null) lock (_gate) { _norms[(absPath, rot)] = result; }   // a failed load is retried (#57)
         return result;
     }
 
@@ -347,7 +357,11 @@ public sealed class SpriteCache
         }
         catch { /* unreadable png -> Missing placeholder */ }
 
-        lock (_gate) { _byPath[absPath] = bmp; }
+        // Only a real bitmap is cached. A failed load is left out so the next frame tries again: the cache lives
+        // as long as the window, and a transient read error (a scanner holding the file, a drive waking up) would
+        // otherwise leave the part drawn as the Missing placeholder until the app was restarted — the same defect
+        // as #57, on the other of the two caches.
+        if (bmp is not null) lock (_gate) { _byPath[absPath] = bmp; }
         return bmp;
     }
 

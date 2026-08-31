@@ -101,6 +101,15 @@ each release was verified against is recorded in
   a 20-wide hull mirrors about its real centre. (#46)
 
 ### Fixed
+- **A door no longer draws squashed into a single tile until you restart.** Every part's sprite is
+  measured once and the measurement kept for as long as the app runs, and a measurement that
+  *failed* was kept too. So a single unlucky read of a PNG, which is easy to come by if a virus
+  scanner or a search indexer happens to be holding the file at that instant, left that part drawn
+  at one tile for the rest of the session with no way back but a restart. Doors were what showed it,
+  because a closed door's sprite is measured the moment you shut one rather than during the startup
+  load. Only a real measurement is remembered now, so a bad read is simply taken again, the files
+  are opened in a way that a scanner cannot refuse, and a part's drawn size comes from the same
+  image as its pixels so the two can no longer disagree. Thanks to HanderBoy. (#57)
 - **Searching the palette under All now searches everything.** All is the buildable catalogue, so it
   leaves out the loose items and the non-buildable structure that have tabs of their own, and that is
   still what you get while browsing. But it applied to searches too, so typing "spawner" under All
