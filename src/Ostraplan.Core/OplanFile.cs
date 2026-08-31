@@ -127,6 +127,7 @@ public sealed class OplanFile
                            {
                                Bus = dev.Bus.ToString(), Turbo = dev.Turbo, Reverse = dev.Reverse, Slow = dev.Slow,
                            } : null,
+                           Reactor = ToOplanReactor(p.Reactor),
                        })
                        .ToList(),
             Zones = doc.Zones.Select(ToOplanZone).ToList(),
@@ -216,6 +217,10 @@ public sealed class OplanFile
                 // Clamped to what the def offers for the same reason: the file is hand-editable, and a turbo flag
                 // on a def with no IsTurbo would zero the pump's rate rather than doing nothing (see DeviceSettings).
                 Device = FromOplanDevice(part.Device)?.ClampTo(catalog.Lookup(part.Def)).OrNull(),
+                // Clamped for the same reason the fills and conditions above are: the file is hand-editable, and
+                // a cycle slider past 1 would drive the torch's throttle past anything the game's own panel can
+                // set (see ReactorSettings.Clamped).
+                Reactor = FromOplanReactor(part.Reactor)?.OrNull(),
             };
             doc.Add(placement);
             byIndex[i] = placement;
@@ -311,6 +316,44 @@ public sealed class OplanFile
         WhenNew = o.New,
         WhenDamaged = o.Damaged,
         WhenDerelict = o.Derelict,
+    }.Clamped();
+
+    /// <summary>Persist a reactor's control panel. Null for every part that is not a fusion core, and for a core
+    /// left cold, which is what a def ships as.</summary>
+    private static OplanReactor? ToOplanReactor(ReactorSettings? r) => r is null ? null : new OplanReactor
+    {
+        Bus = r.Bus.ToString(),
+        Purge = r.Purge.ToString(),
+        Torch = r.TorchThrust,
+        Align = r.LaserAlign,
+        CoilFwd = r.CoilForward,
+        CoilRear = r.CoilRear,
+        Cryo = r.Cryo,
+        FuelReg = r.FuelRegulator,
+        Ignition = r.Ignition,
+        Mhd = r.Mhd,
+        Pellet = r.PelletFeed,
+        Cycle = r.Cycle,
+        Flow = r.Flow,
+    };
+
+    /// <summary>Rebuild a reactor's control panel from its snapshot. An unrecognised knob name reads as Off, which
+    /// is the position that cannot start a core the file is confused about.</summary>
+    private static ReactorSettings? FromOplanReactor(OplanReactor? o) => o is null ? null : new ReactorSettings
+    {
+        Bus = Enum.TryParse<ReactorPowerBus>(o.Bus, ignoreCase: true, out var bus) ? bus : ReactorPowerBus.Off,
+        Purge = Enum.TryParse<ReactorCorePurge>(o.Purge, ignoreCase: true, out var purge) ? purge : ReactorCorePurge.Off,
+        TorchThrust = o.Torch,
+        LaserAlign = o.Align,
+        CoilForward = o.CoilFwd,
+        CoilRear = o.CoilRear,
+        Cryo = o.Cryo,
+        FuelRegulator = o.FuelReg,
+        Ignition = o.Ignition,
+        Mhd = o.Mhd,
+        PelletFeed = o.Pellet,
+        Cycle = o.Cycle,
+        Flow = o.Flow,
     }.Clamped();
 
     /// <summary>Rebuild a device's panel settings from its snapshot. An unrecognised bus name reads as
@@ -519,6 +562,31 @@ public sealed class OplanPart
     /// Null — and omitted — for a part left as its def ships it, which is nearly all of them. Additive at format
     /// v1, like the rest: an older build ignores it and round-trips it through <see cref="Extra"/>.</summary>
     [JsonPropertyName("device")] public OplanDevice? Device { get; set; }
+    /// <summary>What the designer set on this reactor's own control panel (see <see cref="Placement.Reactor"/>).
+    /// Null — and omitted — for every part that is not a fusion core and every core left cold. Additive at format
+    /// v1, like the rest: an older build ignores it and round-trips it through <see cref="Extra"/>, so a design
+    /// opened in one exports a cold reactor but loses nothing.</summary>
+    [JsonPropertyName("reactor")] public OplanReactor? Reactor { get; set; }
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
+}
+
+/// <summary>A reactor's authored control panel in the file (see <see cref="ReactorSettings"/>). Both knobs are
+/// written as names rather than their numbers so the file stays readable; an unrecognised one reads back as Off.</summary>
+public sealed class OplanReactor
+{
+    [JsonPropertyName("bus")] public string? Bus { get; set; }
+    [JsonPropertyName("purge")] public string? Purge { get; set; }
+    [JsonPropertyName("torch")] public bool Torch { get; set; }
+    [JsonPropertyName("align")] public bool Align { get; set; }
+    [JsonPropertyName("coilFwd")] public bool CoilFwd { get; set; }
+    [JsonPropertyName("coilRear")] public bool CoilRear { get; set; }
+    [JsonPropertyName("cryo")] public bool Cryo { get; set; }
+    [JsonPropertyName("fuelReg")] public bool FuelReg { get; set; }
+    [JsonPropertyName("ignition")] public bool Ignition { get; set; }
+    [JsonPropertyName("mhd")] public bool Mhd { get; set; }
+    [JsonPropertyName("pellet")] public bool Pellet { get; set; }
+    [JsonPropertyName("cycle")] public double Cycle { get; set; }
+    [JsonPropertyName("flow")] public double Flow { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }
 

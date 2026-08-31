@@ -557,6 +557,53 @@
                         <CheckBox x:Name="InsDeviceSlow" Content="Slow mode" FontSize="12" Margin="0,2,0,0"
                                   Foreground="{DynamicResource Ink}" Click="OnDeviceModeChanged"/>
                     </StackPanel>
+                    <!-- A fusion core's own control panel (#56). FusionIC reads these keys off the condition
+                         owner every tick, so they are what decide whether the ship spawns with its core lit. -->
+                    <StackPanel x:Name="ReactorBlock" Visibility="Collapsed">
+                        <TextBlock Text="REACTOR" Style="{StaticResource SideHeader}"/>
+                        <TextBlock x:Name="InsReactorState" Style="{StaticResource SideValue}" FontSize="12"
+                                   TextWrapping="Wrap" Margin="0,0,0,4"/>
+                        <TextBlock Text="Power bus" Style="{StaticResource SideValue}" FontSize="11" Opacity="0.6"/>
+                        <ComboBox x:Name="InsReactorBus" Margin="0,2,0,4" FontSize="12"
+                                  SelectionChanged="OnReactorKnobChanged"/>
+                        <TextBlock Text="Core purge" Style="{StaticResource SideValue}" FontSize="11" Opacity="0.6"/>
+                        <ComboBox x:Name="InsReactorPurge" Margin="0,2,0,4" FontSize="12"
+                                  SelectionChanged="OnReactorKnobChanged"/>
+                        <CheckBox x:Name="InsReactorPellet" Content="Pellet feeder" FontSize="12" Margin="0,2,0,0"
+                                  Foreground="{DynamicResource Ink}" Click="OnReactorSwitchChanged"/>
+                        <CheckBox x:Name="InsReactorFuelReg" Content="Fuel regulator" FontSize="12" Margin="0,2,0,0"
+                                  Foreground="{DynamicResource Ink}" Click="OnReactorSwitchChanged"/>
+                        <CheckBox x:Name="InsReactorAlign" Content="Laser alignment" FontSize="12" Margin="0,2,0,0"
+                                  Foreground="{DynamicResource Ink}" Click="OnReactorSwitchChanged"/>
+                        <CheckBox x:Name="InsReactorCryo" Content="Cryo pump" FontSize="12" Margin="0,2,0,0"
+                                  Foreground="{DynamicResource Ink}" Click="OnReactorSwitchChanged"/>
+                        <CheckBox x:Name="InsReactorCoilFwd" Content="Forward field coil" FontSize="12" Margin="0,2,0,0"
+                                  Foreground="{DynamicResource Ink}" Click="OnReactorSwitchChanged"/>
+                        <CheckBox x:Name="InsReactorCoilRear" Content="Rear field coil" FontSize="12" Margin="0,2,0,0"
+                                  Foreground="{DynamicResource Ink}" Click="OnReactorSwitchChanged"/>
+                        <CheckBox x:Name="InsReactorMhd" Content="MHD generator" FontSize="12" Margin="0,2,0,0"
+                                  Foreground="{DynamicResource Ink}" Click="OnReactorSwitchChanged"/>
+                        <CheckBox x:Name="InsReactorIgnition" Content="Core ignition" FontSize="12" Margin="0,2,0,0"
+                                  Foreground="{DynamicResource Ink}" Click="OnReactorSwitchChanged"/>
+                        <CheckBox x:Name="InsReactorTorch" Content="Torch thrust" FontSize="12" Margin="0,2,0,4"
+                                  Foreground="{DynamicResource Ink}" Click="OnReactorSwitchChanged"/>
+                        <Grid>
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="*"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel Grid.Column="0" Margin="0,0,4,0">
+                                <TextBlock Text="Cycle (0-1)" Style="{StaticResource SideValue}" FontSize="11" Opacity="0.6"/>
+                                <TextBox x:Name="InsReactorCycle" FontSize="12" Margin="0,2,0,0"
+                                         LostFocus="OnReactorNumberChanged" KeyDown="OnReactorNumberKey"/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Margin="4,0,0,0">
+                                <TextBlock Text="Flow (0-1)" Style="{StaticResource SideValue}" FontSize="11" Opacity="0.6"/>
+                                <TextBox x:Name="InsReactorFlow" FontSize="12" Margin="0,2,0,0"
+                                         LostFocus="OnReactorNumberChanged" KeyDown="OnReactorNumberKey"/>
+                            </StackPanel>
+                        </Grid>
+                    </StackPanel>
                     <!-- A loot spawner's own control panel (#55). What it spawns is the whole of what it is: a
                          spawner with no panel is built from the def's defaults and makes nothing. -->
                     <StackPanel x:Name="SpawnerBlock" Visibility="Collapsed">

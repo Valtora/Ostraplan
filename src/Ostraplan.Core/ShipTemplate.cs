@@ -35,6 +35,11 @@ public sealed record TemplateItem(string DefName, double FX, double FY, double F
     /// <see cref="DeviceSettings"/>). Null for an item at its def's defaults, which is most of them.</summary>
     public DeviceSettings? Device { get; init; }
 
+    /// <summary>This item's reactor control panel, when it has one (see <see cref="ReactorSettings"/>). Null on
+    /// everything that is not a fusion core. Read off the panel's own keys rather than the def's declaration,
+    /// because a stock station authors it on <c>ItmReactorIC02Ignition</c>, whose condowner never declares it.</summary>
+    public ReactorSettings? Reactor { get; init; }
+
     /// <summary>This item's <c>NavModConfig</c> panel, verbatim — a nav console's screen arrangement (see
     /// <see cref="NavConsole.StoredLayout"/>). Null on everything that is not a console, and on a console that
     /// carries no such panel. It is read for every item rather than only for consoles because the panels are read
@@ -207,6 +212,7 @@ public sealed class ShipTemplate
                 SensorInputId = GpmPanels.SensorInput(panels, strId),
                 ElectricalOutputs = GpmPanels.Connections(panels, GpmPanels.OutputConnectionsKey),
                 Device = GpmPanels.Settings(panels),
+                Reactor = GpmPanels.Reactor(panels),
                 NavLayout = GpmPanels.NavConfig(panels),
                 Spawner = GpmPanels.Spawner(panels),
             });

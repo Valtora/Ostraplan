@@ -932,6 +932,20 @@ public static class ShipExport
         foreach (var placement in byPlacementId.Values)
         {
             if (catalog.Lookup(placement.DefName) is not { } part) continue;
+
+            // A fusion core's own panel, on the same terms as the device one below: only where the designer set
+            // something, since the def's template already reads as a cold core. FusionIC reads these keys off the
+            // condition owner every tick, so this is what decides whether the ship spawns with its core lit.
+            if (DevicePanels.ReactorPanel(catalog, part) is { } reactorPanel
+                && placement.Reactor is { } reactor && !reactor.IsDefault
+                && exportIdByPlacementId.TryGetValue(placement.Id.ToString(), out var reactorId)
+                && itemByExportId.TryGetValue(reactorId, out var reactorItem))
+                reactorItem.AGPMSettings =
+                [
+                    .. reactorItem.AGPMSettings ?? [],
+                    new ExportedGpmSetting { StrName = reactorPanel.Instance, DictGUIPropMap = [.. reactor.ToPanelKeys()] },
+                ];
+
             if (DevicePanels.SensorPanel(catalog, part) is not { } panel) continue;
 
             var settings = (placement.Device ?? DeviceSettings.Default).ClampTo(part);

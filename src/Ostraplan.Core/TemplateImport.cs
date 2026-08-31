@@ -315,6 +315,9 @@ public static class TemplateImport
                     // one. Clamped to what this def actually offers, so a stale flag on an imported ship cannot
                     // travel back out (see DeviceSettings).
                     Device = item.Device?.ClampTo(part).OrNull(),
+                    // A fusion core's knobs, switches and sliders, off its own panel. Dropping them used to cost
+                    // an imported ship its reactor: a station whose core spawns lit came back out cold (#56).
+                    Reactor = item.Reactor?.OrNull(),
                     // A nav console's own screen arrangement, off the same panel the game writes it to. Kept only
                     // when it differs from the console def's (see NavConsole.StoredLayout) — a template's console
                     // carries a verbatim copy of the defaults and has nothing to say.

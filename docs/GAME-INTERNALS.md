@@ -1279,6 +1279,52 @@ mod changed one.
 > in-game signal box: Ostraplan authors connections and the per-device switches, not logic.
 
 
+### 14d. The reactor panel (`ReactorIC`) is read by the simulation, not by the UI
+
+The pump's four authored keys are written by `GUIAirPump` at runtime and appear in no
+template. The reactor's are the other way round: the `ReactorIC` prop map **declares** all
+thirteen with their defaults, and it is `FusionIC.Update` — the reactor simulation, which
+runs whether or not anybody has the panel open — that reads them back through
+`COSelf.GetGPMInfo("Panel A", …)` on every tick.
+
+| Key | What reads it | Positions |
+|---|---|---|
+| `knobBus` | `FusionIC.Update` (`nKnobStateBus`; 0 forces every module it drives off) | 0 OFF, 1 BATT, 2 CHRG |
+| `knobPump` | core purge; pumps `StatICPressureA` down to 0.35 on 1 and to 0.10 on 2 | 0 OFF, 1 RGH, 2 TRB |
+| `knobRatio` | the power split: 0 sends it all to the MHD, 1 sends 95% to thrust. **Anything that is not 1 is coerced to 0** | 0, 1 |
+| `chkAlign` `chkCoilFwd` `chkCoilRear` `chkCryo` `chkFuelReg` `chkIgnition` `chkMHDOn` `chkPellet` | one per module `FusionIC` drives | `bool.ToString()` |
+| `slidCycle` | `StatICThrustThrottle = slidCycle × ratio`, and bleeds core temperature | 0–1 |
+| `slidFlow` | lerps the pellet rate between idle and the feeder's maximum | 0–1 |
+
+The instance name is not a convention: `FusionIC` and `Ship.GetReactorGPMValue` both write
+the literal `"Panel A"`, so that is where the game looks whatever a def declares. All
+thirteen stock defs that declare the panel use it.
+
+`GUIReactor` writes the same keys when a player throws a switch, and the panel's own
+`SetPowerBus` default branch and `FusionIC.SetControlsOff` both reset all thirteen to the
+template defaults, which is what a shut-down core looks like on disk.
+
+Ignition is gated (`GUI_REACTOR_IGNITION`, and `FusionIC`'s own `IsReadyFusion` test) on
+the core being at vacuum, the capacitors charged, and `chkAlign` / `chkPellet` /
+`chkFuelReg` all thrown. A `chkIgnition` set without them does not light the core.
+
+**A def need not declare the panel to carry one.** The shipped stations author it on
+`ItmReactorIC02Ignition`, whose condowner declares no `mapGUIPropMaps` entry for it at all;
+`Ship.CreatePart`'s merge puts it on the condition owner regardless. Reading the panel by
+its keys rather than by the def's declaration is what makes that import.
+
+> **Ported in Ostraplan:** `ReactorSettings` (the thirteen keys, their clamps and the
+> game's own knob labels) and `DevicePanels.ReactorPanel`, which finds the panel by its
+> `strGUIPrefab` rather than by a def name so a modded core is authored the same way.
+> Written by `ShipExport.WireSensorLinks` on the template path and `SaveEdit.ApplyWiring`
+> on the save path; read back by `GpmPanels.Reactor`, which scans for the keys so a panel
+> the def never declared still imports. Measured on stock 1.0.0.13: the shipped ships carry
+> 57 reactor panels, 34 of them on CHRG with the ignition switch on. The editor and the two
+> writers are on the placement, not on a loose deck item, because an uninstalled core has no
+> core to light. That costs nothing on stock data: exactly one shipped ship authors the panel
+> on a loose form (`Station_VORB_Port`'s damaged core) and every key on it is the template
+> default, which Ostraplan would drop either way.
+
 ### The `Rename` GPM — an object's own name
 
 An item's `aGPMSettings` is a **list** of panels, and `Electrical` is only one of them.

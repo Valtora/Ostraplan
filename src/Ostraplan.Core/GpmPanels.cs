@@ -126,6 +126,23 @@ public static class GpmPanels
             keys.TryGetValue(key, out var v) && bool.TryParse(v, out var b) && b;
     }
 
+    /// <summary>The reactor panel settings this item carries (see <see cref="ReactorSettings"/>), or null when it
+    /// carries none. Found by the keys rather than by the def, because a stock station authors this panel on
+    /// <c>ItmReactorIC02Ignition</c>, whose condowner never declares it.
+    ///
+    /// <para>Returned even when every value equals the template's default, unlike <see cref="Settings"/>: an
+    /// authored all-zero reactor panel is what the stock ships write for a core that spawns cold, and dropping it
+    /// would make an import indistinguishable from one Ostraplan failed to read.</para></summary>
+    public static ReactorSettings? Reactor(IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>> panels)
+    {
+        foreach (var (name, keys) in panels)
+        {
+            if (name == ElectricalPanel) continue;
+            if (ReactorSettings.FromPanel(keys) is { } reactor) return reactor;
+        }
+        return null;
+    }
+
     /// <summary>The loot-spawner panel this item carries (see <see cref="SpawnerSettings"/>), or null when it is
     /// not a spawner. Unlike <see cref="Settings"/> this returns the settings even when they equal the default,
     /// because a spawner IS its panel: an item with no panel to speak of is not a spawner at its defaults, it is

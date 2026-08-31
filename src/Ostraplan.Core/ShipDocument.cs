@@ -153,6 +153,7 @@ public sealed class Placement
             // same volume and rating. A line the target def does not have is dropped where the fill is applied.
             DefName = targetDef, X = X, Y = Y, Rot = rot, IsGiven = false, Cargo = Cargo, CustomName = CustomName,
             ZBias = ZBias, NavLayout = NavLayout, Fill = Fill, Condition = Condition, Device = Device,
+            Reactor = Reactor,
             OriginStrID = backHome ? carriedId : null,
             SwappedFromStrID = backHome ? null : carriedId,
             SwappedFromDef = backHome || carriedId is null ? null : carriedDef,
@@ -177,7 +178,7 @@ public sealed class Placement
         DefName = DefName, X = x, Y = y, Rot = Rot,
         Cargo = Core.Cargo.CloneForest(Cargo),
         CustomName = CustomName, ZBias = ZBias, Condition = Condition,
-        Fill = Fill, NavLayout = NavLayout, Device = Device,
+        Fill = Fill, NavLayout = NavLayout, Device = Device, Reactor = Reactor,
     };
 
     /// <summary>
@@ -266,6 +267,21 @@ public sealed class Placement
     /// settings are written or shown.</para>
     /// </summary>
     public DeviceSettings? Device { get; set; }
+
+    /// <summary>
+    /// What the designer set on this fusion core's own control panel (see <see cref="ReactorSettings"/>). Null on
+    /// every part left as its def ships it, and on every part that is not a reactor.
+    ///
+    /// <para>Kept apart from <see cref="Device"/> rather than folded into it because the two panels share nothing:
+    /// a pump's are four keys <c>GUIAirPump</c> writes at runtime and gates on the def's own conditions, while a
+    /// reactor's are thirteen the <c>ReactorIC</c> template declares outright and <c>FusionIC</c> reads every
+    /// tick. Even the bus knob is a different key with different positions.</para>
+    ///
+    /// <para>It rides through a move and through <see cref="Restate"/> — a core switched between its Off, Battery
+    /// Mode and Running defs is the same core with the same switches thrown — and through duplicate and paste
+    /// (see <see cref="CustomName"/>).</para>
+    /// </summary>
+    public ReactorSettings? Reactor { get; set; }
 }
 
 /// <summary>
@@ -1298,6 +1314,13 @@ public sealed class ShipDocument
     internal void SetDeviceSettings(Placement p, DeviceSettings? settings)
     {
         p.Device = settings?.OrNull();
+        RaiseChangedOrderIntact();
+    }
+
+    /// <summary>Set or clear a reactor's control panel (see <see cref="Placement.Reactor"/>).</summary>
+    internal void SetReactorSettings(Placement p, ReactorSettings? settings)
+    {
+        p.Reactor = settings?.Clamped().OrNull();
         RaiseChangedOrderIntact();
     }
 

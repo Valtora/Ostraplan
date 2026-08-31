@@ -413,6 +413,20 @@ public sealed class SetDeviceSettingsCommand(Placement part, DeviceSettings? bef
         $"Set {AuditFmt.Name(f, part.DefName)} bus {(after ?? DeviceSettings.Default).Bus} {AuditFmt.At(part.X, part.Y)}";
 }
 
+/// <summary>Set a reactor's own control panel — knobs, switches and sliders (see <see cref="ReactorSettings"/>).</summary>
+public sealed class SetReactorSettingsCommand(Placement part, ReactorSettings? before, ReactorSettings? after)
+    : IDocCommand, IAuditDescribable
+{
+    public void Do(ShipDocument doc) => doc.SetReactorSettings(part, after);
+    public void Undo(ShipDocument doc) => doc.SetReactorSettings(part, before);
+    public string Describe(Func<string, string?> f)
+    {
+        var s = after ?? ReactorSettings.Default;
+        return $"Set {AuditFmt.Name(f, part.DefName)} bus {s.Bus}, ignition {(s.Ignition ? "on" : "off")} " +
+               AuditFmt.At(part.X, part.Y);
+    }
+}
+
 // ---- loose-object commands (items dropped on the floor — see LooseObject) ----
 
 /// <summary>Drop a loose item onto a tile.</summary>

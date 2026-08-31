@@ -4291,6 +4291,7 @@ public partial class MainWindow : Window
                       ?? (Board.ArmedPart is null && lone ? Board.SelectedLoose?.Condition : null);
         PopulateStats(part, lonePart, painted);
         PopulateDeviceBlock(part, lonePart);
+        PopulateReactorBlock(part, lonePart);
         PopulateSpawnerBlock(Board.ArmedPart is null && lone ? Board.SelectedLoose : null);
         PopulateContentsButton(part, lonePart);
     }
@@ -4558,6 +4559,136 @@ public partial class MainWindow : Window
 
         if (Equals(before, after)) return;
         _stack.Push(_doc, new SetDeviceSettingsCommand(p, before, after));
+    }
+
+    // ---- the REACTOR block: a fusion core's own control panel (#56) ----
+
+    /// <summary>True while <see cref="PopulateReactorBlock"/> is writing the controls, so the change handlers can
+    /// tell the user's own edits from the refresh that follows one.</summary>
+    private bool _reactorBlockLoading;
+
+    /// <summary>
+    /// Fill the REACTOR block: the two knobs, the ignition-sequence switches and the two sliders a fusion core's
+    /// own panel carries. Shown for a lone selected placement whose def declares a <c>GUIReactor</c> panel, and
+    /// also for one that merely <i>carries</i> reactor settings — a stock station authors the panel on
+    /// <c>ItmReactorIC02Ignition</c>, whose condowner does not declare it, and settings the design holds but
+    /// cannot show would be settings nobody could correct.
+    ///
+    /// <para>Nothing here is gated on the def, unlike the DEVICE block's modes. The game's own panel greys a
+    /// switch out on what is attached to the core at runtime, which a design cannot know and which
+    /// <c>FusionIC</c> re-checks itself every tick (see <see cref="ReactorSettings"/>).</para>
+    /// </summary>
+    private void PopulateReactorBlock(PartDef part, Placement? lonePart)
+    {
+        if (_doc is null || lonePart is null
+            || (DevicePanels.ReactorPanel(_doc.Catalog, part) is null && lonePart.Reactor is null))
+        {
+            ReactorBlock.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        _reactorBlockLoading = true;
+        try
+        {
+            ReactorBlock.Visibility = Visibility.Visible;
+            var r = lonePart.Reactor ?? ReactorSettings.Default;
+
+            // What the ship will spawn as, in the terms the panel's own ignition sequence uses: a core is lit only
+            // with the bus on and ignition thrown, and ignition itself needs the pellet feeder, the fuel regulator
+            // and laser alignment (GUI_REACTOR_IGNITION lists exactly those three).
+            var lit = r.Bus != ReactorPowerBus.Off && r.Ignition;
+            var missing = new List<string>();
+            if (!r.PelletFeed) missing.Add("pellet feeder");
+            if (!r.FuelRegulator) missing.Add("fuel regulator");
+            if (!r.LaserAlign) missing.Add("laser alignment");
+            InsReactorState.Text =
+                !lit ? "Spawns cold. The crew start it by hand."
+                : missing.Count == 0 ? "Spawns running."
+                : "Ignition is on but " + string.Join(", ", missing) + " is not.";
+            InsReactorState.Opacity = lit && missing.Count > 0 ? 1.0 : 0.75;
+
+            if (InsReactorBus.Items.Count == 0)
+            {
+                // The game's own knob labels, from GUI_REACTOR_PWRBUS.
+                InsReactorBus.Items.Add("OFF (ignore the batteries)");
+                InsReactorBus.Items.Add("BATT (draw starter power)");
+                InsReactorBus.Items.Add("CHRG (charge the batteries)");
+                InsReactorPurge.Items.Add("OFF");
+                InsReactorPurge.Items.Add("RGH (rough purge)");
+                InsReactorPurge.Items.Add("TRB (turbo purge)");
+            }
+            InsReactorBus.SelectedIndex = (int)r.Bus;
+            InsReactorPurge.SelectedIndex = (int)r.Purge;
+
+            InsReactorPellet.IsChecked = r.PelletFeed;
+            InsReactorFuelReg.IsChecked = r.FuelRegulator;
+            InsReactorAlign.IsChecked = r.LaserAlign;
+            InsReactorCryo.IsChecked = r.Cryo;
+            InsReactorCoilFwd.IsChecked = r.CoilForward;
+            InsReactorCoilRear.IsChecked = r.CoilRear;
+            InsReactorMhd.IsChecked = r.Mhd;
+            InsReactorIgnition.IsChecked = r.Ignition;
+            InsReactorTorch.IsChecked = r.TorchThrust;
+            InsReactorCycle.Text = Num(r.Cycle);
+            InsReactorFlow.Text = Num(r.Flow);
+        }
+        finally { _reactorBlockLoading = false; }
+
+        static string Num(double v) => v.ToString("0.###", System.Globalization.CultureInfo.InvariantCulture);
+    }
+
+    private void OnReactorKnobChanged(object sender, SelectionChangedEventArgs e) => CommitReactorSettings();
+
+    private void OnReactorSwitchChanged(object sender, RoutedEventArgs e) => CommitReactorSettings();
+
+    /// <summary>Enter commits a typed slider value without waiting for focus to leave, the same as every other
+    /// numeric box in this window.</summary>
+    private void OnReactorNumberKey(object sender, KeyEventArgs e)
+    {
+        if (e.Key != Key.Enter) return;
+        CommitReactorSettings();
+        e.Handled = true;
+    }
+
+    private void OnReactorNumberChanged(object sender, RoutedEventArgs e) => CommitReactorSettings();
+
+    /// <summary>Push whatever the REACTOR block now reads onto the selected part, as one undo step. A no-op change
+    /// (the refresh that follows the last one) pushes nothing, so the undo stack holds one entry per real edit.</summary>
+    private void CommitReactorSettings()
+    {
+        if (_reactorBlockLoading || _doc is null) return;
+        if (Board.ArmedPart is not null || Board.SelectionCount != 1) return;
+        if (Board.SelectedPlacements() is not [var p]) return;
+        if (_doc.Part(p) is not { } part) return;
+
+        var before = p.Reactor;
+        var current = before ?? ReactorSettings.Default;
+        var after = new ReactorSettings
+        {
+            Bus = InsReactorBus.SelectedIndex >= 0 ? (ReactorPowerBus)InsReactorBus.SelectedIndex : ReactorPowerBus.Off,
+            Purge = InsReactorPurge.SelectedIndex >= 0 ? (ReactorCorePurge)InsReactorPurge.SelectedIndex : ReactorCorePurge.Off,
+            TorchThrust = InsReactorTorch.IsChecked == true,
+            LaserAlign = InsReactorAlign.IsChecked == true,
+            CoilForward = InsReactorCoilFwd.IsChecked == true,
+            CoilRear = InsReactorCoilRear.IsChecked == true,
+            Cryo = InsReactorCryo.IsChecked == true,
+            FuelRegulator = InsReactorFuelReg.IsChecked == true,
+            Ignition = InsReactorIgnition.IsChecked == true,
+            Mhd = InsReactorMhd.IsChecked == true,
+            PelletFeed = InsReactorPellet.IsChecked == true,
+            // An unreadable box keeps what the reactor already had, and the refresh below puts the text back, so a
+            // half-typed "0." cannot commit a nonsense figure.
+            Cycle = Slider(InsReactorCycle.Text, current.Cycle),
+            Flow = Slider(InsReactorFlow.Text, current.Flow),
+        }.Clamped().OrNull();
+
+        if (Equals(before, after)) { PopulateReactorBlock(part, p); return; }
+        _stack.Push(_doc, new SetReactorSettingsCommand(p, before, after));
+        PopulateReactorBlock(part, p);
+
+        static double Slider(string text, double fallback) =>
+            double.TryParse(text, System.Globalization.NumberStyles.Float,
+                System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : fallback;
     }
 
     // ---- the PART name row: renaming in place, the way the game's own object panel does (#30) ----

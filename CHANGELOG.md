@@ -12,6 +12,16 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **A reactor's control panel is yours to set, and an imported ship keeps the one it had.** A
+  fusion core is design data the game authors and Ostraplan dropped: the shipped ships set the
+  reactor panel 57 times, 34 of those spawning the core already running, and none of it survived
+  a trip through here. Select a core now and a **REACTOR** block gives you the same controls the
+  game shows when you open one: the **PWR BUS** and **CORE PURGE** knobs, the eight switches of
+  the ignition sequence, torch thrust, and the **Cycle** and **Flow** sliders. A line at the top
+  says what the ship will spawn as, and names which of the three switches ignition needs is still
+  off rather than letting you ship a core that will not light. It goes into an exported ship, into
+  an edited save, and comes back on import, so a station whose core spawns lit no longer comes back
+  out cold. Thanks to nighoggDatatype. (#56)
 - **Loot spawners can be set up, and imported ships keep the ones they came with.** A spawner was
   placeable but did nothing: Ostraplan never wrote its control panel, so the game built one from the
   def's defaults and it spawned nothing at all. Select one now and a **SPAWNER** block gives you

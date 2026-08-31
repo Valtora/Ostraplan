@@ -1314,6 +1314,30 @@ the ship spawns already wired, and importing a ship reads the wiring it already 
 than throwing it away. Gate, threshold and delay logic stays with the in-game signal box —
 Ostraplan authors the connections and the per-device switches, not the logic.
 
+#### A reactor's own panel
+
+Selecting a fusion core gives you its control panel under **REACTOR**, the same set of
+controls the game shows when you open one in a ship: the **PWR BUS** knob (**OFF** /
+**BATT**, which draws starter power off the batteries, / **CHRG**, which charges them off
+the MHD), the **CORE PURGE** knob (**OFF** / **RGH** / **TRB**), the eight switches of the
+ignition sequence, the torch-thrust toggle, and the **Cycle** and **Flow** sliders as
+numbers from 0 to 1.
+
+A line at the top says what the ship will actually spawn as. A core is lit only with the
+bus on and **Core ignition** thrown, and the game refuses ignition without the **pellet
+feeder**, the **fuel regulator** and **laser alignment**, so the panel says which of those
+three is still off rather than letting you ship a core that will not light.
+
+Nothing here is greyed out on the def, unlike a pump's modes. The game's own panel greys a
+switch out on what is bolted to the core at that moment (lasers, cryo pumps, field coils, an
+MHD), which a plan has no way to know, and the reactor turns a switch back off itself if the
+part it needs is missing.
+
+This is what the game's own ships use to spawn with the reactor already running: 34 of the
+57 reactor panels they carry set the bus to **CHRG** with the ignition switch on. It goes
+into an **exported** ship, into an **edited save**, and comes back on **import** —
+which used to lose it, so a station whose core spawns lit came back out of Ostraplan cold.
+
 ## Zones
 
 Zones are the painted crew/trade areas the game lets you draw on a ship — **Haul**

@@ -36,6 +36,15 @@ public sealed record DevicePanel(
     /// <c>Heater.UpdateRemote</c> off the device's own panel; nothing else consumes it.</summary>
     public const string SensorInputKey = "strInput01";
 
+    /// <summary>The <c>strGUIPrefab</c> of the reactor's control panel. Unlike the pump's, this template declares
+    /// its authorable keys outright (see <see cref="ReactorSettings"/>), and <c>FusionIC</c> reads them straight
+    /// off the condition owner whether or not anybody opens the panel.</summary>
+    public const string ReactorPrefab = "GUIReactor";
+
+    /// <summary>True when this panel drives a fusion reactor core. Reads the prefab rather than a def name, so a
+    /// modded core declaring the same panel is authored the same way as the stock article.</summary>
+    public bool IsReactor => Prefab == ReactorPrefab;
+
     /// <summary>True when this panel is a breaker box: it can be the <b>source</b> of an <c>Electrical</c>
     /// connection, driving anything its <see cref="ValidSourceTrigger"/> admits. Stock data has exactly one such
     /// def (<c>ItmElectricalBox01</c> and its Off/Damaged forms); a mod declaring the same panel gets the same
@@ -65,6 +74,17 @@ public static class DevicePanels
     /// <summary>The part's breaker panel, or null when it is not a breaker box.</summary>
     public static DevicePanel? BreakerPanel(Catalog catalog, PartDef part) =>
         catalog.DevicePanels(part).FirstOrDefault(p => p.IsBreaker);
+
+    /// <summary>The part's reactor panel, or null when it is not a fusion core. Thirteen stock defs declare one,
+    /// covering the <c>ItmReactorIC03*</c> and <c>ItmFusionReactorCore01*</c> families in every state from the
+    /// installable Off form to the loose damaged one.</summary>
+    public static DevicePanel? ReactorPanel(Catalog catalog, PartDef part) =>
+        catalog.DevicePanels(part).FirstOrDefault(p => p.IsReactor);
+
+    /// <summary>The panel instance a reactor's settings are written under. Always "Panel A" in practice, and not
+    /// by convention: <c>FusionIC</c> and <c>Ship.GetReactorGPMValue</c> both name it literally, so a def
+    /// declaring the panel under some other instance would still be read there by the game.</summary>
+    public const string ReactorPanelInstance = "Panel A";
 
     /// <summary>
     /// Does <paramref name="source"/> satisfy <paramref name="trigger"/>? The game asks this exact question when

@@ -1487,6 +1487,16 @@ public static class SaveEdit
                     (GpmPanels.OutputConnectionsKey, JoinConnections(outputs.GetValueOrDefault(saveId) ?? [], 0)),
                 ]);
 
+            // The reactor's own control panel. Written on the same terms as the breaker one: when the design has
+            // something to say, and when the save's item already carries it, so a core the designer shut down in
+            // the plan is shut down in the save rather than merely left as it was found.
+            if (DevicePanels.ReactorPanel(catalog, part) is { } reactorPanel)
+            {
+                var reactor = placement.Reactor ?? ReactorSettings.Default;
+                if (!reactor.IsDefault || HasPanel(item, reactorPanel.Instance))
+                    MergePanel(item, reactorPanel.Instance, reactor.ToPanelPairs());
+            }
+
             if (DevicePanels.SensorPanel(catalog, part) is not { } panel) continue;
             var settings = (placement.Device ?? DeviceSettings.Default).ClampTo(part);
             var sensor = sensorByTarget.GetValueOrDefault(placement.Id);
