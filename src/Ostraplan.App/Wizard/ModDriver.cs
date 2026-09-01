@@ -184,79 +184,19 @@ public sealed class ModDriver : ExportDriver
 
     // ---- Ostrasort ----
 
-    /// <summary>
-    /// Hand the staged export to Ostrasort: locate it (prompting once and remembering the path), register the mod
-    /// (<c>--apply</c>), then merge kiosk-loot conflicts (<c>--patch</c>) if the export wrote any loot pools.
-    /// Ostraplan never writes <c>loading_order.json</c> itself; this only drives the tool that owns it.
-    /// </summary>
-    private static async Task<IReadOnlyList<string>> RegisterWithOstrasort(
-        WizardSession session, string shipName, ExportResult result)
-    {
-        var exe = OstrasortLauncher.Detect(session.Settings);
-        if (exe is null)
-        {
-            if (!Dlg.Confirm(session.Owner, DlgKind.Info, "Locate Ostrasort",
-                    "Ostraplan couldn't find Ostrasort.exe. Point it at your Ostrasort.exe to register the mod " +
-                    "(or cancel and register it yourself later).", "Locate…"))
-                return NotRegistered;
-            exe = OstrasortLauncher.Prompt(session.Owner);
-            if (exe is null) return NotRegistered;
-            session.Settings.OstrasortPath = exe;
-            session.Settings.Save();
-        }
-
-        OstrasortRun apply, patch = new(false, 0, "", null);
-        apply = await OstrasortLauncher.RunAsync(exe, session.Env.GameRoot, session.Env.ModsDir, patch: false);
-        if (apply.Ok && result.TouchedLootPools)
-            patch = await OstrasortLauncher.RunAsync(exe, session.Env.GameRoot, session.Env.ModsDir, patch: true);
-
-        // a remembered path that failed to launch is likely stale, so clear it and re-detect or prompt next time
-        if (!apply.Launched && session.Settings.OstrasortPath == exe)
-        {
-            session.Settings.OstrasortPath = null;
-            session.Settings.Save();
-        }
-
-        AuditLog.Add($"Ostrasort register \"{shipName}\": apply exit {apply.ExitCode}" +
-                     (result.TouchedLootPools ? $", patch exit {patch.ExitCode}" : ""));
-
-        if (!apply.Launched)
-            return
-            [
-                $"Ostrasort could not be launched: {apply.Error}",
-                "Register the mod yourself with Ostrasort or ModTools.",
-            ];
-
-        var lines = new List<string>
-        {
-            apply.Ok ? "Registered with Ostrasort." : $"Ostrasort reported exit {apply.ExitCode}.",
-        };
-        if (result.TouchedLootPools)
-            lines.Add(patch.Ok
-                ? "Kiosk-loot conflicts patched (if any)."
-                : $"The loot patch step reported exit {patch.ExitCode}. Check Ostrasort if another ship mod shares those kiosks.");
-        lines.Add("Launch Ostranauts and check the MODS screen to confirm it loaded.");
-        return lines;
-    }
-
-    private static readonly string[] NotRegistered =
-    [
-        "Not registered: you cancelled the Ostrasort step.",
-        "It won't appear in game until you register it. Run Ostrasort (or ModTools), or export again with " +
-        "\"Register with Ostrasort\" ticked.",
-    ];
+    private static Task<IReadOnlyList<string>> RegisterWithOstrasort(
+        WizardSession session, string shipName, ExportResult result) =>
+        OstrasortRegistration.RunAsync(session.Owner, session.Settings, session.Env, shipName, result.TouchedLootPools);
 
     // ---- helpers ----
 
     private static string Parent(WizardSession session) =>
         session.Plan.Mod.StagedIntoMods ? session.Env.ModsDir : session.Plan.Mod.Folder!;
 
-    private static ShipDelivery BuildDelivery(ExportPlan plan, string publicName) => new(
-        plan.Mod.BrokerPools, plan.Mod.BrokerWeight ?? 0.05, plan.Mod.SpecialOfferPools,
-        plan.Mod.StartingShip, plan.Mod.StartWeight, plan.Mod.StartStation, plan.Mod.StartMortgage,
-        publicName is { Length: > 0 } && publicName != ShipExport.VariedNames ? publicName : plan.ShipName,
-        plan.Identity.Description, plan.Mod.StartingShipExclusive,
-        plan.Mod.DerelictPools, plan.Mod.DerelictWeight ?? 0.05);
+    private static ShipDelivery BuildDelivery(ExportPlan plan, string publicName) =>
+        plan.Mod.Delivery.ToDelivery(
+            publicName is { Length: > 0 } && publicName != ShipExport.VariedNames ? publicName : plan.ShipName,
+            plan.Identity.Description);
 
     /// <summary>A one-line human summary of the chosen delivery options, or "" when the ship file goes out on its
     /// own.</summary>

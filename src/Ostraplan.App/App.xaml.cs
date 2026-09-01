@@ -41,6 +41,18 @@ public partial class App : Application
             return;
         }
 
+        // preview render: the Ship Bundle editor holding a small pack, light and dark, so its layout can be
+        // eyeballed without clicking through to it. Needs the install (it lists the ships a member could replace).
+        if (e.Args.Contains("--bundlesmoke"))
+        {
+            var dir = e.Args.SkipWhile(a => a != "--bundlesmoke").Skip(1).FirstOrDefault() ?? AppContext.BaseDirectory;
+            Directory.CreateDirectory(dir);
+            try { RenderBundleEditor(dir); }
+            catch (Exception ex) { File.WriteAllText(Path.Combine(dir, "bundlesmoke-error.txt"), ex.ToString()); }
+            Shutdown(0);
+            return;
+        }
+
         // preview render: draw representative dialogs to PNGs (for eyeballing the modal styling), then exit.
         if (e.Args.Contains("--dlgsmoke"))
         {
@@ -628,6 +640,102 @@ public partial class App : Application
     /// so the shared-budget gauge and the two sections can be eyeballed without a game install or a ship to open.
     /// Part of <c>--dlgsmoke</c>; like the rest of that flag it asserts nothing.
     /// </summary>
+    /// <summary>
+    /// Draw the Ship Bundle editor holding a small pack: two designs that can be exported and one that cannot,
+    /// so the refusal row is in the picture too. Light and dark, both at the window's own size.
+    ///
+    /// <para>Part of <c>--bundlesmoke</c>; like every other preview render it asserts nothing. It exists because
+    /// the editor is a window with a lot in it, and eyeballing a PNG beats clicking through five dialogs to reach
+    /// a layout change.</para>
+    /// </summary>
+    private static void RenderBundleEditor(string dir)
+    {
+        var env = GameEnv.Locate(null);
+        var index = DataIndex.Load(env);
+        var catalog = Catalog.Build(index);
+        var specs = RoomCertifier.LoadSpecs(index);
+        var settings = new AppSettings();
+
+        // A pack of three, written beside the PNGs so the render has something real to list.
+        var designs = Path.Combine(dir, "designs");
+        Directory.CreateDirectory(designs);
+        var wall = catalog.ByDefName.ContainsKey("ItmWall1x1") ? "ItmWall1x1" : catalog.ByDefName.Keys.First();
+
+        string Design(string name, int parts, string def)
+        {
+            var file = new OplanFile
+            {
+                Meta = new OplanMeta { Name = name, Author = "Valtora" },
+                Parts = [.. Enumerable.Range(0, parts).Select(i => new OplanPart { Def = def, X = i % 12, Y = i / 12 })],
+            };
+            var path = Path.Combine(designs, name + ".oplan");
+            file.Save(path);
+            return path;
+        }
+
+        var pack = new BundleFile
+        {
+            Mod = new BundleModMeta
+            {
+                Name = "Working Hulls", Author = "Valtora", Version = "1.0.0",
+                Notes = "Three hulls that earn their keep.",
+            },
+            Ships =
+            [
+                new BundleEntry
+                {
+                    Path = Design("Kestrel", 41, wall),
+                    Delivery = new DeliveryPlan { BrokerPools = ["RandomShipBrokerOKLG"], BrokerWeight = 0.05 },
+                    Wear = new BundleWear { On = true, Target = 0.88 },
+                },
+                new BundleEntry
+                {
+                    Path = Design("Harrier", 96, wall),
+                    Delivery = new DeliveryPlan { StartingShip = true, StartStation = "OKLG", StartMortgage = 250000 },
+                },
+                new BundleEntry { Path = Design("Barge", 12, "ItmFromAModYouRemoved") },
+            ],
+        };
+        var packPath = Path.Combine(dir, "Working Hulls.oplanmod");
+        pack.Save(packPath);
+
+        foreach (var mode in new[] { "dark", "light" })
+        {
+            ThemeManager.Apply(mode);
+            var window = new Bundle.BundleWindow(catalog, index, env, settings, specs, new SpriteCache(), _ => false);
+            window.OpenPack(packPath);
+
+            var root = (FrameworkElement)window.Content;
+            Shot(root, window.Width, window.Height, Path.Combine(dir, $"bundle-{mode}.png"));
+
+            var review = new Bundle.BundleReviewDialog(
+                catalog, index, env, settings, specs, null,
+                new BundleOptions("Working Hulls", "Valtora", "", "1.0.0", GameEnv.VerifiedGameVersion,
+                    env.ModsDir ?? dir, []),
+                register: true);
+            review.RenderSample();
+            Shot((FrameworkElement)review.Content, review.Width, review.Height,
+                Path.Combine(dir, $"bundle-review-{mode}.png"));
+        }
+    }
+
+    /// <summary>Measure, arrange and encode a window's content at its own size. Part of <c>--bundlesmoke</c>.</summary>
+    private static void Shot(FrameworkElement root, double width, double height, string path)
+    {
+        root.Width = width;
+        root.Height = height;
+        root.Measure(new Size(width, height));
+        root.Arrange(new Rect(0, 0, width, height));
+        root.UpdateLayout();
+
+        var bmp = new RenderTargetBitmap((int)width, (int)height, 96, 96, PixelFormats.Pbgra32);
+        bmp.Render(root);
+        var enc = new PngBitmapEncoder();
+        enc.Frames.Add(BitmapFrame.Create(bmp));
+        using var fs = File.Create(path);
+        enc.Save(fs);
+    }
+
     private static void RenderFill(string dir)
     {
         var canister = new PayloadSpec(0.787, 41400, 293,

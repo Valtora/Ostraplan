@@ -2423,6 +2423,15 @@ template one).
 > whole-object load semantics would drop one side; the resolution is Ostrasort's per-item-union
 > `--patch`.
 >
+> **One mod writes one object per pool, however many ships it holds.** Whole-object load
+> semantics apply within a single mod's own files too, so a mod carrying several ships cannot
+> emit a `RandomShipBrokerOKLG` per ship: the game would keep whichever it read last and the
+> rest would never reach the kiosk. `BundleExport` therefore clones each pool once and appends
+> every ship into that one object. The `CGEncShipbreakerShipEvents` pool is shared the same way
+> by every starting ship in the mod, which is also why a *guaranteed* start is a property of the
+> mod rather than of a ship: pinning the pool is an operation on the pool, and it can only be
+> performed once.
+>
 > **A pool clone already contains the exporting mod's own last write.** The clone source is the
 > *effective* data, and a registered mod is part of that, so an export re-reads whatever it wrote
 > the time before. `AppendShipToPool` then finds its own entry present and leaves it, which is

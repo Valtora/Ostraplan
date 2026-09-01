@@ -93,7 +93,7 @@ public class ExportDeliveryReconcileTests
     public void The_ship_being_written_and_the_one_it_replaces_on_disk_are_both_owned()
     {
         // renamed since the last export: the old name is still in the pools, under this mod's hand
-        var owned = ShipExport.OwnedShipNames(["Kestrel"], "Kestrel Mk2", replaceTarget: null);
+        var owned = BundleExport.OwnedNames(["Kestrel"], [("Kestrel Mk2", null)]);
 
         Assert.Contains("Kestrel", owned);
         Assert.Contains("Kestrel Mk2", owned);
@@ -107,11 +107,11 @@ public class ExportDeliveryReconcileTests
     [Fact]
     public void A_replacement_owns_neither_the_ship_it_replaces_nor_that_name_from_a_previous_export()
     {
-        Assert.Empty(ShipExport.OwnedShipNames([], "Vagabond+", replaceTarget: "Vagabond+"));
-        Assert.Empty(ShipExport.OwnedShipNames(["Vagabond+"], "Vagabond+", replaceTarget: "Vagabond+"));
+        Assert.Empty(BundleExport.OwnedNames([], [("Vagabond+", "Vagabond+")]));
+        Assert.Empty(BundleExport.OwnedNames(["Vagabond+"], [("Vagabond+", "Vagabond+")]));
 
         // a mod that used to add "Kestrel" and now replaces "Vagabond+" still owns the name it invented
-        var owned = ShipExport.OwnedShipNames(["Kestrel"], "Vagabond+", replaceTarget: "Vagabond+");
+        var owned = BundleExport.OwnedNames(["Kestrel"], [("Vagabond+", "Vagabond+")]);
         Assert.Equal(["Kestrel"], owned);
     }
 
@@ -124,13 +124,13 @@ public class ExportDeliveryReconcileTests
         {
             var path = Path.Combine(dir, "ships.json");
 
-            Assert.Empty(ShipExport.ReadShipNames(path));   // no file: nothing is known, which is not an error
+            Assert.Empty(BundleExport.ReadShipNames(path));   // no file: nothing is known, which is not an error
 
             File.WriteAllText(path, """[{"strName":"Kestrel"},{"strName":"Harrier"}]""");
-            Assert.Equal(["Kestrel", "Harrier"], ShipExport.ReadShipNames(path));
+            Assert.Equal(["Kestrel", "Harrier"], BundleExport.ReadShipNames(path));
 
             File.WriteAllText(path, "not json at all");
-            Assert.Empty(ShipExport.ReadShipNames(path));   // unreadable tells us nothing, same as absent
+            Assert.Empty(BundleExport.ReadShipNames(path));   // unreadable tells us nothing, same as absent
         }
         finally
         {

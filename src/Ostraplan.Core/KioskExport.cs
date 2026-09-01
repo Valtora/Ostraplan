@@ -255,9 +255,22 @@ public static class KioskExport
 
     /// <summary>Overwrite a pool's pick to a single pinned ship at weight 1, in place (a Special Offer is always
     /// one ship). Returns the same object.</summary>
-    public static JsonObject PinShipToPool(JsonObject pool, string shipName)
+    public static JsonObject PinShipToPool(JsonObject pool, string shipName) =>
+        PinShipsToPool(pool, [(shipName, 1.0)]);
+
+    /// <summary>
+    /// Overwrite a pool's pick to exactly these weighted entries, in place, dropping whatever was in it.
+    ///
+    /// <para>The several-entry form is what a mod's <b>guaranteed</b> Shipbreaker start needs: the career rolls
+    /// one pool, so "only this mod's ships" is a pin to that mod's whole set rather than a pin repeated per ship,
+    /// which would leave only whichever was written last. Pinning nothing is a no-op, because a pool emptied of
+    /// every alternative is one the game can roll nothing out of.</para>
+    /// </summary>
+    public static JsonObject PinShipsToPool(JsonObject pool, IEnumerable<(string Name, double Weight)> entries)
     {
-        pool["aCOs"] = new JsonArray(LootList.FormatEntry(shipName, 1.0));
+        var picks = entries.Select(e => LootList.FormatEntry(e.Name, e.Weight)).ToList();
+        if (picks.Count == 0) return pool;
+        pool["aCOs"] = new JsonArray(string.Join('|', picks));
         return pool;
     }
 

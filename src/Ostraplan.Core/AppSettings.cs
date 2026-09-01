@@ -25,6 +25,25 @@ public sealed class PartRef
 /// carry local folder paths, save-game names or credit amounts. What belongs to the <i>design</i> — its name and
 /// in-game identity — stays in <see cref="OplanMeta"/> and travels with it.</para>
 /// </summary>
+/// <summary>
+/// What the Ship Bundle editor should do again next time: where the mod folder goes, and whether Ostrasort is run
+/// afterwards. Everything about the pack <i>itself</i> lives in the <c>.oplanmod</c>; only the machine's answers
+/// are here.
+/// </summary>
+public sealed class LastBundleExport
+{
+    /// <summary>True to stage into the game's Mods folder; false to write to <see cref="Folder"/>.</summary>
+    [JsonPropertyName("stagedIntoMods")] public bool StagedIntoMods { get; set; } = true;
+
+    [JsonPropertyName("folder")] public string? Folder { get; set; }
+    [JsonPropertyName("registerWithOstrasort")] public bool RegisterWithOstrasort { get; set; }
+
+    /// <summary>The folder the last pack was opened from or saved to, so the file dialogs start somewhere useful.</summary>
+    [JsonPropertyName("lastPackDir")] public string? LastPackDir { get; set; }
+
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
+}
+
 public sealed class LastExport
 {
     /// <summary>"mod", "newShip" or "update". A name rather than an enum so an unknown value from a newer build
@@ -182,6 +201,12 @@ public sealed class AppSettings
     /// before this existed, which both count as "nothing to compare against" — the version is recorded and no
     /// notes are shown, so nobody is handed a wall of changelog for a version they never ran.</summary>
     [JsonPropertyName("lastRunVersion")] public string? LastRunVersion { get; set; }
+
+    /// <summary>Where the Ship Bundle editor writes to, and what it does afterwards. Kept here rather than in the
+    /// <c>.oplanmod</c> for the same reason the single-ship export's target is: a pack you share must carry no
+    /// folder of yours. Separate from <see cref="LastExport"/> because a pack and a single design are two habits.</summary>
+    [JsonPropertyName("bundleExport")] public LastBundleExport? BundleExport { get; set; }
+
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 
     /// <summary>How many parts the Recent list keeps (the issue asked for "the last 5 or so").</summary>

@@ -914,6 +914,50 @@ Writes a spawnable local mod (`data/ships/<Name>.json` in
     The roll is pinned when **Review** builds, so the ship you're told about is the ship
     that gets written, part for part.
 
+### Several ships in one mod
+
+**File ▸ Ship Bundle** gathers designs you have saved into a single mod, each configured on
+its own. Use it for a pack of hulls rather than a mod per ship. The alternative was
+exporting each one separately and merging the folders by hand, which does not work: the game
+replaces loot data whole rather than merging it, so two ships exported into the same kiosk
+leave only the second one for sale.
+
+The window is the mod at the top, its ships down the left, and the selected ship's settings
+on the right.
+
+- **Add designs…** takes `.oplan` files, several at a time. A design that cannot be part of
+  a ship mod says so on the spot rather than at the export: an apartment, an empty design,
+  or one using parts that aren't in your currently loaded mods. That last one matters,
+  because those parts would simply be left out and the mod would ship a hull with holes in
+  it.
+- **A member is a file.** The pack stores the path, and the file on disk is what gets
+  exported. If a design is also open in a tab with unsaved changes, its row says so, so
+  save it first if you want those changes in the mod.
+- **Each ship gets its own everything**: its name in the game's data, the existing ship it
+  replaces if any, its condition, and its own kiosks, Special Offer slot, derelict fields
+  and Shipbreaker start. It is the same **Obtainable in game** panel the single-design
+  export uses, asked once per ship.
+- **Two ships in a pack cannot share a name.** The name is what the game keys the ship, its
+  pictures and its kiosk listing on. Where two designs collide, rename one **in the pack**
+  rather than editing the design.
+- **Guaranteed Shipbreaker start** is asked once for the mod, not per ship: the career rolls
+  a single pool, so the only thing "only mine" can mean in a pack is "only this mod's
+  ships".
+- **Review** runs the real engine over every design and reports each one, plus anything the
+  export will remove. Exporting writes **one** mod folder: one `data/ships` file holding
+  every ship, a picture set per ship, and one merged set of loot files, so ships sharing a
+  kiosk are all in it and the ships already there are kept.
+- **Save pack** writes an `.oplanmod` file: the mod's details and each ship's settings, with
+  the designs referenced by path rather than copied in. Reopen it to change one ship and
+  export the lot again. Editing a design updates the pack too, because the pack points at
+  the file. Paths are stored relative to the pack where they can be, so a folder holding a
+  pack and its designs can be moved or shared whole. As with an `.oplan`, no folder of yours
+  is written into it.
+- **Exporting again over the same mod folder** rewrites it to match the pack as it stands:
+  a ship you have dropped loses its kiosk entries and its pictures, and a route you have
+  unticked is removed. If the write fails, nothing is changed and the export you already had
+  is left as it was.
+
 ### Into a save game
 
 Adds the design to a save as a brand-new ship you already own, without replacing

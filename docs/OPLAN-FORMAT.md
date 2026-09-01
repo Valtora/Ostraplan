@@ -334,6 +334,60 @@ The block is still parsed, because it is the only thing that says where a legacy
 contents were. Opening one reads them back once, after which the design owns them and the
 next save writes them into the file and drops `source` for good. It is never written.
 
+## `.oplanmod` — a pack of designs
+
+A **ship pack** is a second, much smaller document: one mod made of several designs, written
+by the Ship Bundle editor and read back by it. `Ostraplan.Core/BundleFile.cs` is the
+authority, and it follows the same three design goals as the `.oplan` above, for the same
+reasons.
+
+```json
+{
+  "formatVersion": 1,
+  "game": { "versionAtSave": "1.0.0.13", "versionVerified": "1.0.0.13" },
+  "mod": {
+    "name": "Working Hulls", "author": "Valtora", "version": "1.0.0",
+    "notes": "Three hulls that earn their keep.",
+    "exclusiveStart": false
+  },
+  "ships": [
+    {
+      "path": "designs/Kestrel.oplan",
+      "name": null,
+      "replaces": null,
+      "wear": { "on": true, "target": 0.88 },
+      "delivery": {
+        "brokerPools": ["RandomShipBrokerOKLG"], "brokerWeight": 0.05,
+        "specialOfferPools": [], "derelictPools": [], "derelictWeight": null,
+        "noRoute": false,
+        "startingShip": false, "startingShipExclusive": false,
+        "startStation": "OKLG", "startMortgage": 0
+      }
+    }
+  ],
+  "lastWritten": ["Kestrel"]
+}
+```
+
+**It holds paths to designs, not designs.** A ship stays an `.oplan` and stays the authority
+on what it is made of and what it is called, so editing one and exporting the pack again
+picks the change up. The pack holds only what a design cannot say for itself: which mod it
+belongs to, and how that mod hands it out.
+
+| Field | What it is |
+|---|---|
+| `mod` | The mod's own details, plus `exclusiveStart`: pin the Shipbreaker start to this mod's ships. Asked of the mod because the career rolls one pool, so "only this ship" cannot be said twice in it. |
+| `ships[].path` | The `.oplan`, relative to the pack where that resolves (so a folder holding a pack and its designs moves or shares whole), absolute where it does not. |
+| `ships[].name` | A name to use instead of the design's own. It exists for one reason: two designs may share a name, and the game keys a ship's data and its pictures on that name, so one has to give. |
+| `ships[].replaces` | The `strName` of an existing ship this design takes over, or null. |
+| `ships[].wear` | The condition to bake in. No seed: one is drawn afresh at each review, as it is for a single design. |
+| `ships[].delivery` | That ship's kiosks, Special Offer slots, derelict fields and Shipbreaker start. Same shape the single-design export remembers, because it is the same question. |
+| `lastWritten` | The ship names the last export of this pack wrote. It is what lets a re-export take a dropped ship's kiosk entries and preview art back out: once the mod is registered, the pools it clones already carry its own last write. |
+
+**No machine state.** Where the mod is written, and whether Ostrasort runs afterwards, live
+in the app's settings, exactly as they do for a single design: a pack is shareable, so it
+carries no folder paths of yours.
+
 ---
 
 *See also: [usage.md](usage.md) (using Ostraplan) and

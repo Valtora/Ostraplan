@@ -5241,8 +5241,37 @@ public partial class MainWindow : Window
         m.Items.Add(MenuAction(_doc?.IsResidence == true ? "Update Apartment in Save…" : "Update Ship in Save…",
             () => OnUpdateSaveClick(this, e),
             enabled: _doc is not null && _env is not null));
+        m.Items.Add(new Separator());
+        // Beside Transfer rather than under Export: it is not an export of the open design, and it does not touch
+        // the open design at all. It gathers saved designs into one mod.
+        m.Items.Add(MenuAction("Ship Bundle (several ships in one mod)…", OpenBundleEditor,
+            enabled: _catalog is not null && _index is not null && _env is not null));
         OpenMenuUnder(m, BtnFileMenu);
     }
+
+    /// <summary>
+    /// Open the Ship Bundle editor: several saved designs gathered into one mod (see <see cref="Bundle.BundleWindow"/>).
+    ///
+    /// <para>It takes nothing from the editing surface but the loaded game data and the sprite atlas. Its members
+    /// are <c>.oplan</c> files, and the only thing it asks about the open tabs is whether one of them is sitting on
+    /// unsaved changes to a file it is about to export, which is worth saying on the row.</para>
+    /// </summary>
+    private void OpenBundleEditor()
+    {
+        if (_catalog is null || _index is null || _env is null) return;
+        _roomSpecs ??= RoomCertifier.LoadSpecs(_index);
+
+        new Bundle.BundleWindow(_catalog, _index, _env, _settings, _roomSpecs, _sprites, IsOpenWithUnsavedEdits)
+        {
+            Owner = this,
+        }.ShowDialog();
+    }
+
+    /// <summary>Whether a design is open in a tab that has unsaved changes. The bundle editor exports the file on
+    /// disk either way; this is only so it can say so.</summary>
+    private bool IsOpenWithUnsavedEdits(string path) =>
+        _sessions.Any(s => s.Dirty && s.Doc?.FilePath is { } open
+                           && string.Equals(open, path, StringComparison.OrdinalIgnoreCase));
 
     /// <summary>The Import ▸ submenu: start a design from an existing ship or a save game.</summary>
     private MenuItem BuildImportSubmenu()

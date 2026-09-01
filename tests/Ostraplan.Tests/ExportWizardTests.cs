@@ -372,7 +372,7 @@ public class ExportWizardTests
             step.Leave(session);
 
             Assert.Null(step.Validate());
-            Assert.Equal(["RandomDerelictSmall"], session.Plan.Mod.DerelictPools);
+            Assert.Equal(["RandomDerelictSmall"], session.Plan.Mod.Delivery.DerelictPools);
         });
     }
 
@@ -429,7 +429,7 @@ public class ExportWizardTests
 
             Assert.Null(step.Validate());
             step.Leave(session);
-            Assert.True(session.Plan.Mod.NoDeliveryRoute);
+            Assert.True(session.Plan.Mod.Delivery.NoDeliveryRoute);
         });
     }
 
@@ -444,7 +444,7 @@ public class ExportWizardTests
             Assert.True(Descendants<Expander>(empty).Single().IsExpanded);
 
             var busy = Session(g);
-            busy.Plan.Mod.BrokerPools = ["RandomShipBrokerOKLG"];
+            busy.Plan.Mod.Delivery.BrokerPools = ["RandomShipBrokerOKLG"];
             var step = new ObtainableStep();
             step.Populate(busy);
             Assert.False(Descendants<Expander>(step).Single().IsExpanded);
@@ -469,8 +469,8 @@ public class ExportWizardTests
             Assert.False(hatch.IsChecked);
             Assert.False(hatch.IsEnabled);
             step.Leave(session);
-            Assert.False(session.Plan.Mod.NoDeliveryRoute);
-            Assert.Equal(["RandomShipBrokerOKLG"], session.Plan.Mod.BrokerPools);
+            Assert.False(session.Plan.Mod.Delivery.NoDeliveryRoute);
+            Assert.Equal(["RandomShipBrokerOKLG"], session.Plan.Mod.Delivery.BrokerPools);
         });
     }
 
@@ -487,7 +487,7 @@ public class ExportWizardTests
             // one wall is not a ship: ProblemScan rates "no docking port" blocking, and until now the wizard
             // never mentioned it
             var session = Session(g);
-            session.Plan.Mod.BrokerPools = ["RandomShipBrokerOKLG"];
+            session.Plan.Mod.Delivery.BrokerPools = ["RandomShipBrokerOKLG"];
 
             var outcome = new ModDriver().ReviewAsync(session).GetAwaiter().GetResult();
 
@@ -882,12 +882,12 @@ public class ExportWizardTests
     {
         var settings = new AppSettings();
         var plan = new ExportPlan();
-        plan.Mod.BrokerWeight = 0.42;
+        plan.Mod.Delivery.BrokerWeight = 0.42;
 
         plan.SaveTo(settings);
         var restored = ExportPlan.FromSettings(settings, new OplanMeta(), null);
 
-        Assert.Equal(0.42, restored.Mod.BrokerWeight);
+        Assert.Equal(0.42, restored.Mod.Delivery.BrokerWeight);
     }
 
     [SkippableFact]
@@ -898,13 +898,13 @@ public class ExportWizardTests
         {
             // the game's own weight is the starting point for a first export, not an override applied every time
             var session = Session(g);
-            session.Plan.Mod.BrokerWeight = 0.42;
+            session.Plan.Mod.Delivery.BrokerWeight = 0.42;
             var step = new ObtainableStep();
 
             step.Populate(session);
             step.Leave(session);
 
-            Assert.Equal(0.42, session.Plan.Mod.BrokerWeight);
+            Assert.Equal(0.42, session.Plan.Mod.Delivery.BrokerWeight);
         });
     }
 

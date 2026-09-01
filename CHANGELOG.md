@@ -91,6 +91,26 @@ each release was verified against is recorded in
   whatever the theme's default resolved to over the panel behind them. (#50)
 
 ### Added
+- **Several ships in one mod.** Ostraplan could only ever make a mod holding a single ship, so a
+  pack of hulls meant exporting each one and merging the folders by hand. That does not actually
+  work: the game replaces loot data whole rather than merging it, so two ships exported into the
+  same kiosk leave only the second one for sale, with nothing to say the first had gone.
+  **File ▸ Ship Bundle** gathers saved designs into one mod instead. Add `.oplan` files, several
+  at a time, and give each ship its own name, condition, replacement target and way of being
+  obtained: the same **Obtainable in game** panel the single-ship export uses, asked once per
+  ship, so one hull can sit in the K-Leg kiosk while another is scattered through the derelict
+  fields. Export writes one mod folder holding every ship, a picture set each, and **one merged
+  set of loot files**, so ships sharing a kiosk are all in it and the ships already there are
+  kept. A **guaranteed Shipbreaker start** is asked once for the mod rather than per ship,
+  because the career rolls a single pool and the only thing "only mine" can mean in a pack is
+  "only this mod's ships". A design that cannot go in a ship mod is refused when you add it
+  rather than at the export: an apartment, an empty design, or one using parts your loaded mods
+  no longer have, which would otherwise be left out of the mod without a word. Save the pack as
+  an `.oplanmod` and reopen it to change one ship and export the lot again; it references your
+  designs by path rather than copying them, so editing a design updates the pack. Exporting again
+  over the same folder rewrites it to match: a ship you have dropped loses its kiosk entries and
+  its pictures. And if a write fails, nothing is changed, so a broken half-export is never left
+  behind for the game to load. (#54) Thanks to Jothbot.
 - **The palette and the inspector are resizable, and can be hidden.** Both were fixed widths, so a
   part name longer than the palette was simply truncated with nothing you could do about it. Drag
   the divider beside either panel, down to a minimum that keeps it readable, and double-click a

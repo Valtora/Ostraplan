@@ -125,6 +125,10 @@ tool nothing.
   retrofit a ship you already have into it.
 - **Writing a design into the game**: as a spawnable local mod, as a new ship added
   to a copy of a save, or back over the ship in the save you imported it from.
+- **Gathering several designs into one mod**, each with its own name, condition and way of
+  being obtained, saved as a pack you can export again (see
+  [More than one ship per document](#out-of-scope) for why a mod may hold several ships
+  while a document holds one).
 - **Designing a station residence** and delivering it by those same save routes. Not as a
   mod: a residence reaches the game through a Real Estate broker, and stocking one is
   shopping rather than designing.
@@ -164,6 +168,20 @@ Each of these is a deliberate no, not a backlog item.
   sense as the micrometeoroid damage marks and the air-leak highlight: it is not editable,
   not saved, not exported, and it disappears with the window that asked for it. The rule
   above is about what a *design* contains, and a design still contains one ship.
+
+  **A mod may carry several ships, and that is not a document either.** A ship pack
+  ([issue #54](https://github.com/Valtora/Ostraplan/issues/54)) is a list of `.oplan` files
+  with a delivery for each, exported together into one mod folder. Every design in it is
+  still one design holding one ship, edited on its own; what the pack adds is the
+  arrangement between them, which is a property of the *mod* and has nowhere else to live.
+  The test at the top of this page decides it cleanly: designs are the input, and the
+  export exists to deliver them. The line this rule draws is around a document, and the
+  pack does not cross it.
+
+  It also earns its place rather than merely passing the test. The game merges loot data
+  whole-object by name, so two ships exported separately into one kiosk pool leave only the
+  second: gathering them by hand is not tedious so much as quietly wrong, which is exactly
+  the class of thing this tool exists to get right.
 - **Managing your mods.** Ostraplan never writes `loading_order.json`. Registration,
   load order, and conflict patching are
   [Ostrasort](https://github.com/Valtora/Ostrasort) and ModTools' job, and Ostraplan

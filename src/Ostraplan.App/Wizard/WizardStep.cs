@@ -73,81 +73,37 @@ public abstract class WizardStep : UserControl
         finally { _populating = false; }
     }
 
-    // ---- shared pane furniture, matching the dialogs the wizard replaces ----
+    // ---- shared pane furniture ----
+    //
+    // The bodies live in PaneUi, because the bundle editor builds the same kind of pane without being a wizard
+    // step. These stay so that every step still reads as it did.
 
-    protected static Brush Ink => ThemeManager.Ink;
-    protected static Brush Dim => ThemeManager.Dim;
-    protected static Brush FieldBg => ThemeManager.FieldBg;
+    protected static Brush Ink => PaneUi.Ink;
+    protected static Brush Dim => PaneUi.Dim;
+    protected static Brush FieldBg => PaneUi.FieldBg;
 
-    /// <summary>A step's root panel: every pane is a vertical stack, scrolled by the shell rather than by itself,
-    /// so the content pane's scrollbar is in one place and nothing jumps on Next.</summary>
-    protected static StackPanel Body() => new() { Margin = new Thickness(0, 0, 4, 0) };
+    /// <inheritdoc cref="PaneUi.Body"/>
+    protected static StackPanel Body() => PaneUi.Body();
 
-    /// <summary>A section caption. Returns the block so a step whose caption depends on the session (a ship's
-    /// identity versus a residence's) can retitle it on Enter; callers that never change theirs ignore it.</summary>
-    protected static TextBlock Header(Panel parent, string text) => Add(parent, new TextBlock
-    {
-        Text = text, Foreground = Dim, FontWeight = FontWeights.Bold, FontSize = 11,
-        Margin = new Thickness(0, 16, 0, 5),
-    });
+    /// <inheritdoc cref="PaneUi.Header"/>
+    protected static TextBlock Header(Panel parent, string text) => PaneUi.Header(parent, text);
 
-    protected static TextBlock Note(Panel parent, string text, double indent = 0) =>
-        Add(parent, new TextBlock
-        {
-            Text = text, Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap,
-            Margin = new Thickness(indent, 4, 0, 0),
-        });
+    /// <inheritdoc cref="PaneUi.Note"/>
+    protected static TextBlock Note(Panel parent, string text, double indent = 0) => PaneUi.Note(parent, text, indent);
 
-    protected static TextBox Field(Panel parent, string label, string value, bool multiline = false)
-    {
-        parent.Children.Add(new TextBlock
-        {
-            Text = label.ToUpperInvariant(), Foreground = Dim, FontWeight = FontWeights.Bold, FontSize = 11,
-            Margin = new Thickness(0, 10, 0, 3),
-        });
-        var box = new TextBox
-        {
-            Text = value, Foreground = Ink, Background = FieldBg, BorderBrush = ThemeManager.PanelBorder,
-            Padding = new Thickness(5, 3, 5, 3), CaretBrush = Ink,
-        };
-        if (multiline)
-        {
-            box.AcceptsReturn = true;
-            box.TextWrapping = TextWrapping.Wrap;
-            box.Height = 48;
-            box.VerticalScrollBarVisibility = ScrollBarVisibility.Auto;
-        }
-        parent.Children.Add(box);
-        return box;
-    }
+    /// <inheritdoc cref="PaneUi.Field"/>
+    protected static TextBox Field(Panel parent, string label, string value, bool multiline = false) =>
+        PaneUi.Field(parent, label, value, multiline);
 
-    protected static TextBox SmallBox(string value, double width) => new()
-    {
-        Text = value, Width = width, Foreground = Ink, Background = FieldBg, BorderBrush = ThemeManager.PanelBorder,
-        Padding = new Thickness(5, 2, 5, 2), CaretBrush = Ink,
-    };
+    /// <inheritdoc cref="PaneUi.SmallBox"/>
+    protected static TextBox SmallBox(string value, double width) => PaneUi.SmallBox(value, width);
 
-    /// <summary>An inline problem line, placed by the pane right under the field it is about and hidden until
-    /// something is actually wrong.</summary>
-    protected static TextBlock Problem(Panel parent, double indent = 0) => Add(parent, new TextBlock
-    {
-        Foreground = ThemeManager.Bad, FontSize = 12, FontWeight = FontWeights.SemiBold,
-        TextWrapping = TextWrapping.Wrap, Margin = new Thickness(indent, 4, 0, 0),
-        Visibility = Visibility.Collapsed,
-    });
+    /// <inheritdoc cref="PaneUi.Problem"/>
+    protected static TextBlock Problem(Panel parent, double indent = 0) => PaneUi.Problem(parent, indent);
 
-    /// <summary>Show or clear a <see cref="Problem"/> line, and return the reason so a Validate override can be a
-    /// single expression.</summary>
-    protected static string? ShowProblem(TextBlock line, string? reason)
-    {
-        line.Text = reason ?? "";
-        line.Visibility = reason is null ? Visibility.Collapsed : Visibility.Visible;
-        return reason;
-    }
+    /// <inheritdoc cref="PaneUi.ShowProblem"/>
+    protected static string? ShowProblem(TextBlock line, string? reason) => PaneUi.ShowProblem(line, reason);
 
-    protected static T Add<T>(Panel parent, T child) where T : UIElement
-    {
-        parent.Children.Add(child);
-        return child;
-    }
+    /// <inheritdoc cref="PaneUi.Add"/>
+    protected static T Add<T>(Panel parent, T child) where T : UIElement => PaneUi.Add(parent, child);
 }

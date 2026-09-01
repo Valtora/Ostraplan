@@ -32,30 +32,9 @@ public sealed class ModPlan
     /// than its name because the real override key is resolved from the file, not the filename.</summary>
     public ShipFileEntry? ReplaceShip { get; set; }
 
-    public List<string> BrokerPools { get; set; } = [];
-
-    /// <summary>How often the ship appears in a kiosk's stock. Null until it has been chosen, which is what lets
-    /// the step fill in the game's own default without overwriting a weight the user set last time.</summary>
-    public double? BrokerWeight { get; set; }
-    public List<string> SpecialOfferPools { get; set; } = [];
-
-    /// <summary>Derelict-ring pools to scatter the ship through as a wreck. World generation only: an existing
-    /// save never grows one.</summary>
-    public List<string> DerelictPools { get; set; } = [];
-
-    public double? DerelictWeight { get; set; }
-
-    /// <summary>The user deliberately asked for a ship file with no way to obtain it: a modpack piece, or loot
-    /// they intend to wire themselves. Distinct from having simply forgotten, which the wizard refuses.</summary>
-    public bool NoDeliveryRoute { get; set; }
-
-    public bool StartingShip { get; set; }
-    public bool StartingShipExclusive { get; set; }
-    public string StartStation { get; set; } = "OKLG";
-    public double StartMortgage { get; set; }
-
-    /// <summary>The weight a starting ship is offered at, read from the game's own pool. Not a user control.</summary>
-    public double StartWeight { get; set; } = 0.16;
+    /// <summary>How the ship becomes obtainable in game. Shared with the bundle editor, which asks a ship exactly
+    /// the same question (see <see cref="DeliveryPlan"/>).</summary>
+    public DeliveryPlan Delivery { get; set; } = new();
 
     /// <summary>True to stage into the game's Mods folder; false to write to <see cref="Folder"/>.</summary>
     public bool StagedIntoMods { get; set; } = true;
@@ -179,16 +158,16 @@ public sealed class ExportPlan
 
         plan.Mod.Version = last.ModVersion;
         plan.Mod.Author = settings.ExportAuthor ?? meta.Author;
-        plan.Mod.BrokerPools = [.. last.BrokerPools];
-        if (last.BrokerWeight > 0) plan.Mod.BrokerWeight = last.BrokerWeight;
+        plan.Mod.Delivery.BrokerPools = [.. last.BrokerPools];
+        if (last.BrokerWeight > 0) plan.Mod.Delivery.BrokerWeight = last.BrokerWeight;
         plan.Mod.RegisterWithOstrasort = last.RegisterWithOstrasort;
-        plan.Mod.SpecialOfferPools = [.. last.SpecialOfferPools];
-        plan.Mod.DerelictPools = [.. last.DerelictPools];
-        if (last.DerelictWeight > 0) plan.Mod.DerelictWeight = last.DerelictWeight;
-        plan.Mod.NoDeliveryRoute = last.NoDeliveryRoute;
-        plan.Mod.StartingShip = last.StartingShip;
-        plan.Mod.StartingShipExclusive = last.StartingShipExclusive;
-        plan.Mod.StartStation = last.StartStation;
+        plan.Mod.Delivery.SpecialOfferPools = [.. last.SpecialOfferPools];
+        plan.Mod.Delivery.DerelictPools = [.. last.DerelictPools];
+        if (last.DerelictWeight > 0) plan.Mod.Delivery.DerelictWeight = last.DerelictWeight;
+        plan.Mod.Delivery.NoDeliveryRoute = last.NoDeliveryRoute;
+        plan.Mod.Delivery.StartingShip = last.StartingShip;
+        plan.Mod.Delivery.StartingShipExclusive = last.StartingShipExclusive;
+        plan.Mod.Delivery.StartStation = last.StartStation;
         plan.Mod.StagedIntoMods = last.StagedIntoMods;
         plan.Mod.Folder = settings.LastExportDir;
         plan.Mod.RegisterWithOstrasort = last.RegisterWithOstrasort;
@@ -222,15 +201,15 @@ public sealed class ExportPlan
         last.WearTarget = Wear.TargetCondition;
 
         last.ModVersion = Mod.Version;
-        last.BrokerPools = [.. Mod.BrokerPools];
-        last.BrokerWeight = Mod.BrokerWeight ?? 0;
-        last.SpecialOfferPools = [.. Mod.SpecialOfferPools];
-        last.DerelictPools = [.. Mod.DerelictPools];
-        last.DerelictWeight = Mod.DerelictWeight ?? 0;
-        last.NoDeliveryRoute = Mod.NoDeliveryRoute;
-        last.StartingShip = Mod.StartingShip;
-        last.StartingShipExclusive = Mod.StartingShipExclusive;
-        last.StartStation = Mod.StartStation;
+        last.BrokerPools = [.. Mod.Delivery.BrokerPools];
+        last.BrokerWeight = Mod.Delivery.BrokerWeight ?? 0;
+        last.SpecialOfferPools = [.. Mod.Delivery.SpecialOfferPools];
+        last.DerelictPools = [.. Mod.Delivery.DerelictPools];
+        last.DerelictWeight = Mod.Delivery.DerelictWeight ?? 0;
+        last.NoDeliveryRoute = Mod.Delivery.NoDeliveryRoute;
+        last.StartingShip = Mod.Delivery.StartingShip;
+        last.StartingShipExclusive = Mod.Delivery.StartingShipExclusive;
+        last.StartStation = Mod.Delivery.StartStation;
         last.StagedIntoMods = Mod.StagedIntoMods;
         last.RegisterWithOstrasort = Mod.RegisterWithOstrasort;
 
