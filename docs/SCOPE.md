@@ -158,6 +158,12 @@ Each of these is a deliberate no, not a backlog item.
 - **More than one ship per document.** One design, one ship. Having several documents
   open at once, a tab each, is a different thing and is fine: each tab is still one
   design holding one ship.
+
+  The **docking check** draws a second ship on the plan, ghosted at the pose that mates it
+  with yours, and that is not a second ship in the document. It is an overlay, in the same
+  sense as the micrometeoroid damage marks and the air-leak highlight: it is not editable,
+  not saved, not exported, and it disappears with the window that asked for it. The rule
+  above is about what a *design* contains, and a design still contains one ship.
 - **Managing your mods.** Ostraplan never writes `loading_order.json`. Registration,
   load order, and conflict patching are
   [Ostrasort](https://github.com/Valtora/Ostrasort) and ModTools' job, and Ostraplan

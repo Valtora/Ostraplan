@@ -692,6 +692,75 @@ spread. (`GUIInventoryItem` also bounds by all ports, for hand-dropping a loose 
 from inventory.) The construction authority is `Item.CheckFit`, which uses the
 single primary port.
 
+### Docking legality is purely geometric (`Ship.GetAvailableDockingPorts`)
+
+There is **no port compatibility table and no port "type"**. `GetAvailableDockingPorts(incomingShip,
+earlyOut = true)` walks each open port on both ships and, per pair, calls
+`GridUtils.GetIncomingDockRotation(usRot, incomingRot, out dockOffset)` for the turn that leaves the
+incoming port facing ours plus a one-tile step along that face, then `GridUtils.CanOverlay(...)`,
+which lays the incoming ship's whole grid over ours and returns true only when nothing collides.
+`earlyOut: false` returns the full cross product, which is literally a compatibility table.
+
+**`IsTypeB` takes no part in this.** It decides only which port bounds construction (above). A
+Secondary fails more often than a Primary because of where it gets put, not because of what it is.
+
+The collision rule (`GridUtils.AllowedToOverlap`) is three lines:
+
+- ours `"Blank"` and theirs `"Blank"` or `IsDockSys` → allowed
+- ours `IsDockSys` and theirs `"Blank"` → allowed
+- anything else → collision
+
+**`"Blank"` is the game's empty-cell sentinel, not an absent item, and that is the whole rule.**
+`GridUtils.CreateDockingPortGrid` stamps a `Blank` into all eight neighbours
+(`SilhouetteUtility.AllDirectionVectors`) of every item, so a `Blank` collides with any real cell.
+Two hulls must therefore stay a full tile apart everywhere; the two exceptions above exist for the
+seam alone, where each collar lands on the other's halo. **The collars do not interpenetrate** — the
+`dockOffset` puts them one tile apart, and port-on-port is a collision.
+
+Four more things about that grid, each of which changes answers:
+
+- **It is `CreateDockingPortGrid`, not `CreateShallowItemGrid`.** `CreateFullGrid` calls the former.
+  There is **no `IsInstalled` filter**, so loose deck cargo occupies cells and lays its own halo; a
+  crate near an airlock refuses a mate. Only parented items (`strParentID`), unresolvable defs and
+  `IsSystem` defs are skipped.
+- **Only `_bulkyItems` spread across their footprint** (`IsPortal`, `IsNavStation`,
+  `IsHeavyLiftRotor`, `IsRCSCluster`, `IsShipWeapon`), over their non-`"Blank"` socket adds. Anything
+  else is **one cell** whatever its size, so a 1x4 antenna is a single cell plus its halo. Every
+  docksys is `IsPortal`, which is what gives a port the `OriginX/OriginY` mating anchor
+  `GatherDockingPortData` reads; a non-bulky item leaves it at (0,0).
+- **An item whose cell is already taken is dropped**, and a neighbour's halo counts as taken. Three
+  walls in a row register as two with a `Blank` between them, so the grid is **order-dependent** on
+  `aItems`. It costs nothing in practice, since a `Blank` refuses an incoming hull just as a wall does.
+- **The frame is part of the answer.** The grid is `(nCols+1) × (nRows+1)`, y-up, origin from
+  `CalculateGridOffset`. `Grid<T>`'s setter grows `Width`/`Height` past the right and bottom edges but
+  not past the left and top, so a cell at `x = −1` is stored and can never be read back by
+  `CanOverlayBOnA`'s bounds test. 218 of the 220 stock templates sit flush against that edge, so the
+  game really does let another hull come a tile closer on one side. `CanOverlayBOnA` also **skips**
+  an incoming cell landing outside our bounds rather than refusing it, which is what lets a ship hang
+  off the edge of a station.
+
+Measured over the install at 1.0.0.13: 221 ships, 162 with a Primary, 59 with no port at all, 55
+Secondaries. 26,064 of 26,082 ordered Primary-to-Primary pairs mate; the 18 that do not are one
+symmetric cluster of six ships whose airlocks have a wall standing level with them. Secondaries
+genuinely discriminate — `Station_EJDR`'s two take 135 and 119 of the 162.
+
+> **Ported in Ostraplan:** `DockShip` (the grid), `DockMating` (the overlay), `DockSurvey` (the
+> stock-primary sweep) and `DockPose` (the pose as something drawable), behind
+> **Design ▸ Docking Compatibility** in its two modes
+> ([issue #47](https://github.com/Valtora/Ostraplan/issues/47)). A design is the **incoming** ship,
+> since that is the way round a player meets it. `DockShip.FromTemplate` keeps a template's own frame
+> because of the left-edge quirk above; `FromDocument` uses the bbox±1 frame `ShipExport` writes and
+> the item order `ShipExport.TriggerFirst` emits, so the prediction matches the file Ostraplan
+> produces rather than some other framing of the same ship.
+>
+> `DockPose` turns a pose into the other ship's parts in your design's own tile frame, which is what
+> the canvas ghosts. It **fits** that transform by evaluating the overlay's own round trip at three
+> tiles rather than composing the two frame mappings by hand: the result is the same rigid transform
+> (the two y flips cancel, so there is no reflection), and it cannot disagree with the overlay
+> because it is the overlay. A grid cell is not a part — one cell per item whatever its size, plus
+> Blank halo cells that are not items at all — so `DockShip.Parts` carries the drawable form beside
+> the collision one.
+
 ### Buying a ship docks it at purchase time — it must expose its ports while shallow
 
 Both broker paths spawn the for-sale ship `Ship.Loaded.Shallow` at the template's

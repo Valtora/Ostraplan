@@ -134,20 +134,33 @@ public enum ShipSourceKind
     Template,
     /// <summary>A ship in one of the player's save games.</summary>
     Save,
+    /// <summary>A design already open in another document tab.</summary>
+    OpenTab,
 }
 
 /// <summary>A row in the source-kind picker.</summary>
 public sealed record SourceKindRow(string Title, string Sub, ShipSourceKind Kind);
 
 /// <summary>Asks which kind of ship to read in — a design, a ship template, or a ship in a save — before handing
-/// off to the picker for that kind. The three readers already exist; this only chooses between them.</summary>
+/// off to the picker for that kind. The readers already exist; this only chooses between them.
+///
+/// <para>The rows are a parameter because not every caller offers the same set: the docking check can also
+/// compare against a design already open in another tab, which a retrofit has no use for.</para></summary>
 public sealed class ShipSourceDialog : Window
 {
     private readonly ListBox _list;
 
     public ShipSourceKind? Selected { get; private set; }
 
-    public ShipSourceDialog(string title, string note)
+    /// <summary>The three sources every caller offers. A caller wanting more passes its own list.</summary>
+    public static IReadOnlyList<SourceKindRow> DefaultRows =>
+    [
+        new("A design", "One of your saved .oplan designs.", ShipSourceKind.Design),
+        new("A ship template", "A stock or modded ship from your Ostranauts install.", ShipSourceKind.Template),
+        new("A ship in a save", "A ship you own in one of your save games.", ShipSourceKind.Save),
+    ];
+
+    public ShipSourceDialog(string title, string note, IReadOnlyList<SourceKindRow>? rows = null)
     {
         Title = title;
         Width = 460; SizeToContent = SizeToContent.Height;
@@ -155,12 +168,7 @@ public sealed class ShipSourceDialog : Window
         WindowStartupLocation = WindowStartupLocation.CenterOwner;
         Background = ThemeManager.WindowBg;
 
-        var rows = new List<SourceKindRow>
-        {
-            new("A design", "One of your saved .oplan designs.", ShipSourceKind.Design),
-            new("A ship template", "A stock or modded ship from your Ostranauts install.", ShipSourceKind.Template),
-            new("A ship in a save", "A ship you own in one of your save games.", ShipSourceKind.Save),
-        };
+        rows ??= DefaultRows;
 
         var root = new DockPanel { Margin = new Thickness(16) };
 

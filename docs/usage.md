@@ -432,6 +432,59 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
 - **Repair All…** (Design): swap every broken part on the ship — damaged walls, patched
   hull plates, wrecked devices — for its working form, ship-wide, in one undo step. See
   [Repairing damage](#repairing-damage).
+- **Docking Compatibility…** (Design): whether the design can actually hard-dock. See
+  [Docking](#docking--will-it-actually-mate) below.
+
+## Docking — will it actually mate
+
+A **Primary** airlock is all but guaranteed to mate with another ship's Primary, because
+the build rules keep the space in front of it clear. A **Secondary** has no such guarantee,
+and until now the only way to find out was to build the ship and try it in game.
+
+**Design ▸ Docking Compatibility…** answers it, at either of two ranges.
+
+- **Against one ship** lists every pairing: one row per airlock of that ship against an
+  airlock of yours, reading **Docks** or **Blocked** with the number of tiles in the way. Pick
+  the other ship from a **ship template** (the usual question: will this fit that station),
+  **another open design** in a second tab, a saved **.oplan** file, or a **ship in a save**.
+
+  Each row has a **Show on Planner** button, and it **draws the two ships docked** on the
+  plan: the other hull is ghosted at the pose that mates it with yours, under your own design
+  and dimmer, so the design you are editing stays the thing you read. On a blocked row it also
+  highlights the tiles of *your* design that are in the way, which together are normally all
+  you need to see what to move. Blocked rows are worth looking at for exactly that reason: you
+  see the two hulls overlapping and where. The ghosted ship is an overlay and nothing more: it
+  is not part of your design, cannot be edited, and is not saved or exported.
+- **Against every stock ship template** answers the vaguer question, "will this airlock dock
+  with a Primary at all". The game has no such rule — it only ever answers for two specific
+  ships — so this runs your airlocks against the Primary airlock of every ship template in
+  your install, the ones your mods add included, and reports the score. One that takes every
+  ship is as good as a Primary of your own; one that takes none will not dock with anything.
+  It reads every ship file, so it runs on the button rather than when the window opens.
+
+Three things about the answer are worth knowing, because none of them is visible on the plan.
+
+- **Two hulls must stay a full tile apart.** The only place they may close up is the collar
+  itself. So a wall standing level with your airlock can refuse a dock even though nothing
+  actually touches: it needs a tile of clear space around it that the other ship also wants.
+  Six of the shipped ships (the SecurityOutpost and the Vector line) refuse *each other* for
+  exactly this reason while mating with everything else.
+- **Deck cargo counts.** A crate near the airlock occupies space the same as a wall, so a
+  design that docks fine empty can stop docking once it is loaded. That is the game's rule,
+  not an Ostraplan one.
+- **Primary and Secondary make no difference here.** The distinction decides which airlock
+  bounds where you may build, and nothing at all about whether two ships can mate. A
+  Secondary fails more often only because it is put in places a Primary never is.
+
+Your design is always the ship flying *in*, and the ship you pick is the one being docked
+with. The game's own check is directional, so the two are not interchangeable.
+
+**Editing to fix a refusal.** The window stays out of your way like the other reports, so you
+can move the offending wall or crate with the ghosted ship still on screen. Doing that raises
+a bar across the top of the window saying the design has changed, and the ghost deliberately
+**stays where it was** rather than following your edits: the pose is what you are aiming at,
+and a target that moved every time you touched something would be no use. **Re-run** measures
+the design as it now stands, against the same ship, and puts the ghost back at the new pose.
 
 ## Simulate — what a hit would break, and wear you put there yourself
 

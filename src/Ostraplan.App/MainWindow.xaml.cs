@@ -972,6 +972,10 @@ public partial class MainWindow : Window
         // so rather than going on showing figures for a ship that no longer exists (see ReportWindow).
         session.RatingReport?.MarkStale();
         session.DiagnosticsReport?.MarkStale();
+        // The docking check goes stale the same way, and its ghosted ship stays put on purpose: editing to clear
+        // a blockage is what it is for, and a pose that moved with every edit would be the target shifting under
+        // you. Re-run is what re-measures it (see DockingWindow.MarkStale).
+        session.Docking?.MarkStale();
         // The manifest refreshes instead of going stale. It is one walk of the cargo trees rather than a full
         // analysis, and it is a tidying tool: a list that says "an item you just deleted may still be here" would
         // be worse than useless while you are working down it.
@@ -5371,7 +5375,209 @@ public partial class MainWindow : Window
         // Atmospheric flight on a design with no drive and no rotors is not a report, it is a column of zeroes.
         m.Items.Add(MenuAction("Flight Dynamics…", () => OnFlightClick(this, e),
             enabled: _doc is not null && !_doc.IsResidence));
+        m.Items.Add(new Separator());
+        // One entry: both readings ("will these two mate" and "will this airlock mate with anything") are the
+        // same feature asked at two ranges, and splitting them made the tool look like two (issue #47).
+        m.Items.Add(MenuAction("Docking Compatibility…", OpenDockingCheck, enabled: _doc is not null));
         OpenMenuUnder(m, BtnDesignMenu);
+    }
+
+    // ---- docking (issue #47) ----
+
+    private DockingWindow? _docking;
+
+    /// <summary>The active design as the docking check sees it. Always the INCOMING ship: the game's test is
+    /// directional, and flying your design in to something else is the way round a player meets it.</summary>
+    private DockShip? DesignAsDockShip()
+    {
+        if (_doc is null || _catalog is null) return null;
+        var name = _doc.FilePath is { } f ? Path.GetFileNameWithoutExtension(f) : _meta.Name;
+        return DockShip.FromDocument(_doc, _catalog, DockDefs.For(_catalog), name);
+    }
+
+    /// <summary>
+    /// Whether this design can hard-dock with a ship you pick. Modeless like the other reports, and it captures
+    /// the SESSION rather than the shim: the window outlives this method and its highlight has to land on the
+    /// design that asked for it rather than on whichever tab is active when the user gets round to clicking
+    /// (see CONVENTIONS).
+    /// </summary>
+    private void OpenDockingCheck()
+    {
+        if (DesignAsDockShip() is not { } design) return;
+        if (_docking is { } open) { open.Activate(); return; }
+
+        var session = _active;
+        // The blocking tiles reuse the canvas's existing tile highlight, the same one the Ship Rating report and
+        // the Problems list draw through. A second highlight layer drawing the identical rectangle would be
+        // duplication rather than clarity.
+        var window = new DockingWindow(design, DesignAsDockShip, _catalog!, _index,
+            cells => session.Board.SetLeakCells(cells),
+            parts => session.Board.SetDockedGhost(parts),
+            PickDockTarget)
+        {
+            Owner = this,
+        };
+        window.Closed += (_, _) => { _docking = null; session.Docking = null; };
+        _docking = window;
+        session.Docking = window;
+        window.Show();
+    }
+
+    /// <summary>
+    /// Read in the ship to dock against. Four sources, because the useful comparison differs: a template answers
+    /// "will I fit that station", another tab answers "do my two designs mate", and a design file or a save ship
+    /// answers it for something you already have.
+    ///
+    /// <para>A template is built from its own grid frame rather than imported first. That frame is part of the
+    /// answer (see <see cref="DockGrid"/>), and importing would replace it with Ostraplan's.</para>
+    ///
+    /// <para>Every other route keeps deck cargo, because the game counts it: a crate near an airlock refuses a
+    /// mate. Reading a ship layout-only here would report a dock the game will not give you.</para>
+    /// </summary>
+    private async Task<DockShip?> PickDockTarget(Window owner)
+    {
+        if (_catalog is null) return null;
+
+        var rows = new List<SourceKindRow>
+        {
+            new("A ship template", "A stock or modded ship from your Ostranauts install.", ShipSourceKind.Template),
+            new("Another open design", "One of the other tabs open right now.", ShipSourceKind.OpenTab),
+            new("A design", "One of your saved .oplan designs.", ShipSourceKind.Design),
+            new("A ship in a save", "A ship you own in one of your save games.", ShipSourceKind.Save),
+        };
+        var kindDlg = new ShipSourceDialog("Dock with which ship?",
+            "The ship your design would be docking with. Ostraplan reads its layout to test the fit; nothing is "
+            + "imported and your design is not touched.", rows) { Owner = owner };
+        if (kindDlg.ShowDialog() != true || kindDlg.Selected is not { } kind) return null;
+
+        return kind switch
+        {
+            ShipSourceKind.Template => DockFromTemplate(owner),
+            ShipSourceKind.OpenTab => DockFromOpenTab(owner),
+            ShipSourceKind.Design => DockFromDesign(owner),
+            ShipSourceKind.Save => await DockFromSave(owner),
+            _ => null,
+        };
+    }
+
+    private DockShip? DockFromTemplate(Window owner)
+    {
+        if (_index is null) return null;
+
+        var ships = TemplateImport.ListShipFiles(_index);
+        if (ships.Count == 0)
+        {
+            Dlg.Info(owner, "Docking Compatibility", "No ship templates were found in your game data.");
+            return null;
+        }
+
+        var browser = new TemplateBrowserDialog(ships) { Title = "Dock with which template?", Owner = owner };
+        if (browser.ShowDialog() != true || browser.Selected is not { } entry) return null;
+
+        try
+        {
+            var lookup = DockDefs.For(_catalog!);
+            foreach (var tmpl in ShipTemplate.ParseFileChecked(File.ReadAllText(entry.Path), out _))
+                return DockShip.FromTemplate(tmpl, _catalog!, lookup);
+            Dlg.Warn(owner, "Docking Compatibility", "That file holds no ship.");
+            return null;
+        }
+        catch (Exception ex)
+        {
+            Dlg.Error(owner, "Docking Compatibility", "Couldn't read that ship template.\n\n" + ex.Message);
+            return null;
+        }
+    }
+
+    private DockShip? DockFromOpenTab(Window owner)
+    {
+        var others = _sessions.Where(s => !ReferenceEquals(s, _active) && s.Doc is not null).ToList();
+        if (others.Count == 0)
+        {
+            Dlg.Info(owner, "Docking Compatibility",
+                "No other design is open. Open a second design in another tab to compare the two.");
+            return null;
+        }
+
+        var names = others
+            .Select(s => s.Doc!.FilePath is { } f ? Path.GetFileNameWithoutExtension(f) : s.Meta.Name)
+            .ToList();
+        var dlg = new ListPickDialog("Dock with which open design?",
+            "Both designs are read as they stand right now, unsaved edits included.", names) { Owner = owner };
+        if (dlg.ShowDialog() != true || dlg.SelectedIndex is not { } i) return null;
+
+        return DockShip.FromDocument(others[i].Doc!, _catalog!, DockDefs.For(_catalog!), names[i]);
+    }
+
+    private DockShip? DockFromDesign(Window owner)
+    {
+        var dlg = new OpenFileDialog
+        {
+            Title = "Choose the design to dock with",
+            Filter = "Ostraplan ship (*.oplan)|*.oplan|All files (*.*)|*.*",
+        };
+        if (dlg.ShowDialog(owner) != true) return null;
+
+        try
+        {
+            var file = OplanFile.Load(dlg.FileName);
+            var (doc, missing) = file.ToDocument(_catalog!);
+            // A part that could not be resolved is a hole in that ship's hull as far as this check can see, and a
+            // hole is exactly what lets a dock through. Say so rather than report a fit that is not really there.
+            if (missing.Count > 0)
+                Dlg.Warn(owner, "That design is missing mods",
+                    $"{missing.Count} part(s) in “{DesignName(file, dlg.FileName)}” aren't in your current game and "
+                    + "mods data, so they leave gaps in its hull.\n\n"
+                    + "The check may report a dock that the game would refuse.");
+            return DockShip.FromDocument(doc, _catalog!, DockDefs.For(_catalog!), DesignName(file, dlg.FileName));
+        }
+        catch (Exception ex)
+        {
+            Dlg.Error(owner, "Docking Compatibility", "Couldn't read that design.\n\n" + ex.Message);
+            return null;
+        }
+    }
+
+    private async Task<DockShip?> DockFromSave(Window owner)
+    {
+        if (_env is null) return null;
+
+        var saves = SaveImport.ListSaves(_env);
+        if (saves.Count == 0)
+        {
+            Dlg.Info(owner, "Docking Compatibility", "No save games found in your Ostranauts Saves folder.");
+            return null;
+        }
+
+        var picker = new SavePickerDialog(saves, "Dock with a ship in which save?",
+            "Reads the ship's layout to test the fit. Nothing is written and nothing is imported.",
+            "Choose save") { Owner = owner };
+        if (picker.ShowDialog() != true || picker.Selected is not { } save) return null;
+
+        var ships = SaveImport.ListPlayerShips(save.ZipPath);
+        if (ships.Count == 0)
+        {
+            Dlg.Warn(owner, "Docking Compatibility",
+                "Couldn't find a ship in that save (no owned ships and no current ship on record).");
+            return null;
+        }
+
+        var shipDlg = new ShipChoiceDialog(save.Name, ships) { Owner = owner };
+        if (shipDlg.ShowDialog() != true || shipDlg.Selected is not { } chosen) return null;
+
+        var (catalog, zip, regId) = (_catalog!, save.ZipPath, chosen.RegId);
+        try
+        {
+            // Deck cargo included, unlike the retrofit reader above: the game counts it when it tests a dock.
+            var result = await Ui.OffThread(
+                () => SaveImport.ImportShipLayout(zip, regId, catalog, ImportOptions.Everything));
+            return DockShip.FromDocument(result.Doc, catalog, DockDefs.For(catalog), chosen.Name);
+        }
+        catch (Exception ex)
+        {
+            Dlg.Error(owner, "Docking Compatibility", "Couldn't read that ship.\n\n" + ex.Message);
+            return null;
+        }
     }
 
     /// <summary>Fit to ship, the one-shot camera command that used to sit in the View menu among persistent

@@ -12,6 +12,25 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Docking compatibility, so you know a port mates before you build the ship.** A Primary airlock
+  is all but guaranteed to mate with another Primary; a Secondary is not, and the only way to find
+  out was to build the ship and try it. **Design ▸ Docking Compatibility…** answers it at either of
+  two ranges. **Against one ship** takes a ship template, another open tab, a saved design, or a
+  ship in a save, and lists every pairing of its airlocks against yours, each reading **Docks** or
+  **Blocked** with the number of tiles in the way. **Show on Planner** on any row **draws the two
+  ships docked**, the other hull ghosted at the pose that mates it with yours; on a blocked row it
+  also highlights the tiles of your design that are in the way. The window stays out of your way, so
+  you can move the offending wall with the other ship still on screen, and **Re-run** re-measures
+  once you have. **Against every stock ship template**
+  answers the vaguer question by running each of your airlocks against the Primary airlock of every
+  ship in your install, so a Secondary that takes 159 of 162 reads very differently from one that
+  takes none. Three things decide the answer and
+  none of them shows on the plan: two hulls must stay a full tile apart, so a wall standing level
+  with your airlock can refuse a dock without anything touching (six of the shipped ships refuse
+  each other for exactly that reason); deck cargo counts, so a design that docks empty can stop
+  docking once it is loaded; and Primary versus Secondary makes no difference at all, since docking
+  is pure geometry and the distinction only governs where you may build. Thanks to nighoggDatatype.
+  (#47)
 - **Footprints show which side a fixture is worked from.** The game marks the spot with a pair of blue
   footprints while you are installing certain items, and Ostraplan now draws the same mark in the same
   places: on the part under the build cursor, on a selected part beside its power nubs, and on **every**

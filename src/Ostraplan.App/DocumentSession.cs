@@ -55,6 +55,10 @@ internal sealed class DocumentSession
     /// subscriptions taken out when the session was built stay live.</summary>
     public CommandStack Stack { get; } = new();
 
+    /// <summary>This session's docking window, if one is open on it. Held so an edit can mark it stale, the
+    /// same as the rating and diagnostics reports.</summary>
+    public DockingWindow? Docking { get; set; }
+
     public ShipDocument? Doc { get; set; }
     public OplanMeta Meta { get; set; } = new();
 

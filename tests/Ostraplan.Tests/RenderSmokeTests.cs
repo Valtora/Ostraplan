@@ -1,5 +1,6 @@
 using System.IO;
 using System.Windows;
+using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
 using Ostraplan.App;
@@ -512,6 +513,153 @@ public class RenderSmokeTests
         canvas.FitContent();
         canvas.UpdateLayout();
         return canvas;
+    }
+
+    [SkippableFact]
+    public void Render_the_docked_ghost_beside_the_design()
+    {
+        // The other ship is drawn from the same sprite pipeline as your own, at the pose DockPose works out, and
+        // it autotiles against its OWN conditions rather than the document's — a ghost with no conds draws every
+        // wall as an isolated stub, which is right for a build cursor and wrong for a whole hull. This renders
+        // the design alone and then with a real stock ship docked to it, and holds the second to being visibly
+        // more than the first. Leaves both PNGs beside the test binaries for eyeballing.
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            var doc = new ShipDocument(g.Catalog);
+            new PlaceCommand(new Placement { DefName = Catalog.PrimaryDocksysDef, X = 0, Y = 0 }).Do(doc);
+            for (var x = 0; x < 7; x++)
+                for (var y = 2; y < 6; y++)
+                    new PlaceCommand(new Placement { DefName = "ItmFloorGrate01", X = x, Y = y }).Do(doc);
+
+            var lookup = DockDefs.For(g.Catalog);
+            var design = DockShip.FromDocument(doc, g.Catalog, lookup, "design");
+            Skip.If(design.Ports.Count == 0, "the seeded airlock did not register as a port");
+
+            // A real ship with a primary airlock, read in its own template frame.
+            DockShip? other = null;
+            foreach (var file in TemplateImport.ListShipFiles(g.Index))
+            {
+                foreach (var tmpl in ShipTemplate.ParseFileChecked(File.ReadAllText(file.Path), out _))
+                {
+                    var ship = DockShip.FromTemplate(tmpl, g.Catalog, lookup);
+                    if (ship.Ports.Any(p => !p.TypeB) && ship.Parts.Count is > 40 and < 4000) other = ship;
+                    if (other is not null) break;
+                }
+                if (other is not null) break;
+            }
+            Skip.If(other is null, "no suitable stock ship with a primary airlock");
+
+            var mate = DockMating.Mate(other!, design, other!.Ports.First(p => !p.TypeB), design.Ports[0]);
+            Skip.If(mate.Pose is null, "the pair produced no pose");
+            var posed = DockPose.ReceiverParts(other!, design, mate.Pose!);
+            Assert.NotEmpty(posed);
+
+            var canvas = new ShipCanvas { Sprites = new SpriteCache() };
+            canvas.SetDocument(doc);
+            canvas.Measure(new Size(900, 640));
+            canvas.Arrange(new Rect(0, 0, 900, 640));
+            canvas.FitContent();
+            canvas.UpdateLayout();
+
+            var bare = Snap(canvas, "smoke-docked-none.png");
+
+            Assert.False(canvas.HasDockedGhost);
+            canvas.SetDockedGhost(posed);
+            Assert.True(canvas.HasDockedGhost);
+            canvas.UpdateLayout();
+            var ghosted = Snap(canvas, "smoke-docked-ghost.png");
+
+            // A ghost that drew nothing, or drew off-screen, would leave the two frames the same size.
+            Assert.True(ghosted > bare,
+                $"the docked ghost added nothing to the frame ({bare} -> {ghosted} bytes)");
+
+            // And it comes off again.
+            canvas.SetDockedGhost([]);
+            Assert.False(canvas.HasDockedGhost);
+        });
+    }
+
+    private static long Snap(ShipCanvas canvas, string name)
+    {
+        var bitmap = new RenderTargetBitmap(900, 640, 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(canvas);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bitmap));
+        var path = Path.Combine(AppContext.BaseDirectory, name);
+        using (var stream = File.Create(path)) encoder.Save(stream);
+        return new FileInfo(path).Length;
+    }
+
+    [SkippableFact]
+    public void Render_the_docking_window_layout()
+    {
+        // The window's three states, rendered offscreen to PNGs beside the test binaries. It asserts only that
+        // each one drew something and stayed inside its declared width; the point is the same as --dlgsmoke's,
+        // which is to make a layout eyeballable without launching the app. The pane that pushed this in was the
+        // pair list: it replaced a matrix whose star-sized columns spread three buttons across the whole window.
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            ThemeManager.Apply("dark");
+
+            var doc = new ShipDocument(g.Catalog);
+            new PlaceCommand(new Placement { DefName = Catalog.PrimaryDocksysDef, X = 0, Y = 0 }).Do(doc);
+            for (var x = 0; x < 7; x++)
+                for (var y = 2; y < 6; y++)
+                    new PlaceCommand(new Placement { DefName = "ItmFloorGrate01", X = x, Y = y }).Do(doc);
+
+            var lookup = DockDefs.For(g.Catalog);
+            var design = DockShip.FromDocument(doc, g.Catalog, lookup, "Your Design");
+            Skip.If(design.Ports.Count == 0, "the seeded airlock did not register");
+
+            DockShip? other = null;
+            foreach (var file in TemplateImport.ListShipFiles(g.Index))
+            {
+                foreach (var t in ShipTemplate.ParseFileChecked(File.ReadAllText(file.Path), out _))
+                {
+                    var ship = DockShip.FromTemplate(t, g.Catalog, lookup);
+                    if (ship.Ports.Count >= 2) other = ship;
+                    if (other is not null) break;
+                }
+                if (other is not null) break;
+            }
+            Skip.If(other is null, "no stock ship carries two airlocks");
+
+            var window = new DockingWindow(design, () => design, g.Catalog, g.Index,
+                _ => { }, _ => { }, _ => Task.FromResult<DockShip?>(null));
+
+            SnapWindow(window, "dock-window-start.png");
+            window.ShowReportForPreview(DockMating.Cross(other!, design));
+            SnapWindow(window, "dock-window-pairs.png");
+            window.SetMode(DockingMode.EveryShip);
+            SnapWindow(window, "dock-window-survey.png");
+        });
+    }
+
+    /// <summary>Render a window's content offscreen at its declared width. Asserts the frame is non-trivial and
+    /// that nothing forced the layout wider than the window says it is, which is the failure a wrapping
+    /// TextBlock with no bound produces (CONVENTIONS.md).</summary>
+    private static void SnapWindow(Window window, string name)
+    {
+        const int w = 500;
+        var root = (FrameworkElement)window.Content;
+        if (root is Panel panel) panel.Background = ThemeManager.WindowBg;   // the window paints this, the visual does not
+        root.Width = w;
+        root.Measure(new Size(w, double.PositiveInfinity));
+        Assert.True(root.DesiredSize.Width <= w + 0.5,
+            $"{name}: content wants {root.DesiredSize.Width:0} px in a {w} px window");
+        var h = Math.Max(1, root.DesiredSize.Height);
+        root.Arrange(new Rect(0, 0, w, h));
+        root.UpdateLayout();
+
+        var bmp = new RenderTargetBitmap(w, (int)Math.Ceiling(h), 96, 96, PixelFormats.Pbgra32);
+        bmp.Render(root);
+        var encoder = new PngBitmapEncoder();
+        encoder.Frames.Add(BitmapFrame.Create(bmp));
+        var path = Path.Combine(AppContext.BaseDirectory, name);
+        using (var stream = File.Create(path)) encoder.Save(stream);
+        Assert.True(new FileInfo(path).Length > 1000, $"{name} suspiciously small");
     }
 
     private static void RunSta(Action action)

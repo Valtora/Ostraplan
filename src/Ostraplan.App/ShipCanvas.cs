@@ -3067,6 +3067,14 @@ public sealed class ShipCanvas : FrameworkElement
         // The backdrop is baked at pan zero, so shift it to the live pan with a transform — panning stays a
         // transform plus one blit instead of a rebuild per frame.
         dc.PushTransform(new TranslateTransform(_pan.X, _pan.Y));
+        // The docked ship goes under your own, and dimmer, so the design you are editing stays the thing you
+        // read. It is skipped in the normal pass: it takes no part in the lighting sim, only in the picture.
+        if (!_normalPass && GhostShip(docView) is { } ghostShip)
+        {
+            dc.PushOpacity(0.45);
+            dc.DrawDrawing(ghostShip);
+            dc.Pop();
+        }
         if (lit)
         {
             // Light Viz: the game-exact composite (albedo x accumulated light + glow decals), one doc-space
@@ -4379,6 +4387,91 @@ public sealed class ShipCanvas : FrameworkElement
     /// below stays well behaved, and far larger than any design's tile bounds.</summary>
     private static readonly Rect Everywhere = new(-1e7, -1e7, 2e7, 2e7);
 
+    // ---- the docked ghost: the other ship, drawn at the mating pose ----
+
+    private IReadOnlyList<(PartDef Part, int X, int Y, int Rot)> _ghostParts = [];
+    private TileConds? _ghostConds;
+    private DrawingGroup? _ghostShip;
+    private Rect _ghostRect;
+    private double _ghostZoom;
+
+    /// <summary>
+    /// Show the other ship's hull at the pose that mates it with this design, or clear it with an empty list.
+    ///
+    /// <para>It is an <b>overlay</b>, in the same sense as the strike marks and the leak highlight: nothing here
+    /// is in the document, saved, edited or exported, and the design is still one ship (SCOPE.md). Parts arrive
+    /// already transformed into this document's tile frame by <see cref="DockPose"/>.</para>
+    ///
+    /// <para>The conditions are accumulated here so the ghost's own walls autotile against each other. Building
+    /// them costs one pass over its parts, once, rather than per frame.</para>
+    /// </summary>
+    public void SetDockedGhost(IReadOnlyList<DockPart> parts)
+    {
+        _ghostParts = [];
+        _ghostConds = null;
+        _ghostShip = null;
+
+        if (parts.Count > 0 && Doc is { } doc)
+        {
+            var resolved = new List<(PartDef Part, int X, int Y, int Rot)>(parts.Count);
+            var conds = new TileConds(doc.Catalog);
+            foreach (var p in parts)
+            {
+                if (doc.Catalog.Lookup(p.DefName) is not { } part) continue;
+                resolved.Add((part, p.X, p.Y, p.Rot));
+                conds.Apply(p.X, p.Y, p.Rot, part.Item, +1);
+            }
+            _ghostParts = resolved;
+            _ghostConds = conds;
+        }
+
+        InvalidateVisual();
+    }
+
+    /// <summary>Whether a docked ghost is currently shown. The window drives this; the canvas keeps it so the
+    /// host can tell without holding a second copy of the flag.</summary>
+    public bool HasDockedGhost => _ghostParts.Count > 0;
+
+    /// <summary>
+    /// The ghost baked the same way the ship is: a frozen drawing over a window wider than the viewport, at pan
+    /// zero, so panning is a transform. That is what makes a 29,863-part station affordable — the cost is what
+    /// is on screen, not what exists.
+    ///
+    /// <para>Keyed on the rect and the zoom rather than invalidated alongside <see cref="_staticShip"/>: the
+    /// ghost does not come from the document, so none of the reasons the ship's bake is dropped (a placement, a
+    /// move drag, a ghosting change) apply to it.</para>
+    /// </summary>
+    private Drawing? GhostShip(Rect visibleDoc)
+    {
+        if (_ghostParts.Count == 0) return null;
+        if (_ghostShip is not null && _ghostZoom == Zoom && _ghostRect.Contains(visibleDoc)) return _ghostShip;
+
+        var rect = BakeWholeDesign
+            ? Everywhere
+            : Rect.Inflate(visibleDoc,
+                Math.Max(visibleDoc.Width * BakeMargin, 1), Math.Max(visibleDoc.Height * BakeMargin, 1));
+
+        var savedPan = _pan;
+        _pan = default;
+        try
+        {
+            var dg = new DrawingGroup();
+            using (var ctx = dg.Open())
+                foreach (var (part, x, y, rot) in _ghostParts)
+                {
+                    var (w, h) = GridMath.Size(part.Item.Width, part.Item.Height, rot);
+                    // A sprite can overhang its footprint, so the cull is deliberately generous by a tile.
+                    if (!rect.IntersectsWith(new Rect(x - 1, y - 1, w + 2, h + 2))) continue;
+                    DrawSprite(ctx, part, x, y, rot, ghost: true, autotile: _ghostConds);
+                }
+            dg.Freeze();
+            _ghostRect = rect;
+            _ghostZoom = Zoom;
+            return _ghostShip = dg;
+        }
+        finally { _pan = savedPan; }
+    }
+
     private Drawing StaticShip(Rect visibleDoc)
     {
         var excluding = _drag == Drag.Move;
@@ -4645,8 +4738,12 @@ public sealed class ShipCanvas : FrameworkElement
     internal static int DrawRot(PartDef part, int rot) =>
         part.Item.HasSpriteSheet ? 0 : GridMath.Norm(rot);
 
+    /// <param name="autotile">Tile conditions to resolve an autotiled part's sheet cell against, instead of the
+    /// document's. The docked ghost needs it: its walls have to join up with <b>each other</b>, and a ghost with
+    /// no conds at all draws every wall as an isolated stub — right for a build cursor, wrong for a whole ship.</param>
     private void DrawSprite(
-        DrawingContext dc, PartDef part, int gx, int gy, int rot, bool ghost, double? condition = null)
+        DrawingContext dc, PartDef part, int gx, int gy, int rot, bool ghost, double? condition = null,
+        TileConds? autotile = null)
     {
         // A part with no normal map contributes nothing to the normal pass: every lookup below ends in a null
         // cell and draws nothing (alpha 0 reads as flat downstream). Leaving before the sheet loop matters more
@@ -4666,7 +4763,9 @@ public sealed class ShipCanvas : FrameworkElement
             for (var r = 0; r < h; r++)
                 for (var c = 0; c < w; c++)
                 {
-                    var mask = ghost ? 0 : Autotile.MaskAt(Doc!.Conds, ct, gx + c, gy + r);
+                    var mask = autotile is { } ghostConds ? Autotile.MaskAt(ghostConds, ct, gx + c, gy + r)
+                        : ghost ? 0
+                        : Autotile.MaskAt(Doc!.Conds, ct, gx + c, gy + r);
                     var (col, row) = Autotile.Cell(mask, cols, rows);
                     System.Windows.Media.Imaging.BitmapSource? cell;
                     if (_normalPass) cell = Sprites.NormalSheetCell(part, col, row);
