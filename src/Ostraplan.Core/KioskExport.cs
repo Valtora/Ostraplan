@@ -61,6 +61,23 @@ public static class LootList
         var entry = FormatEntry(name, weight, count);
         return string.IsNullOrWhiteSpace(piped) ? entry : piped + "|" + entry;
     }
+
+    /// <summary>
+    /// Drop an alternative from a <c>|</c>-delimited string. A name that is not there returns the string
+    /// verbatim, so the no-op case costs nothing and churns nothing; a removal necessarily re-serializes the
+    /// survivors, which normalises their weight formatting (<c>0.0170</c> becomes <c>0.017</c>) and nothing else.
+    ///
+    /// <para>This is the other half of <see cref="Append"/>, and it exists because an export has to be able to
+    /// take its own ship back out of a pool it previously put it into. See
+    /// <see cref="KioskExport.StripShipsFromPool"/> for why that matters.</para>
+    /// </summary>
+    public static string Remove(string piped, string name)
+    {
+        if (!Contains(piped, name)) return piped;
+        return string.Join('|', Parse(piped)
+            .Where(e => !string.Equals(e.Name, name, StringComparison.Ordinal))
+            .Select(e => FormatEntry(e.Name, e.Weight, e.Count)));
+    }
 }
 
 /// <summary>
@@ -177,15 +194,18 @@ public static class KioskExport
         DerelictBands.OrderBy(b => Math.Abs(partCount - b.Median)).ThenBy(b => b.Median).First().Pool;
 
     /// <summary>Add <paramref name="shipName"/> to a regular broker pool as one more weighted alternative,
-    /// preserving every ship already in the effective pool. Returns the full override object to write.</summary>
-    public static JsonObject BrokerPoolOverride(DataIndex index, string poolName, string shipName, double weight) =>
-        AppendShipToPool(ClonePoolOrDefault(index, poolName), shipName, weight);
+    /// preserving every ship already in the effective pool. Returns the full override object to write.
+    /// <paramref name="owned"/> is stripped from the pool first (see <see cref="StripShipsFromPool"/>).</summary>
+    public static JsonObject BrokerPoolOverride(
+        DataIndex index, string poolName, string shipName, double weight, IEnumerable<string>? owned = null) =>
+        AppendShipToPool(StripShipsFromPool(ClonePoolOrDefault(index, poolName), owned), shipName, weight);
 
     /// <summary>Add <paramref name="shipName"/> to a derelict ring's pool. Mechanically identical to
     /// <see cref="BrokerPoolOverride"/> — both are weighted <c>aCOs</c> picks — and named separately because the
     /// two mean entirely different things to a player.</summary>
-    public static JsonObject DerelictPoolOverride(DataIndex index, string poolName, string shipName, double weight) =>
-        BrokerPoolOverride(index, poolName, shipName, weight);
+    public static JsonObject DerelictPoolOverride(
+        DataIndex index, string poolName, string shipName, double weight, IEnumerable<string>? owned = null) =>
+        BrokerPoolOverride(index, poolName, shipName, weight, owned);
 
     /// <summary>Point a Special Offer pool at <paramref name="shipName"/> — a straight overwrite, since a
     /// Special Offer pool is always exactly one pinned ship at weight 1.</summary>
@@ -201,6 +221,35 @@ public static class KioskExport
         var first = aCOs.Count > 0 ? aCOs[0]?.GetValue<string>() ?? "" : "";
         var updated = LootList.Append(first, shipName, weight);
         if (aCOs.Count > 0) aCOs[0] = updated; else aCOs.Add(updated);
+        return pool;
+    }
+
+    /// <summary>
+    /// Take a mod's <b>own</b> ships back out of a pool's pick, in place, before it appends the ships it is
+    /// writing now. Returns the same object for chaining. Pure — the argument is mutated, so callers pass a
+    /// clone (<see cref="ClonePoolOrDefault"/>).
+    ///
+    /// <para><b>Why an export has to do this at all.</b> The pool it clones is the <i>effective</i> data, and
+    /// once a mod is registered that includes the mod's own last write. So a re-export clones a pool that
+    /// already lists the ship under whatever name it had last time, and <see cref="LootList.Append"/> leaves an
+    /// entry it finds. Rename the ship, or take it out of a bundle, and the kiosk keeps selling a ship the mod
+    /// no longer contains: the pool names a template that is not there any more. Stripping first and appending
+    /// after makes the write say exactly what the mod holds now.</para>
+    ///
+    /// <para><b>Only the mod's own names.</b> Another ship mod's entry in the same pool is preserved, exactly as
+    /// <see cref="AppendShipToPool"/> preserves it — that clash is Ostrasort's <c>--patch</c> case and not this
+    /// one. A <b>replacement</b> export owns no name here either: its <c>strName</c> is the core ship's, which
+    /// core's own pools legitimately list, and stripping that would take a vanilla ship out of the game.</para>
+    /// </summary>
+    public static JsonObject StripShipsFromPool(JsonObject pool, IEnumerable<string>? names)
+    {
+        if (names is null) return pool;
+        var aCOs = EnsureACOs(pool);
+        if (aCOs.Count == 0) return pool;
+
+        var first = aCOs[0]?.GetValue<string>() ?? "";
+        var stripped = names.Aggregate(first, LootList.Remove);
+        if (stripped != first) aCOs[0] = stripped;
         return pool;
     }
 

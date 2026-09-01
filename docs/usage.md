@@ -891,6 +891,9 @@ Writes a spawnable local mod (`data/ships/<Name>.json` in
     you want — assembling a modpack, wiring `loot.json` yourself, referencing the ship from
     another mod — tick **No route: I'll wire it up myself** under **Advanced**. That section
     opens on its own when nothing is ticked and stays shut once the step has routes in it.
+    Exporting again over the same mod folder rewrites this to match what you have chosen now: a
+    route you have since unticked is deleted rather than left behind, and a ship you have renamed
+    leaves no entry under its old name. Ships other mods added to the same kiosks are untouched.
   - **Derelict fields** come in three size bands plus Venus. Two things are worth knowing.
     They are filled when a world is generated, so ticking one reaches a **new game only** —
     a save you already have will never grow one. And the game wrecks a derelict itself when

@@ -2418,9 +2418,19 @@ template one).
 > writing. **Re-verify per patch:** the two spawn radii, the ferry range, and whether
 > `aPathRecent` is still the only json-gated field on `ShipSitu`.
 
-> **Ported in Ostraplan:** `KioskExport` (`AppendShipToPool`, `PinShipToPool`),
-> `StartingShipExport`. Where another ship mod overrides the same pool, whole-object load
-> semantics would drop one side; the resolution is Ostrasort's per-item-union `--patch`.
+> **Ported in Ostraplan:** `KioskExport` (`AppendShipToPool`, `PinShipToPool`,
+> `StripShipsFromPool`), `StartingShipExport`. Where another ship mod overrides the same pool,
+> whole-object load semantics would drop one side; the resolution is Ostrasort's per-item-union
+> `--patch`.
+>
+> **A pool clone already contains the exporting mod's own last write.** The clone source is the
+> *effective* data, and a registered mod is part of that, so an export re-reads whatever it wrote
+> the time before. `AppendShipToPool` then finds its own entry present and leaves it, which is
+> correct for another mod's entry and wrong for its own: a ship since renamed or dropped stays in
+> the pool naming a template the mod no longer defines. An export therefore strips the names it
+> owns before appending the ones it holds now. What it owns is the ship it is writing plus the
+> `strName`s in the `data/ships` file it is about to overwrite, **minus** a replacement's target,
+> which is a core ship's name that core's own pools list.
 
 ### Apartments are ships, sold as station sub-modules
 

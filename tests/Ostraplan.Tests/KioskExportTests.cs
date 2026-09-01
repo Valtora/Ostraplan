@@ -49,6 +49,23 @@ public class KioskExportTests
     }
 
     [Fact]
+    public void Remove_drops_one_alternative_and_keeps_the_rest()
+    {
+        Assert.Equal("A=0.02x1|C=0.04x1", LootList.Remove("A=0.02x1|B=0.03x1|C=0.04x1", "B"));
+
+        // a range count on a survivor is a string in the game's format and has to stay one
+        Assert.Equal("A=0.02x3-10", LootList.Remove("A=0.02x3-10|B=0.03x1", "B"));
+    }
+
+    [Fact]
+    public void Remove_returns_the_string_verbatim_when_the_name_is_absent()
+    {
+        const string pool = "A=0.0170x1|B=0.03x1";
+        Assert.Same(pool, LootList.Remove(pool, "NotHere"));   // not merely equal: nothing is re-serialized
+        Assert.Equal("", LootList.Remove("", "NotHere"));
+    }
+
+    [Fact]
     public void FormatEntry_uses_invariant_culture_decimals()
     {
         Assert.Equal("MyShip=0.017x1", LootList.FormatEntry("MyShip", 0.017));
@@ -83,6 +100,34 @@ public class KioskExportTests
         Assert.Single(aCOs);
         var names = LootList.Parse(aCOs[0]!.GetValue<string>()).Select(e => e.Name).ToList();
         Assert.Equal(["Babak", "ShuttleSmall", "Vagabond+"], names);
+    }
+
+    [Fact]
+    public void StripShipsFromPool_takes_out_only_the_names_the_mod_owns()
+    {
+        // Babak is core's, Harrier is another ship mod's, Kestrel is ours from a previous export.
+        var pool = Pool("RandomShipBrokerOKLG", "Babak=0.017x1|Kestrel=0.05x1|Harrier=0.05x1");
+        KioskExport.StripShipsFromPool(pool, ["Kestrel"]);
+
+        var names = LootList.Parse(pool["aCOs"]!.AsArray()[0]!.GetValue<string>()).Select(e => e.Name).ToList();
+        Assert.Equal(["Babak", "Harrier"], names);   // another mod's entry is preserved, exactly as an append preserves it
+    }
+
+    /// <summary>
+    /// The bug this exists for: the pool an export clones is the <i>effective</i> data, which once the mod is
+    /// registered already carries the mod's own last write. Renaming the ship and exporting again used to leave
+    /// the old name in the pool, so the kiosk went on offering a template the mod no longer contained.
+    /// </summary>
+    [Fact]
+    public void A_re_export_under_a_new_name_leaves_no_entry_for_the_old_one()
+    {
+        var pool = Pool("RandomShipBrokerOKLG", "Babak=0.017x1|Kestrel=0.05x1");
+
+        KioskExport.AppendShipToPool(KioskExport.StripShipsFromPool(pool, ["Kestrel"]), "Kestrel Mk2", 0.05);
+
+        var names = LootList.Parse(pool["aCOs"]!.AsArray()[0]!.GetValue<string>()).Select(e => e.Name).ToList();
+        Assert.Equal(["Babak", "Kestrel Mk2"], names);
+        Assert.Single(pool["aCOs"]!.AsArray());   // still one element: the game picks one ship per roll
     }
 
     [Fact]

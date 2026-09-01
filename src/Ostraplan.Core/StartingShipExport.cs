@@ -47,7 +47,7 @@ public static class StartingShipExport
         string title, string desc, bool exclusive = false)
     {
         var token = Token(shipName);
-        var intro = "CGEnc" + token + "Intro";
+        var intro = IntroName(shipName);
         var take = "CGEnc" + token + "Take";
         var reward = "CGEnc" + token + "Reward";
 
@@ -130,6 +130,11 @@ public static class StartingShipExport
         ["aLoots"] = new JsonArray(),
         ["strType"] = "trigger",
     };
+
+    /// <summary>The <c>strName</c> of the intro this ship contributes to <see cref="ShipEventsPool"/>. Derived
+    /// rather than stored, so an export that has to take its <b>previous</b> intro back out of that pool (a ship
+    /// since renamed, or dropped) names the same object <see cref="Build"/> would have written.</summary>
+    public static string IntroName(string shipName) => "CGEnc" + Token(shipName) + "Intro";
 
     /// <summary>A strName-safe token from the ship name: letters and digits only, never empty. Used to build the
     /// unique <c>CGEnc&lt;Token&gt;Intro/Take/Reward</c> strNames for this ship's chargen chain.</summary>

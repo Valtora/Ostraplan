@@ -705,6 +705,10 @@ public static class ShipExport
         Directory.CreateDirectory(shipsDir);
 
         var shipPath = Path.Combine(shipsDir, folderName + ".json");
+        // What this mod held before this write, read while the file is still the old one. It is the only record
+        // of a name the mod put into the game's loot pools under a previous export, which the delivery pass has
+        // to take back out (see OwnedShipNames).
+        var previousShips = ReadShipNames(shipPath);
         File.WriteAllText(shipPath, Serialize(ship));
 
         var modInfoPath = Path.Combine(modDir, "mod_info.json");
@@ -724,14 +728,11 @@ public static class ShipExport
 
         var previewCount = WritePreviewImages(modDir, strName, opts.Preview, warnings);
 
-        var touchedLoot = false;
-        if (opts.Delivery is { TouchesLoot: true } delivery)
-        {
-            if (index is null)
-                warnings.Add("Delivery options were set but no game data was available to resolve loot pools; skipped.");
-            else
-                touchedLoot = WriteDeliveryFiles(modDir, strName, delivery, index, warnings);
-        }
+        // Always reconciled, not only when there is something to write: a delivery the user has since taken away
+        // leaves files behind that keep selling the ship, and those are this mod's own files to clear.
+        var touchedLoot = WriteDeliveryFiles(
+            modDir, strName, opts.Delivery ?? ShipDelivery.None, index,
+            OwnedShipNames(previousShips, strName, opts.ReplaceTarget), warnings);
 
         return new ExportResult(
             modDir, shipPath, modInfoPath, ship.AItems.Length, roomCount, rating, warnings, touchedLoot, previewCount);
@@ -811,30 +812,62 @@ public static class ShipExport
         : shipName;
 
     /// <summary>
-    /// Write the loot/lifeevent/interaction files that make the ship obtainable. <paramref name="shipRef"/> is the
-    /// ship's spawn name — the design's <c>strName</c> (the loot <c>aCOs</c> reference the ship template by that
-    /// name). Broker + Special-Offer overrides and the starting-ship reward pool all share one
+    /// Reconcile the loot/lifeevent/interaction files that make the ship obtainable, so what is on disk after
+    /// this call is exactly what <paramref name="delivery"/> asks for and nothing else. <paramref name="shipStrName"/>
+    /// is the ship's spawn name — the design's <c>strName</c> (the loot <c>aCOs</c> reference the ship template by
+    /// that name). Broker + Special-Offer overrides and the starting-ship reward pool all share one
     /// <c>data/loot/loot.json</c>; the starting-ship chain adds <c>data/lifeevents</c> + <c>data/interactions</c>.
     /// Returns whether any loot was written.
+    ///
+    /// <para><b>A delivery that has been taken away is a deletion, not an omission.</b> These files are written by
+    /// the mod and read whole, so an export that simply stopped writing them would leave the previous export's
+    /// still on disk and the mod would go on selling a ship no route now points at. Only this mod's own delivery
+    /// files are touched; nothing else in the folder is.</para>
+    ///
+    /// <para><paramref name="owned"/> is the ship names this mod itself has put into those pools, stripped from
+    /// each clone before the current ships are appended (see <see cref="KioskExport.StripShipsFromPool"/>).</para>
     /// </summary>
     private static bool WriteDeliveryFiles(
-        string modDir, string shipStrName, ShipDelivery delivery, DataIndex index, List<string> warnings)
+        string modDir, string shipStrName, ShipDelivery delivery, DataIndex? index,
+        IReadOnlyCollection<string> owned, List<string> warnings)
     {
+        var lootPath = Path.Combine(modDir, "data", "loot", "loot.json");
+        var lifePath = Path.Combine(modDir, "data", "lifeevents", "lifeevents.json");
+        var interPath = Path.Combine(modDir, "data", "interactions", "interactions.json");
+
+        if (!delivery.TouchesLoot)
+        {
+            RemoveIfPresent(lootPath);
+            RemoveIfPresent(lifePath);
+            RemoveIfPresent(interPath);
+            return false;
+        }
+
+        if (index is null)
+        {
+            // Nothing is swept here on purpose: with no data to rebuild the pools from, the previous export's
+            // files are a better state to leave behind than none at all.
+            warnings.Add("Delivery options were set but no game data was available to resolve loot pools; skipped.");
+            return false;
+        }
+
         // The loot aCOs reference a ship by its data/ships strName (the ship object's strName — the design name, or
         // the replace target when replacing), NOT the display publicName. The caller passes exactly that.
 
         var loot = new List<JsonObject>();
         foreach (var pool in delivery.BrokerPools)
-            loot.Add(KioskExport.BrokerPoolOverride(index, pool, shipStrName, delivery.BrokerWeight));
+            loot.Add(KioskExport.BrokerPoolOverride(index, pool, shipStrName, delivery.BrokerWeight, owned));
         foreach (var pool in delivery.SpecialOfferPools)
             loot.Add(KioskExport.SpecialOfferOverride(index, pool, shipStrName));
         foreach (var pool in delivery.Derelicts)
-            loot.Add(KioskExport.DerelictPoolOverride(index, pool, shipStrName, delivery.DerelictWeight));
+            loot.Add(KioskExport.DerelictPoolOverride(index, pool, shipStrName, delivery.DerelictWeight, owned));
 
         List<JsonObject>? lifeevents = null, interactions = null;
         if (delivery.StartingShip)
         {
-            var eventsPool = KioskExport.ClonePoolOrDefault(index, StartingShipExport.ShipEventsPool);
+            var eventsPool = KioskExport.StripShipsFromPool(
+                KioskExport.ClonePoolOrDefault(index, StartingShipExport.ShipEventsPool),
+                owned.Select(StartingShipExport.IntroName));
             var frags = StartingShipExport.Build(
                 eventsPool, shipStrName, delivery.StartingShipWeight, delivery.StartingShipStation,
                 delivery.StartingShipMortgage,
@@ -848,11 +881,68 @@ public static class ShipExport
             interactions = frags.Interactions.ToList();
         }
 
-        if (loot.Count > 0) WriteJsonArray(Path.Combine(modDir, "data", "loot", "loot.json"), loot);
-        if (lifeevents is { Count: > 0 }) WriteJsonArray(Path.Combine(modDir, "data", "lifeevents", "lifeevents.json"), lifeevents);
-        if (interactions is { Count: > 0 }) WriteJsonArray(Path.Combine(modDir, "data", "interactions", "interactions.json"), interactions);
+        WriteOrRemove(lootPath, loot);
+        WriteOrRemove(lifePath, lifeevents);
+        WriteOrRemove(interPath, interactions);
 
         return loot.Count > 0;
+    }
+
+    /// <summary>
+    /// The ship names this mod itself has put into the game's loot pools, and may therefore take back out.
+    ///
+    /// <para>It is the ship being written plus whatever the mod's previous export wrote, because a design renamed
+    /// between exports leaves its old name in a pool that this write is about to clone. A <b>replacement</b> owns
+    /// no name: its <c>strName</c> is a core ship's, listed in core's own pools, and stripping that would take a
+    /// vanilla ship out of the game. That subtraction runs last so it also catches the name arriving via
+    /// <paramref name="previousShips"/>.</para>
+    /// </summary>
+    internal static IReadOnlyCollection<string> OwnedShipNames(
+        IReadOnlyList<string> previousShips, string strName, string? replaceTarget)
+    {
+        var owned = new HashSet<string>(previousShips, StringComparer.Ordinal) { strName };
+        if (replaceTarget is { Length: > 0 } target) owned.Remove(target.Trim());
+        return owned;
+    }
+
+    /// <summary>
+    /// The <c>strName</c>s in a <c>data/ships</c> file this export is about to overwrite, or empty when there is
+    /// no readable file there. Never throws: a file that cannot be read tells us nothing about what the mod used
+    /// to hold, which is the same position as there being no file, and neither is a reason to refuse the export.
+    /// </summary>
+    internal static IReadOnlyList<string> ReadShipNames(string shipFilePath)
+    {
+        try
+        {
+            if (!File.Exists(shipFilePath)) return [];
+            if (JsonNode.Parse(File.ReadAllText(shipFilePath)) is not JsonArray ships) return [];
+            return [.. ships.OfType<JsonObject>()
+                .Select(s => s["strName"]?.GetValue<string>())
+                .Where(n => n is { Length: > 0 })
+                .Select(n => n!)];
+        }
+        catch
+        {
+            return [];
+        }
+    }
+
+    /// <summary>Write a data file, or delete the one that is there when this export has nothing to put in it.</summary>
+    private static void WriteOrRemove(string path, IReadOnlyList<JsonObject>? objects)
+    {
+        if (objects is { Count: > 0 }) WriteJsonArray(path, objects);
+        else RemoveIfPresent(path);
+    }
+
+    /// <summary>Delete a data file this mod wrote before, and its folder with it once that folder is empty, so a
+    /// removed delivery leaves no trace rather than an empty <c>data/loot</c>.</summary>
+    private static void RemoveIfPresent(string path)
+    {
+        if (!File.Exists(path)) return;
+        File.Delete(path);
+        var dir = Path.GetDirectoryName(path);
+        if (dir is not null && Directory.Exists(dir) && !Directory.EnumerateFileSystemEntries(dir).Any())
+            Directory.Delete(dir);
     }
 
     /// <summary>

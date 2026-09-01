@@ -97,8 +97,9 @@ public sealed class ModDriver : ExportDriver
         var acks = new List<string>();
         if (Directory.Exists(_modDir) && Directory.EnumerateFileSystemEntries(_modDir).Any())
             acks.Add($"A folder named \"{Path.GetFileName(_modDir)}\" already exists here. Its data files (ship, and " +
-                     $"any loot/lifeevents/interactions) will be replaced, as will the preview art in " +
-                     $"images\\ships\\{strName}. Other files in the folder are left alone.");
+                     $"any loot/lifeevents/interactions) will be replaced, and any left over from a route you have " +
+                     $"since taken away will be deleted. The preview art in images\\ships\\{strName} is redrawn. " +
+                     "Other files in the folder are left alone.");
 
         return new BuildOutcome(facts, warnings, acks);
     }

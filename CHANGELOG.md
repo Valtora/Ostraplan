@@ -120,6 +120,16 @@ each release was verified against is recorded in
   a 20-wide hull mirrors about its real centre. (#46)
 
 ### Fixed
+- **A mod stops offering a ship it no longer contains.** The kiosk, Special Offer, derelict and
+  Shipbreaker-start data an export writes was only ever added to, never reconciled, so two things
+  outlived a re-export. Taking every route away left the previous export's `loot.json` in the mod
+  folder untouched, and the mod went on selling the ship. Renaming the design left the old name in
+  the kiosk pool beside the new one, pointing at a ship the mod no longer held: the pool an export
+  clones is the effective game data, which once the mod is registered already carries the mod's own
+  last write. An export now rewrites those files to say exactly what the mod holds, deletes the ones
+  no route needs any more, and takes its own earlier names back out of a pool before adding the
+  current ones. Entries another ship mod put in the same pool are preserved exactly as before, and a
+  replacement export never touches the name of the ship it replaces, which is a vanilla ship's.
 - **A door no longer draws squashed into a single tile until you restart.** Every part's sprite is
   measured once and the measurement kept for as long as the app runs, and a measurement that
   *failed* was kept too. So a single unlucky read of a PNG, which is easy to come by if a virus
