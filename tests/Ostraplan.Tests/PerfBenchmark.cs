@@ -27,9 +27,11 @@ namespace Ostraplan.Tests;
 [Trait("Category", "Benchmark")]
 public sealed class PerfBenchmark(ITestOutputHelper o)
 {
-    /// <summary>Three points across the real scale range: a large player ship, a mid station, and the largest
-    /// template the game ships. Median template is ~900 parts, so the first row is already a big design.</summary>
-    public static TheoryData<string> Designs => new() { "Dancing Jack", "Station_SVIR", "LA_MAINTENANCE_1" };
+    /// <summary>Three points across the real scale range: a large ship, a mid station, and the largest template
+    /// the game ships (~4k, ~18k and ~30k parts). Median template is ~900 parts, so the first row is already a
+    /// big design. All three are the game's own, so the benchmark is comparable between machines and cannot be
+    /// taken out by an unsubscribed mod.</summary>
+    public static TheoryData<string> Designs => new() { "Babak", "Station_SVIR", "LA_MAINTENANCE_1" };
 
     /// <summary>Mean wall-clock of <paramref name="iters"/> runs, after one warm-up run.</summary>
     private static double Ms(Action a, int iters)
@@ -200,11 +202,6 @@ public sealed class PerfBenchmark(ITestOutputHelper o)
         }
     }
 
-    private static ShipDocument Load((GameEnv Env, DataIndex Index, Catalog Catalog) g, string design, out string name)
-    {
-        var f = TemplateImport.ListShipFiles(g.Index)
-            .First(x => x.Name.Contains(design, StringComparison.OrdinalIgnoreCase));
-        name = f.Name;
-        return TemplateImport.LoadFile(f.Path, g.Catalog).Doc;
-    }
+    private static ShipDocument Load((GameEnv Env, DataIndex Index, Catalog Catalog) g, string design, out string name) =>
+        TestData.Template(g, design, out name);
 }

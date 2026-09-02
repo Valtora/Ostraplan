@@ -60,12 +60,14 @@ public class BakeWindowTests
 
     /// <summary>A real ship, because the shapes that break this are the ones the game authors: sprites wider than
     /// their footprint, the big tanks' 3x3 body inside a 7x7 socket, and sheet parts that autotile off neighbours
-    /// sitting outside the window.</summary>
-    private static ShipDocument RealShip((GameEnv Env, DataIndex Index, Catalog Catalog) g)
-    {
-        var f = TemplateImport.ListShipFiles(g.Index).First(x => x.Name.Contains("Dancing Jack", StringComparison.OrdinalIgnoreCase));
-        return TemplateImport.LoadFile(f.Path, g.Catalog).Doc;
-    }
+    /// sitting outside the window.
+    ///
+    /// <para>The Babak, because it is one of the game's own and carries all three at a size worth windowing
+    /// (~4,000 parts over 37x95 tiles). It used to be a design of the author's that a mod provided, which is a
+    /// hull nobody else has: these tests all failed on any other machine, and on this one the day the mod
+    /// went.</para></summary>
+    private static ShipDocument RealShip((GameEnv Env, DataIndex Index, Catalog Catalog) g) =>
+        TestData.Template(g, "Babak");
 
     /// <summary>
     /// The ground truth: the same frame with the culling out of the way. Everything above compares the canvas

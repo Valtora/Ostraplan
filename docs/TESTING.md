@@ -115,11 +115,21 @@ game update that changes a sprite. Its ground-truth checks render the same frame
 checks that only compare two routes to a view cannot catch a window that is uniformly too tight, since both
 sides then lose the same content and agree.
 
+## A real hull in a test is a CORE hull
+
+Anything that needs an authored ship rather than a synthetic one takes it from the game's own 220 templates,
+through `TestData.Template`. Naming a hull that a **mod** provides makes the test pass on one machine and fail
+on every other, and it fails opaquely: `BakeWindowTests` and `PerfBenchmark` both leaned on a modded ship, and
+the day it was unsubscribed eleven tests began failing out of a LINQ lookup with "Sequence contains no matching
+element", which reads as a rendering bug rather than as missing data. `TestData.Template` skips with the
+template's name instead, and core is on every install that has the game at all.
+
 ## The perf benchmark
 
 `PerfBenchmark` is a **third tier**: a timing printout, not an assertion. It loads three real
-templates spanning the scale range (a large player ship, a mid station, and the largest template
-the game ships) and reports what the per-edit repaint and each analysis pass cost on them.
+templates spanning the scale range (the Babak at ~4k parts, Station_SVIR at ~18k, and LA_MAINTENANCE_1 at ~30k,
+the largest the game ships) and reports what the per-edit repaint and each analysis pass cost on them. All three
+are core, so a timing is comparable between machines.
 
 Nothing in it fails on a number, because a timing depends on the machine and what else is running.
 It exists so a change aimed at responsiveness can be held against a before, in the same way

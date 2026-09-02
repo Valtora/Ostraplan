@@ -36,4 +36,29 @@ internal static class TestData
         Skip.IfNot(Game is not null, "requires a local Ostranauts install");
         return Game!.Value;
     }
+
+    /// <summary>
+    /// Load a ship template by file name, for a test that needs a real authored hull rather than a synthetic one.
+    ///
+    /// <para><b>Name a template the game ships.</b> A test that reaches for a hull from a mod passes only on the
+    /// machine that has that mod, and fails on every other with nothing to say why: an unsubscribed mod took
+    /// eleven of these down at once, hours after the mod went, and the failure read as a rendering bug. Core's
+    /// 220 templates are on every install that has the game at all.</para>
+    ///
+    /// <para>Skips rather than fails when the template is not there, so a heavily modded install that has
+    /// overridden it out reports honestly instead of throwing out of a LINQ lookup.</para>
+    /// </summary>
+    public static ShipDocument Template(
+        (GameEnv Env, DataIndex Index, Catalog Catalog) g, string fileName, out string name)
+    {
+        var found = TemplateImport.ListShipFiles(g.Index)
+            .FirstOrDefault(x => string.Equals(x.Name, fileName, StringComparison.OrdinalIgnoreCase));
+        Skip.If(found is null, $"the \"{fileName}\" ship template is not in this install's data");
+        name = found!.Name;
+        return TemplateImport.LoadFile(found.Path, g.Catalog).Doc;
+    }
+
+    /// <inheritdoc cref="Template"/>
+    public static ShipDocument Template((GameEnv Env, DataIndex Index, Catalog Catalog) g, string fileName) =>
+        Template(g, fileName, out _);
 }
