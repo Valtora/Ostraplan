@@ -324,19 +324,16 @@ public sealed class BundleReviewDialog : Window
 
         foreach (var line in lines) AddLine(_report, line, PaneUi.Dim);
 
+        // The button that cancelled the review becomes the one that dismisses the report. It keeps its own Click
+        // handler and gains nothing: what the export produced is read off Written, so this dialog never sets
+        // DialogResult. It cannot. A second handler that set it ran after the first had already closed the window,
+        // which is the one thing WPF refuses outright, and it threw at the end of an export that had otherwise
+        // gone perfectly.
         _commit.Visibility = Visibility.Collapsed;
         _close.Content = "Done";
         _close.IsEnabled = true;
         _close.IsCancel = false;
-        _close.Click -= CloseAsDone;
-        _close.Click += CloseAsDone;
         _scroll.ScrollToTop();
-    }
-
-    private void CloseAsDone(object sender, RoutedEventArgs e)
-    {
-        DialogResult = true;
-        Close();
     }
 
     /// <summary>
