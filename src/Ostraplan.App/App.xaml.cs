@@ -427,13 +427,15 @@ public partial class App : Application
                 new PlaceCommand(console).Do(doc);
                 NavConsole.StockEmptyConsoles(doc, catalog);
 
-                var win = new NavArrangeWindow(catalog, doc, new CommandStack(), console, "Nav Station");
+                var art = NavModArtCache.Build(env, catalog, out var artProblem);
+                if (artProblem is not null) File.WriteAllText(Path.Combine(dir, "navsmoke-art.txt"), artProblem);
+                var win = new NavArrangeWindow(catalog, doc, new CommandStack(), console, "Nav Station", new SpriteCache(), art);
 
                 void Shot(string file)
                 {
                     var panel = win.PreviewContent;
                     panel.Background = ThemeManager.WindowBg;
-                    panel.Measure(new Size(1100, double.PositiveInfinity));
+                    panel.Measure(new Size(1500, double.PositiveInfinity));
                     panel.Arrange(new Rect(0, 0, panel.DesiredSize.Width, panel.DesiredSize.Height));
                     panel.UpdateLayout();
                     var bmp = new RenderTargetBitmap(

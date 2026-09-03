@@ -13,4 +13,17 @@
     <InternalsVisibleTo Include="Ostraplan.Tests" />
   </ItemGroup>
 
+  <!-- Reading the nav modules' prefabs out of resources.assets (NavModArt). All three are MIT. MonoCecil reads the
+       game's managed DLLs for the layout of script fields; nothing in them is ever executed. -->
+  <ItemGroup>
+    <PackageReference Include="AssetsTools.NET" Version="3.0.5" />
+    <PackageReference Include="AssetsTools.NET.MonoCecil" Version="3.0.4" />
+    <PackageReference Include="AssetsTools.NET.Texture" Version="3.0.2" />
+  </ItemGroup>
+
+  <!-- The Unity class database the reader needs (see Assets/NOTICE.md for where it comes from). -->
+  <ItemGroup>
+    <EmbeddedResource Include="Assets\classdata.tpk" LogicalName="Ostraplan.classdata.tpk" />
+  </ItemGroup>
+
 </Project>

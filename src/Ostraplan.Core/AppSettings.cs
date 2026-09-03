@@ -140,6 +140,10 @@ public sealed class AppSettings
     /// <summary>Let modded parts be placed where Ostraplan's core-game placement law says they don't fit (they are
     /// still flagged as warnings). Core parts stay hard-blocked. Off by default — the Law is authoritative for core.</summary>
     [JsonPropertyName("allowModdedOverrides")] public bool AllowModdedOverrides { get; set; }
+    /// <summary>Draw the nav console's modules with the game's own panel art in the arrange window (read out of
+    /// the install's <c>resources.assets</c>, see <c>NavModArt</c>) rather than as flat labelled panels. On by
+    /// default; the flat panels are what the window falls back to when the art cannot be read either way.</summary>
+    [JsonPropertyName("navModuleArt")] public bool NavModuleArt { get; set; } = true;
     /// <summary>Light Viz exterior daylight: the parallax location whose sun lights shine on the design (a name
     /// from <c>data/parallax</c>), or empty/null for no sun. The overlay renders game-exact, so there are no
     /// brightness/dimming tuners any more — only the sun location + angle persist.</summary>

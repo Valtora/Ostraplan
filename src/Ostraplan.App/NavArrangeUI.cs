@@ -2,6 +2,8 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
+using System.Windows.Shapes;
 using Ostraplan.Core;
 
 namespace Ostraplan.App;
@@ -22,6 +24,11 @@ namespace Ostraplan.App;
 /// <para>One deliberate difference. The game lets you leave a module dropped on top of another, tinted red, and
 /// resolves it by shelving one of them the next time the console loads. Here an overlapping drop snaps back
 /// instead: a design should not record an arrangement whose outcome is decided later.</para>
+///
+/// <para>Each panel is drawn as the module's own prefab renders at rest (<see cref="NavModArtCache"/>), so the
+/// board reads the way the console does; a module the art does not cover, or the art switched off in Settings,
+/// gets a flat panel carrying its name. Either way the panel is the module's stock rect and nothing else: the art
+/// is a picture behind the same drag.</para>
 /// </summary>
 public sealed class NavArrangeWindow : Window
 {
@@ -29,9 +36,16 @@ public sealed class NavArrangeWindow : Window
     private static Brush Dim => ThemeManager.Dim;
     private static Brush PanelBorder => ThemeManager.PanelBorder;
 
-    /// <summary>The board, in pixels. 8:5 is close enough to the console's own screen for the stock layout to
-    /// read the way it does in game, and the coordinates are normalized either way.</summary>
-    private const double BoardW = 720, BoardH = 450;
+    /// <summary>The board, in pixels. The console's screen is about 2.1:1 on a 16:9 monitor (1700×810 of a 1080p
+    /// frame, measured), and the shape matters now that the modules are drawn as the game draws them: a button
+    /// sized in pixels sits in a rect sized by anchors, so a board of another shape misplaces it. It was 8:5 while
+    /// the panels were flat labels, which reads the same at any shape. Sized so the modules' own labels come out
+    /// legible: at 720 across, the game's 8pt captions were three pixels tall.</summary>
+    private const double BoardW = 1200, BoardH = 570;
+
+    /// <summary>Module art is drawn at this many device pixels per board pixel and scaled down, so the panel
+    /// chrome stays crisp on a high-DPI screen and at UI scales above 100%.</summary>
+    private const double ArtOversample = 2;
 
     /// <summary>The module fill colours <c>Draggable.CheckFit</c> uses: a cold blue for a module that fits, a
     /// dull maroon for one that does not.</summary>
@@ -42,6 +56,8 @@ public sealed class NavArrangeWindow : Window
     private readonly CommandStack _stack;
     private readonly Placement _console;
     private readonly PartDef _def;
+    private readonly SpriteCache? _sprites;   // the modules' own item sprites, for the tray
+    private readonly NavModArtCache? _art;    // the modules' panel art; null = the flat labelled panels
 
     /// <summary>Every module aboard, once per screen key (the game ignores a second module of the same kind:
     /// <c>LoadModules</c> skips a prefab it has already loaded).</summary>
@@ -67,13 +83,26 @@ public sealed class NavArrangeWindow : Window
     /// <summary>The laid-out content, for the offscreen preview render (<c>--navsmoke</c>).</summary>
     internal Panel PreviewContent => (Panel)Content;
 
-    public NavArrangeWindow(Catalog catalog, ShipDocument doc, CommandStack stack, Placement console, string friendly)
+    /// <param name="sprites">For the tray's icons; without it the tray is names alone.</param>
+    /// <param name="art">The modules' panel art (<see cref="NavModArtCache"/>), or null for flat labelled panels,
+    /// which is what a module the art does not cover gets in any case.</param>
+    public NavArrangeWindow(Catalog catalog, ShipDocument doc, CommandStack stack, Placement console, string friendly,
+        SpriteCache? sprites = null, NavModArtCache? art = null)
     {
         _catalog = catalog;
         _doc = doc;
         _stack = stack;
         _console = console;
         _def = catalog.Lookup(console.DefName)!;
+        _sprites = sprites;
+        _art = art;
+        if (art is not null)
+        {
+            // the console's own board colour, so the panels sit on what they sit on in game
+            var board = new SolidColorBrush(NavModArtCache.BoardColour);
+            board.Freeze();
+            _board.Background = board;
+        }
 
         Title = "Arrange screen — " + friendly;
         SizeToContent = SizeToContent.WidthAndHeight;
@@ -214,23 +243,26 @@ public sealed class NavArrangeWindow : Window
     /// edge comes from the rect's <b>max</b> y.</summary>
     private Border Panel(Mod mod, NavConsole.NavRect r, bool fits, bool dragging)
     {
+        var art = Art(mod);
         var el = new Border
         {
             Width = Math.Max(1, r.W * BoardW - 2),
             Height = Math.Max(1, r.H * BoardH - 2),
-            Background = fits ? FitFill : BadFill,
+            Background = art is null ? (fits ? FitFill : BadFill) : null,
             BorderBrush = dragging ? ThemeManager.Accent : PanelBorder,
             BorderThickness = new Thickness(dragging ? 2 : 1),
             CornerRadius = new CornerRadius(2),
             Opacity = dragging ? 0.85 : 1.0,
             Cursor = Cursors.SizeAll,
-            ToolTip = mod.DefName,
-            Child = new TextBlock
-            {
-                Text = mod.Label, Foreground = Ink, FontSize = 11, TextWrapping = TextWrapping.Wrap,
-                TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
-                HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(3),
-            },
+            ToolTip = art is null ? mod.DefName : $"{mod.Label} ({mod.DefName})",
+            Child = art is null
+                ? new TextBlock
+                {
+                    Text = mod.Label, Foreground = Ink, FontSize = 11, TextWrapping = TextWrapping.Wrap,
+                    TextAlignment = TextAlignment.Center, VerticalAlignment = VerticalAlignment.Center,
+                    HorizontalAlignment = HorizontalAlignment.Center, Margin = new Thickness(3),
+                }
+                : ArtPanel(art, fits),
         };
         Canvas.SetLeft(el, r.X0 * BoardW + 1);
         Canvas.SetTop(el, (1 - r.Y1) * BoardH + 1);
@@ -238,17 +270,55 @@ public sealed class NavArrangeWindow : Window
         return el;
     }
 
+    /// <summary>The module's panel as the game draws it, at the size it takes on this board, or null when the art
+    /// is off or does not cover this module (a modded one, say), in which case the flat panel stands in.</summary>
+    private BitmapSource? Art(Mod mod)
+    {
+        if (_art is null || !_art.Has(mod.Key)) return null;
+        var w = (int)Math.Round(mod.W * BoardW * ArtOversample);
+        var h = (int)Math.Round(mod.H * BoardH * ArtOversample);
+        return _art.Render(mod.Key, w, h, BoardH * ArtOversample / NavModScene.ReferenceBoardHeight);
+    }
+
+    /// <summary>The art, with the "will not fit" state washed over it in the same maroon the flat panel turns,
+    /// so a bad drop reads the same whichever way the modules are drawn.</summary>
+    private static Grid ArtPanel(BitmapSource art, bool fits)
+    {
+        var grid = new Grid();
+        var image = new Image { Source = art, Stretch = Stretch.Fill };
+        RenderOptions.SetBitmapScalingMode(image, BitmapScalingMode.HighQuality);
+        grid.Children.Add(image);
+        if (!fits) grid.Children.Add(new Rectangle { Fill = BadFill, Opacity = 0.55 });
+        return grid;
+    }
+
     /// <summary>A shelved module in the tray: drag it out to place it, or double-click to drop it in the first
-    /// free spot big enough for it.</summary>
+    /// free spot big enough for it. Carries the module's own item sprite, the way the game's edit-menu tray does.</summary>
     private Border TrayChip(Mod mod)
     {
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        if (_sprites is not null && _catalog.Lookup(mod.DefName) is { SpriteAbs: not null } def)
+        {
+            var icon = new Image
+            {
+                Source = _sprites.Sprite(def), Width = 20, Height = 20, Stretch = Stretch.Uniform,
+                Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Center,
+            };
+            RenderOptions.SetBitmapScalingMode(icon, BitmapScalingMode.NearestNeighbor);   // 16px pixel art
+            row.Children.Add(icon);
+        }
+        row.Children.Add(new TextBlock
+        {
+            Text = mod.Label, Foreground = Ink, FontSize = 12, TextWrapping = TextWrapping.Wrap,
+            VerticalAlignment = VerticalAlignment.Center,
+        });
         var el = new Border
         {
             Background = FitFill, BorderBrush = PanelBorder, BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(2), Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(0, 0, 0, 4),
             Cursor = Cursors.Hand,
             ToolTip = mod.DefName + " — drag onto the screen, or double-click for the first free spot",
-            Child = new TextBlock { Text = mod.Label, Foreground = Ink, FontSize = 12, TextWrapping = TextWrapping.Wrap },
+            Child = row,
         };
         el.MouseLeftButtonDown += (_, e) =>
         {

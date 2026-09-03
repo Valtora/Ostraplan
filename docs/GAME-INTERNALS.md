@@ -1956,6 +1956,65 @@ Two consequences worth knowing:
 > screen). `NavConsole` compares every edge with `1e-6` of slack — four orders of magnitude
 > below the 2dp granularity every real anchor has, so it cannot mask a genuine collision.
 
+### A module's screen is a prefab in `resources.assets`, not anything in the data
+
+What a module *looks like* is nowhere in `StreamingAssets`. The `navmod/` PNGs are the 16×16 sprites
+of the module as a loose item (what the edit menu's tray shows, through `DataHandler.LoadPNG` on
+`Item.ImgOverride`). The panel itself is a Unity UI prefab: `GUIOrbitDraw.LoadModules` does
+`base.transform.Find(prefab)` under the board first, then
+`Resources.Load<GameObject>("GUIShip/GUIOrbitDraw/" + prefab)`, and those prefabs are serialized into
+`Ostranauts_Data\resources.assets` (a Unity **6000.3.10f1** build under 1.0.0.13). Three things about
+where they sit, all easy to get wrong:
+
+- **Every module has a `NavMod*` and a `NavMod*Dmg` prefab, except two.** `NavModMap` and
+  `NavModControls` have no standalone prefab at all: they exist only as children of `GUIOrbitDraw`
+  (inactive until `LoadModules` activates them), which is why the `Find` comes first.
+- **The PDA has its own copies.** `GUIPDANAV` embeds a `NavModMap` and a `NavModControls` laid out for
+  the hand-held (full-screen containers, different children). Same names, different objects; only the
+  parent tells them apart.
+- **Sprites can live in another file.** A UI sprite the board shares with a scene is in
+  `sharedassets0.assets`, and a `PPtr` is relative to the file it was read from, so a texture pointer
+  read off such a sprite resolves against the wrong file if it is resolved against `resources.assets`.
+
+Inside, a prefab is a tree of `RectTransform`s under a `Container` (the rect `LoadModules` sets the
+console's anchors on), carrying `Image`s (a sprite or a bare tinted quad, simple or nine-sliced),
+`TextMeshProUGUI` labels (text, point size, auto-size range, colour, alignment, the upper-case style bit
+in `m_fontStyle`), `RawImage`s for the live screens (the map, the MFDs), and the game's own
+`GUILamp` / `GUIKnob` / `GUIBtnLitRim` scripts that set state at runtime. Five modules
+(Reserves, Sensors MFD, Weapons MFD, Torch Drive, Flight Dynamics) use layout groups or aspect
+fitters, whose children are placed by the engine at runtime. The label faces are TextMeshPro SDF
+atlases, but the source fonts (`Jura-Regular`, `Jura-Bold`, `robotocondensed`, `Roboto-Medium`,
+`NotoSansSC-Regular`) ship in the same file as `Font` objects whose `m_FontData` is the TrueType file.
+
+**Units.** The ship GUI canvases (`Canvas GUI` and its siblings) scale with the screen against a
+**1280×720 reference matched on height**, with `referencePixelsPerUnit` 32, so a canvas unit is 1.5 screen
+pixels at 1080p and the console board (about 1700×810 screen pixels there) is about **1133×540 units**.
+TextMeshPro point sizes, anchored offsets and `sizeDelta` are all in those units. A label with auto-size on
+stores the size TextMeshPro **fitted in the editor** in `m_fontSize` (`CLEAR` is 11.7 against a maximum of
+36), which is the size the game shows; fitting again from the maximum grows every label to fill its rect. A
+sliced sprite's border is in sprite pixels and covers `border × 32 / pixelsPerUnit` units (the UI art is 100
+PPU, so a third), divided by the `Image`'s own multiplier.
+
+Only `NavModControls` saves its container full-screen; every other prefab's container is already at
+its stock rect, so the two agree except there. Seven nodes carry a rotation, flip or scale on their
+`RectTransform`, which Unity applies to the whole subtree: the rotor-efficiency meter and its track
+(`NavModEngineMode`) are turned −90°, the airstream arrow (`NavModFlightDynamics`) 180°, a mooring slider
+handle is mirrored in y, and the two reserve meters are scaled ×2 in y. Everything else is axis-aligned.
+
+> **Ported in Ostraplan:** `NavModArt` (Core) reads the file with AssetsTools.NET, MIT, plus its
+> MonoCecil generator over the game's managed DLLs for the layout of script fields, and a copy of
+> UABEA's `classdata.tpk` (`src/Ostraplan.Core/Assets`, see its NOTICE) for the engine's own types,
+> which a built game strips. It walks each module's `Container` and emits a `NavModScene` of fills,
+> sprites and labels in the container's unit square, laid out at the size `NavConsole.ScreenSizes`
+> gives the module; `NavModArtCache` (App) draws that with WPF at whatever size the arrange board
+> shows the module, in the game's own faces (written once to `%APPDATA%\Ostraplan\fonts`). What is
+> not reproduced: layout groups (children drawn where the prefab saved them), `RawImage` screens
+> (black), the SDF materials' glow, and every value the game writes at runtime. **Re-verify** on a
+> game update that changes the Unity version string in `resources.assets`: the class database has to
+> cover it, and `NavModArt.Build` names the version it could not find one for. The arrange window
+> falls back to flat panels either way, so a stale database is a cosmetic regression, never a broken
+> one. `NavModArtTests` reads the live file.
+
 ### Ship identity on spawn
 
 - `publicName` is re-rolled to a random `DataHandler.GetShipName()` **only** when the

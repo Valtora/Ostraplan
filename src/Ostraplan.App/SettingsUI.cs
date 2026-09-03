@@ -16,6 +16,7 @@ namespace Ostraplan.App;
 /// <param name="Scale">The UI scale factor (1.0 = 100%), already clamped by the dialog.</param>
 /// <param name="Backdrop">What the plan is drawn on, and its grid markings.</param>
 /// <param name="ModOverrides">Whether modded parts may be placed against the core placement law.</param>
+/// <param name="NavModuleArt">Whether the arrange window draws the nav modules with the game's own art.</param>
 /// <param name="GameRoot">The Ostranauts install folder, or null to go back to auto-detection.</param>
 /// <param name="SavesDir">The Saves folder, or null to go back to auto-detection.</param>
 public sealed record SettingsHooks(
@@ -23,6 +24,7 @@ public sealed record SettingsHooks(
     Action<double> Scale,
     Action<BackdropSettings> Backdrop,
     Action<bool> ModOverrides,
+    Action<bool> NavModuleArt,
     Action<string?> GameRoot,
     Action<string?> SavesDir);
 
@@ -68,6 +70,7 @@ public sealed class SettingsDialog : Window
         Section(body, "APPEARANCE", first: true);
         body.Children.Add(ThemeRow());
         body.Children.Add(ScaleRow());
+        body.Children.Add(NavArtRow());
 
         Section(body, "THE PLAN'S BACKDROP");
         body.Children.Add(BackdropKindRow());
@@ -181,6 +184,24 @@ public sealed class SettingsDialog : Window
             + "a high-resolution monitor run at 100% Windows scaling, where the text would otherwise be tiny; "
             + "below it to fit more into the window you have, on a laptop panel or beside a second copy of the "
             + "app. Dialogs and reports resize with it; the main window keeps the size you gave it.");
+    }
+
+    private UIElement NavArtRow()
+    {
+        var box = new CheckBox
+        {
+            Content = "Draw nav console modules with the game's own art",
+            IsChecked = _settings.NavModuleArt,
+            Foreground = Ink,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        box.Checked += (_, _) => { if (!_init) _hooks.NavModuleArt(true); };
+        box.Unchecked += (_, _) => { if (!_init) _hooks.NavModuleArt(false); };
+        return Row("Console module art", box,
+            "The Arrange screen window shows each module as the panel you would see at the console in game, read "
+            + "from your install, so a layout can be judged by eye. Off, or when the art cannot be read, the "
+            + "modules are flat labelled panels. A picture of the module, not a live screen: fuel bars, the "
+            + "map and the callsign stay blank.");
     }
 
     // ---- the plan's backdrop (#43) ----

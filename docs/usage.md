@@ -1370,7 +1370,18 @@ the ship so it does not depend on what order the game happens to read the module
 
 Right-click a nav console and choose **Arrange screen…** for the planner's version of the
 console's own edit menu in game. The board is the console screen; each module is a panel at
-its place on it.
+its place on it, drawn as the panel you would see at the console: the game's own chrome,
+knobs, switches and labels, read out of your install. That is a picture of the module, not
+a live screen. The fuel and power bars stay empty, the map is dark glass, the transponder
+shows no callsign, and a warning lamp shows whatever state the artist left it in. The point
+is that a layout can be judged by eye, and a module told from its neighbour without reading
+its name. The tray carries each module's item sprite beside its name, the way the game's own
+tray does.
+
+The art comes from the engine's asset file rather than from the game's data, so it is the
+one part of the planner that can go missing on a game update that changes the engine. When
+it cannot be read, the window falls back to flat labelled panels and the activity log says
+why. **Settings ▸ Console module art** turns it off if you prefer the flat panels.
 
 - **Drag a panel** to move it. A module keeps the size its def gives it, so only its corner
   moves, and it lands on the same two-decimal grid the game's own drag uses.

@@ -84,6 +84,7 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 | Diff / identity | `SaveEditTests` (pure) | `SaveEditTests` (end-to-end) |
 | Export (mapping, `mod_info` shape, nav) | `ShipExportMappingTests`, `NavConsoleTests` | `ShipExportTests` |
 | Nav console loadout + screen arrangement | `NavConsoleTests` | `NavConsoleTests` (the stock rects), `ShipImportTests` |
+| Nav module art (the prefab read, `RectTransform` maths) | `NavModArtTests` (the geometry) | `NavModArtTests` (every stock module has a scene out of `resources.assets`, known labels and sprites come through, the fonts are TrueType) |
 | `.oplan` round-trip | `EngineTests` | `SaveEditTests` |
 | Cargo edit / inventory grid | `CargoEditTests`, `InventoryGridTests`, `CargoTests` | `ContainerModelTests` |
 | Canister/tank fill (capacity, shared budget, write-out) | `ContainerFillTests` | `ContainerFillTests` (the capacity against real defs, and which gases the data declares) |

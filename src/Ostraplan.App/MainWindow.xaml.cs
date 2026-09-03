@@ -30,6 +30,9 @@ public partial class MainWindow : Window
     private DataIndex? _index;
     private Catalog? _catalog;
     private SpriteCache? _sprites;   // shared with the canvas; also feeds the inventory viewer
+    /// <summary>The nav modules' art, read off-thread after the game data lands (null until then). The problem
+    /// half is set when the read could not proceed, and is what the activity log records.</summary>
+    private Task<(NavModArtCache? Art, string? Problem)>? _navArt;
     private BackdropBrushes? _backdrops;   // built once the sprites exist; caches each composited locale (#43)
     private List<PartVM> _allParts = [];
     private readonly List<ListBox> _paletteLists = [];
@@ -524,6 +527,18 @@ public partial class MainWindow : Window
         var v = env.InstalledVersion ?? "unknown";
         AuditLog.Add($"Loaded game data (Game {v}).");
         TxtVersion.Text = $"Game {v}";
+
+        // The nav modules' art comes out of the install's resources.assets, a read of a few seconds that nothing
+        // at startup waits for: the Arrange screen window awaits it when it is first opened, and falls back to its
+        // flat panels if the read reported a problem. Built whatever the setting says, so switching the art on in
+        // Settings does not need a restart.
+        var (envForArt, catalogForArt) = (env, catalog);
+        _navArt = Ui.OffThread(() =>
+        {
+            var art = NavModArtCache.Build(envForArt, catalogForArt, out var problem);
+            return (art, problem);
+        });
+        _ = LogNavArtAsync(_navArt);
 
         // Everything goes to the activity log and into a bug report. Only what the user can act on reaches the
         // toolbar: a defect in the game's own data is permanent and none of their doing (see DataWarning), and
@@ -3860,7 +3875,7 @@ public partial class MainWindow : Window
     /// <summary>Open the nav console's screen arrangement — the planner's stand-in for the console's own edit
     /// menu in game (see <see cref="NavArrangeWindow"/>). A console with no modules aboard has nothing to
     /// arrange, and says so rather than opening an empty board.</summary>
-    private void OpenNavArrange(Placement p)
+    private async void OpenNavArrange(Placement p)
     {
         if (_doc is null || _catalog is null) return;
         if (NavConsole.NeedsModules(p.Cargo))
@@ -3870,7 +3885,21 @@ public partial class MainWindow : Window
                 + "items held inside it: add some under \"View contents\".");
             return;
         }
-        new NavArrangeWindow(_catalog, _doc, _stack, p, Rename.Display(p, _doc.Part(p))) { Owner = this }.ShowDialog();
+        // The design this was asked for, pinned before the await: the shims follow the active tab (CONVENTIONS).
+        var (catalog, doc, stack, sprites) = (_catalog, _doc, _stack, _sprites);
+        var art = _settings.NavModuleArt && _navArt is { } pending ? (await pending).Art : null;
+        new NavArrangeWindow(catalog, doc, stack, p, Rename.Display(p, doc.Part(p)), sprites, art) { Owner = this }.ShowDialog();
+    }
+
+    /// <summary>Record how the art read went, once it has. A problem is logged as information rather than shown:
+    /// the window works without the art, and nothing about the reason is the user's to fix.</summary>
+    private static async Task LogNavArtAsync(Task<(NavModArtCache? Art, string? Problem)> read)
+    {
+        var (art, problem) = await read;
+        AuditLog.Add(art is { } a
+            ? $"Nav module art: {a.ModuleCount} modules read from resources.assets (Unity {a.UnityVersion})"
+              + (a.Notes.Count > 0 ? $", {a.Notes.Count} piece(s) skipped." : ".")
+            : $"Nav module art unavailable, the Arrange screen uses flat panels: {problem}");
     }
 
     /// <summary>Set how much gas or fuel a canister or tank holds. The result goes through the undo stack like any
@@ -6548,7 +6577,7 @@ public partial class MainWindow : Window
         if (_settingsDialog is { } open) { open.Activate(); return; }
 
         var dlg = new SettingsDialog(_settings, _catalog, _env, new SettingsHooks(
-            SetTheme, SetUiScale, SetBackdrop, SetModOverrides, SetGameRoot, SetSavesDir))
+            SetTheme, SetUiScale, SetBackdrop, SetModOverrides, SetNavModuleArt, SetGameRoot, SetSavesDir))
         {
             Owner = this,
         };
@@ -6619,6 +6648,15 @@ public partial class MainWindow : Window
         AuditLog.Add(on
             ? "Modded overrides enabled — modded parts may break the placement law (flagged)."
             : "Modded overrides disabled — modded parts are enforced like core.");
+    }
+
+    /// <summary>Whether the arrange window draws the nav modules with the game's art (persisted). The art itself
+    /// is read at startup whatever this says, so switching it on takes effect at the next Arrange screen.</summary>
+    private void SetNavModuleArt(bool on)
+    {
+        _settings.NavModuleArt = on;
+        _settings.Save();
+        AuditLog.Setting("Console module art", on ? "on" : "off");
     }
 
     /// <summary>The Ostranauts install folder (null = auto-detect). Persisted now, read at the next launch: the

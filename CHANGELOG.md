@@ -59,6 +59,19 @@ each release was verified against is recorded in
   **show the raw filter**.
 
 ### Added
+- **The Arrange screen window draws the modules the way the console does.** The board was bare
+  squares with a name in each, which made it hard to keep track of what was where and said nothing
+  about how a layout would look. Each module is now the panel you would see at the console in game:
+  the game's own chrome, knobs, switches and labels, read out of your install (the module screens are
+  Unity prefabs in `resources.assets`, so this is the first thing Ostraplan reads from the engine's
+  files rather than the game's data; nothing is shipped, the same as its sprites). It is a picture of
+  the module rather than a live screen: the fuel and power bars stay empty, the map is dark glass,
+  and a warning lamp shows whatever state the artist left it in. The board is bigger, and the shape of
+  the console's screen rather than 8:5, because a button sized in pixels only sits right in a rect of
+  the right shape. The tray shows each module's item sprite beside its name, the way the game's own
+  tray does. When the art cannot be read, which a game update that changes the engine could do, the
+  window falls back to the flat panels and the activity log says why; **Settings ▸ Console module
+  art** turns it off if you prefer them. Thanks to nighoggDatatype. (#44)
 - **The containers above the one you are in are shown beside it.** A deep breadcrumb is what makes the
   container window wide, and what you are looking at may be a single tile, so most of the window was
   empty at exactly the moment there was most to keep track of. **LEVELS ABOVE** fills it: a column down

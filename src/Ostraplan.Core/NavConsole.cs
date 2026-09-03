@@ -305,6 +305,28 @@ public static class NavConsole
     public static string? KeyFor(Catalog catalog, string moduleDefName) => ConfigKey(catalog, catalog.Lookup(moduleDefName));
 
     /// <summary>
+    /// Every nav module the data knows, keyed the way the screen is, with the size of the screen each takes at
+    /// stock: the rect the first console def gives it, else its own default. For <c>NavModArt</c>, which lays a
+    /// module's prefab out at the size the console shows it rather than the size the prefab was saved at (the
+    /// Controls prefab keeps its container full-screen and sizes its buttons in pixels, so laid out at its own
+    /// size it is a postage stamp in a corner).
+    /// </summary>
+    public static IReadOnlyDictionary<string, (double W, double H)> ScreenSizes(Catalog catalog)
+    {
+        var sizes = new Dictionary<string, (double W, double H)>(StringComparer.Ordinal);
+        var console = catalog.Parts.FirstOrDefault(IsConsole);
+        foreach (var def in catalog.Parts.Concat(catalog.LooseItems))
+        {
+            if (ConfigKey(catalog, def) is not { Length: > 0 } key || sizes.ContainsKey(key)) continue;
+            var rect = console is not null
+                ? DefaultRect(catalog, console, def.DefName)
+                : ParseRect(DefaultPos(catalog, def));
+            if (rect is { } r && r.W > 0 && r.H > 0) sizes[key] = (r.W, r.H);
+        }
+        return sizes;
+    }
+
+    /// <summary>
     /// The arrangement an imported console is actually carrying, for <see cref="Placement.NavLayout"/>: the
     /// <c>NavModConfig</c> panel off its own item (<see cref="GpmPanels.NavConfig"/>), or <b>null</b> when it says
     /// nothing its def does not already say.
