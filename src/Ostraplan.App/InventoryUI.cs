@@ -70,6 +70,9 @@ public sealed class InventoryWindow : Window
     private readonly Canvas _overlay;           // ghost layer for dragging
     private string? _selectedId;                // grid tile selected for the Delete / R keys (editing only)
     private bool _showRules;                    // the restrictions block, kept open across renders once asked for
+    private bool _showAncestors = true;         // the levels-above column, on until put away
+    private bool _showHint;                     // the drag hint, read once and then in the way
+    private bool _showRawFilter;                // the condtrigger tree under the readable summary
 
     // per-render drop-target state (rebuilt each Render)
     private readonly List<GridSurface> _surfaces = [];
@@ -114,6 +117,10 @@ public sealed class InventoryWindow : Window
         Render();
     }
 
+    /// <summary>Drill the preview down to a container, since it cannot click its way there either. The one way to
+    /// render a deep breadcrumb offscreen, which is the case the levels-above column exists for.</summary>
+    internal void PreviewNavigateTo(string containerId) => NavigateToContainer(containerId);
+
     public InventoryWindow(
         Catalog catalog, SpriteCache sprites, string rootDefName, string rootFriendly, IReadOnlyList<CargoItem> rootCargo,
         ShipDocument? doc = null, CommandStack? stack = null, Placement? root = null, LooseObject? rootLoose = null)
@@ -132,6 +139,10 @@ public sealed class InventoryWindow : Window
         // Fit the window to its content (the grid + paper-doll) rather than leave a fixed slab of empty space;
         // clamp so a one-item container isn't a sliver and a big crew figure scrolls instead of filling the screen.
         SizeToContent = SizeToContent.WidthAndHeight;
+        // And nothing but the content decides that size. Dragging the frame of a window that re-fits itself on
+        // every edit only ever produced a size the next render threw away, so the handles are taken off and the
+        // panels that can make it grow (the levels column, the hint, the filter) are the controls instead.
+        ResizeMode = ResizeMode.NoResize;
         MinWidth = 300;
         MinHeight = 180;
         MaxWidth = 900;
@@ -142,7 +153,14 @@ public sealed class InventoryWindow : Window
         _body = new StackPanel { Margin = new Thickness(18) };
         _overlay = new Canvas { IsHitTestVisible = false };
         var host = new Grid();
-        host.Children.Add(new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, Content = _body });
+        host.Children.Add(new ScrollViewer
+        {
+            VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            // Horizontally too, now that a second column can sit beside the figure: past MaxWidth the far column
+            // would otherwise be cut off at the frame with nothing to say it was there.
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Auto,
+            Content = _body,
+        });
         host.Children.Add(_overlay);
         Content = host;
 
@@ -237,7 +255,16 @@ public sealed class InventoryWindow : Window
         var figure = InventoryLayout.Compose(
             _catalog, chain[_figureRoot].DefName, _path[_figureRoot].ContainerId, chain[_figureRoot].Children);
 
-        _body.Children.Add(BuildBreadcrumb());
+        _body.Children.Add(BreadcrumbRow());
+
+        // Two columns under the breadcrumb: the container you are in on the left, and the levels above it on the
+        // right, which is the space a deep breadcrumb forces the window to be wide enough for anyway (#60).
+        var columns = new Grid { HorizontalAlignment = HorizontalAlignment.Left };
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        columns.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var main = new StackPanel { HorizontalAlignment = HorizontalAlignment.Left };
+        columns.Children.Add(main);
+        _body.Children.Add(columns);
 
         TextBlock? hint = null;
         var loose = active.Children.Where(c => !c.Slotted).ToList();
@@ -245,7 +272,7 @@ public sealed class InventoryWindow : Window
         var hasGrid = active.Def?.IsContainer == true || loose.Count > 0;
         var hasSlots = active.Def?.SlotsWeHave.Length > 0 || slotted.Count > 0;
 
-        _body.Children.Add(new TextBlock
+        main.Children.Add(new TextBlock
         {
             // Name the active container once there is more than one grid on screen, or the summary reads as though
             // it described the whole figure and "Add item" looks like it could go anywhere.
@@ -259,51 +286,83 @@ public sealed class InventoryWindow : Window
 
         if (hasGrid || hasSlots)
         {
-            var header = new DockPanel { LastChildFill = false, Margin = new Thickness(0, 6, 0, 6) };
+            // Header and action on one left-aligned row. It used to dock the button to the right of a panel as
+            // wide as the whole column, which put "Add item" a long way from the grid it fills, and the column was
+            // that wide because of the drag hint below it rather than because of anything the user was looking at.
+            var header = new StackPanel
+            {
+                Orientation = Orientation.Horizontal,
+                Margin = new Thickness(0, 6, 0, 6),
+                HorizontalAlignment = HorizontalAlignment.Left,
+            };
             var title = SectionHeader(hasGrid ? "STORED" : "EQUIPPED");
             title.Margin = new Thickness(0);
-            DockPanel.SetDock(title, Dock.Left);
+            title.VerticalAlignment = VerticalAlignment.Center;
             header.Children.Add(title);
             if (Editing && active.Def?.IsContainer == true)
             {
-                var add = new Button { Content = "+ Add item…", Padding = new Thickness(8, 1, 8, 1), FontSize = 12, Cursor = Cursors.Hand };
+                var add = new Button
+                {
+                    Content = "+ Add item…",
+                    Padding = new Thickness(12, 4, 12, 4),
+                    Margin = new Thickness(14, 0, 0, 0),
+                    FontSize = 12,
+                    Cursor = Cursors.Hand,
+                    VerticalAlignment = VerticalAlignment.Center,
+                };
                 var def = active.Def;
                 add.Click += (_, _) => AddItem(def, activeId);
-                DockPanel.SetDock(add, Dock.Right);
                 header.Children.Add(add);
             }
-            _body.Children.Add(header);
-            _body.Children.Add(BuildFigure(figure));
+            main.Children.Add(header);
+            main.Children.Add(BuildFigure(figure));
             MarkActiveSurface(activeId);
             if (Editing && hasGrid)
             {
-                hint = new TextBlock
+                var help = LinkLabel(_showHint ? "▾  how to use" : "▸  how to use",
+                    "Every gesture the grid answers to");
+                help.MouseLeftButtonUp += (_, _) => { if (!_dragging) { _showHint = !_showHint; Render(); } };
+                help.Margin = new Thickness(0, 6, 0, 2);
+                main.Children.Add(help);
+                if (_showHint)
                 {
-                    // "A name at the top" is the breadcrumb, so only claim it when an ancestor is actually up there
-                    // to drop onto. The right-click "Move to" menu is gated on the same depth for the same reason.
-                    Text = "Drag to move (R turns it) · into a container to nest it"
-                           + (_surfaces.Count > 1 ? " · onto another grid to move it there" : "")
-                           + (_path.Count > 1 ? " · onto a name at the top to move it out" : "")
-                           + " · Alt+click for info · right-click to rename or remove"
-                           + " · Del takes one, Shift+Del the whole stack"
-                           + " · click the title to name this container",
-                    Foreground = Dim, FontSize = 11, Margin = new Thickness(0, 0, 0, 6), TextWrapping = TextWrapping.Wrap,
-                    // A stretched element narrower than its slot is centred by WPF, and FitHintToContent gives
-                    // this one a MaxWidth, so without this the prose drifts into the middle of a wider window.
-                    HorizontalAlignment = HorizontalAlignment.Left,
-                };
-                _body.Children.Add(hint);
+                    hint = new TextBlock
+                    {
+                        // "A name at the top" is the breadcrumb, so only claim it when an ancestor is actually up
+                        // there to drop onto. The right-click "Move to" menu is gated on the same depth for the
+                        // same reason.
+                        Text = "Drag to move (R turns it) · into a container to nest it"
+                               + (_surfaces.Count > 1 ? " · onto another grid to move it there" : "")
+                               + (_path.Count > 1 ? " · onto a name at the top to move it out" : "")
+                               + " · Alt+click for info · right-click to rename or remove"
+                               + " · Del takes one, Shift+Del the whole stack"
+                               + " · click the title to name this container",
+                        Foreground = Dim, FontSize = 11, Margin = new Thickness(0, 0, 0, 6), TextWrapping = TextWrapping.Wrap,
+                        // A stretched element narrower than its slot is centred by WPF, and FitHintToContent gives
+                        // this one a MaxWidth, so without this the prose drifts into the middle of a wider window.
+                        HorizontalAlignment = HorizontalAlignment.Left,
+                    };
+                    main.Children.Add(hint);
+                }
             }
-
-            // What this grid accepts, and what its slots take. Last, and shut until asked for, so the answer is
-            // there without the question being put to everyone who opens a locker.
-            if (active.Def is { } activeDef && (activeDef.IsContainer || activeDef.SlotsWeHave.Length > 0))
-                _body.Children.Add(BuildRulesBlock(activeDef));
         }
         else
-            _body.Children.Add(new TextBlock { Text = "This item holds nothing.", Foreground = Dim, Margin = new Thickness(0, 4, 0, 0) });
+            main.Children.Add(new TextBlock { Text = "This item holds nothing.", Foreground = Dim, Margin = new Thickness(0, 4, 0, 0) });
 
-        FitHintToContent(hint);
+        // The sidebar. It holds the levels above and what this grid accepts, which are the two things that read
+        // as reference rather than as the contents themselves, and it is where the vertical space a wide
+        // breadcrumb pays for actually is.
+        var sidebar = new StackPanel { Margin = new Thickness(28, 0, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
+        if (_showAncestors && _figureRoot > 0) sidebar.Children.Add(BuildAncestorColumn(chain));
+        if (active.Def is { } sideDef && (sideDef.IsContainer || sideDef.SlotsWeHave.Length > 0))
+            sidebar.Children.Add(BuildRulesBlock(sideDef));
+        if (sidebar.Children.Count > 0)
+        {
+            Grid.SetColumn(sidebar, 1);
+            columns.Children.Add(sidebar);
+        }
+
+        FitHintToContent(hint, main);
     }
 
     /// <summary>The narrowest the drag hint is allowed to wrap to. Below this it becomes a column of single words
@@ -324,15 +383,30 @@ public sealed class InventoryWindow : Window
     /// to. A big paper doll still gets a wide window and the hint still runs across it on one line; a small
     /// container gets a small window and the hint wraps to three.</para>
     /// </summary>
-    private void FitHintToContent(TextBlock? hint)
+    /// <param name="content">The panel whose width the prose is held to. The <b>left column</b> rather than the
+    /// whole window: the sidebar's own width has nothing to do with how wide a line about dragging should be, and
+    /// measuring the lot would let a deep breadcrumb stretch the hint across the figure and past it.</param>
+    private static void FitHintToContent(TextBlock? hint, FrameworkElement content)
     {
         if (hint is null) return;
         hint.Visibility = Visibility.Collapsed;
-        _body.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
-        var content = _body.DesiredSize.Width - _body.Margin.Left - _body.Margin.Right;
+        content.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+        var width = content.DesiredSize.Width;
         hint.Visibility = Visibility.Visible;
-        hint.MaxWidth = Math.Max(content, HintMinWidth);
+        hint.MaxWidth = Math.Max(width, HintMinWidth);
     }
+
+    /// <summary>A clickable label in the breadcrumb's idiom: accent, hand cursor, no control template to fight
+    /// (see the Fluent note in CONVENTIONS). Every toggle in this window is one of these.</summary>
+    private static TextBlock LinkLabel(string text, string? tip = null) => new()
+    {
+        Text = text,
+        Foreground = Accent,
+        FontSize = 11,
+        Cursor = Cursors.Hand,
+        HorizontalAlignment = HorizontalAlignment.Left,
+        ToolTip = tip,
+    };
 
     private static string Summary(PartDef? def, int loose, int slotted)
     {
@@ -470,12 +544,160 @@ public sealed class InventoryWindow : Window
 
     private void DrillInto(CargoItem child) => NavigateToContainer(child.StrID);
 
+    // ---- the levels above ----
+
+    /// <summary>One tile of an ancestor preview. Small enough that a column of levels costs a strip down the side
+    /// rather than a second window's worth of width.</summary>
+    private const int PreviewCellPx = 22;
+
+    /// <summary>The widest an ancestor preview is allowed to draw before it stops growing and scrolls with the
+    /// window instead. A 6x6 hold at <see cref="PreviewCellPx"/> is already 132px, and nothing shipped is wider.</summary>
+    private const double PreviewMaxWidth = 180;
+
+    /// <summary>The breadcrumb, with the control for the levels-above column on the right of it. The toggle lives
+    /// up here rather than on the column so it is still reachable once the column is put away.</summary>
+    private UIElement BreadcrumbRow()
+    {
+        var crumbs = BuildBreadcrumb();
+        if (_figureRoot <= 0) return crumbs;   // nothing above the figure, so nothing to offer
+
+        var row = new DockPanel { LastChildFill = true, Margin = new Thickness(0, 0, 0, 2) };
+        var toggle = new TextBlock
+        {
+            Text = _showAncestors ? "hide levels" : "show levels",
+            Foreground = Accent,
+            FontSize = 11,
+            Cursor = Cursors.Hand,
+            Margin = new Thickness(12, 4, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            ToolTip = "Show what the containers above this one hold",
+        };
+        toggle.MouseLeftButtonUp += (_, _) => { if (!_dragging) { _showAncestors = !_showAncestors; Render(); } };
+        DockPanel.SetDock(toggle, Dock.Right);
+        row.Children.Add(toggle);
+        row.Children.Add(crumbs);
+        return row;
+    }
+
+    /// <summary>
+    /// The containers above the one on screen, each with what it holds, in breadcrumb order down the column.
+    ///
+    /// <para>Only the levels the figure does <b>not</b> already draw. A backpack's pouch is shown on the backpack
+    /// (see <see cref="BuildFigure"/>), so previewing its host again beside it would be showing the same grid
+    /// twice; <see cref="_figureRoot"/> is exactly the line between what is already visible and what is not.</para>
+    ///
+    /// <para>Each one is a way back to that level as well as a look at it: clicking goes there, and an item
+    /// dragged onto it moves out to it, which is the same thing dropping on its name in the breadcrumb has always
+    /// done and is registered through the same list (#60).</para>
+    /// </summary>
+    private FrameworkElement BuildAncestorColumn(List<Level> chain)
+    {
+        var column = new StackPanel { Margin = new Thickness(0, 0, 0, 8), HorizontalAlignment = HorizontalAlignment.Left };
+        column.Children.Add(SectionHeader("LEVELS ABOVE"));
+
+        for (var i = 0; i < _figureRoot; i++)
+        {
+            var depth = i;
+            var level = chain[i];
+            var card = new StackPanel { Margin = new Thickness(0, 0, 0, 10), HorizontalAlignment = HorizontalAlignment.Left };
+
+            var name = new TextBlock
+            {
+                Text = _path[i].Title,
+                Foreground = Accent,
+                FontSize = 12,
+                Cursor = Cursors.Hand,
+                MaxWidth = PreviewMaxWidth,
+                TextTrimming = TextTrimming.CharacterEllipsis,
+                Margin = new Thickness(0, 0, 0, 3),
+            };
+            card.Children.Add(name);
+            card.Children.Add(AncestorContents(level));
+
+            card.ToolTip = $"{_path[i].Title} — click to go back up, or drop an item here to move it out";
+            card.Cursor = Cursors.Hand;
+            card.MouseLeftButtonUp += (_, _) => { if (!_dragging) NavigateTo(depth); };
+            if (Editing) _crumbTargets.Add((card, _path[i].ContainerId));
+
+            column.Children.Add(card);
+        }
+        return column;
+    }
+
+    /// <summary>What one level above holds, drawn small: its packed grid where it has one, else a row of whatever
+    /// is slotted onto it (an EVA suit declares no grid of its own, and a preview of nothing says nothing).</summary>
+    private UIElement AncestorContents(Level level)
+    {
+        var loose = level.Children.Where(c => !c.Slotted).ToList();
+        if (level.Def?.ContainerGrid is { } dims || loose.Count > 0)
+        {
+            var (gw, gh) = level.Def?.ContainerGrid ?? (6, 6);
+            var layout = InventoryGrid.Pack(gw, gh, loose);
+            var grid = new Grid
+            {
+                HorizontalAlignment = HorizontalAlignment.Left,
+                Width = layout.Width * PreviewCellPx,
+                Height = layout.Height * PreviewCellPx,
+            };
+            var cells = new UniformGrid { Rows = layout.Height, Columns = layout.Width };
+            for (var i = 0; i < layout.Width * layout.Height; i++)
+                cells.Children.Add(new Border { Background = FieldBg, BorderBrush = PanelBorder, BorderThickness = new Thickness(0.5) });
+            grid.Children.Add(cells);
+
+            var canvas = new Canvas();
+            foreach (var block in layout.Items)
+            {
+                var tile = PreviewTile(block.Item, block.W * PreviewCellPx, block.H * PreviewCellPx, block.Count);
+                Canvas.SetLeft(tile, block.X * PreviewCellPx);
+                Canvas.SetTop(tile, block.Y * PreviewCellPx);
+                canvas.Children.Add(tile);
+            }
+            grid.Children.Add(canvas);
+            return grid;
+        }
+
+        var wrap = new WrapPanel { MaxWidth = PreviewMaxWidth, HorizontalAlignment = HorizontalAlignment.Left };
+        foreach (var c in level.Children)
+            wrap.Children.Add(PreviewTile(c, PreviewCellPx, PreviewCellPx, c.Stack));
+        if (wrap.Children.Count == 0)
+            return new TextBlock { Text = "empty", Foreground = Dim, FontSize = 11, FontStyle = FontStyles.Italic };
+        return wrap;
+    }
+
+    /// <summary>A preview tile: the sprite and a stack count, and nothing else. It is not hit-testable of its own
+    /// accord, so a click or a drop anywhere on the card is the card's, whichever tile it happened to land on.</summary>
+    private Border PreviewTile(CargoItem item, double w, double h, int count)
+    {
+        var overlay = new Grid();
+        overlay.Children.Add(PixelImage(Bmp(item.DefName, item.Slotted ? 0 : item.GridRot)));
+        if (count > 1)
+            overlay.Children.Add(new TextBlock
+            {
+                Text = "×" + count,
+                Foreground = Accent,
+                FontSize = 9,
+                FontWeight = FontWeights.Bold,
+                HorizontalAlignment = HorizontalAlignment.Right,
+                VerticalAlignment = VerticalAlignment.Bottom,
+            });
+        return new Border
+        {
+            Width = w,
+            Height = h,
+            Background = FieldBg,
+            BorderBrush = PanelBorder,
+            BorderThickness = new Thickness(1),
+            Child = overlay,
+            IsHitTestVisible = false,
+        };
+    }
+
     // ---- what the active grid will hold ----
 
     /// <summary>How wide the restrictions block is allowed to get. A condition's description runs to a full
     /// sentence, and prose is never what a <see cref="SizeToContent"/> window is sized to (see
     /// <see cref="FitHintToContent"/>), so the block wraps inside this rather than setting the window's width.</summary>
-    private const double RulesWidth = 430;
+    private const double RulesWidth = 300;
 
     private const double RulesIndent = 14;
 
@@ -490,17 +712,11 @@ public sealed class InventoryWindow : Window
     {
         var panel = new StackPanel { Margin = new Thickness(0, 4, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
 
-        var toggle = new TextBlock
-        {
-            Text = (_showRules ? "▾  " : "▸  ") + "COMPATIBLE ITEMS",
-            Foreground = Accent,
-            FontWeight = FontWeights.Bold,
-            FontSize = 11,
-            Cursor = Cursors.Hand,
-            Margin = new Thickness(0, 2, 0, 4),
-            HorizontalAlignment = HorizontalAlignment.Left,
-            ToolTip = "The conditions this container checks, and what its slots take",
-        };
+        var toggle = LinkLabel(
+            (_showRules ? "▾  " : "▸  ") + "COMPATIBLE ITEMS",
+            "What this container will hold, and what its slots take");
+        toggle.FontWeight = FontWeights.Bold;
+        toggle.Margin = new Thickness(0, 2, 0, 4);
         toggle.MouseLeftButtonUp += (_, _) => { if (!_dragging) { _showRules = !_showRules; Render(); } };
         panel.Children.Add(toggle);
         if (!_showRules) return panel;
@@ -511,10 +727,27 @@ public sealed class InventoryWindow : Window
         if (def.IsContainer)
         {
             body.Children.Add(RuleLead(rules));
-            if (rules.Root is { } root && !rules.HoldsAnything)
-                AddNode(body, root, 0);
+
+            // The readable form first, because "Must be one of: Solid · Explosion" is a fair description of the
+            // data and tells almost nobody anything. A dot between two conditions reads as neither an "and" nor
+            // an "or", and which of those it is IS the rule.
+            foreach (var line in rules.Plain)
+                body.Children.Add(SummaryLine(line));
             foreach (var note in rules.Notes)
                 body.Children.Add(RuleText(note, 0, Dim, italic: true));
+
+            // The trigger tree under that, for whoever is writing a container rather than filling one. It is the
+            // thing #61 was actually asked for, so it stays; it is just no longer the first thing read.
+            if (rules.Root is { } root && !rules.HoldsAnything)
+            {
+                var raw = LinkLabel(
+                    (_showRawFilter ? "▾  " : "▸  ") + "show the raw filter",
+                    "The condtriggers and conditions behind this, as they appear in the data");
+                raw.Margin = new Thickness(0, 6, 0, 2);
+                raw.MouseLeftButtonUp += (_, _) => { if (!_dragging) { _showRawFilter = !_showRawFilter; Render(); } };
+                body.Children.Add(raw);
+                if (_showRawFilter) AddNode(body, root, 0);
+            }
         }
 
         // The slot half. A slot filters nothing of its own — an item fits by declaring the slot in its own
@@ -575,6 +808,30 @@ public sealed class InventoryWindow : Window
 
         foreach (var child in node.Nested) AddNode(into, child, depth + 1);
         foreach (var child in node.NestedForbid) AddNode(into, child, depth + 1);
+    }
+
+    /// <summary>One line of the readable summary: the label in a fixed column so the sentences line up under each
+    /// other, and the sentence itself wrapping under it.</summary>
+    private StackPanel SummaryLine(RuleSummary line)
+    {
+        var row = new StackPanel { Orientation = Orientation.Horizontal, Margin = new Thickness(0, 2, 0, 2) };
+        row.Children.Add(new TextBlock
+        {
+            Text = line.Label,
+            Foreground = Dim,
+            FontSize = 11,
+            Width = 72,
+            VerticalAlignment = VerticalAlignment.Top,
+        });
+        row.Children.Add(new TextBlock
+        {
+            Text = line.Text,
+            Foreground = Ink,
+            FontSize = 11,
+            TextWrapping = TextWrapping.Wrap,
+            MaxWidth = RulesWidth - 80,
+        });
+        return row;
     }
 
     /// <summary>A labelled list of conditions. Each one reads as the game's own name for it; the raw condition and

@@ -134,14 +134,15 @@ public partial class App : Application
 
                 void RenderInv(string file, string def, string friendly, IReadOnlyList<CargoItem> cargo,
                     ShipDocument? doc = null, CommandStack? stack = null, Placement? root = null,
-                    LooseObject? rootLoose = null, string? theme = null, bool rules = false)
+                    LooseObject? rootLoose = null, string? theme = null, bool rules = false, string? drillTo = null, int width = 620)
                 {
                     if (theme is not null) ThemeManager.Apply(theme);
                     var win = new InventoryWindow(catalog, sprites, def, friendly, cargo, doc, stack, root, rootLoose);
+                    if (drillTo is not null) win.PreviewNavigateTo(drillTo);
                     if (rules) win.PreviewExpandRules();
                     var panel = win.PreviewContent;
                     panel.Background = ThemeManager.WindowBg;
-                    const int w = 620;
+                    var w = width;
                     panel.Measure(new Size(w, double.PositiveInfinity));
                     panel.Arrange(new Rect(0, 0, w, panel.DesiredSize.Height));
                     panel.UpdateLayout();
@@ -179,6 +180,25 @@ public partial class App : Application
                 RenderInv("inv-backpack-dark.png", "ItmBackpack01", "Backpack: Pearson", cargo, theme: "dark");
                 RenderInv("inv-backpack-light.png", "ItmBackpack01", "Backpack: Pearson", cargo, theme: "light");
                 RenderInv("inv-empty.png", "ItmBackpack01", "Backpack (empty)", [], theme: "dark");   // an empty container still shows its grid
+
+                // The reported nesting, four levels of it: a rack holding a go-bag holding an EVA suit, drilled
+                // all the way down. This is the case the levels-above column exists for, since the breadcrumb is
+                // what makes the window wide and the container at the bottom of it is small (#60).
+                if (catalog.Lookup("ItmBackpack01") is { } bag && catalog.Lookup("OutfitEVA01") is { } evaDef)
+                {
+                    var suitInBag = new CargoItem("n-suit", evaDef.DefName, evaDef.Friendly, Slotted: false,
+                        CargoEdit.IntrinsicContentsOf(evaDef, catalog)) { GridX = 0, GridY = 0 };
+                    var bagInRack = new CargoItem("n-bag", bag.DefName, bag.Friendly, Slotted: false,
+                        [.. CargoEdit.IntrinsicContentsOf(bag, catalog), suitInBag]) { GridX = 0, GridY = 0 };
+                    var rackDoc = new ShipDocument(catalog);
+                    var rackStack = new CommandStack();
+                    var rack = new LooseObject { DefName = "ItmCrate01", X = 0, Y = 0 };
+                    new PlaceLooseCommand(rack).Do(rackDoc);
+                    new SetLooseCargoCommand(rack, rack.Cargo, [bagInRack]).Do(rackDoc);
+                    foreach (var (mode, file) in new[] { ("dark", "inv-levels-dark.png"), ("light", "inv-levels-light.png") })
+                        RenderInv(file, rack.DefName, "Emergency Rack", rack.Cargo, rackDoc, rackStack,
+                            rootLoose: rack, theme: mode, drillTo: "n-suit", width: 780);
+                }
 
                 // The restrictions block, open. The backpack is a good subject: its filter forbids outright and
                 // then nests, and it declares four slots, so both halves of the block have something to say (#61).

@@ -11,7 +11,36 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Changed
+- **The container view is laid out in two columns, and sizes itself.** Everything used to stack down one
+  column, so the widest thing in it set the width of everything else, and the widest thing was a
+  seven-clause line of instructions nobody reads twice. That pushed **Add item** out to the far edge of
+  the window, a long way from the grid it fills. Now the grid and its button are on the left, and a
+  sidebar on the right carries the two panels that are reference rather than contents. **Add item** sits
+  beside the STORED heading with a proper hit target, and the instructions are behind a **how to use**
+  line that is shut until wanted. **The window is no longer draggable**: it was already sizing itself to
+  its contents and re-fitting on every edit, so a size you dragged it to was thrown away by the next
+  render. The three things that can make it grow are toggles instead, each remembering how you left it.
+- **A container's filter reads as a sentence before it reads as data.** "Must be one of: Solid ·
+  Explosion" describes the data accurately and tells almost nobody anything, not least because a dot
+  between two conditions reads as neither an "and" nor an "or", and which of those it is *is* the rule.
+  **COMPATIBLE ITEMS** now leads with the conjunction spelled out: a backpack won't hold a Backpack,
+  Crate, Toolbox, Long, Cumbersome, Oversized or Installed, and must be Solid or Explosion. Every forbid
+  in the tree merges into that one list, which is safe because a forbid is an and-of-nots at every level;
+  requirements keep a line each, because merging those is exactly what would turn a nav console into a
+  container that holds nothing. The condtrigger tree is still there for modders, one click away under
+  **show the raw filter**.
+
 ### Added
+- **The containers above the one you are in are shown beside it.** A deep breadcrumb is what makes the
+  container window wide, and what you are looking at may be a single tile, so most of the window was
+  empty at exactly the moment there was most to keep track of. **LEVELS ABOVE** fills it: a column down
+  the right with every container between the root and the one on screen, in breadcrumb order, each
+  showing what it holds. Only the ones not already drawn appear, so a backpack whose pouch you are in
+  is not repeated beside itself. Each is a way back as well as a look at it, since clicking one goes to
+  that level and dropping an item on one moves the item out to it, which is what dropping on its name
+  in the breadcrumb has always done. **hide levels** puts the column away and is remembered. Thanks to
+  nighoggDatatype. (#60)
 - **A container now says what it will hold, instead of only enforcing it.** **Add item** has always
   offered just the items a container accepts, and a drag that crosses into another one has always been
   held to the same test, but the rule behind both was never visible: there was no way to see why a

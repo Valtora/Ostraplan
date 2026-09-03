@@ -281,6 +281,17 @@ Prose is never what a window is sized to. Either give it a `MaxWidth` of its own
 real content first with the prose out of the way and hold it to that.
 `InventoryWindow.FitHintToContent` is the working example of the second, and is worth preferring
 where the real content's width varies: it keeps the window sized to the thing it exists to show.
+Hold the prose to **the column it sits in** rather than to the window: a panel beside it has nothing
+to do with how wide a line of instructions should be.
+
+**A window that sizes to its content should not also be draggable.** The two settings answer the same
+question and the content wins, so every resize is undone by the next render: `SizeToContent` re-fits
+on any change, and the inventory window re-renders on every edit, every drill-in and every panel
+toggle. `ResizeMode.NoResize` is what makes that honest, and it puts the obligation where it belongs,
+on giving the user controls for the things that can make the window grow. `InventoryWindow`'s are the
+levels column, the drag hint and the filter block, each a toggle whose state is remembered. The
+`MaxWidth`/`MaxHeight` clamp and the scrolling behind it stay: they are what catches the case where
+the content is bigger than the screen and the user now has no way to shrink it themselves.
 
 **The same omission has two different symptoms, so neither one tells you the rule.** A wrapping
 `TextBlock` widens a `SizeToContent` window; a **non**-wrapping one in a window with a declared

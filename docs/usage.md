@@ -1229,23 +1229,47 @@ its name in the breadcrumb, to move to it: the outline moves and the rest of the
 put, so you keep the context while working in a pouch. That is why a pouch is still a
 breadcrumb entry even though you can see inside it without going there.
 
+### The window, and the sidebar
+
+The container view is laid out in two columns under the breadcrumb. On the left is the grid
+you are working in and the button that fills it; on the right a sidebar holding the two things
+that are reference rather than contents, **LEVELS ABOVE** and **COMPATIBLE ITEMS**.
+
+**The window sizes itself and cannot be dragged.** It is as big as what it is showing, which
+is why the three things that can make it grow are toggles you control: the levels column, the
+**how to use** line under the grid, and the filter block. Each remembers whether you left it
+open.
+
+### The levels above
+
+Drill down a few containers and the breadcrumb across the top makes the window wide, while
+what you are actually looking at may be one tile. **LEVELS ABOVE** puts that space to work: a
+column at the top of the sidebar holding every container between the root and the one on
+screen, in the same order as the breadcrumb, each showing what it holds.
+
+Only the levels that are not already drawn appear there. A backpack's pouch is shown on the
+backpack, so its host is not repeated beside it.
+
+Each one is a way back as well as a look: **click** it to go to that level, and **drop an
+item on it** to move the item out to it, the same as dropping on its name in the breadcrumb.
+**hide levels**, next to the breadcrumb, puts the column away and is remembered.
+
 ### Compatible items
 
-**Add item** has always offered only what a container accepts. **COMPATIBLE ITEMS**, at the
-bottom of the container view, is that rule shown rather than only applied. It is shut until
-you click it, and it describes whichever grid is active.
+**Add item** has always offered only what a container accepts. **COMPATIBLE ITEMS**, in the
+sidebar on the right, is that rule shown rather than only applied. It is shut until you click
+it, and it describes whichever grid is active.
 
 It opens on the figure that answers most questions on its own, "holds 720 of 1330 items", and
-under that the container's filter as the game writes it. Each line uses the game's own name
-for a condition, so a backpack reads as one that won't hold a Backpack, a Crate, a Toolbox or
-anything Long. Hover a line for the raw condition names and their descriptions, which is what
-you want when writing a container of your own; the trigger names are there in italics for the
-same reason.
+then the rule as a couple of sentences: a backpack **won't hold** a Backpack, Crate, Toolbox,
+Long, Cumbersome, Oversized or Installed, and **must be** Solid or Explosion. The conjunction
+is spelled out rather than left as a separator, because which one it is *is* the rule: a nav
+console must be `IsNavMod` **or** `IsExplosion` and nothing carries both, so reading that as
+an "and" would tell you the console holds nothing at all.
 
-**Read the conjunction, not just the list.** A filter is a tree rather than a flat whitelist
-and blacklist, and half the ones the game ships say **Must be one of** rather than **Must
-be**. A nav console requires `IsNavMod` *or* `IsExplosion`, and nothing carries both, so
-reading that line as an "and" would tell you the console holds nothing at all.
+**show the raw filter** underneath opens the condtriggers behind it, nested as the data nests
+them, with the trigger names in italics and the raw condition names and descriptions on hover.
+That is the half written for modders; you do not need it to stock a ship.
 
 Underneath, **SLOTS** lists the equipment slots the container declares and how many items in
 your data fit each. A slot filters nothing itself: an item goes in a slot by naming that slot,
@@ -1303,9 +1327,12 @@ included, and each row can be shown on the grid, renamed or deleted.
   turn them at all, so a rotation authored for one would not survive a load.
 - **Drop it into a container** to nest it inside, **onto another grid** when more than one is
   drawn (a backpack's pouches), or **onto a name at the top** to move it out to a container
-  further up. Any of the three lands it in the first cell that takes it. Those names only
-  appear once you have drilled into something, so the hint offers that last drop only when
-  there is somewhere above to drop onto.
+  further up, or **onto a level in the sidebar**, which does the same thing. Any of them lands
+  it in the first cell that takes it. Those names only appear once you have drilled into
+  something, so **how to use** offers that drop only when there is somewhere above to drop onto.
+
+**how to use**, under the grid, lists every gesture the grid answers to. It is shut by default,
+because it is read once and is the widest thing in the window thereafter.
 
 An item is turned on its side when it no longer fits upright, both when you add one and when
 you drop one into another container. That is what lets a 3×5 Polaris decoy launcher take

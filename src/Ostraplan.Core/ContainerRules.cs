@@ -11,6 +11,9 @@ public sealed record RuleCond(string Cond, string? Friendly, string? Desc)
     public string Label => Friendly ?? Cond;
 }
 
+/// <summary>One line of the readable summary: a label and the sentence under it.</summary>
+public sealed record RuleSummary(string Label, string Text);
+
 /// <summary>
 /// One trigger in a container's filter, as a tree the view can print.
 /// </summary>
@@ -68,6 +71,61 @@ public sealed record ContainerRules(
 {
     /// <summary>True when nothing constrains what goes in, so the view can say so in one line.</summary>
     public bool HoldsAnything => Root is null || Root.Blank;
+
+    /// <summary>
+    /// The filter as a couple of sentences, for a reader who wants to know what fits rather than how the rule is
+    /// written.
+    ///
+    /// <para><b>Forbids merge and requirements do not.</b> A forbid is an and-of-nots on both of the game's paths,
+    /// at every level of the tree, so flattening every one of them into a single "won't hold" list cannot change
+    /// the meaning. A requirement can be an <c>or</c>, so each node keeps its own line and its own conjunction;
+    /// merging those is exactly the mistake that would turn <c>TIsFitContainerNavMod</c> into a container that
+    /// holds nothing.</para>
+    ///
+    /// <para>The tree itself is still there in <see cref="Root"/>. This is the reading of it, not a replacement:
+    /// a modder needs the trigger names and the raw conds, and a person stocking a ship needs a sentence.</para>
+    /// </summary>
+    public IReadOnlyList<RuleSummary> Plain
+    {
+        get
+        {
+            if (Root is null || HoldsAnything) return [];
+            var lines = new List<RuleSummary>();
+
+            var forbids = new List<string>();
+            var seen = new HashSet<string>(StringComparer.Ordinal);
+            Collect(Root);
+            if (forbids.Count > 0) lines.Add(new RuleSummary("Won't hold", Sentence(forbids, "or")));
+            Require(Root);
+            return lines;
+
+            void Collect(RuleNode n)
+            {
+                foreach (var f in n.Forbids)
+                    if (seen.Add(f.Cond)) forbids.Add(f.Label);
+                foreach (var c in n.Nested) Collect(c);
+                foreach (var c in n.NestedForbid) Collect(c);
+            }
+
+            void Require(RuleNode n)
+            {
+                var reqs = n.Requires.Concat(n.Unresolved).Select(r => r.Label).ToList();
+                if (reqs.Count > 0)
+                    lines.Add(new RuleSummary("Must be", Sentence(reqs, n.All ? "and" : "or")));
+                foreach (var c in n.Nested) Require(c);
+                foreach (var c in n.NestedForbid) Require(c);
+            }
+        }
+    }
+
+    /// <summary>"A", "A or B", "A, B or C" — the conjunction spelled out, because a list joined with a separator
+    /// reads as neither an "and" nor an "or" and the difference is the whole rule.</summary>
+    private static string Sentence(IReadOnlyList<string> parts, string conjunction) => parts.Count switch
+    {
+        0 => "",
+        1 => parts[0],
+        _ => string.Join(", ", parts.Take(parts.Count - 1)) + $" {conjunction} " + parts[^1],
+    };
 
     private const int MaxDepth = 8;
 

@@ -108,6 +108,58 @@ public class ContainerRulesTests
     }
 
     [Fact]
+    public void The_summary_merges_every_forbid_in_the_tree_into_one_sentence()
+    {
+        // Safe to merge because a forbid is an and-of-nots on both of the game's paths, at every level.
+        var cat = new Fixtures()
+            .Trig("TSolid", forbids: ["IsInstalled", "IsOversized"])
+            .Trig("TPocket", forbids: ["IsBackpack"], triggers: ["TSolid"])
+            .Container("Pouch", 1, 1, filterCt: "TPocket")
+            .Build();
+
+        var line = ContainerRules.For(cat, cat.Lookup("Pouch")!).Plain.Single();
+
+        Assert.Equal("Won't hold", line.Label);
+        Assert.Equal("IsBackpack, IsInstalled or IsOversized", line.Text);
+    }
+
+    [Fact]
+    public void The_summary_keeps_each_requirements_own_conjunction()
+    {
+        // Requirements do NOT merge: an OR node flattened into an AND list is the nav-console mistake, so each
+        // node keeps a line of its own and spells out which it is.
+        var cat = new Fixtures()
+            .Trig("TEither", reqs: ["IsNavMod", "IsExplosion"], bAnd: false)
+            .Trig("TBoth", reqs: ["IsSolid", "IsSmall"], triggers: ["TEither"])
+            .Container("Box", 2, 2, filterCt: "TBoth")
+            .Build();
+
+        var lines = ContainerRules.For(cat, cat.Lookup("Box")!).Plain;
+
+        Assert.Equal(["Must be", "Must be"], lines.Select(l => l.Label));
+        Assert.Equal("IsSolid and IsSmall", lines[0].Text);
+        Assert.Equal("IsNavMod or IsExplosion", lines[1].Text);
+    }
+
+    [Fact]
+    public void A_container_that_bars_nothing_has_nothing_to_summarise()
+    {
+        var cat = new Fixtures().Container("Crate", 4, 4).Build();
+        Assert.Empty(ContainerRules.For(cat, cat.Lookup("Crate")!).Plain);
+    }
+
+    [Fact]
+    public void One_condition_reads_as_itself_rather_than_as_a_list()
+    {
+        var cat = new Fixtures()
+            .Trig("TNoCrates", forbids: ["IsCrate"])
+            .Container("Pouch", 1, 1, filterCt: "TNoCrates")
+            .Build();
+
+        Assert.Equal("IsCrate", ContainerRules.For(cat, cat.Lookup("Pouch")!).Plain.Single().Text);
+    }
+
+    [Fact]
     public void A_slot_is_described_from_the_items_that_declare_it()
     {
         var cat = new Fixtures()
