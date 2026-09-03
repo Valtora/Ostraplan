@@ -239,10 +239,10 @@ public class WeaponImpactTests
     [Fact]
     public void A_tile_holding_a_wall_detonates_whatever_order_its_parts_are_in()
     {
-        // A floor and a wall sharing one tile. The game looks at the first surviving part and breaks, so in game
-        // this turns on which of the two the ship's item list happens to name first. That is not a property of the
-        // design and nothing a designer can see, so this asks whether the TILE holds a trigger instead.
-        // Deliberate deviation; see ImpactPoint and §26.
+        // A floor and a wall sharing one tile. The game tests every surviving part on it for a trigger cond, so
+        // the wall is found whichever of the two the ship's item list names first. Up to 1.0.0.16 it looked at the
+        // first surviving part alone and the answer turned on that ordering; Ostraplan asked about the TILE even
+        // then, which is the one thing a designer can see. See ImpactPoint and §26.
         var cat = Cat();
         var missile = Attack("Missile", ImpactType.Circular, 15, radius: 0, triggers: ["IsWall"]);
 
@@ -467,10 +467,11 @@ public class WeaponImpactTests
     [Fact]
     public void The_impact_point_does_not_depend_on_a_tiles_part_order()
     {
-        // What the game does: FindPointsOfImpact walks a cell's parts, skips the spent ones, and BREAKS after the
-        // first it does not skip, whether or not that part matched a trigger. On a real hull that left 15% of
-        // trigger-carrying tiles unable to stop a missile purely because a floor was named first in the ship's
-        // item list (§26). Ostraplan asks about the tile, so the same plan always gives the same answer.
+        // What the game does: FindPointsOfImpact walks a cell's parts, skips the spent ones, and asks each of the
+        // rest for a trigger cond, moving on to the next part when it does not match. Up to 1.0.0.16 it BROKE
+        // after the first part it did not skip instead, which on a real hull left 15% of trigger-carrying tiles
+        // unable to stop a missile purely because a floor was named first in the ship's item list (§26). Ostraplan
+        // asked about the tile through all of that, so the same plan has always given the same answer.
         var cat = Cat();
         var missile = Attack("M", ImpactType.Circular, 300, radius: 2, range: 30,
                              triggers: ["IsWall", "IsRigid", "IsPortal"]);

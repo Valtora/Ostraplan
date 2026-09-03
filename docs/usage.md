@@ -595,12 +595,13 @@ fire up to the heaviest missile — then draw the path the same way.
 - **Missiles detonate on the hull**, not in the middle: they trigger on the first tile along
   the line carrying one of the attack's own trigger conditions (for the missiles, a wall, a
   rigid object or a portal), and the blast falls off with distance from there.
-- **A wall stops a missile whenever there is a wall there.** The game itself is fussier: it
-  looks at the first part on a tile that still has anything left to give and then stops looking,
-  so a wall sharing its tile with a floor stops a missile only when the ship's own item list
-  happens to name the wall first. That makes the answer depend on how the file was written
-  rather than on the design, which is no use to a planner, so Ostraplan asks about the tile.
-  This is one of the few places the tool deliberately does not match the game.
+- **A wall stops a missile whenever there is a wall there**, whatever else shares the tile with
+  it and in whatever order it was built. That is the game's own rule from version 1.0.0.17. Up
+  to 1.0.0.16 the game looked at the first part on a tile that still had anything left to give
+  and then stopped looking, so a wall sharing its tile with a floor stopped a missile only when
+  the ship's item list happened to name the wall first, which on a real hull left about one
+  trigger-carrying tile in seven unable to stop anything. Ostraplan reported the tile through
+  all of that, and it now simply agrees with the game.
 - **You may still see a shot slip past a wall on a diagonal.** That one *is* the game's rule:
   a shot steps one tile at a time along its heading and rounds to the nearest cell, so a
   diagonal can cross a column and a row in the same step and miss the cell in between. Drawing

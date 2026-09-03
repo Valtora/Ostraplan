@@ -12,6 +12,15 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Changed
+- **The game fixed the missile bug Ostraplan was working around, so the workaround is gone.** Ostranauts
+  1.0.0.17 checks every part on a tile before a missile flies over it, where it used to check only the
+  first one listed and pass over a wall that happened to be named after the floor under it. Ostraplan
+  always reported the sensible answer, that a wall stops a missile whenever there is a wall on the tile,
+  and to make its exports behave that way in game it listed walls, portals and rigid fittings ahead of
+  everything sharing their tile (#45). That is no longer needed and has been taken back out, so a ship
+  is written in the order you built it again. Two cases the reordering could never reach are fixed with
+  it: a hull imported from a save, which kept whatever order it arrived with, and a wall added to an
+  existing save, which landed after the floor already on its tile. Both now stop missiles in game.
 - **The container view is laid out in two columns, and sizes itself.** Everything used to stack down one
   column, so the widest thing in it set the width of everything else, and the widest thing was a
   seven-clause line of instructions nobody reads twice. That pushed **Add item** out to the far edge of

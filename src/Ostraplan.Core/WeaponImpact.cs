@@ -39,7 +39,7 @@ public sealed record ImpactResult(
 
 /// <summary>
 /// A ship-weapon impact against a design: missiles, mass driver rounds, point-defence fire, collisions and
-/// scuttling. Ported from <c>DamageSystem.DamageRayShallow</c> → <c>ProjectRayOnGrid</c> (§26, verified 1.0.0.11).
+/// scuttling. Ported from <c>DamageSystem.DamageRayShallow</c> → <c>ProjectRayOnGrid</c> (§26, verified 1.0.0.17).
 ///
 /// <para><b>This is the other damage system, not a variant of the first.</b> Where a micrometeoroid raycasts
 /// Unity colliders and takes only a part's current form, every projectile in the game walks the <b>tile grid</b>
@@ -257,22 +257,22 @@ public static class WeaponImpact
     /// The first cell along the trajectory that can be hit — and, for an attack with trigger conds, the first
     /// holding one of them. This is what makes a missile detonate on the hull rather than at the centre.
     ///
-    /// <para><b>Every part on a tile is tested, which is a deliberate deviation from the game.</b> The game's
-    /// <c>FindPointsOfImpact</c> walks a cell's parts, skips any that are spent, and then <c>break</c>s
-    /// unconditionally after examining the first one it does not skip — whether or not that part matched a trigger
-    /// cond. So in game a wall sharing a tile with a floor triggers a missile only when the wall happens to be the
-    /// first of the two, and listed the other way round the missile sails over a tile with a wall on it. Measured
-    /// on a real hull, 15% of trigger-carrying tiles are in that state (§26).</para>
+    /// <para><b>Every part on a tile is tested, as the game tests them.</b> <c>FindPointsOfImpact</c> walks a
+    /// cell's parts, skips any that are spent, and asks each one it does not skip for a trigger cond, moving on to
+    /// the next part when it does not match. So a wall stops a missile whenever there is a wall on the tile,
+    /// whatever else shares it and in whatever order.</para>
     ///
-    /// <para>Reproducing it made the answer depend on the order parts appear in the ship's item list, which is not
-    /// a property of the design and is not something a designer can see, reason about or change. Two plans
-    /// identical on screen gave different impact points. A planner whose job is "what would a hit here break"
-    /// cannot answer "it depends how the file was written", so this asks whether the <b>tile</b> holds a trigger
-    /// rather than whether its first part does. The effect is that a wall stops a missile whenever there is a wall
-    /// there, which is also what a user reading the plan expects.</para>
+    /// <para><b>This used to be a deviation, and up to game 1.0.0.16 it was the one place the damage model
+    /// deliberately disagreed.</b> The game's loop <c>break</c>ed unconditionally after the first part it did not
+    /// skip, whether or not that part carried a trigger cond, so a wall sharing a tile with a floor stopped a
+    /// missile only when the wall happened to be listed first. Measured on a real hull, 15% of trigger-carrying
+    /// tiles were in the state where it did not (§26). Ostraplan asked about the tile instead, because the game's
+    /// answer turned on the order parts appear in the ship's item list and two plans identical on screen gave
+    /// different impact points. <b>1.0.0.17 made the walk continue past a non-matching part</b>, so the two now
+    /// agree and the tile is the question in both.</para>
     ///
-    /// <para><b>Deliberate deviation, not a port.</b> Everything after the impact point (the blast falloff, the
-    /// doubled centre, what each cell absorbs) is the game's arithmetic exactly.</para>
+    /// <para>Everything after the impact point (the blast falloff, the doubled centre, what each cell absorbs) is
+    /// the game's arithmetic exactly, as it always was.</para>
     /// </summary>
     private static (int X, int Y)? ImpactPoint(
         ShipDocument doc, Dictionary<(int X, int Y), List<Placement>> grid, (int X, int Y) start,
@@ -425,8 +425,9 @@ public static class WeaponImpact
     /// The first part on a tile that still has something left to give, or null when every part on it is spent.
     ///
     /// <para>The game's gate is <see cref="DamageState.IsSpent"/>, not destroyed: <c>FindPointsOfImpact</c> skips
-    /// on <c>|CurrentDamage − GetMaxHealth()| &lt; 0.01</c> and then <c>break</c>s, so the first part with any
-    /// capacity left is the only one a missile's trigger conds are ever tested against.</para>
+    /// on <c>|CurrentDamage − GetMaxHealth()| &lt; 0.01</c>. An attack with no trigger conds stops at the first
+    /// part that survives that skip, which is what this answers; one with trigger conds goes on to test every
+    /// part on the tile (see <see cref="Triggers"/>).</para>
     /// </summary>
     private static Placement? FirstStanding(ShipDocument doc, List<Placement> parts, DamageState state)
     {
@@ -436,8 +437,9 @@ public static class WeaponImpact
         return null;
     }
 
-    /// <summary>Whether anything still standing on this tile carries one of the attack's trigger conditions. See
-    /// <see cref="ImpactPoint"/> for why this asks about the tile rather than about its first part.</summary>
+    /// <summary>Whether anything still standing on this tile carries one of the attack's trigger conditions, which
+    /// is the question <c>FindPointsOfImpact</c> asks of a tile from game 1.0.0.17 (see
+    /// <see cref="ImpactPoint"/>).</summary>
     private static bool Triggers(
         ShipDocument doc, List<Placement> parts, ShipAttackDef attack, DamageState state)
     {

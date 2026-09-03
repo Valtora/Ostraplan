@@ -396,15 +396,9 @@ public sealed class DockShip
         // ORDER IS PART OF THE ANSWER, so it has to be the order the game will actually read. An item whose
         // cell already holds anything, a neighbour's Blank halo included, is dropped from the grid entirely
         // (see BuildGrid), which makes the whole thing order-dependent. What the game reads is the emitted
-        // aItems array, and ShipExport.TriggerFirst partitions that: every part carrying an attack trigger
-        // cond (IsWall / IsRigid / IsPortal in core data) ahead of every part that carries none, each group
-        // keeping document order, and the deck items after all of them.
-        var triggers = catalog.ShipAttacks.Values.SelectMany(a => a.TriggerConds).ToHashSet(StringComparer.Ordinal);
-        bool Carries(Placement p) => triggers.Count > 0 && doc.Part(p) is { } part
-            && part.StartingConds.Any(triggers.Contains);
-
-        foreach (var p in doc.Placements.Where(Carries)) Add(p.DefName, p.X, p.Y, p.Rot, p.Id.ToString());
-        foreach (var p in doc.Placements.Where(p => !Carries(p))) Add(p.DefName, p.X, p.Y, p.Rot, p.Id.ToString());
+        // aItems array, which ShipExport writes in document order, structure first and the deck items after
+        // all of them.
+        foreach (var p in doc.Placements) Add(p.DefName, p.X, p.Y, p.Rot, p.Id.ToString());
         foreach (var lo in doc.LooseObjects) Add(lo.DefName, lo.X, lo.Y, lo.Rot, lo.Id.ToString());
 
         var grid = BuildGrid(items, 0, 0, nCols, nRows, lookup);

@@ -784,7 +784,7 @@ genuinely discriminate — `Station_EJDR`'s two take 135 and 119 of the 162.
 > ([issue #47](https://github.com/Valtora/Ostraplan/issues/47)). A design is the **incoming** ship,
 > since that is the way round a player meets it. `DockShip.FromTemplate` keeps a template's own frame
 > because of the left-edge quirk above; `FromDocument` uses the bbox±1 frame `ShipExport` writes and
-> the item order `ShipExport.TriggerFirst` emits, so the prediction matches the file Ostraplan
+> the item order `ShipExport` emits, so the prediction matches the file Ostraplan
 > produces rather than some other framing of the same ship.
 >
 > `DockPose` turns a pose into the other ship's parts in your design's own tile frame, which is what
@@ -3328,7 +3328,9 @@ and what it writes is a state the game reproduces exactly on load, per the round
 
 ## 26. Ship damage (micrometeoroids, weapons and collisions)
 
-**Verified against game `1.0.0.11`.**
+**Verified against game `1.0.0.17`.** Both damage paths were re-read against that decompile
+for the `FindPointsOfImpact` change below; the live-data figures here are pinned by
+`WeaponImpactTests` and `MicrometeoroidTests`, which run against the installed game.
 
 Ostranauts has **two damage systems**, not one. They live in the same class
 (`Ostranauts.Ships.DamageSystem`), share the attack-data folder, and disagree about almost
@@ -3697,88 +3699,84 @@ cellDamage = fTotalDamage * (1 − distance / max(1, fRadius))
 > square scan then adds the same cell again at distance 0, so the centre of every blast
 > takes two full-strength applications.
 
-> **Why a missile flies over a wall, and why "it only detonates on exterior hull" is the
-> wrong reading.** Two separate mechanisms, both faithfully reproduced, and neither is a
-> rule about the hull.
+> **Why a missile can fly over a wall, and why "it only detonates on exterior hull" is the
+> wrong reading.** Two mechanisms, neither of them a rule about the hull. Only the second is
+> still live: the game retired the first in `1.0.0.17`.
 >
-> **1. A tile is judged on one part, and it is whichever comes first.** `FindPointsOfImpact`
-> walks a cell's parts, `continue`s past any at max health, and then `break`s
-> **unconditionally** after the first one it does not skip — whether or not that part carried
-> a trigger cond:
+> **1. A tile used to be judged on one part, and it was whichever came first. Fixed in
+> `1.0.0.17`.** `FindPointsOfImpact` walks a cell's parts and `continue`s past any at max
+> health. Every part that survives that skip is now tested against the attack's trigger conds,
+> and the walk goes on to the next part when one does not match:
 >
 > ```csharp
 > foreach (DataCOWrapper item2 in list2) {
 >     if (Math.Abs(item2.CurrentDamage - item2.DataCO.GetMaxHealth()) < 0.01) continue;
->     if (triggerConds != null) { /* match → add, flag = false */ }
->     else { list.Add(item); flag = false; }
->     break;                       // ← regardless
+>     if (triggerConds != null) {
+>         for (int i = 0; i < triggerConds.Length && flag; i++)
+>             if (item2.HasCond(triggerConds[i])) { list.Add(item); flag = false; break; }
+>         continue;                    // ← up to 1.0.0.16 this was an unconditional `break`,
+>     }                                //   sitting outside the `if` and taken either way
+>     list.Add(item); flag = false; break;
 > }
 > ```
 >
+> So a tile stops a missile whenever anything on it with health left carries a trigger cond,
+> which is the answer a designer would expect and the one Ostraplan has always given.
+>
+> **What it did up to `1.0.0.16`.** The loop `break`ed after the first part it did not skip,
+> whether or not that part carried a trigger cond.
 > `MissileAttack03` declares `aTriggerConds: ["IsWall", "IsRigid", "IsPortal"]`, and interior
 > walls carry `IsWall` exactly as exterior ones do (`ItmWallMSSLFWhite`, `ItmWallCAYL05`,
 > `ItmWall1x1` all do). But a wall usually shares its tile with a floor, and a floor carries
-> none of the three. List the floor first and the missile examines the floor, finds no match,
-> breaks, and moves on **over a tile with a wall on it**.
+> none of the three. List the floor first and the missile examined the floor, found no match,
+> broke, and moved on **over a tile with a wall on it**.
 >
-> **Measured on a real ship** (a save-imported *Dancing Jack*, 5863 parts), firing straight
-> down column 22:
+> **Measured on a real ship** (a save-imported *Dancing Jack*, 5863 parts) at `1.0.0.13`, firing
+> straight down column 22:
 >
-> | Tile | Contents, in the ship's own order | Missile |
+> | Tile | Contents, in the ship's own order | Missile, up to 1.0.0.16 |
 > |---|---|---|
 > | `(22,2)` | Whipple Framework `[IsWall]` — **alone on the tile** | detonates |
 > | `(22,46)` | Wall `[IsWall]` (idx 631) │ Floor (idx 1228) │ Conduit | detonates |
 > | `(22,23)` | Floor (idx 2802) │ Wall `[IsWall]` (idx 5613) │ Conduit | **passes over** |
 > | `(22,22)` | Floor │ Auto Air Vent `[IsRigid]` | **passes over** |
 >
-> So it is not that exterior walls have no floor under them — `(22,46)` has one. It is that
-> the outermost hull course is often wall-*only* (46% of that ship's trigger-carrying tiles
-> have the trigger alone on them), and where a hull tile does share, the wall happens to come
-> first in the ship's item list. Ship-wide: **1543** tiles carry a trigger part, **85%** have
-> it first and the missile stops, **15%** (232 tiles) have one present but not first and the
-> missile goes over. That is why the behaviour reads as "only the outside stops them".
+> It was never that exterior walls have no floor under them: `(22,46)` has one. It was that the
+> outermost hull course is often wall-*only* (46% of that ship's trigger-carrying tiles have the
+> trigger alone on them), and that where a hull tile did share, the wall happened to come first
+> in the ship's item list. Ship-wide: **1543** tiles carry a trigger part, **85%** had it first
+> and stopped the missile, **15%** (232 tiles) had one present but not first and let it through.
+> That is why the behaviour read as "only the outside stops them". All four rows detonate at
+> `1.0.0.17`.
 >
-> **Ostraplan does not reproduce this, and makes the export agree.** `ImpactPoint` asks whether
-> the *tile* holds a trigger that still has capacity, not whether its *first* part does.
+> **Ostraplan asked about the tile throughout, and that is now the port rather than a
+> deviation.** `ImpactPoint` asks whether the *tile* holds a trigger that still has capacity,
+> not whether its *first* part does.
 >
-> The reason is that the game's rule makes the impact point depend on the order parts appear in
-> the ship's item list, and there is no tie-break to port because the game does not have one.
-> Two plans identical on screen gave different answers. A planner whose whole job is "what would
-> a hit here break" cannot usefully answer "it depends how the file was written".
+> It was written that way because the game's old rule made the impact point depend on the order
+> parts appear in the ship's item list, with no tie-break to port because the game did not have
+> one. Two plans identical on screen gave different answers, and a planner whose whole job is
+> "what would a hit here break" cannot usefully answer "it depends how the file was written".
 >
-> **This section used to say the order was "not a property of the design", and that was wrong**
-> in the case that matters most. It holds for a ship read out of a save, whose order came from
-> whoever built it. It does not hold for a ship built here: `aItems` is emitted in
-> `ShipDocument.Placements` order (`ShipGrid.FromDocumentFramed` walks it, `ShipExport` walks
-> that), and `.oplan` round-trips that order exactly, because device links are stored as indices
-> into it. So the order is precisely the order the parts were laid down, it survives save and
-> reload, and Ostraplan was deciding whether each exported wall stops a missile — from build
-> order, with nothing on the plan saying so. Floor a deck and then wall it, which is the obvious
-> way to build, and every one of those walls was transparent to missiles in game.
+> **The export used to enforce the ordering, and no longer does.** `ShipExport.TriggerFirst`
+> emitted every trigger-carrying part ahead of every part carrying none, each group keeping its
+> own relative order, so that the game's old rule applied to an Ostraplan file yielded the
+> intuitive answer. It existed because `aItems` is emitted in `ShipDocument.Placements` order
+> and `.oplan` round-trips that order exactly (device links are stored as indices into it), so
+> the order was precisely the order the parts were laid down: floor a deck and then wall it,
+> which is the obvious way to build, and every one of those walls was transparent to missiles in
+> game with nothing on the plan saying so. `1.0.0.17` makes the ordering inert, so the partition
+> came back out and `aItems` is document order again (#45).
 >
-> **So `ShipExport.TriggerFirst` emits every trigger-carrying part ahead of every part carrying
-> none**, each group keeping its own relative order. The game's rule applied to a trigger-first
-> list yields the intuitive answer, so a ship Ostraplan wrote behaves the way its plan said it
-> would, and the deviation above stops being a deviation and becomes a guarantee about the file.
-> One stable partition satisfies every tile at once: the constraint only ever runs from a trigger
-> part to a non-trigger one, so the graph is bipartite with all edges pointing one way and cannot
-> cycle. The cond set is the union of every attack's `aTriggerConds` in the catalogue rather than
-> a hardcoded list, so a mod that adds an attack is covered.
+> **This also closes the two cases the ordering could not reach.** A ship read out of a save
+> keeps its own item order until it is re-exported, and `SaveEdit` rebuilds `aItems` as
+> surviving originals verbatim plus new parts appended, so a wall added to an existing save
+> lands after the floor already on its tile. Both used to leave the planner's answer disagreeing
+> with what that hull does in game. Neither can now.
 >
-> **Deliberately not a toggle.** A "simulate the bug" mode would have to be taken back out if the
-> game is ever fixed, and would expose an ordering the designer cannot see or reorder. Enforcing
-> the order costs nothing if the `break` is ever made conditional: the ordering simply stops
-> mattering.
->
-> **What this does not cover.** A ship read out of a save keeps its own order until it is
-> re-exported, so the planner's answer for an imported hull can still differ from what that hull
-> does in game. `SaveEdit` also rebuilds `aItems` as surviving originals verbatim plus new parts
-> appended, so a wall added to an existing save lands after the floor already on its tile. Both
-> are open.
->
-> Everything downstream of the impact point is still the game's arithmetic exactly: the blast
-> falloff, the doubled centre, the soft-edge cap, and what each cell absorbs. Spent parts are
-> still skipped, so successive shots still walk the impact point inward.
+> Everything downstream of the impact point is the game's arithmetic exactly: the blast falloff,
+> the doubled centre, the soft-edge cap, and what each cell absorbs. Spent parts are still
+> skipped, so successive shots still walk the impact point inward.
 >
 > **2. The walk point-samples, so a diagonal steps over cells.** Both `FindPointsOfImpact`
 > and `RunRayPattern` advance by one unit of the **normalised** direction and round:
@@ -3965,8 +3963,9 @@ would only be a mode to remove later.
 > **Re-verify on a major game version:** the
 > `AModeMicrometeoroid` and `shipAttacks` numbers, `AttackModeMapping`'s ordering, the
 > `prefabQuad` collider, the `ATC_SPEED_LIMIT` constant, whether `−vStart.normalized` has
-> been corrected to aim at the ship centre, and whether any body other than Earth has been
-> given a `fMicrometeoroidChance`.
+> been corrected to aim at the ship centre, whether any body other than Earth has been
+> given a `fMicrometeoroidChance`, and whether `FindPointsOfImpact` still tests every part on
+> a tile for a trigger cond rather than only its first.
 
 ---
 

@@ -254,7 +254,10 @@ public static class ShipExport
             foreach (var c in nodes) EmitContained(c, parentStrID, fx, fy);
         }
 
-        foreach (var part in TriggerFirst(grid.Parts, catalog))
+        // aItems is emitted in document order, which is the order the parts were laid down. It used to be
+        // partitioned with every trigger-carrying part first, because up to game 1.0.0.16 a missile judged a tile
+        // on its first part alone; 1.0.0.17 reads the whole stack, so there is nothing left to arrange (§26, #45).
+        foreach (var part in grid.Parts)
         {
             var (w, h) = GridMath.Size(part.Part.Item.Width, part.Part.Item.Height, part.Rot);
             // inverse of ShipGrid.FromTemplate with vShipPos=(0,0): centre = top-left + (size/2 − 0.5),
@@ -624,44 +627,6 @@ public static class ShipExport
     }
 
     /// <summary>Serialize the ship as the game expects a <c>data/ships</c> file: a one-element top-level array.</summary>
-    /// <summary>
-    /// The parts in emission order, with everything carrying a missile trigger cond moved ahead of everything
-    /// that carries none, each group keeping its own relative order.
-    ///
-    /// <para><b>Why an exporter decides this at all.</b> The game's <c>FindPointsOfImpact</c> examines only the
-    /// first part on a tile that still has health and then breaks, whether or not that part matched a trigger
-    /// cond (GAME-INTERNALS §26). So a wall sharing a tile with a floor stops a missile only when the wall is the
-    /// earlier of the two in <c>aItems</c>, and <c>aItems</c> is emitted in <see cref="ShipDocument.Placements"/>
-    /// order, which is the order the parts were laid down. Floor the deck before walling it and the hull those
-    /// walls form does not stop missiles, with nothing on the plan to say so.</para>
-    ///
-    /// <para><b>What it buys.</b> Ostraplan's damage model asks whether the <i>tile</i> carries a trigger rather
-    /// than whether its first part does. That was a deviation; this makes it true instead. With every trigger
-    /// ahead of every non-trigger, the first part the game examines on a shared tile is the one that triggers, so
-    /// a ship Ostraplan wrote behaves the way its plan said it would. If the game ever stops breaking
-    /// unconditionally this becomes a no-op, rather than a mode someone has to remember to take back out.</para>
-    ///
-    /// <para><b>One stable partition satisfies every tile at once.</b> The constraint only ever runs from a
-    /// trigger part to a non-trigger one, so the ordering graph is bipartite with all its edges pointing the same
-    /// way and cannot contain a cycle. Keeping each group's own order is also what leaves
-    /// <see cref="ProblemScan.BoundingPort"/> alone: every installed docking port carries <c>IsPortal</c>, so
-    /// ports never split across the two groups and the order the game registers them in is unchanged.</para>
-    ///
-    /// <para>The cond set is read from the catalogue's own attacks rather than hardcoded, so a mod adding an
-    /// attack with new trigger conds is covered. In core data the union is <c>IsWall</c>, <c>IsRigid</c> and
-    /// <c>IsPortal</c>, declared by the three missile attacks.</para>
-    /// </summary>
-    internal static List<PlacedPart> TriggerFirst(IReadOnlyList<PlacedPart> parts, Catalog catalog)
-    {
-        var triggers = catalog.ShipAttacks.Values
-            .SelectMany(a => a.TriggerConds)
-            .ToHashSet(StringComparer.Ordinal);
-        if (triggers.Count == 0) return [.. parts];
-
-        bool Carries(PlacedPart p) => p.Part.StartingConds.Any(triggers.Contains);
-        return [.. parts.Where(Carries), .. parts.Where(p => !Carries(p))];
-    }
-
     public static string Serialize(ExportedShip ship) => JsonSerializer.Serialize(new[] { ship }, Json);
 
     /// <summary>Serialize several ships as one <c>data/ships</c> file. The game reads a data file as an array and

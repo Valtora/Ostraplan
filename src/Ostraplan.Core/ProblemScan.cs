@@ -463,12 +463,6 @@ public static class ProblemScan
     /// which is the order the game spawns and registers them in. Both ties are unreachable in
     /// practice anyway: core ships carry exactly one Primary, and Ostraplan seeds exactly one per
     /// document.</para>
-    ///
-    /// <para>Document order is no longer <i>identical</i> to the emitted <c>aItems</c> order, since
-    /// <c>ShipExport.TriggerFirst</c> moves trigger-carrying parts to the front (§26). It does not
-    /// matter here: every installed docking port carries <c>IsPortal</c>, which is one of the
-    /// trigger conds, so ports never split across the two groups and the partition is stable, which
-    /// leaves their order relative to each other exactly as it is here.</para>
     /// </summary>
     public static Placement? BoundingPort(ShipDocument doc, Catalog catalog)
     {
