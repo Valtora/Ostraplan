@@ -332,6 +332,27 @@ public sealed class Catalog
                  .ToDictionary(d => d.Name, d => d, StringComparer.Ordinal)
             : new Dictionary<string, CondDisplayDef>(StringComparer.Ordinal);
 
+    private IReadOnlyDictionary<string, SimpleCondDef>? _condNames;
+
+    /// <summary>
+    /// Every condition's readable name and description, keyed by condition name (from
+    /// <c>data/conditions_simple</c>, 1421 of them on stock data).
+    ///
+    /// <para>This is what lets a rule built out of conditions be printed as a sentence: a container that forbids
+    /// <c>IsLong</c> is one that will not hold "anything 1m or longer, making it difficult to stow in some
+    /// containers", which is the game's own wording for it. Distinct from <see cref="CondDisplay"/>, which is the
+    /// four tool-tip <i>figures</i> and answers a different question.</para>
+    ///
+    /// <para>Empty in synthetic test catalogs, so every caller must read through it rather than depend on a hit.</para>
+    /// </summary>
+    public IReadOnlyDictionary<string, SimpleCondDef> CondNames =>
+        _condNames ??= Index is { } idx
+            ? idx.Type("conditions_simple")
+                 .SelectMany(kv => SimpleCondDef.ParseTable(kv.Value.El))
+                 .GroupBy(d => d.Name, StringComparer.Ordinal)
+                 .ToDictionary(g => g.Key, g => g.Last(), StringComparer.Ordinal)
+            : new Dictionary<string, SimpleCondDef>(StringComparer.Ordinal);
+
     /// <summary>GUI-prop-map templates by name (from <c>data/guipropmaps</c>) — the <c>dictGUIPropMap</c> array
     /// each named map (e.g. "Electrical", "AirPump") expands to. Used to bake a new device's <c>aGPMSettings</c>
     /// so it wires up on load. Empty in synthetic test catalogs.</summary>

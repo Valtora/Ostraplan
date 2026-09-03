@@ -335,6 +335,39 @@ loot would run anyway and the two sets would race for the same four slots.
 > a container, so its four compartments, written as loose cargo, had nothing to
 > attach to. A backpack hid the same fault behind its own 4×4 grid.
 
+### A condition's readable name lives in a differently shaped file
+
+*This subsection verified against **1.0.0.13**.*
+
+Two data folders both look like they define conditions and answer different questions.
+
+`data/conditions` is a normal list of objects and carries `nDisplayType`. Only the four
+declaring `nDisplayType == 1` reach the mega tool tip as a figure, which is what
+`CondDisplayDef` reads.
+
+`data/conditions_simple` is where the **readable name and description** of every condition
+live, 1421 of them on stock data. It is shaped unlike anything else Ostraplan reads: one
+object whose `aValues` is a single flat array of strings, seven per condition, in the order
+its own comment gives.
+
+```
+// [strName], [strNameFriendly], [strDesc], [nDisplaySelf], [nDisplayOther], [strColor], [bInvert]
+"IsLong","Long","[us] [is] 1m or longer, making it difficult to stow in some containers.", ...
+```
+
+So it is chunked rather than deserialized (`SimpleCondDef.ParseTable`), and a trailing
+partial row is dropped rather than guessed at. Descriptions carry the game's `[us] [is]`
+grammar tokens, which are substituted at display time against whatever the sentence is about.
+
+This is what lets a rule built out of conditions be printed as a sentence rather than as a
+list of internal tokens: a container forbidding `IsLong` is one that will not hold "anything
+1m or longer", in the game's own words.
+
+> **Ported in Ostraplan:** `SimpleCondDef` and `Catalog.CondNames`, read by
+> `ContainerRules` to print a container's item filter.
+> **Re-verify on a major game version:** the seven-field row order, since the file carries no
+> keys and a field inserted in the middle would shift every value without failing to parse.
+
 ### Tile-condition accumulation (`Ship.UpdateTiles`)
 
 Each tile holds a condition multiset (`Tile.coProps`). On place or remove,
@@ -3239,6 +3272,33 @@ cell right of the window origin; its four pouches are at `y = -68`, which is 4.2
 which is 1.25 cells apart, so four 1x1 pouches make a row with the same quarter-cell gap.
 Only 20 core defs declare a `dictSlotsLayout` at all, every one of them a garment or a
 backpack. No human condowner does, so a crew paper-doll is not laid out this way.
+
+### What decides a slot fit is on the ITEM, and no equipment slot filters anything
+
+*This subsection verified against **1.0.0.13**.*
+
+`Slot.CanFit` is the whole of it, and the test it applies is
+`coFit.mapSlotEffects.ContainsKey(strName)`. **The item names the slot**, and the host only
+has to declare that slot in `aSlotsWeHave`. There is no whitelist on the slot saying what it
+accepts, which is the opposite of the way a container works.
+
+A slot does have a trigger field, `strCTAutoSlot`, read by `Slot.CanAutoSlot` and consulted
+only on the `bAuto` path. It is not what it looks like: **all 40 slots that declare one are
+wound slots**, every one of them naming `TIsAutoSlotWound`, whose whole content is a forbid
+on `IsAutoSlotWoundForbid`. Not one equipment slot in the shipped data filters anything.
+
+That is why Ostraplan does not port it. Wounds are anatomy rather than storage and are out of
+scope (see `Cargo.CanHoldCargo`), Ostraplan has no auto-slot path for the field to govern, and
+a panel showing a rule the tool never applies would be worse than one that says nothing. What
+`SlotRules` shows instead is the real rule, from the direction it actually runs: which defs
+declare this slot.
+
+> **Ported in Ostraplan:** `PartDef.SlotKeys` (`mapSlotEffects` keys) and
+> `PartDef.SlotsWeHave` were already the two sides of `CanFit`; `SlotRules` reads them back
+> the other way to answer "what goes in here".
+> **Re-verify on a major game version:** whether any non-wound slot has started declaring
+> `strCTAutoSlot`, which is the one thing that would make porting it worthwhile.
+> `InventoryLayoutTests` and `ContainerRulesTests` both hold a corner of this.
 
 ### What the game never does
 

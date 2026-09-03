@@ -260,6 +260,56 @@ public sealed record CondDisplayDef(
         + (string.IsNullOrEmpty(DisplayBonus) ? "" : DisplayBonus);
 }
 
+/// <summary>
+/// A condition's readable name and description, out of <c>data/conditions_simple</c>.
+///
+/// <para>That file is shaped unlike every other one Ostraplan reads. It is a single object whose
+/// <c>aValues</c> is one flat array of strings, seven per condition, in the order the file's own comment gives:
+/// <c>strName, strNameFriendly, strDesc, nDisplaySelf, nDisplayOther, strColor, bInvert</c>. So it is chunked
+/// rather than deserialized, and a trailing partial row is dropped rather than guessed at.</para>
+///
+/// <para>The description carries the game's <c>[us] [is]</c> grammar tokens verbatim, exactly as
+/// <see cref="CondDisplayDef.Desc"/> does. <see cref="Plain"/> is what to print where there is no subject to
+/// substitute into them.</para>
+/// </summary>
+public sealed record SimpleCondDef(string Name, string? Friendly, string? Desc)
+{
+    private const int Fields = 7;
+
+    /// <summary>The description with the grammar tokens taken off the front, so "[us] [is] a backpack." reads as
+    /// "a backpack". Null when the def carries no description.</summary>
+    public string? Plain
+    {
+        get
+        {
+            if (string.IsNullOrWhiteSpace(Desc)) return null;
+            var text = Desc.Trim();
+            // Only the leading subject/verb pair is dropped. A token further in is left alone, since it is
+            // referring to something other than the item and cutting it would change what the sentence says.
+            while (text.StartsWith('[') && text.IndexOf(']') is var close and > 0)
+                text = text[(close + 1)..].TrimStart();
+            return text.TrimEnd('.').Length == 0 ? null : text.TrimEnd('.');
+        }
+    }
+
+    /// <summary>Every condition in one <c>conditions_simple</c> object.</summary>
+    public static IEnumerable<SimpleCondDef> ParseTable(JsonElement e)
+    {
+        if (!e.TryGetProperty("aValues", out var vals) || vals.ValueKind != JsonValueKind.Array) yield break;
+        var flat = vals.EnumerateArray()
+            .Select(v => v.ValueKind == JsonValueKind.String ? v.GetString() ?? "" : "")
+            .ToArray();
+        for (var i = 0; i + Fields <= flat.Length; i += Fields)
+        {
+            if (flat[i].Length == 0) continue;
+            yield return new SimpleCondDef(
+                flat[i],
+                flat[i + 1].Length > 0 ? flat[i + 1] : null,
+                flat[i + 2].Length > 0 ? flat[i + 2] : null);
+        }
+    }
+}
+
 public sealed record ColorDef(string Name, byte R, byte G, byte B, byte A)
 {
     public static ColorDef Parse(JsonElement e) => new(

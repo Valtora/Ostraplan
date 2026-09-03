@@ -20,8 +20,11 @@ public sealed class DataIndex
     // "personspecs" is here for the loot spawner editor: a Pspec spawner names one of these, and the picker has to
     // offer what this install actually declares rather than a baked list, so a mod's own crew spec is offerable
     // (see LootSpawner).
+    // "conditions_simple" is where a condition's readable name and description live, all 1421 of them, which is what
+    // lets a container's item filter be printed as "won't hold a backpack" rather than as IsBackpack (see
+    // Catalog.CondNames). It is NOT the same table as "conditions": that one carries the tool-tip figures.
     private static readonly string[] WantedTypes =
-        ["items", "condowners", "installables", "cooverlays", "loot", "condtrigs", "rooms", "guipropmaps", "tickers", "slots", "powerinfos", "lights", "colors", "parallax", "interactions", "star_systems", "conditions", "transit", "attackmodes", "personspecs"];
+        ["items", "condowners", "installables", "cooverlays", "loot", "condtrigs", "rooms", "guipropmaps", "tickers", "slots", "powerinfos", "lights", "colors", "parallax", "interactions", "star_systems", "conditions", "conditions_simple", "transit", "attackmodes", "personspecs"];
 
     public required GameEnv Env { get; init; }
     public required IReadOnlyList<ModSource> Sources { get; init; }

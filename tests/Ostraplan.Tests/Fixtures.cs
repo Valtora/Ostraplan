@@ -57,10 +57,19 @@ public sealed class Fixtures
 
     /// <summary>Register a presence-only condtrigger: every req present, no forbid present. Pass
     /// <paramref name="bAnd"/> false for the game's OR form (any one req present is enough), which is what the
-    /// vessel and container filters use.</summary>
-    public Fixtures Trig(string name, string[] reqs, string[]? forbids = null, bool bAnd = true)
+    /// vessel and container filters use. <paramref name="triggers"/> nests other triggers by name, the way the
+    /// shipped container filters do, and <paramref name="fChance"/> below 1 makes it the randomised kind that
+    /// <see cref="CondEval"/> has to assume a branch for.</summary>
+    public Fixtures Trig(string name, string[]? reqs = null, string[]? forbids = null, bool bAnd = true,
+        string[]? triggers = null, string[]? triggersForbid = null, double fChance = 1.0)
     {
-        _trigs[name] = new CondTriggerDef(name, reqs, forbids ?? [], false) { BAnd = bAnd };
+        _trigs[name] = new CondTriggerDef(name, reqs ?? [], forbids ?? [], (triggers ?? []).Length > 0)
+        {
+            BAnd = bAnd,
+            Triggers = triggers ?? [],
+            TriggersForbid = triggersForbid ?? [],
+            FChance = fChance,
+        };
         return this;
     }
 
@@ -317,6 +326,10 @@ public sealed class Fixtures
     public Catalog Build() => new()
     {
         Slots = _slots,
+        // The same rule the real catalog applies: anything that is not installed structure is loose cargo. It used
+        // to be left empty, which made the add-picker's universe and everything counted off it invisible to a
+        // game-free test (see ContainerRules).
+        LooseItems = _parts.Where(p => !p.StartingConds.Contains("IsInstalled")).ToList(),
         ShipAttacks = _shipAttacks,
         Parts = _parts,
         ByDefName = _byName,

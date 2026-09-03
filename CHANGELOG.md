@@ -12,6 +12,22 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **A container now says what it will hold, instead of only enforcing it.** **Add item** has always
+  offered just the items a container accepts, and a drag that crosses into another one has always been
+  held to the same test, but the rule behind both was never visible: there was no way to see why a
+  pouch takes a battery and refuses a crate. **COMPATIBLE ITEMS**, at the bottom of the container view,
+  shows it for whichever grid is active. It opens on the figure that usually settles the question
+  ("holds 720 of 1330 items") and then the filter itself, in the game's own words rather than as
+  internal tokens: a backpack reads as one that won't hold a Backpack, a Crate, a Toolbox or anything
+  Long. That wording comes from `data/conditions_simple`, 1421 conditions Ostraplan did not read
+  before; hover any line for the raw condition names and their descriptions, which is what you want
+  when writing a container of your own. **A filter is a tree, not a whitelist and a blacklist**, so it
+  is shown as one: they nest three levels deep and half of the shipped ones mean **one of** rather
+  than **all of**, and a nav console that requires `IsNavMod` *or* `IsExplosion` would read as holding
+  nothing at all if that were flattened. Underneath, **SLOTS** says what each equipment slot takes.
+  Nothing filters on the slot side, as it turns out: an item fits by naming the slot, and every one of
+  the 40 slots in the game that does carry a filter is a wound slot, so the useful answer is which
+  items name it. Thanks to nighoggDatatype. (#61)
 - **A backpack's pouches are drawn on the backpack, with what is in them.** In game an orange
   backpack is one inventory: a 4×4 grid with four one-tile pouches in a row beneath it. Ostraplan
   modelled the pouches correctly but drew one level at a time, so their contents were invisible at

@@ -134,10 +134,11 @@ public partial class App : Application
 
                 void RenderInv(string file, string def, string friendly, IReadOnlyList<CargoItem> cargo,
                     ShipDocument? doc = null, CommandStack? stack = null, Placement? root = null,
-                    LooseObject? rootLoose = null, string? theme = null)
+                    LooseObject? rootLoose = null, string? theme = null, bool rules = false)
                 {
                     if (theme is not null) ThemeManager.Apply(theme);
                     var win = new InventoryWindow(catalog, sprites, def, friendly, cargo, doc, stack, root, rootLoose);
+                    if (rules) win.PreviewExpandRules();
                     var panel = win.PreviewContent;
                     panel.Background = ThemeManager.WindowBg;
                     const int w = 620;
@@ -178,6 +179,15 @@ public partial class App : Application
                 RenderInv("inv-backpack-dark.png", "ItmBackpack01", "Backpack: Pearson", cargo, theme: "dark");
                 RenderInv("inv-backpack-light.png", "ItmBackpack01", "Backpack: Pearson", cargo, theme: "light");
                 RenderInv("inv-empty.png", "ItmBackpack01", "Backpack (empty)", [], theme: "dark");   // an empty container still shows its grid
+
+                // The restrictions block, open. The backpack is a good subject: its filter forbids outright and
+                // then nests, and it declares four slots, so both halves of the block have something to say (#61).
+                RenderInv("inv-rules-dark.png", "ItmBackpack01", "Backpack: Pearson", cargo, theme: "dark", rules: true);
+                RenderInv("inv-rules-light.png", "ItmBackpack01", "Backpack: Pearson", cargo, theme: "light", rules: true);
+                // A pouch's own filter is the one that nests two levels, and it declares no slots at all.
+                if (catalog.Lookup("PocketPouchSmall01") is { } pouchDef)
+                    RenderInv("inv-rules-pouch.png", pouchDef.DefName, pouchDef.Friendly ?? pouchDef.DefName,
+                        [], theme: "dark", rules: true);
 
                 // an EDITABLE backpack: the same content but with the editor affordances (+ Add item… header,
                 // removable tiles) — confirms the edit UI constructs without throwing.

@@ -69,6 +69,7 @@ public sealed class InventoryWindow : Window
     private readonly StackPanel _body;
     private readonly Canvas _overlay;           // ghost layer for dragging
     private string? _selectedId;                // grid tile selected for the Delete / R keys (editing only)
+    private bool _showRules;                    // the restrictions block, kept open across renders once asked for
 
     // per-render drop-target state (rebuilt each Render)
     private readonly List<GridSurface> _surfaces = [];
@@ -105,6 +106,13 @@ public sealed class InventoryWindow : Window
 
     /// <summary>The laid-out content panel, for the offscreen preview render (<c>--invsmoke</c>).</summary>
     internal Panel PreviewContent => _body;
+
+    /// <summary>Open the restrictions block for that same preview, which has no cursor to click it with.</summary>
+    internal void PreviewExpandRules()
+    {
+        _showRules = true;
+        Render();
+    }
 
     public InventoryWindow(
         Catalog catalog, SpriteCache sprites, string rootDefName, string rootFriendly, IReadOnlyList<CargoItem> rootCargo,
@@ -286,6 +294,11 @@ public sealed class InventoryWindow : Window
                 };
                 _body.Children.Add(hint);
             }
+
+            // What this grid accepts, and what its slots take. Last, and shut until asked for, so the answer is
+            // there without the question being put to everyone who opens a locker.
+            if (active.Def is { } activeDef && (activeDef.IsContainer || activeDef.SlotsWeHave.Length > 0))
+                _body.Children.Add(BuildRulesBlock(activeDef));
         }
         else
             _body.Children.Add(new TextBlock { Text = "This item holds nothing.", Foreground = Dim, Margin = new Thickness(0, 4, 0, 0) });
@@ -456,6 +469,134 @@ public sealed class InventoryWindow : Window
     }
 
     private void DrillInto(CargoItem child) => NavigateToContainer(child.StrID);
+
+    // ---- what the active grid will hold ----
+
+    /// <summary>How wide the restrictions block is allowed to get. A condition's description runs to a full
+    /// sentence, and prose is never what a <see cref="SizeToContent"/> window is sized to (see
+    /// <see cref="FitHintToContent"/>), so the block wraps inside this rather than setting the window's width.</summary>
+    private const double RulesWidth = 430;
+
+    private const double RulesIndent = 14;
+
+    /// <summary>
+    /// What the active container accepts, and what its slots take: the filter Ostraplan has always applied when
+    /// building the <b>Add item</b> list, shown rather than only obeyed (#61).
+    ///
+    /// <para>Collapsed until asked for. The great majority of the time the question is not being asked, and a
+    /// block of conditions above the grid would be in the way of the thing the window exists to show.</para>
+    /// </summary>
+    private UIElement BuildRulesBlock(PartDef def)
+    {
+        var panel = new StackPanel { Margin = new Thickness(0, 4, 0, 0), HorizontalAlignment = HorizontalAlignment.Left };
+
+        var toggle = new TextBlock
+        {
+            Text = (_showRules ? "▾  " : "▸  ") + "COMPATIBLE ITEMS",
+            Foreground = Accent,
+            FontWeight = FontWeights.Bold,
+            FontSize = 11,
+            Cursor = Cursors.Hand,
+            Margin = new Thickness(0, 2, 0, 4),
+            HorizontalAlignment = HorizontalAlignment.Left,
+            ToolTip = "The conditions this container checks, and what its slots take",
+        };
+        toggle.MouseLeftButtonUp += (_, _) => { if (!_dragging) { _showRules = !_showRules; Render(); } };
+        panel.Children.Add(toggle);
+        if (!_showRules) return panel;
+
+        var body = new StackPanel { MaxWidth = RulesWidth, HorizontalAlignment = HorizontalAlignment.Left };
+        var rules = ContainerRules.For(_catalog, def);
+
+        if (def.IsContainer)
+        {
+            body.Children.Add(RuleLead(rules));
+            if (rules.Root is { } root && !rules.HoldsAnything)
+                AddNode(body, root, 0);
+            foreach (var note in rules.Notes)
+                body.Children.Add(RuleText(note, 0, Dim, italic: true));
+        }
+
+        // The slot half. A slot filters nothing of its own — an item fits by declaring the slot in its own
+        // mapSlotEffects (see SlotRules) — so the useful answer is which items declare this one.
+        if (def.SlotsWeHave.Length > 0)
+        {
+            body.Children.Add(SectionHeader("SLOTS"));
+            // Grouped, because a backpack's four pouch slots are four separately named slots that take the same
+            // thing and read identically. Four copies of one line says less than one line with a count.
+            foreach (var group in def.SlotsWeHave
+                         .Select(s => SlotRules.For(_catalog, s))
+                         .GroupBy(s => (s.Friendly, s.Fits, Names: string.Join(",", s.Examples))))
+            {
+                var s = group.First();
+                var line = RuleText(
+                    s.Friendly
+                    + (group.Count() > 1 ? $" ×{group.Count()}" : "")
+                    + $"  ·  {s.Fits} item{(s.Fits == 1 ? " fits" : "s fit")}",
+                    0, Ink);
+                line.ToolTip = string.Join(", ", group.Select(g => g.Slot))
+                    + (s.Examples.Count > 0
+                        ? "\n\n" + string.Join("\n", s.Examples)
+                          + (s.Fits > s.Examples.Count ? $"\n… and {s.Fits - s.Examples.Count} more" : "")
+                        : "\n\nNothing in your data declares this slot.");
+                body.Children.Add(line);
+            }
+        }
+
+        panel.Children.Add(body);
+        return panel;
+    }
+
+    /// <summary>The one line that answers the question without reading any of the rest: how much of what Ostraplan
+    /// can place this container will take.</summary>
+    private TextBlock RuleLead(ContainerRules rules) => RuleText(
+        rules.HoldsAnything
+            ? $"Holds anything Ostraplan can place ({rules.Offered} items)."
+            : $"Holds {rules.Accepted} of {rules.Offered} items.",
+        0, Ink);
+
+    /// <summary>One trigger and everything under it, indented a level per nesting step.</summary>
+    private void AddNode(Panel into, RuleNode node, int depth)
+    {
+        if (node.Blank) return;
+
+        // The trigger's own name is what a modder needs to go and find it in the data, so it leads the block
+        // dimmed rather than being dropped in favour of the readable lines under it.
+        into.Children.Add(RuleText(node.TriggerName, depth, Dim, italic: true));
+
+        // bAND decides whether the requirements are all needed or are alternatives, and half the shipped container
+        // filters take the OR path. Saying "must be one of" rather than "must be" is the whole difference.
+        if (node.Requires.Count > 0)
+            into.Children.Add(CondLine(node.All ? "Must be" : "Must be one of", node.Requires, depth + 1, Ink));
+        if (node.Unresolved.Count > 0)
+            into.Children.Add(CondLine(node.All ? "Must be" : "Must be one of", node.Unresolved, depth + 1, Ink));
+        if (node.Forbids.Count > 0)
+            into.Children.Add(CondLine("Won't hold", node.Forbids, depth + 1, ThemeManager.Bad));
+
+        foreach (var child in node.Nested) AddNode(into, child, depth + 1);
+        foreach (var child in node.NestedForbid) AddNode(into, child, depth + 1);
+    }
+
+    /// <summary>A labelled list of conditions. Each one reads as the game's own name for it; the raw condition and
+    /// its description ride on the tooltip, so the line stays short enough not to widen the window.</summary>
+    private TextBlock CondLine(string label, IReadOnlyList<RuleCond> conds, int depth, Brush brush)
+    {
+        var line = RuleText($"{label}:  {string.Join("  ·  ", conds.Select(c => c.Label))}", depth, brush);
+        line.ToolTip = string.Join("\n", conds.Select(c =>
+            c.Desc is null ? c.Cond : $"{c.Cond}  —  {c.Desc}"));
+        return line;
+    }
+
+    private static TextBlock RuleText(string text, int depth, Brush brush, bool italic = false) => new()
+    {
+        Text = text,
+        Foreground = brush,
+        FontSize = 11,
+        FontStyle = italic ? FontStyles.Italic : FontStyles.Normal,
+        TextWrapping = TextWrapping.Wrap,
+        HorizontalAlignment = HorizontalAlignment.Left,
+        Margin = new Thickness(depth * RulesIndent, 1, 0, 1),
+    };
 
     // ---- the figure: the host's grid, and every grid drawn with it ----
 

@@ -1229,6 +1229,30 @@ its name in the breadcrumb, to move to it: the outline moves and the rest of the
 put, so you keep the context while working in a pouch. That is why a pouch is still a
 breadcrumb entry even though you can see inside it without going there.
 
+### Compatible items
+
+**Add item** has always offered only what a container accepts. **COMPATIBLE ITEMS**, at the
+bottom of the container view, is that rule shown rather than only applied. It is shut until
+you click it, and it describes whichever grid is active.
+
+It opens on the figure that answers most questions on its own, "holds 720 of 1330 items", and
+under that the container's filter as the game writes it. Each line uses the game's own name
+for a condition, so a backpack reads as one that won't hold a Backpack, a Crate, a Toolbox or
+anything Long. Hover a line for the raw condition names and their descriptions, which is what
+you want when writing a container of your own; the trigger names are there in italics for the
+same reason.
+
+**Read the conjunction, not just the list.** A filter is a tree rather than a flat whitelist
+and blacklist, and half the ones the game ships say **Must be one of** rather than **Must
+be**. A nav console requires `IsNavMod` *or* `IsExplosion`, and nothing carries both, so
+reading that line as an "and" would tell you the console holds nothing at all.
+
+Underneath, **SLOTS** lists the equipment slots the container declares and how many items in
+your data fit each. A slot filters nothing itself: an item goes in a slot by naming that slot,
+so the useful answer is which items name it, and hovering gives you a few of them. Slots that
+take the same thing are grouped, which is why a backpack shows one line reading Small Pouch
+×4 rather than four identical ones.
+
 ### What an item is, and naming it
 
 **Alt+click any item** in the container view for its info panel, or use **right-click ▸
