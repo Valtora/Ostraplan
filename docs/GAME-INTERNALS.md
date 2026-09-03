@@ -47,6 +47,7 @@ run one**. See [When a sweep is warranted](#when-a-sweep-is-warranted) in sectio
 - [24. What a canister holds (`GasContainer`)](#24-what-a-canister-holds-gascontainer)
 - [25. The inventory grid (`GridLayout`, `GUIInventoryItem`)](#25-the-inventory-grid-gridlayout-guiinventoryitem)
 - [26. Ship damage (micrometeoroids, weapons and collisions)](#26-ship-damage-micrometeoroids-weapons-and-collisions)
+- [27. Ship weapons and firing groups (`WeaponsSystem`)](#27-ship-weapons-and-firing-groups-weaponssystem)
 - [Appendix A — Quick reference](#appendix-a--quick-reference)
 - [Appendix B — Ported / deferred / excluded](#appendix-b--ported--deferred--excluded)
 
@@ -3855,6 +3856,118 @@ would only be a mode to remove later.
 > `prefabQuad` collider, the `ATC_SPEED_LIMIT` constant, whether `−vStart.normalized` has
 > been corrected to aim at the ship centre, and whether any body other than Earth has been
 > given a `fMicrometeoroidChance`.
+
+---
+
+## 27. Ship weapons and firing groups (`WeaponsSystem`)
+
+**Verified against game `1.0.0.13`.**
+
+### A firing group is a condition on the weapon
+
+There is no firing-group object anywhere in the game. Nine weapons in group 3 is nine weapons
+each carrying **`IsShipWeaponFiringGroup`** at amount 2 — a plain simple condition
+(`data/conditions_simple`, friendly name "Firing Group"), declared on the condowner like any
+`Stat*`.
+
+**Stored 0-based, shown 1-based.** `MFDWeaponDetails.CycleFiringGroup` steps the amount and wraps
+it at 0..8; both MFD readouts print `RoundToInt(GetCondAmount(...)) + 1`; and
+`WeaponsSystem.ShootManual(g)` matches `g == amount + 1` against the 1..9 that
+`NavModWeaponsControl.KeyHandler` sends from `CommandFireGroup1`..`9`. So there are **nine**
+groups, fixed in code rather than in data, and the number on the key is one more than the number
+in the file.
+
+`ShootManual` fires the ship's weapons that are `IsPowered` and pass
+`TIsShipWeaponInstalledOn` — `IsShipWeapon` + `IsInstalled`, forbidding `IsOff` and `IsDamaged`.
+
+### The stock groups, and the mass-thrower hole
+
+| Class | Type cond | Declared amount | Shown as | Arc |
+|---|---|---|---|---|
+| Point-defence cannon | `IsShipWeaponPDC` | 2 | 3 | 85°, 12-15 km |
+| Missile launcher | `IsShipWeaponMissileLauncher` | 1 | 2 | 360° |
+| Decoy launcher | `IsShipWeaponDecoyLauncher` | 3 | 4 | 360° |
+| Mass thrower | `IsShipWeaponMassThrower` | **none declared** | 1 | 15-20°, 66-120 km |
+
+Eleven of the twelve mass-thrower defs declare no `IsShipWeaponFiringGroup` at all (only
+`ItmShipWeaponMassThrower01Dmg` does, at 2). `CondOwner.GetCondAmount` returns 0 for a condition
+an owner does not carry, so the game reads every one of them as group 1. `ItmShipWeaponDecoyLauncher01DmgLoose`
+says 1 where its five siblings say 3 — a data slip with no effect, since a loose damaged launcher
+does not fire.
+
+The `…Off` and `…Loose` defs mostly drop `IsShipWeaponArcAngle`, which their running form declares.
+Only the PDCs keep it in both states.
+
+**Not one of the 220 core `data/ships` files authors a firing group.** Every ship in the game
+spawns at its defs' own, and the player re-groups it by hand.
+
+### The two other switches on the page, and why they are absent from every def
+
+`IsShipWeaponFiringModeManual` and the two target-select conds are **not declared by any of the
+fifty weapon defs**. They exist only as global condition definitions, created at runtime by
+`MFDWeaponDetails.OnButtonDown` calling `SetCondAmount` — which works because
+`CondOwner.AddCondAmount` falls back to `DataHandler.GetCond` when the owner's own map has no such
+cond. So "absent means default" is the normal case for them, and writing one onto an item that
+never declared it is exactly what the game does.
+
+Both are load-bearing rather than cosmetic:
+
+- **`IsShipWeaponFiringModeManual`** — `NavModWeaponsControl.KeyHandler` leaves the weapon out of
+  `_weaponsToFire`, so it never auto-fires at the combat target and answers only to its group's key.
+- **`IsPDCTargetModeMMMOnly`** — the same loop skips the weapon unless the target's
+  `Classification` is `Projectile`.
+- **`IsPDCTargetModeShipsOnly`** — `WeaponsSystem.ActivateDefenseSystems` drops the weapon from the
+  point-defence volley, so a ship whose cannons all carry it has **no** missile or meteoroid defence.
+
+They are a tri-state stored as two flags: `OnButtonDown` cycles none → `MMMOnly` → `ShipsOnly` →
+none and never sets both.
+
+### Which way a weapon points
+
+`WeaponsSystem.GetItemsDefaultFiringAngle(itmRotation)` is `ship.objSS.fRot + rad(itmRotation)`,
+and `SpawnProjectile` resolves that angle against world **+Y**. The item's own rotation is the only
+per-weapon term, so a weapon's bearing is its placement rotation and nothing else. `IsShipWeaponArcAngle`
+is the total arc centred on it; `IsShipWeaponArcRange` is how far that arc reaches, in metres.
+
+`IsShipWeaponArcAngleReduction` is the targeting solution converging and is pure runtime state:
+`NavModWeaponsControl` walks it toward the arc at `IsShipWeaponTargetingSpeed` per tick and fires
+when it closes. Nothing a design can say touches it.
+
+### Editing it in game
+
+`MFDWeaponDetails` is the only editor: one weapon at a time, its group stepped by a button that
+wraps. The single bulk action is `ApplyToAll`, which copies `IsOff`, the firing mode, both target
+flags and the firing group from the open weapon onto **every weapon carrying the same type cond**
+— and warns "Could not find type Cond on weapon" and does nothing for a decoy launcher, which it
+has no branch for.
+
+> **Ported in Ostraplan:** `WeaponPanel`, and it is authored rather than merely read. The group,
+> firing mode and target select ride the same per-instance condition route a container's fill takes:
+> an `aCondOverrides` entry per changed cond on the mod export, and on a save write-back the same
+> entries on the item **plus** the condition owner's own `aConds` (see §17 and `SaveEdit.SetFillConds`
+> for why one channel is not enough). Only conds that differ from the def are written, so a design
+> that says nothing stamps nothing; a save import reads each weapon's page back
+> (`SaveEditImport.ReadWeapon`), so a player's own arrangement survives a round trip through the
+> planner rather than being overwritten with stock groups.
+>
+> A mass thrower **is** given a group despite its def declaring none, unlike the gate
+> `DeviceSettings.Applicable` applies to a pump's modes. The game accepts it by the `AddCondAmount`
+> fallback above and its own Apply To All writes all five keys unchecked; a ship's main gun that
+> could not be assigned to a group would be a hole in the feature rather than a safeguard. The target
+> select **is** gated on `IsShipWeaponPDC`, because those two conds are only read down paths a
+> cannon reaches.
+>
+> `WeaponPanel.Facing` reports the bearing as Fore/Starboard/Aft/Port from the placement rotation,
+> composing the export's `fRotation = Norm(-Rot)` with its y-flip; a 360° arc, or a def declaring no
+> arc, reports "any bearing" rather than being given a side it does not have. The weapon's own
+> `IsOff` state is **not** modelled here: Ostraplan already carries it as the `…Off` def pair through
+> `Restate`, and a second representation would let a design say both things at once.
+>
+> **Re-verify on a major game version:** the 0..8 clamp in `CycleFiringGroup`, the `+ 1` in
+> `ShootManual` and both MFD readouts, the `CommandFireGroup` bindings, the stock group amounts in
+> `condowners_ship_combat.json`, and whether the mass throwers have been given the group cond their
+> siblings carry.
+
 
 ---
 

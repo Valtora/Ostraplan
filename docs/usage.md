@@ -1566,6 +1566,48 @@ Both **Full condition** and **Worn** act on **every** installed part on the ship
 the parts you edited. Neither touches parts that are broken as parts — that is **Repair
 All**, above.
 
+## Firing groups — sorting the guns out before you fly
+
+A ship weapon fires when its **firing group's** key is pressed at the nav console. There are
+nine groups, numbered 1 to 9 the way the console numbers them, and every weapon answers to
+exactly one.
+
+**No ship in the game sets them.** All 220 shipped ships leave every weapon at whatever group
+its part happens to declare, which means every cannon starts in group 3, every missile launcher
+in group 2, every decoy launcher in group 4, and every mass thrower in group 1. Sorting that out
+in game means the Weapons MFD, one weapon at a time, stepping the group with a button that wraps
+round at nine. Its only shortcut copies one weapon's whole setup onto *every* weapon of the same
+kind aboard, so "these three cannons in group 2, those two in group 4" cannot be said at all.
+
+**Design ▸ Firing Groups…** does the whole ship at once. Every weapon is listed under the
+direction it bears — Fore, Starboard, Aft, Port — because a group holding a fore beam and an aft
+one can only ever half-fire at anything. Missile and decoy launchers cover the whole circle, so
+they sit under **Any bearing** rather than being filed under a side they do not have. Each row
+shows what the weapon is, its arc and its reach, and a line at the top tells you how many weapons
+are in each group, which is how you spot the group with one lonely cannon in it.
+
+Tick some weapons and the buttons at the bottom set all of them at once, in a single undo step.
+**Reset ticked to stock** hands them back to whatever their parts declare, and a weapon at its
+stock group is marked as such in its dropdown, so it is always clear what "unchanged" means.
+
+A single selected weapon also gets a **WEAPON** block in the inspector with the same controls,
+plus **All weapons…** to open the full window.
+
+Two other switches ride along, both of which the game's own page carries:
+
+- **Firing mode.** *Automatic* lets the weapon fire itself once its targeting solution closes on
+  the combat target. *Manual* keeps it out of that, so it fires only when you press its group's key.
+- **Target select**, on point-defence cannons only. *Anything* engages ships and incoming alike;
+  *Missiles + meteoroids* holds fire against ships; *Ships only* takes the cannon **out of the
+  point-defence volley altogether**, so a ship whose cannons are all set that way has no missile or
+  meteoroid defence at all. The other weapon types are not offered it because the game does not read
+  it on them.
+
+All of this reaches the game for real: it is written into the mod export and into a save
+write-back, so the ship spawns with the groups you gave it. It also works the other way — importing
+a ship you have already set up in game reads its groups back in, so editing that ship here does not
+quietly reset them.
+
 ## Switching devices on and off
 
 Right-click a placed device for **Switch on** or **Switch off**. The game installs

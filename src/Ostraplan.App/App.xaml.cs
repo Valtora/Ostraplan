@@ -306,6 +306,51 @@ public partial class App : Application
             return;
         }
 
+        // preview render: the Firing Groups window over a real gunship (#51), light and dark, so the sectioning by
+        // bearing and the bulk bar can be eyeballed without clicking through to them. Needs the game install.
+        if (e.Args.Contains("--weaponsmoke"))
+        {
+            var dir = e.Args.SkipWhile(a => a != "--weaponsmoke").Skip(1).FirstOrDefault() ?? AppContext.BaseDirectory;
+            Directory.CreateDirectory(dir);
+            try
+            {
+                var env = GameEnv.Locate(null);
+                var index = DataIndex.Load(env);
+                var catalog = Catalog.Build(index);
+                // the shipped hull with the most weapons on it: eight cannons two to a side, both launcher
+                // families and a pair of mass throwers, so every section of the list has something in it
+                var file = TemplateImport.ListShipFiles(index)
+                    .FirstOrDefault(f => f.Name.Equals("Pequod Titan Refit", StringComparison.OrdinalIgnoreCase));
+                if (file is null) throw new InvalidOperationException("Pequod Titan Refit is not in this install");
+                var doc = TemplateImport.LoadFile(file.Path, catalog).Doc;
+
+                void Shot(string mode, string name)
+                {
+                    ThemeManager.Apply(mode);
+                    var win = new WeaponsWindow(catalog, doc, new CommandStack());
+                    var panel = win.PreviewContent;
+                    panel.Background = ThemeManager.WindowBg;
+                    panel.Measure(new Size(1100, double.PositiveInfinity));
+                    panel.Arrange(new Rect(0, 0, panel.DesiredSize.Width, panel.DesiredSize.Height));
+                    panel.UpdateLayout();
+                    var bmp = new RenderTargetBitmap(
+                        Math.Max(1, (int)Math.Ceiling(panel.DesiredSize.Width)),
+                        Math.Max(1, (int)Math.Ceiling(panel.DesiredSize.Height)), 96, 96, PixelFormats.Pbgra32);
+                    bmp.Render(panel);
+                    var enc = new PngBitmapEncoder();
+                    enc.Frames.Add(BitmapFrame.Create(bmp));
+                    using var fs = File.Create(Path.Combine(dir, name));
+                    enc.Save(fs);
+                }
+
+                Shot("dark", "firing-groups-dark.png");
+                Shot("light", "firing-groups-light.png");
+            }
+            catch (Exception ex) { File.WriteAllText(Path.Combine(dir, "weaponsmoke-error.txt"), ex.ToString()); }
+            Shutdown(0);
+            return;
+        }
+
         // preview render: draw the nav console's arrange board (a console stocked with the standard set) to a PNG
         // for eyeballing the screen layout against the game's own. Needs the game install.
         if (e.Args.Contains("--navsmoke"))

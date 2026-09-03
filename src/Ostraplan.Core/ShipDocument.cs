@@ -151,9 +151,11 @@ public sealed class Placement
             // called. ZBias does too: a canister pushed behind its regulator stays behind it once uninstalled.
             // So does Fill: uninstalling a tank does not empty it, and the loose form is the same shell with the
             // same volume and rating. A line the target def does not have is dropped where the fill is applied.
+            // And so does Weapon: a cannon switched between its Off and running defs is the same cannon, in the
+            // same firing group, and the two defs declare the same group anyway.
             DefName = targetDef, X = X, Y = Y, Rot = rot, IsGiven = false, Cargo = Cargo, CustomName = CustomName,
             ZBias = ZBias, NavLayout = NavLayout, Fill = Fill, Condition = Condition, Device = Device,
-            Reactor = Reactor,
+            Reactor = Reactor, Weapon = Weapon,
             OriginStrID = backHome ? carriedId : null,
             SwappedFromStrID = backHome ? null : carriedId,
             SwappedFromDef = backHome || carriedId is null ? null : carriedDef,
@@ -178,7 +180,7 @@ public sealed class Placement
         DefName = DefName, X = x, Y = y, Rot = Rot,
         Cargo = Core.Cargo.CloneForest(Cargo),
         CustomName = CustomName, ZBias = ZBias, Condition = Condition,
-        Fill = Fill, NavLayout = NavLayout, Device = Device, Reactor = Reactor,
+        Fill = Fill, NavLayout = NavLayout, Device = Device, Reactor = Reactor, Weapon = Weapon,
     };
 
     /// <summary>
@@ -282,6 +284,23 @@ public sealed class Placement
     /// (see <see cref="CustomName"/>).</para>
     /// </summary>
     public ReactorSettings? Reactor { get; set; }
+
+    /// <summary>
+    /// What the designer set on this weapon's page of the Weapons MFD — its firing group, whether it waits to be
+    /// fired by hand, and a cannon's target select (see <see cref="WeaponSettings"/>). Null on every part that is
+    /// not a ship weapon, and on every weapon left at what its def ships with, which is what a design that has
+    /// never opened the Firing Groups editor carries throughout.
+    ///
+    /// <para>Not folded into <see cref="Device"/>: those are GUI-panel keys a device writes at runtime, while
+    /// these are plain conditions on the item and reach the game by the same per-instance route a container's
+    /// <see cref="Fill"/> takes. The two share no key and no channel.</para>
+    ///
+    /// <para>It rides through a move and a rotate — turning a cannon to face aft does not reassign it — and
+    /// through <see cref="Restate"/>, since a weapon switched between its Off and running defs is the same weapon
+    /// with the same group. Duplicate and paste carry it with everything else the designer authored (see
+    /// <see cref="CustomName"/>): a bank of PDCs copied into a mirrored blister arrives already grouped.</para>
+    /// </summary>
+    public WeaponSettings? Weapon { get; set; }
 }
 
 /// <summary>
@@ -1321,6 +1340,15 @@ public sealed class ShipDocument
     internal void SetReactorSettings(Placement p, ReactorSettings? settings)
     {
         p.Reactor = settings?.Clamped().OrNull();
+        RaiseChangedOrderIntact();
+    }
+
+    /// <summary>Set or clear a weapon's MFD page (see <see cref="Placement.Weapon"/>). Normalised against the
+    /// part's own def, so settings that merely restate what the weapon already ships with are stored as
+    /// nothing.</summary>
+    internal void SetWeaponSettings(Placement p, WeaponSettings? settings)
+    {
+        p.Weapon = WeaponPanel.Authored(settings, Catalog.Lookup(p.DefName));
         RaiseChangedOrderIntact();
     }
 

@@ -128,6 +128,7 @@ public sealed class OplanFile
                                Bus = dev.Bus.ToString(), Turbo = dev.Turbo, Reverse = dev.Reverse, Slow = dev.Slow,
                            } : null,
                            Reactor = ToOplanReactor(p.Reactor),
+                           Weapon = ToOplanWeapon(p.Weapon),
                        })
                        .ToList(),
             Zones = doc.Zones.Select(ToOplanZone).ToList(),
@@ -221,6 +222,10 @@ public sealed class OplanFile
                 // a cycle slider past 1 would drive the torch's throttle past anything the game's own panel can
                 // set (see ReactorSettings.Clamped).
                 Reactor = FromOplanReactor(part.Reactor)?.OrNull(),
+                // Normalised against the def rather than merely clamped: the file is hand-editable, a group of 12
+                // is not a group the game has, and a page that only restates what the weapon already ships with is
+                // an entry a write-back would stamp onto an item the design had no opinion about.
+                Weapon = WeaponPanel.Authored(FromOplanWeapon(part.Weapon), catalog.Lookup(part.Def)),
             };
             doc.Add(placement);
             byIndex[i] = placement;
@@ -355,6 +360,27 @@ public sealed class OplanFile
         Cycle = o.Cycle,
         Flow = o.Flow,
     }.Clamped();
+
+    /// <summary>Persist a weapon's MFD page. Null for everything that is not a ship weapon, and for a weapon left
+    /// at what its def ships with. The group is written <b>1-based</b>, as the game shows it and as the player
+    /// would say it out loud, so a hand-edited file reads the way the nav console reads (see
+    /// <see cref="WeaponPanel.ToDisplay"/>).</summary>
+    private static OplanWeapon? ToOplanWeapon(WeaponSettings? w) => w is null ? null : new OplanWeapon
+    {
+        Group = w.Group is { } g ? WeaponPanel.ToDisplay(g) : null,
+        Manual = w.Manual,
+        Target = w.TargetMode.ToString(),
+    };
+
+    /// <summary>Rebuild a weapon's MFD page from its snapshot. An unrecognised target-select name reads as
+    /// <see cref="PdcTargetMode.All"/> — engage anything — which is the reading that cannot silently disarm a
+    /// ship's point defence over a typo.</summary>
+    private static WeaponSettings? FromOplanWeapon(OplanWeapon? o) => o is null ? null : new WeaponSettings
+    {
+        Group = o.Group is { } g ? WeaponPanel.FromDisplay(g) : null,
+        Manual = o.Manual,
+        TargetMode = Enum.TryParse<PdcTargetMode>(o.Target, ignoreCase: true, out var t) ? t : PdcTargetMode.All,
+    };
 
     /// <summary>Rebuild a device's panel settings from its snapshot. An unrecognised bus name reads as
     /// <see cref="DeviceBusMode.Auto"/> — follow the sensor, force nothing — which is the reading that cannot
@@ -567,6 +593,28 @@ public sealed class OplanPart
     /// v1, like the rest: an older build ignores it and round-trips it through <see cref="Extra"/>, so a design
     /// opened in one exports a cold reactor but loses nothing.</summary>
     [JsonPropertyName("reactor")] public OplanReactor? Reactor { get; set; }
+    /// <summary>What the designer set on this weapon's page of the Weapons MFD (see
+    /// <see cref="Placement.Weapon"/>). Null — and omitted — for every part that is not a ship weapon and every
+    /// weapon left at what its def ships with. Additive at format v1, like the rest: an older build ignores it and
+    /// round-trips it through <see cref="Extra"/>, so a design opened in one exports its weapons at their stock
+    /// groups but loses nothing.</summary>
+    [JsonPropertyName("weapon")] public OplanWeapon? Weapon { get; set; }
+    [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
+}
+
+/// <summary>A weapon's authored MFD page in the file (see <see cref="WeaponSettings"/>). The group is written
+/// <b>1-based</b>, the way the game shows it and the way a player says it; the target select is written as a name
+/// rather than as the two flags the game stores it in, since one of those flags on its own is not a state.</summary>
+public sealed class OplanWeapon
+{
+    /// <summary>The firing group, 1 to 9. Null — and omitted — for a weapon left at its def's own group.</summary>
+    [JsonPropertyName("group")] public int? Group { get; set; }
+    /// <summary>Manual firing mode: the weapon is left out of the auto-fire list and answers only to its group's
+    /// key. False, the stock state for every weapon in the game, is omitted.</summary>
+    [JsonPropertyName("manual")] public bool Manual { get; set; }
+    /// <summary>A cannon's target select: <c>"All"</c>, <c>"Ships"</c> or <c>"NonShips"</c>. Anything else reads
+    /// back as <c>All</c>.</summary>
+    [JsonPropertyName("target")] public string? Target { get; set; }
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }
 

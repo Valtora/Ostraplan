@@ -367,6 +367,19 @@ public static class SaveEdit
                 SetFillConds(outCosById.GetValueOrDefault(containerId), fill, catalog.Lookup(p.DefName), catalog);
             }
 
+            // A weapon's MFD page, written in the same two places and for the same reason. Unlike the fill this
+            // runs for every weapon rather than only for one the design has an opinion about, because the design
+            // HAS an opinion about all of them: the import read each weapon's page off the save, so what the
+            // editor shows is what the ship is carrying, and restating it is what lets a designer put a weapon
+            // BACK to its stock group. Skipped entirely when neither side says anything, so an untouched save is
+            // not rewritten (see SetWeaponConds).
+            if (WeaponPanel.IsWeapon(catalog.Lookup(p.DefName)))
+            {
+                if (outItemsById.GetValueOrDefault(containerId) is { } weaponItem)
+                    SetWeaponOverrides(weaponItem, p.Weapon, catalog.Lookup(p.DefName));
+                SetWeaponConds(outCosById.GetValueOrDefault(containerId), p.Weapon, catalog.Lookup(p.DefName));
+            }
+
             // A nav console's screen arrangement: where each module it holds sits, so the console reads the way the
             // design intends instead of however the game walks the container (see NavConsole.Arrange). On a KEPT
             // console only the keys the save leaves empty are filled — a player who arranged their own console in
@@ -1184,6 +1197,75 @@ public static class SaveEdit
             ["Amount"] = Math.Abs(amount),
             ["NegativeValue"] = amount < 0,
         });
+    }
+
+    /// <summary>
+    /// Write a weapon's MFD page onto its condition owner — the copy a loaded ship actually reads.
+    ///
+    /// <para>Same two-channel rule as <see cref="SetFillConds"/>, and for the same reason: a CO built from save
+    /// data has had its conds frozen since <c>SetData</c>, so <c>ApplyOverrideCondsToCO</c>'s
+    /// <c>SetCondAmount</c> returns on its first line and the item's overrides never land. The item copy
+    /// (<see cref="SetWeaponOverrides"/>) is what a <b>shallow</b> reader sees — <c>WeaponsSystem.LoadWeaponData</c>
+    /// genuinely walks <c>json.aItems</c> on an unloaded ship — and this is what the player flies.</para>
+    ///
+    /// <para><b>Skipped when neither side has anything to say.</b> A weapon at its def's own page, in a save that
+    /// says nothing about it either, is left completely alone rather than having its <c>DEFAULT</c> marker expanded
+    /// into a hundred explicit conds for no gain. The moment either side speaks, the marker has to go: it would
+    /// otherwise repopulate the def's own group on load and undo the write (see
+    /// <see cref="ExpandDefaultIfContested"/>).</para>
+    /// </summary>
+    internal static void SetWeaponConds(JsonObject? co, WeaponSettings? settings, PartDef? def)
+    {
+        if (co is null || !WeaponPanel.IsWeapon(def)) return;
+
+        var wanted = WeaponPanel.Overrides(WeaponPanel.Effective(settings, def), def);
+        var ours = new HashSet<string>(WeaponPanel.AuthoredConds, StringComparer.Ordinal);
+        var existing = co["aConds"] as JsonArray;
+        var stated = existing is not null && existing.OfType<JsonValue>().Any(
+            v => v.TryGetValue<string>(out var s) && ours.Contains(LootDef.CondName(s)));
+        if (wanted.Count == 0 && !stated) return;   // nothing here, nothing there: leave the record untouched
+
+        if (existing is null) co["aConds"] = existing = new JsonArray();
+        ExpandDefaultIfContested(co, def, [.. WeaponPanel.AuthoredConds]);
+        for (var i = existing.Count - 1; i >= 0; i--)
+            if (existing[i] is JsonValue v && v.TryGetValue<string>(out var s) && ours.Contains(LootDef.CondName(s)))
+                existing.RemoveAt(i);
+
+        foreach (var (cond, amount) in wanted)
+            existing.Add(FormattableString.Invariant($"{cond}=1.0x{amount}"));
+    }
+
+    /// <summary>
+    /// Write a weapon's MFD page onto its <b>item</b> as per-instance condition overrides, merging with whatever
+    /// the save already put there (the part's own wear, typically) rather than replacing them. One entry per cond
+    /// that differs from the def, and our own previous entries dropped first so a weapon moved back to its stock
+    /// group does not keep an override saying otherwise.
+    /// </summary>
+    internal static void SetWeaponOverrides(JsonObject item, WeaponSettings? settings, PartDef? def)
+    {
+        if (!WeaponPanel.IsWeapon(def)) return;
+        var wanted = WeaponPanel.Overrides(WeaponPanel.Effective(settings, def), def);
+
+        if (item["aCondOverrides"] is not JsonArray overrides)
+        {
+            if (wanted.Count == 0) return;   // nothing to say and nothing already said
+            item["aCondOverrides"] = overrides = new JsonArray();
+        }
+        var ours = new HashSet<string>(WeaponPanel.AuthoredConds, StringComparer.Ordinal);
+        for (var i = overrides.Count - 1; i >= 0; i--)
+            if (overrides[i] is JsonObject o && Str(o, "CondName") is { } name && ours.Contains(name))
+                overrides.RemoveAt(i);
+
+        foreach (var (cond, amount) in wanted)
+            overrides.Add(new JsonObject
+            {
+                ["CondName"] = cond,
+                ["Chance"] = 1.0,
+                ["Amount"] = amount,
+                ["NegativeValue"] = false,
+            });
+
+        if (overrides.Count == 0) item.Remove("aCondOverrides");   // no entries is no field, as the game writes it
     }
 
     /// <summary>

@@ -50,6 +50,14 @@ public sealed record TemplateItem(string DefName, double FX, double FY, double F
     /// on everything that is not a loot spawner.</summary>
     public SpawnerSettings? Spawner { get; init; }
 
+    /// <summary>This item's <c>aCondOverrides</c> — the per-instance condition amounts a template sets on the
+    /// spawned object (<c>JsonItem.ApplyOverrideCondsToCO</c>), resolved to condition name → amount. Empty for
+    /// nearly every item in the game: no core template overrides anything but the contained-cargo marker. It is
+    /// read because a mod Ostraplan itself exported does use it, for a weapon's firing group and a container's
+    /// fill, and reopening one's own export must not lose them.</summary>
+    public IReadOnlyDictionary<string, double> CondOverrides { get; init; } =
+        new Dictionary<string, double>(StringComparer.Ordinal);
+
     /// <summary>True when this item came out of the ship's <c>aShallowPSpecs</c> rather than its <c>aItems</c>.
     /// The two arrays hold the same shape of object and are parsed the same way, but only the person-spawn one
     /// goes back out to <c>aShallowPSpecs</c>, so the origin is carried rather than re-derived.</summary>
@@ -215,6 +223,7 @@ public sealed class ShipTemplate
                 Reactor = GpmPanels.Reactor(panels),
                 NavLayout = GpmPanels.NavConfig(panels),
                 Spawner = GpmPanels.Spawner(panels),
+                CondOverrides = ReadCondOverrides(it),
             });
         }
 
@@ -274,6 +283,24 @@ public sealed class ShipTemplate
 
     /// <summary>Read a zone's <c>zoneColor</c> {r,g,b,a} object; alpha defaults to 1 when absent, and a
     /// missing/blank colour falls back to <see cref="ZoneColor.Default"/>.</summary>
+    /// <summary>An item's <c>aCondOverrides</c> as condition name → amount, honouring the <c>NegativeValue</c>
+    /// flag the game's own <c>DataCond</c> carries. Empty when the item declares none, which is nearly all of
+    /// them.</summary>
+    private static IReadOnlyDictionary<string, double> ReadCondOverrides(JsonElement it)
+    {
+        if (!it.TryGetProperty("aCondOverrides", out var arr) || arr.ValueKind != JsonValueKind.Array)
+            return new Dictionary<string, double>(StringComparer.Ordinal);
+        var map = new Dictionary<string, double>(StringComparer.Ordinal);
+        foreach (var o in arr.EnumerateArray())
+        {
+            if (o.ValueKind != JsonValueKind.Object || Json.Str(o, "CondName") is not { Length: > 0 } cond) continue;
+            var amount = Json.Dbl(o, "Amount");
+            map[cond] = o.TryGetProperty("NegativeValue", out var neg)
+                        && neg.ValueKind == JsonValueKind.True ? -amount : amount;
+        }
+        return map;
+    }
+
     private static ZoneColor ParseZoneColor(JsonElement z)
     {
         if (!z.TryGetProperty("zoneColor", out var c) || c.ValueKind != JsonValueKind.Object)

@@ -324,6 +324,10 @@ public static class TemplateImport
                     NavLayout = NavConsole.IsConsole(part)
                         ? NavConsole.StoredLayout(catalog, part, item.NavLayout)
                         : null,
+                    // A weapon's firing group and the rest of its MFD page, off the item's own cond overrides —
+                    // the only place a template can carry them. No core template does, so this is null for every
+                    // stock ship; it exists so a mod Ostraplan exported reopens with the groups it was given.
+                    Weapon = WeaponPanel.FromConds(item.CondOverrides, part),
                 };
                 new PlaceCommand(placement).Do(doc);
                 if (item.StrID is { Length: > 0 } sid) placedByStrId[sid] = placement;

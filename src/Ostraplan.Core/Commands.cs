@@ -427,6 +427,22 @@ public sealed class SetReactorSettingsCommand(Placement part, ReactorSettings? b
     }
 }
 
+/// <summary>Set a weapon's MFD page — firing group, firing mode and a cannon's target select (see
+/// <see cref="WeaponSettings"/>).</summary>
+public sealed class SetWeaponSettingsCommand(Placement part, WeaponSettings? before, WeaponSettings? after)
+    : IDocCommand, IAuditDescribable
+{
+    public void Do(ShipDocument doc) => doc.SetWeaponSettings(part, after);
+    public void Undo(ShipDocument doc) => doc.SetWeaponSettings(part, before);
+    public string Describe(Func<string, string?> f)
+    {
+        var group = after?.Group is { } g
+            ? $"firing group {WeaponPanel.ToDisplay(g)}"
+            : "its stock firing group";
+        return $"Set {AuditFmt.Name(f, part.DefName)} to {group} {AuditFmt.At(part.X, part.Y)}";
+    }
+}
+
 // ---- loose-object commands (items dropped on the floor — see LooseObject) ----
 
 /// <summary>Drop a loose item onto a tile.</summary>

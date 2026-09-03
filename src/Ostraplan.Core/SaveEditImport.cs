@@ -120,6 +120,7 @@ public static class SaveEditImport
                 cargoByOrigin[id] = forest;
                 p.Cargo = forest;   // attach the container's contents tree to the imported placement
                 p.Fill = ReadFill(id, itemsById, cosById, catalog, doc.Part(p));
+                p.Weapon = ReadWeapon(id, itemsById, cosById, doc.Part(p));
             }
 
         // The player's money follows the character, not the ship: it is on their CO, which lives in the record for
@@ -204,6 +205,42 @@ public static class SaveEditImport
 
         var fill = spec.Lines.ToDictionary(l => l.Cond, l => values.GetValueOrDefault(l.Cond), StringComparer.Ordinal);
         return ContainerFill.IsStock(fill, spec) ? null : ContainerFill.Clamp(fill, spec);
+    }
+
+    /// <summary>
+    /// The weapon page a ship's weapon is actually carrying, as an authored <see cref="Placement.Weapon"/> — or
+    /// null when it sits at exactly what its def declares, which is what a ship nobody has been to the nav console
+    /// on looks like.
+    ///
+    /// <para>Reading it is what makes the Firing Groups editor agree with the ship. A player who set their cannons
+    /// up in game holds that arrangement in these conds and nowhere else, and without this the editor would show
+    /// stock groups for a ship that has none — then write those stock groups back over their work on the next
+    /// save edit. Same rule, and the same failure, as a nav console's stored screen
+    /// (<see cref="NavConsole.StoredLayout"/>).</para>
+    ///
+    /// <para>Resolved the way the game resolves it: the condition owner's own <c>aConds</c> first, then the item's
+    /// <c>aCondOverrides</c> on top, since <c>ApplyOverrideCondsToCO</c> runs after the owner is built.</para>
+    /// </summary>
+    private static WeaponSettings? ReadWeapon(
+        string id, IReadOnlyDictionary<string, JsonNode> itemsById, IReadOnlyDictionary<string, JsonNode> cosById,
+        PartDef? def)
+    {
+        if (!WeaponPanel.IsWeapon(def)) return null;
+
+        var values = new Dictionary<string, double>(StringComparer.Ordinal);
+        if (cosById.GetValueOrDefault(id) is JsonObject co && co["aConds"] is JsonArray conds)
+            foreach (var (name, amount) in CondOwnerDef.ParseCondValues(StrValues(conds)))
+                values[name] = amount;
+
+        if (itemsById.GetValueOrDefault(id) is JsonObject item && item["aCondOverrides"] is JsonArray overrides)
+            foreach (var node in overrides)
+                if (node is JsonObject o && o["CondName"]?.GetValue<string>() is { } cond)
+                {
+                    var amount = o["Amount"] is JsonValue a && a.TryGetValue<double>(out var d) ? d : 0;
+                    values[cond] = o["NegativeValue"]?.GetValue<bool>() == true ? -amount : amount;
+                }
+
+        return WeaponPanel.FromConds(values, def);
     }
 
     /// <summary>The string entries of a JSON array, skipping anything else.</summary>

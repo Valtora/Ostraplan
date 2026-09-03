@@ -327,6 +327,14 @@ public static class ShipExport
                     (overrides ??= []).Add(new ExportedCondOverride { CondName = line.Cond, Chance = 1.0, Amount = amount });
                 }
 
+            // A weapon's MFD page: one override per cond the designer moved off the def's own value. The same
+            // absolute-set semantics the fill above relies on is what makes this work at all — a firing group is
+            // a replacement, not an increment — and it is how a mass thrower gets a group its def never declared
+            // (CondOwner.AddCondAmount falls back to the global cond, so an override may introduce one).
+            if (placement?.Weapon is { } weapon)
+                foreach (var (cond, amount) in WeaponPanel.Overrides(weapon, catalog.Lookup(part.Part.DefName)))
+                    (overrides ??= []).Add(new ExportedCondOverride { CondName = cond, Chance = 1.0, Amount = amount });
+
             if (overrides is { Count: > 0 }) item.ACondOverrides = [.. overrides];
 
             if (IsDocksysPart(part.Part, catalog))

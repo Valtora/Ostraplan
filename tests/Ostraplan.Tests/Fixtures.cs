@@ -228,6 +228,30 @@ public sealed class Fixtures
             zScale: zScale);
     }
 
+    /// <summary>
+    /// An installed ship weapon, shaped like the game's own: <c>IsShipWeapon</c> plus one type cond, a targeting
+    /// arc, and a declared firing group. Defaults are <c>ItmShipWeaponPDC01</c>'s — 85° out to 12 km, group 2
+    /// stored (displayed 3).
+    ///
+    /// <para>Pass <paramref name="group"/> null for a weapon whose def declares no
+    /// <c>IsShipWeaponFiringGroup</c> at all, which is what eleven of the twelve mass-thrower defs do.</para>
+    /// </summary>
+    public Fixtures Weapon(string name, string type = WeaponPanel.PdcCond, double? group = 2,
+        double arc = 85, double range = 12000, string[]? extraConds = null,
+        IReadOnlyDictionary<string, double>? extraValues = null)
+    {
+        var conds = new List<string> { "IsInstalled", "IsSolid", WeaponPanel.WeaponCond, type };
+        var values = new Dictionary<string, double>(StringComparer.Ordinal);
+        if (arc > 0) { conds.Add(WeaponPanel.ArcAngleCond); values[WeaponPanel.ArcAngleCond] = arc; }
+        if (range > 0) { conds.Add(WeaponPanel.ArcRangeCond); values[WeaponPanel.ArcRangeCond] = range; }
+        if (group is { } g) { conds.Add(WeaponPanel.GroupCond); values[WeaponPanel.GroupCond] = g; }
+        if (extraConds is { Length: > 0 }) conds.AddRange(extraConds);
+        foreach (var (cond, amount) in extraValues ?? new Dictionary<string, double>()) values[cond] = amount;
+
+        return Part(name, tileConds: ["IsFixture", "IsObstruction"], category: "APPS",
+            startingConds: [.. conds], condValues: values, basePrice: 25000);
+    }
+
     /// <summary>Register a parallax location (data/parallax) with the given sun-light names, for Light Viz's
     /// exterior daylight.</summary>
     public Fixtures Parallax(string name, params string[] sunLights)

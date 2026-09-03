@@ -604,6 +604,28 @@
                             </StackPanel>
                         </Grid>
                     </StackPanel>
+                    <!-- A weapon's page of the Weapons MFD (#51). The group is a plain condition on the item, and
+                         no ship in the game authors one, so a design that says nothing here hands the player a
+                         chore at the nav console. Target select is shown only for a cannon, as the game's own
+                         page does. -->
+                    <StackPanel x:Name="WeaponBlock" Visibility="Collapsed">
+                        <TextBlock Text="WEAPON" Style="{StaticResource SideHeader}"/>
+                        <TextBlock x:Name="InsWeaponArc" Style="{StaticResource SideValue}" FontSize="12"
+                                   TextWrapping="Wrap" Margin="0,0,0,4"/>
+                        <TextBlock Text="Firing group" Style="{StaticResource SideValue}" FontSize="11" Opacity="0.6"/>
+                        <ComboBox x:Name="InsWeaponGroup" Margin="0,2,0,4" FontSize="12"
+                                  SelectionChanged="OnWeaponGroupChanged"/>
+                        <TextBlock Text="Firing mode" Style="{StaticResource SideValue}" FontSize="11" Opacity="0.6"/>
+                        <ComboBox x:Name="InsWeaponMode" Margin="0,2,0,4" FontSize="12"
+                                  SelectionChanged="OnWeaponGroupChanged"/>
+                        <StackPanel x:Name="InsWeaponTargetRow">
+                            <TextBlock Text="Target select" Style="{StaticResource SideValue}" FontSize="11" Opacity="0.6"/>
+                            <ComboBox x:Name="InsWeaponTarget" Margin="0,2,0,4" FontSize="12"
+                                      SelectionChanged="OnWeaponGroupChanged"/>
+                        </StackPanel>
+                        <Button x:Name="BtnWeaponAll" Content="All weapons…" Margin="0,2,0,2" FontSize="12"
+                                Padding="6,3" HorizontalContentAlignment="Left" Click="OnFiringGroupsClick"/>
+                    </StackPanel>
                     <!-- A loot spawner's own control panel (#55). What it spawns is the whole of what it is: a
                          spawner with no panel is built from the def's defaults and makes nothing. -->
                     <StackPanel x:Name="SpawnerBlock" Visibility="Collapsed">

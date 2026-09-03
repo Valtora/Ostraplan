@@ -12,6 +12,26 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Firing groups, sorted out here instead of one weapon at a time at the nav console.** A ship
+  weapon fires when its firing group's key is pressed, and **not one of the 220 shipped ships sets
+  them**: every cannon starts in group 3, every missile launcher in group 2, every decoy launcher in
+  4 and every mass thrower in 1, whatever the ship was built for. The only editor in game is the
+  Weapons MFD, one weapon at a time with a button that steps the group and wraps at nine, whose sole
+  shortcut copies one weapon's whole page onto *every* weapon of the same kind aboard — so "these
+  three cannons in group 2, those two in group 4" could not be said at all. **Design ▸ Firing
+  Groups…** lists every weapon in the design at once, **grouped by the direction it bears**, because
+  a group holding a fore beam and an aft one can only ever half-fire at anything; both launcher
+  families cover the whole circle and sit under **Any bearing** rather than being given a side they
+  do not have. Each row carries the weapon's class, arc and reach, a tally line says how many weapons
+  are in each group, and ticking several sets them together in one undo step. A selected weapon gets
+  the same controls in a new **WEAPON** inspector block. The page's other two switches come with it:
+  **firing mode** (automatic, or manual so the weapon answers only to its group's key) and, on
+  cannons only, **target select** — where *Ships only* quietly takes a cannon out of the point-defence
+  volley entirely, so a ship set that way across the board has no missile or meteoroid defence.
+  It all reaches the game, through the mod export and a save write-back alike, and an import reads a
+  ship's existing groups back in so editing a ship you have already set up does not reset it.
+  Mass throwers are included even though eleven of their twelve parts declare no group at all, since
+  a main gun that could not be assigned to one would be a hole in the feature. Thanks to Jothbot. (#51)
 - **Docking compatibility, so you know a port mates before you build the ship.** A Primary airlock
   is all but guaranteed to mate with another Primary; a Secondary is not, and the only way to find
   out was to build the ship and try it. **Design ▸ Docking Compatibility…** answers it at either of

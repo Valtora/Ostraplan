@@ -4296,6 +4296,7 @@ public partial class MainWindow : Window
         PopulateStats(part, lonePart, painted);
         PopulateDeviceBlock(part, lonePart);
         PopulateReactorBlock(part, lonePart);
+        PopulateWeaponBlock(part, lonePart);
         PopulateSpawnerBlock(Board.ArmedPart is null && lone ? Board.SelectedLoose : null);
         PopulateContentsButton(part, lonePart);
     }
@@ -4693,6 +4694,125 @@ public partial class MainWindow : Window
         static double Slider(string text, double fallback) =>
             double.TryParse(text, System.Globalization.NumberStyles.Float,
                 System.Globalization.CultureInfo.InvariantCulture, out var v) ? v : fallback;
+    }
+
+    // ---- the WEAPON block: a weapon's page of the Weapons MFD (#51) ----
+
+    /// <summary>True while <see cref="PopulateWeaponBlock"/> is writing the controls, so the change handler can
+    /// tell the user's own edits from the refresh that follows one.</summary>
+    private bool _weaponBlockLoading;
+
+    /// <summary>
+    /// Fill the WEAPON block: the firing group this weapon answers to, whether it waits to be fired by hand, and —
+    /// on a cannon — what it will engage. Shown for a lone selected placement that is a ship weapon.
+    ///
+    /// <para>The group list is labelled 1 to 9, the way the game shows it and the way the keys are bound, with the
+    /// def's own group marked so it is clear what "unchanged" means. Target select is hidden on anything but a
+    /// cannon, exactly as the game's own page hides it: those conds are only read down paths a cannon reaches.</para>
+    /// </summary>
+    private void PopulateWeaponBlock(PartDef part, Placement? lonePart)
+    {
+        if (_doc is null || lonePart is null || !WeaponPanel.IsWeapon(part))
+        {
+            WeaponBlock.Visibility = Visibility.Collapsed;
+            return;
+        }
+
+        _weaponBlockLoading = true;
+        try
+        {
+            WeaponBlock.Visibility = Visibility.Visible;
+            var settings = WeaponPanel.Effective(lonePart.Weapon, part);
+
+            InsWeaponArc.Text = WeaponSummary(part, lonePart.Rot);
+
+            InsWeaponGroup.Items.Clear();
+            var stock = WeaponPanel.DefaultGroup(part);
+            foreach (var g in WeaponPanel.AllGroups)
+                InsWeaponGroup.Items.Add(
+                    g == stock ? $"{WeaponPanel.ToDisplay(g)} (stock)" : WeaponPanel.ToDisplay(g).ToString());
+            InsWeaponGroup.SelectedIndex = settings.Group ?? stock;
+
+            if (InsWeaponMode.Items.Count == 0)
+            {
+                InsWeaponMode.Items.Add("Automatic");
+                InsWeaponMode.Items.Add("Manual (group key only)");
+            }
+            InsWeaponMode.SelectedIndex = settings.Manual ? 1 : 0;
+
+            var offersTarget = WeaponPanel.OffersTargetMode(part);
+            InsWeaponTargetRow.Visibility = offersTarget ? Visibility.Visible : Visibility.Collapsed;
+            if (InsWeaponTarget.Items.Count == 0)
+            {
+                InsWeaponTarget.Items.Add("Anything");
+                InsWeaponTarget.Items.Add("Missiles and meteoroids only");
+                InsWeaponTarget.Items.Add("Ships only");
+            }
+            InsWeaponTarget.SelectedIndex = (int)settings.TargetMode;
+        }
+        finally { _weaponBlockLoading = false; }
+    }
+
+    /// <summary>The read-only half of the weapon block: what this weapon is, where it points and how far it
+    /// reaches. Worth stating next to the group, because a group that mixes a fore beam with an aft one can only
+    /// ever half-fire at anything.</summary>
+    private static string WeaponSummary(PartDef part, int rot)
+    {
+        var cls = WeaponPanel.ClassLabel(WeaponPanel.Classify(part));
+        if (WeaponPanel.IsOmnidirectional(part)) return $"{cls}. Fires on any bearing.";
+
+        var facing = WeaponPanel.FacingLabel(WeaponPanel.Facing(part, rot)).ToLowerInvariant();
+        var arc = WeaponPanel.ArcAngle(part).ToString("0.#", System.Globalization.CultureInfo.CurrentCulture);
+        var range = WeaponPanel.ArcRange(part);
+        var reach = range > 0
+            ? $", out to {(range / 1000).ToString("0.#", System.Globalization.CultureInfo.CurrentCulture)} km"
+            : "";
+        return $"{cls}. Bears {facing}, {arc}° arc{reach}.";
+    }
+
+    private void OnWeaponGroupChanged(object sender, SelectionChangedEventArgs e) => CommitWeaponSettings();
+
+    /// <summary>Push whatever the WEAPON block now reads onto the selected part, as one undo step. A page that
+    /// only restates what the def ships with is stored as nothing, so returning a weapon to its stock group
+    /// genuinely un-authors it (see <see cref="WeaponPanel.Authored"/>).</summary>
+    private void CommitWeaponSettings()
+    {
+        if (_weaponBlockLoading || _doc is null) return;
+        if (Board.ArmedPart is not null || Board.SelectionCount != 1) return;
+        if (Board.SelectedPlacements() is not [var p]) return;
+        if (_doc.Part(p) is not { } part || !WeaponPanel.IsWeapon(part)) return;
+
+        var before = p.Weapon;
+        var after = WeaponPanel.Authored(new WeaponSettings
+        {
+            Group = InsWeaponGroup.SelectedIndex >= 0 ? InsWeaponGroup.SelectedIndex : null,
+            Manual = InsWeaponMode.SelectedIndex == 1,
+            TargetMode = InsWeaponTarget.SelectedIndex >= 0
+                ? (PdcTargetMode)InsWeaponTarget.SelectedIndex : PdcTargetMode.All,
+        }, part);
+
+        if (Equals(before, after)) return;
+        _stack.Push(_doc, new SetWeaponSettingsCommand(p, before, after));
+    }
+
+    private void OnFiringGroupsClick(object sender, RoutedEventArgs e) => OpenFiringGroups();
+
+    /// <summary>
+    /// Open the ship-wide Firing Groups editor — every weapon in the design at once, which is the thing the game's
+    /// own one-weapon-at-a-time page cannot do (see <see cref="WeaponsWindow"/>). A design with no weapons gets a
+    /// sentence rather than an empty board, the way the nav arranger does for a console with no modules.
+    /// </summary>
+    private void OpenFiringGroups()
+    {
+        if (_doc is null || _catalog is null) return;
+        if (!WeaponsWindow.HasWeapons(_doc, _catalog))
+        {
+            Dlg.Info(this, "Firing groups",
+                "This design carries no weapons, so there is nothing to group. Ship weapons are built from the "
+                + "APPS section of the palette.");
+            return;
+        }
+        new WeaponsWindow(_catalog, _doc, _stack) { Owner = this }.ShowDialog();
     }
 
     // ---- the PART name row: renaming in place, the way the game's own object panel does (#30) ----
@@ -5408,6 +5528,8 @@ public partial class MainWindow : Window
         // One entry: both readings ("will these two mate" and "will this airlock mate with anything") are the
         // same feature asked at two ranges, and splitting them made the tool look like two (issue #47).
         m.Items.Add(MenuAction("Docking Compatibility…", OpenDockingCheck, enabled: _doc is not null));
+        // Whole-ship, and the reason the feature exists: the game's own editor is one weapon at a time (#51).
+        m.Items.Add(MenuAction("Firing Groups…", OpenFiringGroups, enabled: _doc is not null));
         OpenMenuUnder(m, BtnDesignMenu);
     }
 
