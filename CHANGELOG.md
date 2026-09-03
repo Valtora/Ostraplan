@@ -12,6 +12,21 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **A backpack's pouches are drawn on the backpack, with what is in them.** In game an orange
+  backpack is one inventory: a 4×4 grid with four one-tile pouches in a row beneath it. Ostraplan
+  modelled the pouches correctly but drew one level at a time, so their contents were invisible at
+  the backpack level and a **fully stocked Bingham-12 EVA suit opened on four empty boxes**, because
+  a suit declares no grid of its own and everything it carries is in a compartment. Now every
+  container the game would show with its host is drawn with it, at the game's own coordinates: the
+  offsets in `dictSlotsLayout` are exactly `1.5 / 24` of a grid cell, so a pouch row clears the grid
+  above it by a quarter of a cell rather than by an approximation. It recurses as far as the nesting
+  goes, and it keeps the game's rule about what stays shut, so a hidden slot or a locked compartment
+  still shows as a plain slot. **Every grid on screen is live**: an item drags straight from the
+  backpack into one of its pouches, each grid holding to its own filter, where before it had to be
+  carried in one drill-in at a time. A pouch is **still a place you can go** rather than only
+  something you can see into, and the breadcrumb still says where you are: clicking a grid, or its
+  name at the top, makes it the active one, which outlines it and points **Add item** and the summary
+  line at it while its host stays on screen around it. Thanks to nighoggDatatype. (#59)
 - **Firing groups, sorted out here instead of one weapon at a time at the nav console.** A ship
   weapon fires when its firing group's key is pressed, and **not one of the 220 shipped ships sets
   them**: every cannon starts in group 3, every missile launcher in group 2, every decoy launcher in

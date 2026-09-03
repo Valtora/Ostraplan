@@ -1207,6 +1207,28 @@ stack, matching the right-click menu's two entries. The selection stays on the t
 anything is still there, so emptying a stack of five is one click and five presses rather
 than five clicks and five presses.
 
+### Pockets are shown where they are, not one level down
+
+An orange backpack is a 4×4 grid **and** four one-tile pouches, and the container view draws
+it that way: the pouches sit in a row under the grid with their contents visible, exactly
+where the game puts them. A Bingham-12 EVA suit is four compartments across its front, and
+it used to open on four empty boxes with everything it carried a level down.
+
+This goes as deep as the nesting does, so a clip point hanging off a suit shows what is on it
+without drilling for it, and it follows the game's own rule about which things open: a slot
+the item hides, and a compartment that is locked, stay shut and show as a plain slot.
+
+**Every grid on screen is live.** Drop an item on whichever one you want it in and it goes
+there, so a battery drags straight from the backpack into a pouch. Each grid keeps its own
+idea of what it will hold, so a drop the pouch refuses is refused, exactly as the **Add item**
+list has always been per container.
+
+**One grid is the active one**, outlined, and it is the one **Add item** fills and the one the
+summary line above describes. It starts as the container you opened. Click another grid, or
+its name in the breadcrumb, to move to it: the outline moves and the rest of the figure stays
+put, so you keep the context while working in a pouch. That is why a pouch is still a
+breadcrumb entry even though you can see inside it without going there.
+
 ### What an item is, and naming it
 
 **Alt+click any item** in the container view for its info panel, or use **right-click ▸
@@ -1255,10 +1277,11 @@ included, and each row can be shown on the grid, renamed or deleted.
   refusing because the far edge is in the way.
 - Walls and floors never rotate, in a container as on the ship grid. The game refuses to
   turn them at all, so a rotation authored for one would not survive a load.
-- **Drop it into a container** to nest it inside, or **onto a name at the top** to move it
-  out to a container further up. Either way it lands in the first cell that takes it. Those
-  names only appear once you have drilled into something, so the hint offers that second
-  drop only when there is somewhere above to drop onto.
+- **Drop it into a container** to nest it inside, **onto another grid** when more than one is
+  drawn (a backpack's pouches), or **onto a name at the top** to move it out to a container
+  further up. Any of the three lands it in the first cell that takes it. Those names only
+  appear once you have drilled into something, so the hint offers that last drop only when
+  there is somewhere above to drop onto.
 
 An item is turned on its side when it no longer fits upright, both when you add one and when
 you drop one into another container. That is what lets a 3×5 Polaris decoy launcher take

@@ -15,6 +15,19 @@ namespace Ostraplan.App;
 /// host's <c>dictSlotsLayout</c>. Nested containers and worn items are drill-in-able, with a breadcrumb to climb
 /// back out.
 ///
+/// <para><b>A slotted container is drawn with its host, not behind it.</b> A backpack's four pouches sit in a row
+/// under its own 4×4 and an EVA suit's compartments across its front, contents and all, positioned from the same
+/// <c>dictSlotsLayout</c> and recursing as far as the nesting goes. That is the game's own arrangement rather than
+/// an approximation of it: see <see cref="InventoryLayout"/> for the rule and the geometry. Before it, everything
+/// a suit held was one level down in a compartment the view would not draw, so a fully stocked Bingham-12 opened
+/// on four empty boxes (#59).</para>
+///
+/// <para>Every grid on screen is live. A drop lands in whichever one the cursor is over, subject to that
+/// container's own filter, so an item drags straight from a backpack into one of its pouches. A pouch is still
+/// <b>drillable</b> as well: reaching it through the breadcrumb, or clicking it where it is drawn, makes it the
+/// <b>active</b> grid, which outlines it and points the summary and <b>Add item</b> at it while its host stays on
+/// screen around it.</para>
+///
 /// <para>When opened with an edit context (a <see cref="ShipDocument"/> + <see cref="CommandStack"/> + the root
 /// <see cref="Placement"/>) it also <b>edits</b> loose cargo, undoably: "Add item" offers only what the container
 /// accepts (<see cref="ContainerFilter"/>) into the first free cell, turning an item on its side when it no longer
@@ -58,10 +71,16 @@ public sealed class InventoryWindow : Window
     private string? _selectedId;                // grid tile selected for the Delete / R keys (editing only)
 
     // per-render drop-target state (rebuilt each Render)
-    private Canvas? _gridCanvas;
-    private GridLayoutResult? _lastLayout;
+    private readonly List<GridSurface> _surfaces = [];
     private (int W, int H) _currentGrid = (6, 6);
     private readonly List<(FrameworkElement El, string? ContainerId)> _crumbTargets = [];
+    private int _figureRoot;   // the breadcrumb depth the figure is drawn from, which is not always the deepest
+
+    /// <summary>One grid drawn in the figure, with everything a drop onto it needs. There is more than one
+    /// whenever a slotted sub-container is shown with its host (a backpack's pouches), so the drag resolves which
+    /// grid the cursor is over rather than assuming the only one.</summary>
+    private sealed record GridSurface(
+        string? ContainerId, PartDef? Def, (int W, int H) Grid, Canvas Canvas, GridLayoutResult Layout, Border Frame);
 
     // drag state. A drag carries its own rotation so R turns the item in hand and the drop commits pose and
     // rotation as one edit — the game's model, where rotation is done to a picked-up item and the drop is what
@@ -131,21 +150,46 @@ public sealed class InventoryWindow : Window
 
     // ---- current node resolution (live against the mutable tree) ----
 
-    /// <summary>Resolve the deepest breadcrumb node's def + children from the live cargo tree; null when a drilled
-    /// container no longer exists (an edit/undo removed it) — <see cref="Render"/> then pops back to it.</summary>
-    private (PartDef? Def, IReadOnlyList<CargoItem> Children)? Resolve()
+    /// <summary>One breadcrumb level resolved against the live cargo tree.</summary>
+    private sealed record Level(string DefName, PartDef? Def, CargoItem? Node, IReadOnlyList<CargoItem> Children);
+
+    /// <summary>Resolve every breadcrumb level from the live cargo tree, root first; null when a drilled container
+    /// no longer exists (an edit or undo removed it) — <see cref="Render"/> then pops back to it. The whole chain
+    /// rather than just the tail, because the figure is drawn from the deepest crumb that is not itself shown
+    /// inside its parent (see <see cref="FigureRoot"/>).</summary>
+    private List<Level>? Chain()
     {
-        IReadOnlyList<CargoItem> children = RootCargo;
-        var def = _catalog.Lookup(_rootDefName);
+        var levels = new List<Level> { new(_rootDefName, _catalog.Lookup(_rootDefName), null, RootCargo) };
         for (var i = 1; i < _path.Count; i++)
         {
-            var node = children.FirstOrDefault(c => c.StrID == _path[i].ContainerId);
+            var node = levels[^1].Children.FirstOrDefault(c => c.StrID == _path[i].ContainerId);
             if (node is null) return null;
-            children = node.Children;
-            def = _catalog.Lookup(node.DefName);
+            levels.Add(new Level(node.DefName, _catalog.Lookup(node.DefName), node, node.Children));
         }
-        return (def, children);
+        return levels;
     }
+
+    /// <summary>
+    /// The level the figure is drawn from: the deepest crumb whose grid is not already on screen as part of its
+    /// parent's figure.
+    ///
+    /// <para>Drilling into a backpack pouch does not replace the view with the pouch, because the pouch is drawn
+    /// with the backpack. It makes the pouch the <b>active</b> grid instead, which highlights it and points
+    /// <b>Add item</b> at it, and the backpack stays on screen around it. That is what keeps both routes to a
+    /// pocket working: it is reachable inline and through the breadcrumb, and the breadcrumb still says where you
+    /// are (#59).</para>
+    /// </summary>
+    private static int FigureRoot(List<Level> chain, Catalog catalog)
+    {
+        var i = chain.Count - 1;
+        while (i > 0 && InventoryLayout.ShowsWithHost(
+                   catalog, chain[i - 1].Def, chain[i].Def, chain[i].Node?.SlotName)) i--;
+        return i;
+    }
+
+    /// <summary>The direct contents of a container anywhere in the live tree (null = the window's own host).</summary>
+    private IReadOnlyList<CargoItem> ChildrenOf(string? containerId) =>
+        containerId is null ? RootCargo : FindNode(RootCargo, containerId)?.Children ?? [];
 
     /// <summary>What to call a cargo item on screen: the name the user gave it, else the def's own, else the raw
     /// def name. The one place that decision is made, so a renamed pouch reads the same on its tile, its tooltip,
@@ -168,73 +212,82 @@ public sealed class InventoryWindow : Window
     /// <summary>Rebuild the view for the current (deepest) node in the breadcrumb.</summary>
     private void Render()
     {
-        while (_path.Count > 1 && Resolve() is null) _path.RemoveAt(_path.Count - 1);   // drilled container gone
+        while (_path.Count > 1 && Chain() is null) _path.RemoveAt(_path.Count - 1);   // drilled container gone
         _body.Children.Clear();
         _crumbTargets.Clear();
-        _gridCanvas = null;
-        _lastLayout = null;
-        if (Resolve() is not { } cur) return;
-        var (def, children) = cur;
-        var containerId = _path[^1].ContainerId;
-        _currentGrid = def?.ContainerGrid ?? (6, 6);
+        _surfaces.Clear();
+        if (Chain() is not { } chain) return;
+
+        // The ACTIVE level is the deepest crumb: what the summary describes, what "Add item" fills, and what the
+        // keyboard's rotate and delete act in. The FIGURE is drawn from the deepest crumb that its parent does not
+        // already draw, so drilling into a pouch highlights it without taking the backpack off screen.
+        var active = chain[^1];
+        var activeId = _path[^1].ContainerId;
+        _currentGrid = active.Def?.ContainerGrid ?? (6, 6);
+
+        _figureRoot = FigureRoot(chain, _catalog);
+        var figure = InventoryLayout.Compose(
+            _catalog, chain[_figureRoot].DefName, _path[_figureRoot].ContainerId, chain[_figureRoot].Children);
 
         _body.Children.Add(BuildBreadcrumb());
 
         TextBlock? hint = null;
-        var loose = children.Where(c => !c.Slotted).ToList();
-        var slotted = children.Where(c => c.Slotted).ToList();
-        var hasGrid = def?.IsContainer == true || loose.Count > 0;
-        var hasSlots = def?.SlotsWeHave.Length > 0 || slotted.Count > 0;
+        var loose = active.Children.Where(c => !c.Slotted).ToList();
+        var slotted = active.Children.Where(c => c.Slotted).ToList();
+        var hasGrid = active.Def?.IsContainer == true || loose.Count > 0;
+        var hasSlots = active.Def?.SlotsWeHave.Length > 0 || slotted.Count > 0;
 
         _body.Children.Add(new TextBlock
         {
-            Text = Summary(def, loose.Count, slotted.Count),
+            // Name the active container once there is more than one grid on screen, or the summary reads as though
+            // it described the whole figure and "Add item" looks like it could go anywhere.
+            Text = (_figureRoot < _path.Count - 1 ? _path[^1].Title + "  ·  " : "")
+                   + Summary(active.Def, loose.Count, slotted.Count),
             Foreground = Dim,
             FontSize = 12,
             Margin = new Thickness(0, 2, 0, 12),
             TextWrapping = TextWrapping.Wrap,
         });
 
-        if (hasGrid)
+        if (hasGrid || hasSlots)
         {
             var header = new DockPanel { LastChildFill = false, Margin = new Thickness(0, 6, 0, 6) };
-            var title = SectionHeader("STORED");
+            var title = SectionHeader(hasGrid ? "STORED" : "EQUIPPED");
             title.Margin = new Thickness(0);
             DockPanel.SetDock(title, Dock.Left);
             header.Children.Add(title);
-            if (Editing && def?.IsContainer == true)
+            if (Editing && active.Def?.IsContainer == true)
             {
                 var add = new Button { Content = "+ Add item…", Padding = new Thickness(8, 1, 8, 1), FontSize = 12, Cursor = Cursors.Hand };
-                add.Click += (_, _) => AddItem(def, containerId);
+                var def = active.Def;
+                add.Click += (_, _) => AddItem(def, activeId);
                 DockPanel.SetDock(add, Dock.Right);
                 header.Children.Add(add);
             }
             _body.Children.Add(header);
-            _body.Children.Add(BuildGrid(def, loose));
-            if (Editing)
+            _body.Children.Add(BuildFigure(figure));
+            MarkActiveSurface(activeId);
+            if (Editing && hasGrid)
             {
                 hint = new TextBlock
                 {
                     // "A name at the top" is the breadcrumb, so only claim it when an ancestor is actually up there
                     // to drop onto. The right-click "Move to" menu is gated on the same depth for the same reason.
                     Text = "Drag to move (R turns it) · into a container to nest it"
+                           + (_surfaces.Count > 1 ? " · onto another grid to move it there" : "")
                            + (_path.Count > 1 ? " · onto a name at the top to move it out" : "")
                            + " · Alt+click for info · right-click to rename or remove"
                            + " · Del takes one, Shift+Del the whole stack"
                            + " · click the title to name this container",
                     Foreground = Dim, FontSize = 11, Margin = new Thickness(0, 0, 0, 6), TextWrapping = TextWrapping.Wrap,
+                    // A stretched element narrower than its slot is centred by WPF, and FitHintToContent gives
+                    // this one a MaxWidth, so without this the prose drifts into the middle of a wider window.
+                    HorizontalAlignment = HorizontalAlignment.Left,
                 };
                 _body.Children.Add(hint);
             }
         }
-
-        if (hasSlots)
-        {
-            _body.Children.Add(SectionHeader("EQUIPPED"));
-            _body.Children.Add(BuildPaperDoll(def, slotted));
-        }
-
-        if (!hasGrid && !hasSlots)
+        else
             _body.Children.Add(new TextBlock { Text = "This item holds nothing.", Foreground = Dim, Margin = new Thickness(0, 4, 0, 0) });
 
         FitHintToContent(hint);
@@ -368,24 +421,147 @@ public sealed class InventoryWindow : Window
         Render();
     }
 
-    private void DrillInto(CargoItem child)
+    /// <summary>
+    /// Point the breadcrumb at a container anywhere in the tree, rebuilding the whole path down to it.
+    ///
+    /// <para>The path is rebuilt rather than appended to because the thing clicked is no longer always a child of
+    /// the deepest crumb. A pouch is drawn on its host, so what you click may be two levels below where the
+    /// breadcrumb currently stands, and appending one crumb would leave a path that resolves to nothing.</para>
+    /// </summary>
+    private void NavigateToContainer(string? containerId)
     {
-        _path.Add(new Crumb(Label(child), child.StrID));
+        List<CargoItem> trail = [];
+        if (containerId is { } id)
+        {
+            if (TrailTo(RootCargo, id) is not { } found) return;   // gone from under us
+            trail = found;
+        }
+
+        _path.RemoveRange(1, _path.Count - 1);   // null means the window's own host, which is crumb 0
+        foreach (var node in trail) _path.Add(new Crumb(Label(node), node.StrID));
         _selectedId = null;
         Render();
     }
 
-    // ---- grid section ----
+    /// <summary>The cargo nodes from the window's root down to <paramref name="id"/>, or null when it is not in
+    /// the tree.</summary>
+    private static List<CargoItem>? TrailTo(IReadOnlyList<CargoItem> items, string id)
+    {
+        foreach (var it in items)
+        {
+            if (it.StrID == id) return [it];
+            if (TrailTo(it.Children, id) is { } deeper) return [it, .. deeper];
+        }
+        return null;
+    }
 
-    private UIElement BuildGrid(PartDef? def, IReadOnlyList<CargoItem> loose)
+    private void DrillInto(CargoItem child) => NavigateToContainer(child.StrID);
+
+    // ---- the figure: the host's grid, and every grid drawn with it ----
+
+    /// <summary>
+    /// Build one panel's figure: its own grid, a sub-figure for every slotted container the game draws with it,
+    /// and a slot cell for everything else, each positioned in cell space from the host's <c>dictSlotsLayout</c>.
+    /// Anything the host declares no position for is flowed underneath instead, which is the game's untethered
+    /// window (see <see cref="InventoryLayout"/>).
+    ///
+    /// <para>This is what puts a backpack's four pouches in a row under its 4×4 and an EVA suit's compartments
+    /// across its front, contents and all, instead of four empty boxes to be drilled into one at a time.</para>
+    /// </summary>
+    private FrameworkElement BuildFigure(InventoryPanel panel)
+    {
+        var def = _catalog.Lookup(panel.DefName);
+        var contents = ChildrenOf(panel.ContainerId);
+        var loose = contents.Where(c => !c.Slotted).ToList();
+        var slotted = contents.Where(c => c.Slotted).ToList();
+
+        var bySlot = new Dictionary<string, CargoItem>(StringComparer.Ordinal);
+        foreach (var c in slotted)
+            if (c.SlotName is { } s) bySlot.TryAdd(s, c);
+        var byPanel = panel.Children
+            .Where(p => p.SlotName is not null)
+            .ToDictionary(p => p.SlotName!, StringComparer.Ordinal);
+
+        var pinned = new List<(FrameworkElement El, Point At)>();
+        var flowed = new List<FrameworkElement>();
+
+        // Measure on the way in: a Canvas has no layout of its own, so its size is the union of what it holds and
+        // that has to be known before anything is placed on it.
+        void Place(FrameworkElement el, (double X, double Y)? cells)
+        {
+            el.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            if (cells is { } c) pinned.Add((el, new Point(c.X * CellPx, c.Y * CellPx)));
+            else flowed.Add(el);
+        }
+
+        if (def?.IsContainer == true || loose.Count > 0)
+            Place(BuildGridSurface(panel, def, loose), panel.SelfOffset);
+
+        // the slots to draw: the host's declared slots, plus any occupied slot not declared (defensive)
+        var slots = new List<string>(def?.SlotsWeHave ?? []);
+        foreach (var s in bySlot.Keys)
+            if (!slots.Contains(s)) slots.Add(s);
+        foreach (var slot in slots)
+        {
+            var el = byPanel.TryGetValue(slot, out var sub) ? BuildFigure(sub)
+                : bySlot.TryGetValue(slot, out var item) ? SlotCell(item, slot)
+                : EmptySlot(slot);
+            Place(el, def is not null && def.SlotLayout.TryGetValue(slot, out var pt)
+                ? InventoryLayout.ToCells(pt)
+                : null);
+        }
+
+        // any slotted child we couldn't map to a named slot — flowed so nothing is hidden
+        foreach (var c in slotted.Where(c => c.SlotName is null))
+            flowed.Add(WrapTile(c, "(unslotted)"));
+
+        var stack = new StackPanel { HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 8) };
+        if (pinned.Count > 0) stack.Children.Add(PinnedCanvas(pinned));
+        if (flowed.Count > 0)
+        {
+            var wrap = new WrapPanel { HorizontalAlignment = HorizontalAlignment.Left };
+            foreach (var el in flowed) wrap.Children.Add(el);
+            stack.Children.Add(wrap);
+        }
+        return stack;
+    }
+
+    /// <summary>Lay the positioned elements on a canvas sized to hold them, shifted so the leftmost and topmost sit
+    /// at the origin. The shift earns its place on a backpack, whose pouch row starts a fraction of a cell left of
+    /// its own grid because that grid is pushed right by <c>self</c>.</summary>
+    private static Canvas PinnedCanvas(List<(FrameworkElement El, Point At)> pinned)
+    {
+        var minX = pinned.Min(p => p.At.X);
+        var minY = pinned.Min(p => p.At.Y);
+        var canvas = new Canvas
+        {
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Width = pinned.Max(p => p.At.X - minX + p.El.DesiredSize.Width),
+            Height = pinned.Max(p => p.At.Y - minY + p.El.DesiredSize.Height),
+        };
+        foreach (var (el, at) in pinned)
+        {
+            Canvas.SetLeft(el, at.X - minX);
+            Canvas.SetTop(el, at.Y - minY);
+            canvas.Children.Add(el);
+        }
+        return canvas;
+    }
+
+    /// <summary>One container's grid: its packed contents over a tile backdrop, registered as a drop target.
+    /// Clicking the backdrop makes it the active grid, which is the other half of a pouch staying drillable — the
+    /// breadcrumb reaches it, and so does clicking it where it is drawn.</summary>
+    private FrameworkElement BuildGridSurface(InventoryPanel panel, PartDef? def, IReadOnlyList<CargoItem> loose)
     {
         var (gw, gh) = def?.ContainerGrid ?? (6, 6);
         var layout = InventoryGrid.Pack(gw, gh, loose);
-        _lastLayout = layout;
 
-        var grid = new Grid { HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 4) };
-        grid.Width = layout.Width * CellPx;
-        grid.Height = layout.Height * CellPx;
+        var grid = new Grid
+        {
+            HorizontalAlignment = HorizontalAlignment.Left,
+            Width = layout.Width * CellPx,
+            Height = layout.Height * CellPx,
+        };
 
         // backdrop: one faint cell per tile
         var cells = new UniformGrid { Rows = layout.Height, Columns = layout.Width };
@@ -403,92 +579,43 @@ public sealed class InventoryWindow : Window
             canvas.Children.Add(tile);
         }
         grid.Children.Add(canvas);
-        _gridCanvas = canvas;
 
-        return new Border { Child = grid, HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 12) };
-    }
+        // The backdrop sits UNDER the item canvas, so this fires only on a click that missed every tile. A click on
+        // an item belongs to the item and reaches OnDragUp instead.
+        var containerId = panel.ContainerId;
+        cells.MouseLeftButtonUp += (_, _) => { if (!_dragging) ActivateContainer(containerId); };
 
-    // ---- paper-doll section ----
-
-    private UIElement BuildPaperDoll(PartDef? def, IReadOnlyList<CargoItem> slotted)
-    {
-        var bySlot = new Dictionary<string, CargoItem>(StringComparer.Ordinal);
-        foreach (var c in slotted)
-            if (c.SlotName is { } s) bySlot.TryAdd(s, c);
-
-        // the slots to draw: the host's declared slots, plus any occupied slot not declared (defensive)
-        var slots = new List<string>(def?.SlotsWeHave ?? []);
-        foreach (var s in bySlot.Keys)
-            if (!slots.Contains(s)) slots.Add(s);
-
-        // any slotted child we couldn't map to a named slot — list it so nothing is hidden
-        var unplaced = slotted.Where(c => c.SlotName is null).ToList();
-
-        var layout = def?.SlotLayout ?? new Dictionary<string, (double X, double Y)>();
-        var useFigure = slots.Count > 0 && slots.All(s => layout.ContainsKey(s));
-
-        var panel = new StackPanel { Margin = new Thickness(0, 0, 0, 12) };
-        if (slots.Count > 0)
-            panel.Children.Add(useFigure
-                ? PaperDollFigure(slots, bySlot, layout)
-                : SlotRow(slots, bySlot));
-
-        foreach (var c in unplaced)
-            panel.Children.Add(WrapTile(c, "(unslotted)"));
-
-        return panel;
-    }
-
-    /// <summary>Slots positioned on a figure from the host's <c>dictSlotsLayout</c> — the game's paper-doll
-    /// arrangement (y is inverted: the game's +y is up). Empty slots show their icon faintly.</summary>
-    private UIElement PaperDollFigure(List<string> slots, Dictionary<string, CargoItem> bySlot, IReadOnlyDictionary<string, (double X, double Y)> layout)
-    {
-        var pts = slots.Select(s => layout[s]).ToList();
-        // The game's slot icons are smaller than our cells, so its raw offsets (pockets ~20px apart) would overlap
-        // 46px cells — scale so the nearest two slots sit about one cell apart.
-        var scale = FitScale(pts);
-        double minX = pts.Min(p => p.X), minY = pts.Min(p => p.Y), maxY = pts.Max(p => p.Y);
-        const double pad = 6;
-        var canvas = new Canvas
+        var frame = new Border
         {
-            Width = (pts.Max(p => p.X) - minX) * scale + SlotPx + 2 * pad,
-            Height = (maxY - minY) * scale + SlotPx + 2 * pad,
+            Child = grid,
             HorizontalAlignment = HorizontalAlignment.Left,
+            Padding = new Thickness(2),
+            BorderThickness = new Thickness(2),
+            BorderBrush = Brushes.Transparent,
         };
-        foreach (var slot in slots)
+        _surfaces.Add(new GridSurface(containerId, def, (gw, gh), canvas, layout, frame));
+        return frame;
+    }
+
+    /// <summary>Outline the active grid, but only once there is a second one to tell it apart from. On a plain
+    /// container the outline would be decoration around the only thing on screen.</summary>
+    private void MarkActiveSurface(string? activeId)
+    {
+        if (_surfaces.Count < 2) return;
+        foreach (var s in _surfaces)
         {
-            var (x, y) = layout[slot];
-            var cell = bySlot.TryGetValue(slot, out var item) ? SlotCell(item, slot) : EmptySlot(slot);
-            Canvas.SetLeft(cell, (x - minX) * scale + pad);
-            Canvas.SetTop(cell, (maxY - y) * scale + pad);   // invert: the game's +y is up
-            canvas.Children.Add(cell);
+            var active = s.ContainerId == activeId;
+            s.Frame.BorderBrush = active ? Accent : Brushes.Transparent;
+            if (!active) s.Frame.Cursor = Cursors.Hand;
         }
-        return new Border { Child = canvas, HorizontalAlignment = HorizontalAlignment.Left };
     }
 
-    /// <summary>A uniform scale for raw <c>dictSlotsLayout</c> offsets so the two nearest slots end up about one
-    /// cell (plus a gap) apart — the game draws smaller icons than our <see cref="SlotPx"/> cells. 1 when there's
-    /// nothing to separate; clamped so a sprawling crew figure doesn't balloon.</summary>
-    private static double FitScale(IReadOnlyList<(double X, double Y)> pts)
+    /// <summary>Make a grid that is already on screen the active one. The figure itself does not change, since the
+    /// whole point is that it was already drawn; what moves is which grid the summary describes, which one
+    /// <b>Add item</b> fills, and which one is outlined.</summary>
+    private void ActivateContainer(string? containerId)
     {
-        var min = double.MaxValue;
-        for (var i = 0; i < pts.Count; i++)
-            for (var j = i + 1; j < pts.Count; j++)
-            {
-                double dx = pts[i].X - pts[j].X, dy = pts[i].Y - pts[j].Y;
-                var d = Math.Sqrt(dx * dx + dy * dy);
-                if (d > 0.5 && d < min) min = d;
-            }
-        return min is double.MaxValue ? 1.0 : Math.Clamp((SlotPx + 8) / min, 0.4, 3.0);
-    }
-
-    /// <summary>Fallback when the host declares no layout: a plain wrap of slot cells.</summary>
-    private UIElement SlotRow(List<string> slots, Dictionary<string, CargoItem> bySlot)
-    {
-        var wrap = new WrapPanel();
-        foreach (var slot in slots)
-            wrap.Children.Add(bySlot.TryGetValue(slot, out var item) ? SlotCell(item, slot) : EmptySlot(slot));
-        return wrap;
+        if (containerId != _path[^1].ContainerId) NavigateToContainer(containerId);
     }
 
     private FrameworkElement SlotCell(CargoItem item, string slot)
@@ -840,19 +967,54 @@ public sealed class InventoryWindow : Window
         (int)((gp.X - (w - 1) * CellPx / 2.0) / CellPx),
         (int)((gp.Y - (h - 1) * CellPx / 2.0) / CellPx));
 
+    /// <summary>
+    /// The grid under a point in <see cref="_overlay"/> coordinates, and that point in the grid's own frame.
+    ///
+    /// <para>There is a list to search rather than one canvas because a backpack draws its pouches beside its own
+    /// grid, so "the grid" is whichever one the cursor is actually over. Deepest first, since a sub-grid is drawn
+    /// over its host's figure and is the more specific answer where the two could both claim a point.</para>
+    /// </summary>
+    private (GridSurface Surface, Point At)? SurfaceAt(Point overlayPoint)
+    {
+        for (var i = _surfaces.Count - 1; i >= 0; i--)
+        {
+            var canvas = _surfaces[i].Canvas;
+            if (!canvas.IsVisible) continue;
+            var p = _overlay.TransformToVisual(canvas).Transform(overlayPoint);
+            if (p.X >= 0 && p.Y >= 0 && p.X < canvas.ActualWidth && p.Y < canvas.ActualHeight)
+                return (_surfaces[i], p);
+        }
+        return null;
+    }
+
+    /// <summary>The grid an item is currently drawn in, so a drop elsewhere is known to be a move BETWEEN
+    /// containers and can be held to the target's item filter. Null when it is not on any grid on screen.</summary>
+    private GridSurface? SurfaceHolding(string itemId) =>
+        _surfaces.FirstOrDefault(s => s.Layout.Items.Any(i => i.Item.StrID == itemId));
+
+    /// <summary>Whether <paramref name="target"/> would take <paramref name="item"/> at all — the container's own
+    /// <c>strContainerCT</c>. Only asked when the drop crosses into a different container: an item already sitting
+    /// in one is left alone, since an imported container may hold something its filter would refuse today and
+    /// rearranging it must not become impossible.</summary>
+    private bool AcceptedBy(GridSurface target, CargoItem item) =>
+        SurfaceHolding(item.StrID)?.ContainerId == target.ContainerId
+        || target.Def is null
+        || _catalog.Lookup(item.DefName) is not { } itemDef
+        || ContainerFilter.Accepts(_catalog, target.Def, itemDef);
+
     /// <summary>Draw where the drop would land: the container tile it would nest into, or the footprint it would
-    /// occupy, green when that is legal and red when it is not. Removed when the pointer is off the grid.</summary>
+    /// occupy, green when that is legal and red when it is not. Removed when the pointer is off every grid.</summary>
     private void UpdateDropHint()
     {
         ClearDropHint();
-        if (!_dragging || _dragItem is not { } item || _gridCanvas is not { } canvas || _lastLayout is not { } layout) return;
-
-        var gp = Mouse.GetPosition(canvas);
-        if (gp.X < 0 || gp.Y < 0 || gp.X >= canvas.ActualWidth || gp.Y >= canvas.ActualHeight) return;
+        if (!_dragging || _dragItem is not { } item) return;
+        if (SurfaceAt(Mouse.GetPosition(_overlay)) is not { } hit) return;
+        var (surface, gp) = hit;
+        var canvas = surface.Canvas;
 
         Rect rect;
         Brush stroke;
-        if (NestTarget(layout, item, gp) is { } onto)
+        if (NestTarget(surface.Layout, item, gp) is { } onto)
         {
             rect = new Rect(onto.X * CellPx, onto.Y * CellPx, onto.W * CellPx, onto.H * CellPx);
             stroke = Accent;   // drop-to-nest, the same colour the drillable badge uses
@@ -863,7 +1025,8 @@ public sealed class InventoryWindow : Window
             var (cx, cy) = DropCell(gp, w, h);
             rect = new Rect(cx * CellPx, cy * CellPx, w * CellPx, h * CellPx);
             // Ask the model rather than re-deriving the rule: this is exactly the edit the drop will attempt.
-            var fits = CargoEdit.Move(HostCargo, item.StrID, _path[^1].ContainerId, _currentGrid, cx, cy, _dragRot) is not null;
+            var fits = AcceptedBy(surface, item)
+                && CargoEdit.Move(HostCargo, item.StrID, surface.ContainerId, surface.Grid, cx, cy, _dragRot) is not null;
             stroke = fits ? ThemeManager.Good : ThemeManager.Bad;
         }
 
@@ -931,19 +1094,18 @@ public sealed class InventoryWindow : Window
         foreach (var (el, cid) in _crumbTargets)
             if (BoundsIn(el).Contains(win)) { MoveToTarget(item, cid); return; }
 
-        // dropped over the grid → onto a container tile (nest), else to that cell (rearrange)
-        if (_gridCanvas is { } canvas && _lastLayout is { } layout)
+        // dropped over a grid → onto a container tile (nest), else to that cell of THAT grid. The grid is
+        // whichever one the cursor is over, so an item drags straight from a backpack into one of its pouches
+        // rather than only within the one container the view used to show.
+        if (SurfaceAt(win) is { } hit)
         {
-            var gp = e.GetPosition(canvas);
-            if (gp.X >= 0 && gp.Y >= 0 && gp.X < canvas.ActualWidth && gp.Y < canvas.ActualHeight)
+            var (surface, gp) = hit;
+            if (NestTarget(surface.Layout, item, gp) is { } onto) MoveToTarget(item, onto.Item.StrID);
+            else
             {
-                if (NestTarget(layout, item, gp) is { } onto) MoveToTarget(item, onto.Item.StrID);
-                else
-                {
-                    var (w, h) = Footprint(item, rot);
-                    var (cx, cy) = DropCell(gp, w, h);
-                    MoveWithin(item, cx, cy, rot);
-                }
+                var (w, h) = Footprint(item, rot);
+                var (cx, cy) = DropCell(gp, w, h);
+                MoveWithin(item, surface, cx, cy, rot);
             }
         }
         // dropped nowhere useful → snap back (no change)
@@ -953,11 +1115,18 @@ public sealed class InventoryWindow : Window
     private Rect BoundsIn(FrameworkElement el) =>
         el.TransformToVisual(_overlay).TransformBounds(new Rect(new Point(0, 0), el.RenderSize));
 
-    /// <summary>Move an item to a cell of the CURRENT container (a rearrange), landing in <paramref name="rot"/>
-    /// when the drag turned it in hand.</summary>
-    private void MoveWithin(CargoItem item, int x, int y, int? rot = null)
+    /// <summary>Move an item to a cell of the grid it was dropped on, landing in <paramref name="rot"/> when the
+    /// drag turned it in hand. That grid is usually the one it came from (a rearrange), and is a different one
+    /// when the drop crossed into a pouch shown beside it, which the container's filter then has a say in.</summary>
+    private void MoveWithin(CargoItem item, GridSurface surface, int x, int y, int? rot = null)
     {
-        if (CargoEdit.Move(HostCargo, item.StrID, _path[^1].ContainerId, _currentGrid, x, y, rot) is { } result)
+        if (!AcceptedBy(surface, item))
+        {
+            MessageBox.Show(this, $"“{surface.Def?.Friendly ?? "That container"}” won't hold {Label(item)}.",
+                "Can't move here", MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+        if (CargoEdit.Move(HostCargo, item.StrID, surface.ContainerId, surface.Grid, x, y, rot) is { } result)
         {
             _selectedId = item.StrID;
             Commit(result);
@@ -1001,11 +1170,17 @@ public sealed class InventoryWindow : Window
 
     /// <summary>Turn the selected item 90° where it sits (see <see cref="CargoEdit.Rotate"/>, which pivots about
     /// its centre and takes the nearest cell that fits). Rotating an item held in a drag goes through
-    /// <see cref="RotateDrag"/> instead.</summary>
+    /// <see cref="RotateDrag"/> instead.
+    /// <para>It turns in the grid the item is actually drawn in, which is not always the active one: with a
+    /// backpack's pouches on screen you can select something in a pouch while the backpack is still active, and
+    /// rotating against the active container would find nothing there and do nothing at all.</para></summary>
     private void RotateSelected()
     {
         if (_selectedId is not { } id) return;
-        if (CargoEdit.Rotate(HostCargo, id, _path[^1].ContainerId, _currentGrid, _catalog) is { } result)
+        var (containerId, grid) = SurfaceHolding(id) is { } s
+            ? (s.ContainerId, s.Grid)
+            : (_path[^1].ContainerId, _currentGrid);
+        if (CargoEdit.Rotate(HostCargo, id, containerId, grid, _catalog) is { } result)
             Commit(result);   // else: nothing in the grid takes the swapped footprint → leave as is
     }
 

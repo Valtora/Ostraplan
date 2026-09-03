@@ -3195,6 +3195,51 @@ is vertical. In tile terms that is `cursorCell − (footprint − 1) / 2`, the s
 `ShipCanvas.TryPlacePose` uses for the armed brush. The cast truncates toward zero, which is
 what lets a drop just past the top or left edge settle into row or column 0.
 
+### One window per container, and how they are arranged
+
+*This subsection verified against **1.0.0.13**.*
+
+There is no unified inventory anywhere in the game. `GUIInventory.SpawnInventoryWindow` opens
+a window per container, each with its own `GridLayout`, and recurses into
+`CO.GetSlots(bDeep: true)` doing the same for the contents. A slotted child gets a window of
+its own when all of these hold:
+
+- the slot is not `bHide`, and is not the `social` slot (which is diverted to the
+  conversation window),
+- `TIsOpenInInv` fires on the child **and** on its parent, which forbids `IsHiddenInv` and
+  `IsLocked`,
+- and the child has an `objContainer` **or** a non-empty `dictSlotsLayout` of its own.
+
+That last clause is the one that separates a coat's pockets from a rifle's magazine: the
+pockets are containers, so they open onto the coat, and the magazine is not.
+
+Where the host declares a position for the slot, the child is parented to the host window,
+moved to that offset and given `ToggleTab(false)`, which drops its tab, background and
+border. That is what a backpack looks like in game: four bare pouch grids pinned under its
+own 4x4, reading as one inventory. Where the host declares no position, the child gets an
+ordinary titled window placed beside the parent by `GetWindowPosition` instead.
+
+#### The offsets are exact, in cells
+
+Two constants set the geometry, and the canvas ratio cancels between them:
+
+```
+child window position  =  parent position + dictSlotsLayout[slot] * 1.5f * CanvasRatio
+one grid cell          =  (int)(24f * CanvasRatio)
+```
+
+So an offset is `layout * 1.5 / 24`, which is `layout / 16` **cells**, at any zoom. The host's
+own grid takes a second offset of the same kind: `GUIInventoryWindow.SetData` reads
+`dictSlotsLayout["self"]` and shifts the grid image inside its own window by it, which is why
+`self` is a separate quantity from a slot's offset rather than folded into it.
+
+`ItmBackpack01` is the worked example. `self` is `{5, 0}`, so its 4x4 sits a fraction of a
+cell right of the window origin; its four pouches are at `y = -68`, which is 4.25 cells down
+(the game's +y is up), clearing a 4-tall grid by a quarter of a cell, and at `x` 0/20/40/60,
+which is 1.25 cells apart, so four 1x1 pouches make a row with the same quarter-cell gap.
+Only 20 core defs declare a `dictSlotsLayout` at all, every one of them a garment or a
+backpack. No human condowner does, so a crew paper-doll is not laid out this way.
+
 ### What the game never does
 
 The search never turns an item to make it fit: `FindNearestUnoccupiedTile` and
@@ -3209,9 +3254,15 @@ and what it writes is a state the game reproduces exactly on load, per the round
 > `InventoryWindow`'s drag (cursor-centred drop, R turning the item in hand). Ostraplan grows
 > the grid rather than hiding an item that will not fit, where the game panics and draws
 > nothing.
+> `InventoryLayout` ports the arrangement above: `ShowsWithHost` is
+> `SpawnInventoryWindow`'s five clauses, `ToCells` is the `1.5 / 24` conversion, and `Compose`
+> is the recursion, which `InventoryWindow.BuildFigure` draws. A pouch stays reachable through
+> the breadcrumb as well, which the game has no equivalent of because it opens every level at
+> once and never drills.
 > **Re-verify on a major game version:** `GetWidthHeightForCO`'s precedence,
-> `Item.RotateCW`'s swap, and whether any shipped def has started declaring
-> `inventoryWidth` / `inventoryHeight`.
+> `Item.RotateCW`'s swap, whether any shipped def has started declaring
+> `inventoryWidth` / `inventoryHeight`, and the `1.5f` in `SpawnInventoryWindow` against the
+> `24f` in `PairXYFromLocalPoint` (the two together are the whole of the layout geometry).
 
 ---
 

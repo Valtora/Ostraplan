@@ -134,8 +134,9 @@ public partial class App : Application
 
                 void RenderInv(string file, string def, string friendly, IReadOnlyList<CargoItem> cargo,
                     ShipDocument? doc = null, CommandStack? stack = null, Placement? root = null,
-                    LooseObject? rootLoose = null)
+                    LooseObject? rootLoose = null, string? theme = null)
                 {
+                    if (theme is not null) ThemeManager.Apply(theme);
                     var win = new InventoryWindow(catalog, sprites, def, friendly, cargo, doc, stack, root, rootLoose);
                     var panel = win.PreviewContent;
                     panel.Background = ThemeManager.WindowBg;
@@ -152,17 +153,31 @@ public partial class App : Application
                     enc.Save(fs);
                 }
 
-                // a synthesized backpack: a 4x4 grid (trencher + a 16-round ammo stack) plus a paper-doll of pockets
-                var pouch = new CargoItem("s1", "PocketPouchSmall01", "Small Pouch", true,
-                    [new CargoItem("s1a", "ItmDrinkPouch01", "Drink Pouch", false, [])]) { SlotName = "pocket_pouchSm01" };
-                var cargo = new List<CargoItem>
-                {
-                    pouch,
+                // A backpack stocked the way the game spawns one: a 4x4 grid (trencher + a 16-round ammo stack)
+                // AND all four pouches it comes with, each holding something. Every pouch has to be there, since
+                // the whole point of the composed figure is the row of them under the grid (#59).
+                var pouches = catalog.Lookup("ItmBackpack01") is { } bpDef
+                    ? CargoEdit.IntrinsicContentsOf(bpDef, catalog).ToList()
+                    : [];
+                if (catalog.Lookup("ItmDrinkPouch01") is { } pouchDrink)
+                    for (var i = 0; i < pouches.Count; i++)
+                        pouches[i] = pouches[i] with
+                        {
+                            Children = CargoEdit.Add(pouches[i].Children, null,
+                                catalog.Lookup(pouches[i].DefName)?.ContainerGrid ?? (1, 1),
+                                pouchDrink, 1, catalog) ?? [],
+                        };
+                List<CargoItem> cargo =
+                [
+                    .. pouches,
                     new("g1", "ItmTrencherChipotlePorkCheeseSpread", "Trencher", false, []) { GridX = 0, GridY = 0 },
                     new("g2", "ItmAmmo9mm", "9mm Ammo", false, []) { GridX = 1, GridY = 0, Stack = 16 },
-                };
-                RenderInv("inv-backpack.png", "ItmBackpack01", "Backpack: Pearson", cargo);
-                RenderInv("inv-empty.png", "ItmBackpack01", "Backpack (empty)", []);   // an empty container still shows its grid
+                ];
+                // Both themes on the backpack, because it is the case the composed figure exists for: its four
+                // pouches are drawn in a row under its own 4x4 rather than as empty slot boxes (#59).
+                RenderInv("inv-backpack-dark.png", "ItmBackpack01", "Backpack: Pearson", cargo, theme: "dark");
+                RenderInv("inv-backpack-light.png", "ItmBackpack01", "Backpack: Pearson", cargo, theme: "light");
+                RenderInv("inv-empty.png", "ItmBackpack01", "Backpack (empty)", [], theme: "dark");   // an empty container still shows its grid
 
                 // an EDITABLE backpack: the same content but with the editor affordances (+ Add item… header,
                 // removable tiles) — confirms the edit UI constructs without throwing.
@@ -180,8 +195,24 @@ public partial class App : Application
                 var deckStack = new CommandStack();
                 var suit = new LooseObject { DefName = "OutfitEVA01", X = 0, Y = 0 };
                 new PlaceLooseCommand(suit).Do(deckDoc);
-                RenderInv("inv-deck-suit.png", suit.DefName, catalog.Lookup(suit.DefName)?.Friendly ?? suit.DefName,
-                    suit.Cargo, deckDoc, deckStack, rootLoose: suit);
+                // Stock it the way the game would, then put something in the first compartment. That is the
+                // reported case exactly: before #59 a fully stocked suit opened on four empty boxes, because
+                // everything it held was one level down in a compartment the view would not draw.
+                if (catalog.Lookup(suit.DefName) is { } suitDef)
+                {
+                    var pockets = CargoEdit.IntrinsicContentsOf(suitDef, catalog).ToList();
+                    if (pockets.Count > 0 && catalog.Lookup("ItmDrinkPouch01") is { } drink)
+                        pockets[0] = pockets[0] with
+                        {
+                            Children = CargoEdit.Add(pockets[0].Children, null,
+                                catalog.Lookup(pockets[0].DefName)?.ContainerGrid ?? (1, 1), drink, 1, catalog) ?? [],
+                        };
+                    new SetLooseCargoCommand(suit, suit.Cargo, pockets).Do(deckDoc);
+                }
+                RenderInv("inv-deck-suit-dark.png", suit.DefName, catalog.Lookup(suit.DefName)?.Friendly ?? suit.DefName,
+                    suit.Cargo, deckDoc, deckStack, rootLoose: suit, theme: "dark");
+                RenderInv("inv-deck-suit-light.png", suit.DefName, catalog.Lookup(suit.DefName)?.Friendly ?? suit.DefName,
+                    suit.Cargo, deckDoc, deckStack, rootLoose: suit, theme: "light");
 
                 // rotation smoke: a tall (1×5) missile unrotated vs rotated 90°, so an aspect/squish regression is
                 // obvious — a faithful rotation is a rigid turn, so the sprite's proportions must not change.

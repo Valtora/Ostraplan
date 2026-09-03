@@ -27,6 +27,7 @@ public sealed class Fixtures
     private readonly Dictionary<string, ParallaxDef> _parallaxDefs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, InteractionDef> _interactionDefs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, JsonElement> _gpmTemplates = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, SlotDef> _slots = new(StringComparer.Ordinal);
 
     /// <summary>Register a GUI-prop-map template (data/guipropmaps): the flat key/value <c>dictGUIPropMap</c> a
     /// named panel expands to. A part declares which templates it uses via <see cref="Part"/>'s <c>gpm</c>
@@ -110,7 +111,8 @@ public sealed class Fixtures
         string[]? lights = null, ShadowBox[]? shadowBoxes = null, bool lightWall = false,
         string[]? interactions = null, IReadOnlyList<(string Instance, string Template)>? gpm = null,
         int apron = 0, double zScale = 1.0,
-        string[]? slotsWeHave = null, string[]? slotKeys = null, string? defaultLoot = null)
+        string[]? slotsWeHave = null, string[]? slotKeys = null, string? defaultLoot = null,
+        IReadOnlyDictionary<string, (double X, double Y)>? slotLayout = null)
     {
         var body = "Blank";
         if (tileConds is { Length: > 0 })
@@ -155,6 +157,7 @@ public sealed class Fixtures
             Gpm = gpm ?? [],
             SlotsWeHave = slotsWeHave ?? [],
             SlotKeys = slotKeys ?? [],
+            SlotLayout = slotLayout ?? new Dictionary<string, (double X, double Y)>(),
             DefaultLoot = defaultLoot,
             // What Catalog.ResolveDef works out for a real def. A fixture carries no cooverlay, so the base view
             // and the folded view are the same one and the rule can be read off directly.
@@ -303,8 +306,17 @@ public sealed class Fixtures
         return this;
     }
 
+    /// <summary>Declare a named equipment slot. Only needed when a test cares about the slot's own properties,
+    /// since an undeclared slot behaves as a visible one with no icon.</summary>
+    public Fixtures Slot(string name, bool hide = false, string? friendly = null)
+    {
+        _slots[name] = new SlotDef(name, friendly, null, hide);
+        return this;
+    }
+
     public Catalog Build() => new()
     {
+        Slots = _slots,
         ShipAttacks = _shipAttacks,
         Parts = _parts,
         ByDefName = _byName,
