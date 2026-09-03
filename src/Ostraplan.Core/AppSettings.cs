@@ -181,6 +181,9 @@ public sealed class AppSettings
     [JsonPropertyName("flightAoA")] public double FlightAngleOfAttack { get; set; }
     /// <summary>Flight Dynamics: the ship's facing against the local horizontal, degrees.</summary>
     [JsonPropertyName("flightAttitude")] public double FlightAttitude { get; set; }
+    /// <summary>Flight Dynamics: is the "what these numbers mean" block open? Shut by default. It reads once and
+    /// is in the way afterwards, which is the same bargain the container view's "how to use" makes.</summary>
+    [JsonPropertyName("flightShowHelp")] public bool FlightShowHelp { get; set; }
     /// <summary>Take a rotating snapshot of the open design every <see cref="AutoSaveMinutes"/> minutes (see
     /// <see cref="AutoSaveStore"/>). Opt-in: off until the user turns it on, since it writes to disk on a timer.
     /// A snapshot never touches the user's own .oplan — Ctrl+S stays the only thing that writes it.</summary>

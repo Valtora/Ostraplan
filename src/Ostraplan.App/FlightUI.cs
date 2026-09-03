@@ -3,15 +3,19 @@ using System.Text;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
+using System.Windows.Input;
 using System.Windows.Media;
 using Ostraplan.Core;
 
 namespace Ostraplan.App;
 
 /// <summary>Everything the report needs from a run: what the design brings, the bodies it can be flown at, and the
-/// RCS thrust the propulsion analysis already measured.</summary>
+/// two RCS figures the propulsion analysis already measured. The delta-v comes along because RCS holds a ship up
+/// only until the reaction mass is gone, and a report that cannot say how long that is has no business counting
+/// it (see <see cref="FlightPoint.RcsHoverSeconds"/>).</summary>
 public sealed record FlightReport(
-    FlightProfile Profile, IReadOnlyList<CelestialBody> Bodies, double RcsThrustNewtons, string DesignName);
+    FlightProfile Profile, IReadOnlyList<CelestialBody> Bodies,
+    double RcsThrustNewtons, double RcsDeltaV, string DesignName);
 
 /// <summary>
 /// Flight Dynamics: what a design does in air, at a place you choose.
@@ -65,10 +69,15 @@ public sealed class FlightWindow : ReportWindow
     private readonly TextBlock _lift = new();
     private readonly TextBlock _drag = new();
     private readonly TextBlock _rotors = new();
-    private readonly TextBlock _support = new();
+    private readonly TextBlock _rcs = new();
+    private readonly TextBlock _hover = new();
     private readonly TextBlock _verdict = new();
     private readonly TextBlock _detail = new();
     private readonly StackPanel _notes = new();
+
+    // the help block, shut by default: it reads once and is in the way afterwards
+    private readonly TextBlock _helpToggle = new();
+    private readonly TextBlock _help = new();
 
     /// <summary>Set while the environment boxes are being refilled from the body/altitude, so writing them back
     /// does not read as the user overriding them.</summary>
@@ -108,19 +117,17 @@ public sealed class FlightWindow : ReportWindow
         _verdict.Margin = new Thickness(0, 2, 0, 2);
         _verdict.TextWrapping = TextWrapping.Wrap;
 
-        body.Children.Add(new TextBlock
-        {
-            Text = "What the design does in air. The game shows this only on a flying ship; here you choose where "
-                 + "it flies.",
-            Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10),
-        });
-
         // ---- readouts ----
-        var slots = new UniformGrid { Columns = 4, Margin = new Thickness(0, 0, 0, 6) };
-        slots.Children.Add(Slot("Lift", _lift));
-        slots.Children.Add(Slot("Drag", _drag));
-        slots.Children.Add(Slot("Rotors", _rotors));
-        slots.Children.Add(Slot("Holds", _support));
+        // Not a UniformGrid: the last caption is a phrase rather than a word, and an equal share of the width
+        // wraps it onto a second line, which lifts its figure clear of the four beside it.
+        var slots = new Grid { Margin = new Thickness(0, 8, 0, 6) };
+        foreach (var width in new[] { 1.0, 1.0, 1.0, 1.0, 2.2 })
+            slots.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(width, GridUnitType.Star) });
+        AddSlot(slots, 0, "Lift", _lift);
+        AddSlot(slots, 1, "Drag", _drag);
+        AddSlot(slots, 2, "Rotors", _rotors);
+        AddSlot(slots, 3, "RCS", _rcs);
+        AddSlot(slots, 4, "Minimum thrust to hover", _hover);
         body.Children.Add(slots);
 
         _detail.Foreground = Dim;
@@ -129,6 +136,24 @@ public sealed class FlightWindow : ReportWindow
         _detail.Margin = new Thickness(0, 2, 0, 6);
         body.Children.Add(_detail);
         body.Children.Add(_notes);
+
+        // ---- the help block ----
+        _helpToggle.Foreground = Accent;
+        _helpToggle.FontSize = 11;
+        _helpToggle.Cursor = Cursors.Hand;
+        _helpToggle.HorizontalAlignment = HorizontalAlignment.Left;
+        _helpToggle.Margin = new Thickness(0, 6, 0, 0);
+        _helpToggle.ToolTip = "What these numbers mean and where they come from";
+        _helpToggle.MouseLeftButtonUp += (_, _) => { _settings.FlightShowHelp = !_settings.FlightShowHelp; ShowHelp(); };
+        body.Children.Add(_helpToggle);
+
+        _help.Text = HelpText;
+        _help.Foreground = Dim;
+        _help.FontSize = 11;
+        _help.TextWrapping = TextWrapping.Wrap;
+        _help.Margin = new Thickness(0, 4, 0, 0);
+        body.Children.Add(_help);
+        ShowHelp();
 
         // ---- environment ----
         body.Children.Add(Header("WHERE"));
@@ -163,26 +188,12 @@ public sealed class FlightWindow : ReportWindow
         };
         reset.Click += (_, _) => FillFromBody();
         body.Children.Add(reset);
-        body.Children.Add(new TextBlock
-        {
-            Text = "These three are what the maths actually uses, so you can overtype any of them and fly a place "
-                 + "the game does not have. Pressure drives rotor efficiency; density drives lift and drag; "
-                 + "gravity is what both are measured against.",
-            Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0),
-        });
 
         // ---- flight point ----
         body.Children.Add(Header("HOW IT IS FLYING"));
         body.Children.Add(SliderRow("Airspeed", _airspeed, _airspeedLabel, 0, 1000, 5, Refresh));
         body.Children.Add(SliderRow("Angle of attack", _aoa, _aoaLabel, 0, 180, 1, Refresh));
         body.Children.Add(SliderRow("Nose off horizontal", _attitude, _attitudeLabel, 0, 180, 1, Refresh));
-        body.Children.Add(new TextBlock
-        {
-            Text = "Airspeed is measured against the air, which moves with the body. Angle of attack is the ship's "
-                 + "facing against its own motion: 0 is nose-on, 90 is broadside, and lift dies at both 90 and "
-                 + "straight up.",
-            Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0),
-        });
 
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new Thickness(0, 16, 0, 0) };
         var copy = new Button { Content = "Copy report", Padding = new Thickness(14, 4, 14, 4), Margin = new Thickness(0, 0, 8, 0) };
@@ -222,7 +233,9 @@ public sealed class FlightWindow : ReportWindow
 
     private void Persist()
     {
-        if (Body is not { } b) return;
+        // The help toggle is written first and unguarded: it is set even on an install whose data declares no
+        // atmosphere at all, where there is no body to record and the rest of this has nothing to say.
+        if (Body is not { } b) { _settings.Save(); return; }
         _settings.FlightBody = b.Name;
         _settings.FlightAltitudeKm = _altitude.Value;
         _settings.FlightAirspeed = _airspeed.Value;
@@ -279,7 +292,16 @@ public sealed class FlightWindow : ReportWindow
             Parse(_gravityBox.Text), Parse(_densityBox.Text), Parse(_pressureBox.Text),
             Body?.SampleAt(_altitude.Value).TempK ?? 0,
             _airspeed.Value, _aoa.Value, _attitude.Value,
-            _report.RcsThrustNewtons);
+            _report.RcsThrustNewtons, _report.RcsDeltaV);
+    }
+
+    /// <summary>Open or shut the help block, and remember which. Deliberately not a <c>Refresh</c>: nothing in it
+    /// depends on the flight point.</summary>
+    private void ShowHelp()
+    {
+        var open = _settings.FlightShowHelp;
+        _helpToggle.Text = open ? "▾  what these numbers mean" : "▸  what these numbers mean";
+        _help.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
     }
 
     private void Refresh()
@@ -295,30 +317,46 @@ public sealed class FlightWindow : ReportWindow
         _lift.Text = p.LiftAccel > 0 ? Gs(p.LiftAccel) : Dash;
         _drag.Text = p.DragAccel > 0 ? Gs(p.DragAccel) : Dash;
         _rotors.Text = p.RotorAccel > 0 ? Gs(p.RotorAccel) : Dash;
-        _support.Text = p.Gravity > 0 ? $"{p.SupportRatio * 100:0}%" : Dash;
-        _support.Foreground = p.Gravity <= 0 ? Ink : p.Holds ? Good : Warn;
+        _rcs.Text = p.RcsAccel > 0 ? Gs(p.RcsAccel) : Dash;
+        _hover.Text = p.Gravity > 0 ? $"{p.HoverRatio * 100:0}%" : Dash;
+        _hover.Foreground = p.Gravity <= 0 ? Ink : p.Holds ? Good : Warn;
 
-        _verdict.Text = !p.InAtmosphere
-            ? "Vacuum: no lift, no drag, no rotors"
+        _verdict.Text = p.Gravity <= 0
+            ? "No gravity here, so nothing to hold up against"
             : p.Holds
                 ? "Holds altitude"
-                : $"Sinks — {p.SupportRatio * 100:0}% of the {p.Gravity:0.##} m/s² it needs";
-        _verdict.Foreground = !p.InAtmosphere ? Dim : p.Holds ? Good : Warn;
+                : p.HoldsOnRcs
+                    ? "Holds only on RCS"
+                    : !p.InAtmosphere
+                        ? "Vacuum: no lift, no drag, no rotors"
+                        : $"Sinks: {p.HoverRatio * 100:0}% of the thrust it needs to hover";
+        _verdict.Foreground = p.Gravity <= 0 || (!p.InAtmosphere && !p.HoldsOnRcs) ? Dim : p.Holds ? Good : Warn;
 
         var lines = new List<string>
         {
-            $"Mass {profile.Mass:#,0} kg · aero coefficient {profile.AeroCoefficient:#,0} from "
-            + $"{profile.AeroParts} part{S(profile.AeroParts)} · grid {profile.NCols}×{profile.NRows} "
+            $"{profile.Mass:#,0} kg · aero {profile.AeroCoefficient:#,0} from "
+            + $"{profile.AeroParts} part{S(profile.AeroParts)} · {profile.NCols}×{profile.NRows} grid "
             + $"({profile.SizeMetres:0.#} m), so {profile.DragAreaFront:0.#} m² nose-on and "
             + $"{profile.DragAreaSide:0.#} m² broadside.",
         };
 
         if (profile.HasRotors)
-            lines.Add($"Rotors: {profile.RotorsActive} of {profile.RotorsPresent} active, rated "
-                + $"{profile.RotorThrust:#,0} kN, delivering {p.RotorThrustNewtons / 1000:#,0} kN at "
-                + $"{p.RotorEfficiency:0.00}× efficiency ({p.PressureKPa:0.#} kPa / 100). "
-                + $"Turbo would give {p.RotorThrustTurboNewtons / 1000:#,0} kN "
-                + $"({Gs(p.RotorAccelTurbo)}), which is a switch at the console rather than a design choice.");
+            lines.Add($"Rotors: {profile.RotorsActive} of {profile.RotorsPresent} on, {profile.RotorThrust:#,0} kN "
+                + $"rated, {p.RotorThrustNewtons / 1000:#,0} kN here at {p.RotorEfficiency:0.00}× "
+                + $"({p.PressureKPa:0.#} kPa / 100). Turbo, a console switch, gives "
+                + $"{p.RotorThrustTurboNewtons / 1000:#,0} kN ({Gs(p.RotorAccelTurbo)}).");
+
+        // The RCS line is the whole reason RCS is out of the percentage, so it always says what the trade is.
+        if (p.RcsAccel > 0)
+            lines.Add(p.Holds
+                ? $"RCS would add {Gs(p.RcsAccel)} on top, for as long as the reaction mass holds out."
+                : p.RcsHoverSeconds is { } seconds
+                    ? $"RCS adds {Gs(p.RcsAccel)}, enough to cover the remaining {p.Shortfall:0.##} m/s² for "
+                      + $"{Secs(seconds)} before the reaction mass runs dry."
+                    : $"RCS adds {Gs(p.RcsAccel)} and is still short of the {p.Gravity:0.##} m/s² needed.");
+        else if (p.RcsThrustNewtons > 0)
+            lines.Add("RCS is not counted: no reaction mass reaches the thrusters, so a mixed burn has nothing "
+                + "to throw.");
 
         if (p.LiftCapped)
             lines.Add($"Lift is at the game's ceiling of ten local gravities; it would otherwise read "
@@ -330,16 +368,9 @@ public sealed class FlightWindow : ReportWindow
         if (p.HoverAirspeed is { } hover && p.InAtmosphere)
             lines.Add(hover <= _airspeed.Maximum
                 ? $"Wings alone carry it at {hover:#,0} m/s at this attitude."
-                : $"Wings alone would need {hover:#,0} m/s at this attitude, which is past anything it will reach.");
+                : $"Wings alone would need {hover:#,0} m/s here, past anything it will reach.");
         else if (p.InAtmosphere && profile.AeroCoefficient > 0)
             lines.Add("At this attitude the lift term cancels, so wings carry nothing whatever the speed.");
-
-        if (p.RcsAccel > 0)
-            lines.Add($"RCS adds {Gs(p.RcsAccel)} if you point it up, which the game's mixed engine mode does "
-                + "alongside the rotors. It burns reaction mass to do it.");
-
-        lines.Add("Lift divides by mass twice in the game's own expression, so doubling a design's mass quarters "
-            + "its lift. That, and not wing area, is usually what decides whether a design flies.");
 
         _detail.Text = string.Join(" ", lines);
 
@@ -387,7 +418,10 @@ public sealed class FlightWindow : ReportWindow
         sb.AppendLine($"  Drag           {Gs(p.DragAccel)}{(p.DragCapped ? " (clamped)" : "")}");
         sb.AppendLine($"  Rotor thrust   {p.RotorThrustNewtons / 1000:#,0} kN = {Gs(p.RotorAccel)}");
         sb.AppendLine($"  RCS            {Gs(p.RcsAccel)}");
-        sb.AppendLine($"  Support        {p.SupportRatio * 100:0}% of local gravity — {(p.Holds ? "holds" : "sinks")}");
+        sb.AppendLine($"  Hover thrust   {p.HoverRatio * 100:0}% of the minimum, on wings and rotors "
+            + $"({(p.Holds ? "holds" : "sinks")})");
+        if (p.RcsHoverSeconds is { } seconds)
+            sb.AppendLine($"  On RCS         holds for {Secs(seconds)}, covering {p.Shortfall:0.##} m/s²");
         if (p.HoverAirspeed is { } hover) sb.AppendLine($"  Wings alone    {hover:#,0} m/s to carry it");
         foreach (var note in profile.Notes) sb.AppendLine($"  ! {note}");
 
@@ -400,6 +434,32 @@ public sealed class FlightWindow : ReportWindow
 
     private static string S(int n) => n == 1 ? "" : "s";
 
+    /// <summary>A duration in the coarsest unit that still says something. An RCS hover is usually seconds, and
+    /// "2,700 s" is not a number anyone reads as three quarters of an hour.</summary>
+    private static string Secs(double seconds) => seconds switch
+    {
+        < 90 => $"{seconds:0} s",
+        < 5400 => $"{seconds / 60:0} min",
+        _ => $"{seconds / 3600:0.#} h",
+    };
+
+    /// <summary>Everything behind "what these numbers mean". It is all general: nothing here changes with the
+    /// design or the flight point, which is why it can be built once and left shut.</summary>
+    private const string HelpText =
+        "The game answers this only on a flying ship, and only for wherever that ship is. Here you pick the "
+        + "place: a body and an altitude fill in gravity, pressure and density from the game's own tables, and "
+        + "the design is flown through them at a speed and attitude you set.\n\n"
+        + "Wings and rotors cost nothing to hold, so the percentage counts only those. RCS is shown beside them "
+        + "because the game's mixed engine mode does fire it alongside the rotors, but it holds a ship up by "
+        + "throwing reaction mass overboard and stops when that runs out.\n\n"
+        + "Lift divides by mass twice in the game's own expression, so doubling a design's mass quarters its "
+        + "lift. That, and not wing area, is usually what decides whether a design flies.\n\n"
+        + "Gravity, pressure and density are what the maths actually uses, so you can overtype any of them and "
+        + "fly a place the game does not have. Pressure drives rotor efficiency, density drives lift and drag, "
+        + "and gravity is what both are measured against.\n\n"
+        + "Airspeed is measured against the air, which moves with the body. Angle of attack is the ship's facing "
+        + "against its own motion: 0 is nose-on, 90 is broadside, and lift dies at both 90 and straight up.";
+
     private static double Parse(string text) =>
         double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out var v) && v > 0 ? v : 0;
 
@@ -408,15 +468,19 @@ public sealed class FlightWindow : ReportWindow
         Text = text, Foreground = Dim, FontWeight = FontWeights.Bold, FontSize = 11, Margin = new Thickness(0, 16, 0, 6),
     };
 
-    private static UIElement Slot(string caption, TextBlock value)
+    private static void AddSlot(Grid grid, int column, string caption, TextBlock value)
     {
         value.Foreground = Ink;
         value.FontSize = 18;
         value.FontWeight = FontWeights.SemiBold;
         var sp = new StackPanel { Margin = new Thickness(0, 0, 8, 0), VerticalAlignment = VerticalAlignment.Bottom };
         sp.Children.Add(value);
-        sp.Children.Add(new TextBlock { Text = caption, Foreground = Dim, FontSize = 10 });
-        return sp;
+        sp.Children.Add(new TextBlock
+        {
+            Text = caption, Foreground = Dim, FontSize = 10, TextWrapping = TextWrapping.Wrap,
+        });
+        Grid.SetColumn(sp, column);
+        grid.Children.Add(sp);
     }
 
     private static UIElement Field(string caption, TextBox box)

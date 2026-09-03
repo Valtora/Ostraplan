@@ -12,6 +12,24 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Changed
+- **Flight Dynamics no longer credits a design with thrusters it cannot keep firing.** The headline read
+  `386% Holds`, which is not a sentence in English, and most of the 386% was RCS: 2.62G of a 3.37G total
+  on the design that raised this, against tiles showing 0.01G of lift and 0.74G of rotors and no RCS
+  figure at all, so the number could not be reconciled with anything printed beside it. `Ship.Maneuver`
+  in its mixed engine mode genuinely does add RCS to rotor thrust, so counting it is faithful to the
+  game. It is still the wrong figure to lead with, because RCS holds a ship up by throwing reaction mass
+  overboard, and a design that hovers until a tank empties is not a design that flies. **Minimum thrust
+  to hover** now counts lift and rotors, the two that cost nothing to sustain, and **RCS is a figure of
+  its own** beside them with the trade written out: what it adds, what shortfall that covers, and how
+  many seconds of reaction mass that comes to. RCS with no distributor switched on, or nothing in the
+  tanks it feeds from, now counts for nothing, which is what the game does with it. Thanks to
+  nighoggDatatype, Ule and NotFuji. (#58)
+- **Most of the writing in the Flight Dynamics window is behind a link.** Four paragraphs explaining the
+  model sat between the readouts and the controls, permanently, and not one of them changed with the
+  design or with where it was flying. They are a single **what these numbers mean** line now, shut until
+  wanted and remembered afterwards. What is left on screen answers to the ship in front of you: its mass
+  and aero coefficient, the rotor figures, the RCS trade, the speed wings alone would carry it at, and a
+  line whenever one of the game's own caps is what is limiting the answer. (#58)
 - **The game fixed the missile bug Ostraplan was working around, so the workaround is gone.** Ostranauts
   1.0.0.17 checks every part on a tile before a missile flies over it, where it used to check only the
   first one listed and pass over a wall that happened to be named after the floor under it. Ostraplan

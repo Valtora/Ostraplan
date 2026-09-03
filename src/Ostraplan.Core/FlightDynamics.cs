@@ -69,13 +69,19 @@ public sealed record FlightProfile(
 /// <param name="AttitudeDeg">Angle between the ship's facing and the local horizontal, 0–180. It is the second
 /// cosine in the game's lift expression: a ship pointed straight up its own gravity vector makes no lift.</param>
 /// <param name="RcsThrustNewtons">Peak RCS thrust from <see cref="PropulsionEstimate.RcsThrustNewtons"/>. The
-/// game's MIXED engine mode adds RCS to rotor thrust, so a report that leaves it out understates what a design can
-/// actually hold.</param>
+/// game's MIXED engine mode adds RCS to rotor thrust, so a design really can lean on it to stay up. It is kept
+/// out of <see cref="HoverRatio"/> all the same, because it does that by throwing reaction mass overboard: see
+/// <see cref="RcsHoverSeconds"/>.</param>
+/// <param name="RcsDeltaV">Delta-v the reaction mass aboard buys, m/s, from
+/// <see cref="PropulsionEstimate.RcsDeltaV"/>. Zero says the thrusters cannot fire at all — no distributor
+/// switched on, no airtight tank on its gas input, or a plumbed tank that is empty — and it is the gate on
+/// whether RCS counts for anything here, because <c>Ship.Maneuver</c> asks <c>RemoveGasMass</c> for the
+/// propellant before it thrusts and gets a zero back.</param>
 public sealed record FlightPoint(
     FlightProfile Profile,
     double Gravity, double Density, double PressureKPa, double TempK,
     double Airspeed, double AngleOfAttackDeg, double AttitudeDeg,
-    double RcsThrustNewtons)
+    double RcsThrustNewtons, double RcsDeltaV = 0)
 {
     // ---- rotors ----
 
@@ -158,19 +164,40 @@ public sealed record FlightPoint(
 
     // ---- the balance ----
 
-    /// <summary>Acceleration from RCS alone, m/s². The game's MIXED mode fires RCS alongside the rotors.</summary>
-    public double RcsAccel => Profile.Mass > 0 ? RcsThrustNewtons / Profile.Mass : 0;
+    /// <summary>Acceleration from RCS alone, m/s². The game's MIXED mode fires RCS alongside the rotors, and both
+    /// terms take the same steering input, so the full figure really is available upward. It needs propellant to
+    /// be there, though, which is what <see cref="RcsDeltaV"/> gates on.</summary>
+    public double RcsAccel => Profile.Mass > 0 && RcsDeltaV > 0 ? RcsThrustNewtons / Profile.Mass : 0;
 
-    /// <summary>Everything working against gravity, m/s²: aerodynamic lift, the rotors at full stick, and RCS,
-    /// assuming thrust is pointed straight up. Lift is always anti-gravity by construction in the game's model;
-    /// the two thrust terms are only anti-gravity if you point them there.</summary>
-    public double UpwardAccel => LiftAccel + RotorAccel + RcsAccel;
+    /// <summary>What the design holds up on its own, m/s²: aerodynamic lift plus the rotors at full stick,
+    /// pointed up. Neither consumes anything, so whatever this covers it covers for as long as the reactor
+    /// runs.</summary>
+    public double SustainedAccel => LiftAccel + RotorAccel;
 
-    /// <summary>Upward acceleration over local gravity. 1 is holding altitude; below 1 the design sinks.</summary>
-    public double SupportRatio => Gravity > 0 ? UpwardAccel / Gravity : 0;
+    /// <summary>Everything pointed up at once, m/s², which is what the game's MIXED mode actually delivers.
+    /// Only for as long as the reaction mass lasts: <see cref="RcsHoverSeconds"/> says how long that is.</summary>
+    public double UpwardAccel => SustainedAccel + RcsAccel;
 
-    /// <summary>Can it hold altitude here, with everything pointed the right way?</summary>
-    public bool Holds => SupportRatio >= 1;
+    /// <summary>Sustained upward acceleration over local gravity: 1 is hovering on wings and rotors alone.
+    /// RCS is deliberately outside it. Being able to hold altitude while a tank drains is a different claim from
+    /// being able to fly, and it is the one a design is judged on.</summary>
+    public double HoverRatio => Gravity > 0 ? SustainedAccel / Gravity : 0;
+
+    /// <summary>Can wings and rotors hold altitude here on their own?</summary>
+    public bool Holds => HoverRatio >= 1;
+
+    /// <summary>The acceleration RCS would have to make up, m/s². Zero once the design carries itself.</summary>
+    public double Shortfall => Math.Max(0, Gravity - SustainedAccel);
+
+    /// <summary>True when RCS closes a gap wings and rotors leave open.</summary>
+    public bool HoldsOnRcs => Gravity > 0 && !Holds && UpwardAccel >= Gravity;
+
+    /// <summary>How long the reaction mass aboard covers <see cref="Shortfall"/>, in seconds. Delta-v is spent at
+    /// exactly the acceleration it is sustaining, so the budget divides straight through, and the thruster count
+    /// cancels out of it the same way it does out of <see cref="PropulsionEstimate.RcsDeltaV"/>: more thrusters
+    /// buy a bigger shortfall to cover, never a longer hover. Null when there is nothing to cover, or when RCS
+    /// cannot cover it however long it burns.</summary>
+    public double? RcsHoverSeconds => HoldsOnRcs && Shortfall > 0 ? RcsDeltaV / Shortfall : null;
 
     /// <summary>Is there enough air here for any of this to mean anything (<c>BodyOrbit.AtmoKPaThreshold</c>)?</summary>
     public bool InAtmosphere => PressureKPa > Atmosphere.AtmoKPaThreshold;
@@ -201,6 +228,12 @@ public sealed record FlightPoint(
 /// scaled by <c>Ship.CurrentRotorEfficiency</c> — ambient pressure over 100 kPa, capped at 1.5 — so a rotor gives
 /// nothing in vacuum and half as much again in Venus's deep cloud layer. Turbo swaps in
 /// <c>StatThrustStrengthTurbo</c> and is a console switch, not a layout decision, so it is reported as potential.</para>
+///
+/// <para><b>Holding altitude is two answers, not one.</b> <c>Ship.Maneuver</c> in MIXED adds the RCS
+/// acceleration to the rotor one, and both take the same steering input, so RCS genuinely helps a design stay up.
+/// It does that by spending reaction mass, so it runs out, which makes it a different kind of answer from lift
+/// and rotor thrust. <see cref="FlightPoint.HoverRatio"/> is therefore lift plus rotors over gravity, and
+/// <see cref="FlightPoint.RcsHoverSeconds"/> says how long RCS would cover whatever that leaves.</para>
 ///
 /// <para><b>Two things the model deliberately leaves out.</b> The rotor efficiency the game reads is the pressure
 /// of the ship's own Void room, which its atmosphere sync sets to the ambient figure, so reading it from the

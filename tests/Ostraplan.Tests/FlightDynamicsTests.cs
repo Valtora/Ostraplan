@@ -220,11 +220,11 @@ public class FlightDynamicsTests(ITestOutputHelper output)
     // ---- flying it ----
 
     private static FlightPoint Fly(FlightProfile profile, CelestialBody body, double altitudeKm, double airspeed,
-        double aoa = 0, double attitude = 0, double rcs = 0)
+        double aoa = 0, double attitude = 0, double rcs = 0, double rcsDeltaV = 1000)
     {
         var air = body.SampleAt(altitudeKm);
         return new FlightPoint(profile, body.GravityAt(altitudeKm), air.DensityKgPerM3, air.PressureKPa, air.TempK,
-            airspeed, aoa, attitude, rcs);
+            airspeed, aoa, attitude, rcs, rcsDeltaV);
     }
 
     [SkippableFact]
@@ -358,7 +358,33 @@ public class FlightDynamicsTests(ITestOutputHelper output)
     }
 
     [SkippableFact]
-    public void RCS_counts_towards_holding_altitude()
+    public void RCS_covers_a_shortfall_but_never_counts_as_holding_altitude()
+    {
+        var g = TestData.RequireGame();
+        if (!g.Catalog.ByDefName.ContainsKey(Wall)) return;
+
+        var (doc, grid) = Ship(g.Catalog, (Wall, 0, 0));
+        var p = FlightDynamics.Measure(doc, grid, g.Catalog).WithMass(10_000);
+        var venus = Body(g.Index, "Venus");
+        var gravity = venus.GravityAt(50);
+
+        var unpowered = Fly(p, venus, 50, 0, rcs: 0);
+        var withRcs = Fly(p, venus, 50, 0, rcs: 10_000 * gravity, rcsDeltaV: 500);
+
+        // A bare wall makes no lift worth the name and has no rotors, so the shortfall is the whole of gravity.
+        Assert.False(unpowered.Holds);
+        Assert.False(withRcs.Holds);                             // the design still cannot fly...
+        Assert.True(withRcs.HoldsOnRcs);                         // ...but it can hang on the thrusters
+        Assert.Equal(gravity, withRcs.UpwardAccel, 6);
+        Assert.Equal(gravity, withRcs.Shortfall, 3);
+
+        // Delta-v is spent at the acceleration it sustains, so 500 m/s covers 8.5 m/s² for about a minute.
+        Assert.Equal(500 / gravity, withRcs.RcsHoverSeconds!.Value, 6);
+        output.WriteLine($"RCS hover: {withRcs.RcsHoverSeconds:0} s on 500 m/s of delta-v at {gravity:0.00} m/s²");
+    }
+
+    [SkippableFact]
+    public void RCS_with_no_reaction_mass_aboard_contributes_nothing()
     {
         var g = TestData.RequireGame();
         if (!g.Catalog.ByDefName.ContainsKey(Wall)) return;
@@ -367,11 +393,12 @@ public class FlightDynamicsTests(ITestOutputHelper output)
         var p = FlightDynamics.Measure(doc, grid, g.Catalog).WithMass(10_000);
         var venus = Body(g.Index, "Venus");
 
-        var unpowered = Fly(p, venus, 50, 0);
-        var withRcs = Fly(p, venus, 50, 0, rcs: 10_000 * venus.GravityAt(50));
+        // Thrusters aboard, nothing plumbed in to feed them: Ship.Maneuver asks RemoveGasMass for the propellant
+        // before it thrusts, so a mixed burn with an empty feed adds no acceleration at all.
+        var dry = Fly(p, venus, 50, 0, rcs: 10_000 * venus.GravityAt(50), rcsDeltaV: 0);
 
-        Assert.False(unpowered.Holds);
-        Assert.True(withRcs.Holds);
-        Assert.Equal(1, withRcs.SupportRatio, 6);
+        Assert.Equal(0, dry.RcsAccel);
+        Assert.False(dry.HoldsOnRcs);
+        Assert.Null(dry.RcsHoverSeconds);
     }
 }

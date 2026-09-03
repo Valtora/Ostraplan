@@ -1336,12 +1336,15 @@ public partial class MainWindow : Window
         Ui.OffThread(() =>
         {
             var grid = ShipGrid.FromDocument(doc, catalog);
-            // The RCS figure comes from the propulsion port rather than being re-derived: the game's mixed engine
-            // mode fires RCS alongside the rotors, so the flight report needs the same number the Ship Rating shows.
+            // The RCS figures come from the propulsion port rather than being re-derived: the game's mixed engine
+            // mode fires RCS alongside the rotors, so the flight report needs the same numbers the Ship Rating
+            // shows. Both are needed, not just the thrust: the delta-v is what says whether the thrusters have
+            // anything to throw, and how long they could hold the ship up if they do.
+            var rcs = Propulsion.Estimate(doc, grid, catalog);
             return new FlightReport(
                 FlightDynamics.Measure(doc, grid, catalog),
                 Atmosphere.LoadBodies(index),
-                Propulsion.Estimate(doc, grid, catalog).RcsThrustNewtons,
+                rcs.RcsThrustNewtons, rcs.RcsDeltaV,
                 designName);
         });
 

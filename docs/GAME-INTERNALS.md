@@ -3038,13 +3038,23 @@ much again in Venus's deep cloud layer.
 picks MIXED whenever there is rotor thrust and any efficiency at all, and RCS otherwise.
 Note the rotor term is **not** divided by `fDeltaTime` while the RCS term is.
 
+Both terms take the **same** steering input, `(fX cos θ − fY sin θ, fX sin θ + fY cos θ)`,
+so rotor thrust is not confined to the ship's own up and a design really can point all of
+it against gravity whatever its attitude. What separates the two is that the RCS term is
+gated on `RemoveGasMass` returning something: in MIXED an empty feed zeroes the RCS half
+and leaves the rotors alone, where in RCS mode it stops the burn outright. **So RCS holds
+a ship up, but only while the reaction mass lasts**, which is why Ostraplan reports the
+two separately rather than in one sum.
+
 > **Ported in Ostraplan:** `Atmosphere` (bodies, band interpolation, density, gravity —
 > reading `star_systems` through `DataIndex`, so a mod that adds a body or retunes Venus
 > is picked up like any other data) and `FlightDynamics` (`Measure` for the design's
 > profile, `FlightPoint` for one operating point), with the readout on **Design ▸ Flight
 > Dynamics**. Airspeed, angle of attack and attitude are flight state rather than design
 > facts, so they are user inputs; the environment defaults to the body's own figures and
-> stays editable.
+> stays editable. `FlightPoint.HoverRatio` is lift plus rotors over local gravity, and RCS
+> is reported beside it as an acceleration and a countdown (`RcsHoverSeconds`, the RCS
+> delta-v over the shortfall) rather than folded into that ratio.
 > **Two deliberate omissions**, both immaterial: the ship's own radius is added to its
 > distance from the body before the atmosphere is sampled (tens of metres against
 > kilometre-thick bands), and `BodyOrbit` converts km↔AU with 149597872 where the console's

@@ -411,11 +411,19 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   - **Set how it is flying**: airspeed (measured against the air, which moves with the
     body), angle of attack, and how far the nose sits off the horizontal. Lift dies at
     90° on either.
-  - **Read**: lift, drag and rotor thrust in G, and whether the design **holds altitude**
-    (everything anti-gravity over local gravity, with thrust pointed up). Below it, the
-    rotor figures with and without turbo, the airspeed at which wings alone would carry
+  - **Read**: lift, drag, rotor thrust and RCS in G, then **minimum thrust to hover** as a
+    percentage. 100% is exactly enough; under it the design sinks. Below the figures, the
+    rotor numbers with and without turbo, the airspeed at which wings alone would carry
     it, and a warning when the game's own caps (lift at ten local gravities, drag at
     2000 m/s²) are what is limiting the answer.
+  - **The percentage counts wings and rotors, not RCS.** `Ship.Maneuver` really does fire
+    RCS alongside the rotors, so a design under 100% can still hang on the thrusters, and
+    the report says for how long: RCS delta-v over whatever the airframe leaves uncovered.
+    But that ends when the reaction mass does, so it is reported as a countdown beside the
+    percentage rather than counted into it. RCS with nothing plumbed in to feed it counts
+    for nothing at all, which is what the game does too.
+  - **what these numbers mean** at the top opens a note on all of the above, and stays
+    however you leave it.
   - **Mass hurts twice.** The game divides lift by mass in the coefficient and again to
     make an acceleration, so **doubling a design's mass quarters its lift**. That, not
     wing area, is usually what decides whether something flies.
