@@ -1,6 +1,7 @@
 # Using Ostraplan
 
-A practical walkthrough. For where the tool's remit starts and stops see
+A practical walkthrough. For the whole feature set on one page see
+[FEATURES.md](FEATURES.md); for where the tool's remit starts and stops see
 [SCOPE.md](SCOPE.md); for how the game works internally (and what Ostraplan ports) see
 [GAME-INTERNALS.md](GAME-INTERNALS.md); for what shipped when see
 [CHANGELOG.md](../CHANGELOG.md).
