@@ -79,6 +79,39 @@ public class LootSpawnerTests
         Assert.Null(SpawnerSettings.FromPanel(Panel("inputConnections", "x")));
     }
 
+    /// <summary>The panel the game writes when it parks an item it could not place, verbatim from
+    /// <c>Interaction</c>'s own <c>ApplyGPMChanges</c> call.</summary>
+    private static IReadOnlyDictionary<string, string?> LotOverflowPanel() => Panel(
+        "strGUIPrefab", "GUILootSpawn",
+        "strType", "Lot Loot", "strRange", "2", "strCount", "1", "strLoot", "aLot",
+        "strNew", "true", "strDamaged", "true", "strDerelict", "true");
+
+    [Fact]
+    public void The_lot_overflow_holder_is_not_read_as_a_spawner()
+    {
+        // The premise: an unrecognised strType really does fall through to Loot, which is the behaviour that made
+        // this worth fixing. Without this line the assertion below would pass on a parser that refused
+        // everything.
+        Assert.Equal(SpawnerType.Loot, SpawnerSettings.ParseType("Lot Loot"));
+
+        // So the refusal has to happen before the type is asked. Read as a spawner this arrives pointed at a loot
+        // table called "aLot", which nothing declares, and exports as an object that stocks the ship with
+        // nothing.
+        Assert.True(SpawnerSettings.IsLotOverflow(LotOverflowPanel()));
+        Assert.Null(SpawnerSettings.FromPanel(LotOverflowPanel()));
+    }
+
+    [Fact]
+    public void An_ordinary_spawner_is_not_mistaken_for_the_overflow_holder()
+    {
+        Assert.False(SpawnerSettings.IsLotOverflow(Panel(
+            "strGUIPrefab", "GUILootSpawn", "strType", "Loot", "strLoot", "ItmLootSpawnMedical")));
+        Assert.False(SpawnerSettings.IsLotOverflow(Panel(
+            "strGUIPrefab", "GUILootSpawn", "strType", "Pspec", "strLoot", "OKLGScavCrew")));
+        // Not a spawner panel at all, whatever the type says.
+        Assert.False(SpawnerSettings.IsLotOverflow(Panel("strGUIPrefab", "GUIAirPump", "strType", "Lot Loot")));
+    }
+
     [Fact]
     public void A_missing_condition_flag_means_the_spawner_fires()
     {
@@ -257,6 +290,48 @@ public class LootSpawnerTests
           ]
         }]
         """;
+
+    /// <summary>A ship carrying one authored spawner and one lot overflow holder, which is what a save import can
+    /// actually turn up: the holder is created at runtime when something is dropped onto a ship the game has not
+    /// deep-loaded.</summary>
+    private const string ShipWithLotOverflow = """
+        [{
+          "strName": "Probe", "nCols": 6, "nRows": 6,
+          "vShipPos": { "x": 0.0, "y": 0.0 },
+          "aItems": [
+            { "strName": "ItmWall1x1", "fX": 0.0, "fY": 0.0, "fRotation": 0.0, "strID": "w" },
+            { "strName": "SysLootSpawner", "fX": 2.0, "fY": -1.0, "fRotation": 0.0, "strID": "loot",
+              "aGPMSettings": [ { "strName": "Panel A", "dictGUIPropMap": [
+                "strGUIPrefab", "GUILootSpawn", "strType", "Loot",
+                "strLoot", "ItmLootSpawnMedical", "strRange", "1", "strCount", "1" ] } ] },
+            { "strName": "SysLootSpawnerLot", "fX": 3.0, "fY": -2.0, "fRotation": 0.0, "strID": "spill",
+              "aGPMSettings": [ { "strName": "Panel A", "dictGUIPropMap": [
+                "strGUIPrefab", "GUILootSpawn", "strType", "Lot Loot",
+                "strLoot", "aLot", "strRange", "2", "strCount", "1",
+                "strNew", "true", "strDamaged", "true", "strDerelict", "true" ] } ] }
+          ]
+        }]
+        """;
+
+    [SkippableFact]
+    public void A_lot_overflow_holder_is_dropped_as_the_runtime_object_it_is()
+    {
+        var g = TestData.RequireGame();
+        Skip.If(g.Catalog.Lookup("SysLootSpawnerLot") is null, "This install has no SysLootSpawnerLot.");
+
+        var tmpl = ShipTemplate.ParseFile(ShipWithLotOverflow).Single();
+        var result = TemplateImport.Build(tmpl, g.Catalog, retainOrigin: false,
+            ImportOptions.Everything, ShipJson.Largest(ShipWithLotOverflow));
+
+        // The authored spawner comes in, the overflow holder does not, and neither is reported as the other. It
+        // used to arrive as an ordinary Loot spawner pointed at "aLot", which resolves to nothing, so the design
+        // gained an object that looked like a spawner on the plan and stocked the ship with nothing.
+        var kept = Assert.Single(result.Doc.LooseObjects);
+        Assert.Equal("ItmLootSpawnMedical", kept.Spawner!.Target);
+        Assert.Equal(1, result.SpawnersKept);
+        Assert.Equal(0, result.SpawnersDropped);   // it is not a spawner we failed to read
+        Assert.Equal(1, result.SystemDropped);     // it is runtime state, counted with fire and explosions
+    }
 
     [SkippableFact]
     public void Both_arrays_of_spawners_survive_an_import()

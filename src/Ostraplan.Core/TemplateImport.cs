@@ -259,6 +259,13 @@ public static class TemplateImport
                 // every spawner on each round trip.
                 if (!retainOrigin && part.StartingConds.Contains("IsLootSpawner"))
                 {
+                    // …except the lot overflow holder, which carries the same panel and the same IsLootSpawner
+                    // cond but is the game parking an item it could not place on a ship it had not deep-loaded
+                    // (see SpawnerSettings.IsLotOverflow). It names no loot table, there is nowhere in a design
+                    // for the objects it is holding, and read as an ordinary spawner it arrives pointed at "aLot"
+                    // and exports as an object that stocks nothing. It is runtime state, so it is counted with
+                    // the runtime state.
+                    if (item.IsLotOverflow) { systems++; continue; }
                     if (TakeSpawner(item, part)) spawners++; else spawnersDropped++;
                     continue;
                 }

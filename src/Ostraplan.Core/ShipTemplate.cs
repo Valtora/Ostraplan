@@ -47,8 +47,14 @@ public sealed record TemplateItem(string DefName, double FX, double FY, double F
     public IReadOnlyDictionary<string, string>? NavLayout { get; init; }
 
     /// <summary>This item's <c>GUILootSpawn</c> panel, when it has one (see <see cref="SpawnerSettings"/>). Null
-    /// on everything that is not a loot spawner.</summary>
+    /// on everything that is not a loot spawner, and on the runtime lot overflow holder (see
+    /// <see cref="IsLotOverflow"/>), which carries the panel but is not a spawner a design authored.</summary>
     public SpawnerSettings? Spawner { get; init; }
+
+    /// <summary>True when this item is the game's runtime lot overflow holder rather than a spawner
+    /// (<see cref="SpawnerSettings.IsLotOverflow"/>). Kept apart from a null <see cref="Spawner"/> so an import
+    /// can report it as the runtime object it is rather than as a spawner it failed to read.</summary>
+    public bool IsLotOverflow { get; init; }
 
     /// <summary>This item's <c>aCondOverrides</c> — the per-instance condition amounts a template sets on the
     /// spawned object (<c>JsonItem.ApplyOverrideCondsToCO</c>), resolved to condition name → amount. Empty for
@@ -223,6 +229,7 @@ public sealed class ShipTemplate
                 Reactor = GpmPanels.Reactor(panels),
                 NavLayout = GpmPanels.NavConfig(panels),
                 Spawner = GpmPanels.Spawner(panels),
+                IsLotOverflow = GpmPanels.LotOverflow(panels),
                 CondOverrides = ReadCondOverrides(it),
             });
         }

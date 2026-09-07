@@ -929,6 +929,28 @@ build and are deliberately not ported.
 > does). Running a spawner consumes it, because a design holding the cargo *and* the
 > spawner would arrive carrying it twice (#65).
 
+### There is a fourth `strType`, and it is not a spawner
+
+`LootSpawner.DoLoot` has a `"Lot Loot"` branch that the table above does not cover, because
+no `data/ships` file contains one: it is created at runtime and lives only in saves.
+
+When something is dropped onto a ship whose `LoadState` is below `Edit`, `Interaction`
+cannot place it, so it parks it. It finds or creates a **`SysLootSpawnerLot`** condowner
+(a distinct def sharing the `SysLootSpawner` item, with an extra `LootSpawnerLot`
+component), applies `strType "Lot Loot"` / `strLoot "aLot"` / `strRange 2`, `AddLotCO`s the
+item into that holder, and attaches the holder to the target's own lot list. On the next
+deep load the `"Lot Loot"` branch calls `GetLotCOs` and `DropCOsNearby`s what it is holding.
+
+So `strLoot` names **no loot table at all** here: `aLot` is the field it reads. Lot
+membership persists through `JsonCondOwnerSave.aLot`, a list of `strID`s, which is a save
+structure with no template equivalent.
+
+> **Ported in Ostraplan:** deliberately not. `SpawnerSettings.IsLotOverflow` recognises the
+> panel and `FromPanel` refuses it, so `TemplateImport` drops it with the other runtime
+> objects and counts it as one. `SpawnerType` has no member for it on purpose: that enum is
+> what a design may author, and this is the game's parking space. Read as an ordinary
+> spawner it arrived pointed at "aLot" and exported as an object that stocks nothing.
+
 ---
 
 ## 7. The coordinate model

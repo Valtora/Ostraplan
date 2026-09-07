@@ -156,4 +156,18 @@ public static class GpmPanels
         }
         return null;
     }
+
+    /// <summary>True when this item is the game's runtime lot overflow holder rather than an authored spawner
+    /// (see <see cref="SpawnerSettings.IsLotOverflow"/>). Asked separately from <see cref="Spawner"/>, which
+    /// answers null for it, so an import can count it as the runtime object it is instead of reporting a spawner
+    /// whose settings could not be read.</summary>
+    public static bool LotOverflow(IReadOnlyDictionary<string, IReadOnlyDictionary<string, string?>> panels)
+    {
+        foreach (var (name, keys) in panels)
+        {
+            if (name == ElectricalPanel) continue;
+            if (SpawnerSettings.IsLotOverflow(keys)) return true;
+        }
+        return false;
+    }
 }

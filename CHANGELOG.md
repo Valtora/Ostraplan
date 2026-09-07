@@ -61,6 +61,17 @@ each release was verified against is recorded in
   sessions, so the status bar reads **FORCE PLACE** in red the whole time it is on and every bug report
   records it. Thanks to nighoggDatatype. (#67)
 
+### Fixed
+- **A ship imported out of a save no longer picks up a spawner that stocks nothing.** When you drop
+  something onto a ship the game has not fully loaded, it cannot place the item, so it parks it in a
+  holder object until the ship next loads properly. That holder wears the same control panel a real
+  loot spawner does, and Ostraplan read it as one, so an imported save ship gained a spawner pointed
+  at a loot table called "aLot" that no install has ever declared. It looked like a working spawner
+  on the plan, warned that its target was missing, and would have exported a ship that arrived with
+  nothing where it stood. It is runtime state rather than anything a design says the ship carries, so
+  it is now dropped on import and counted alongside fire and explosions. Spawners the ship actually
+  authors are untouched, and no ship the game ships contains one of these at all.
+
 ### Changed
 - **The docking check calls a dock by the name you gave it.** Every row of the compatibility list read
   `Secondary (x,y)`, so checking a ship against an apartment with four airlocks on it produced four

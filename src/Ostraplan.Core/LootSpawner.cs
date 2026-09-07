@@ -164,13 +164,43 @@ public sealed record SpawnerSettings
     };
 
     /// <summary>Read a <c>strType</c> back. Anything unrecognised is <see cref="SpawnerType.Loot"/>, matching the
-    /// template default, so a mod's typo imports as an object spawner rather than losing the spawner.</summary>
+    /// template default, so a mod's typo imports as an object spawner rather than losing the spawner.
+    /// <para>The game's fourth <c>strType</c> never reaches here: <see cref="FromPanel"/> refuses a lot overflow
+    /// holder before this is asked (see <see cref="IsLotOverflow"/>).</para></summary>
     public static SpawnerType ParseType(string? wire) => wire?.Trim() switch
     {
         "Pspec" => SpawnerType.Pspec,
         "Pspec Loot" => SpawnerType.PspecLoot,
         _ => SpawnerType.Loot,
     };
+
+    /// <summary>The game's fourth <c>strType</c>, which <see cref="SpawnerType"/> deliberately has no member
+    /// for.</summary>
+    public const string LotOverflowWire = "Lot Loot";
+
+    /// <summary>
+    /// Whether these panel keys describe the game's <b>lot overflow holder</b> rather than a spawner a design
+    /// authored.
+    ///
+    /// <para>It is a runtime construct and exists only in saves. When an item is dropped onto a ship the game has
+    /// not deep-loaded, <c>Interaction</c> cannot place it, so it parks it: a <c>SysLootSpawnerLot</c> condowner
+    /// is attached to the target's own lot list and given a panel reading <c>strType "Lot Loot"</c>,
+    /// <c>strLoot "aLot"</c>, and the item goes into that holder's <c>aLot</c>. On the next deep load
+    /// <c>LootSpawner.DoLoot</c>'s <c>"Lot Loot"</c> branch drops those held objects onto the deck. It names no
+    /// loot table at all: <c>aLot</c> is the field it reads, not an entry in <c>data/loot</c>.</para>
+    ///
+    /// <para>None of the 3,631 spawners in the game's own ship files is one, and there is nowhere in a design for
+    /// it to live, because the objects it holds are a save's runtime state rather than the ship's cargo. So it is
+    /// dropped on import with the other runtime objects. Read as an ordinary spawner it would arrive pointed at a
+    /// table called "aLot" that resolves to nothing, and export as an object that stocks the ship with
+    /// nothing.</para>
+    /// </summary>
+    public static bool IsLotOverflow(IReadOnlyDictionary<string, string?> keys)
+    {
+        ArgumentNullException.ThrowIfNull(keys);
+        return keys.GetValueOrDefault("strGUIPrefab") == "GUILootSpawn"
+            && string.Equals(keys.GetValueOrDefault("strType")?.Trim(), LotOverflowWire, StringComparison.Ordinal);
+    }
 
     /// <summary>The panel's flat key/value array, in the game's own key order. Every key is written, including the
     /// three condition flags the template omits: the game's ships write them explicitly, and a spawner that
@@ -200,10 +230,14 @@ public sealed record SpawnerSettings
     /// Read a spawner's settings off its resolved <c>GUILootSpawn</c> panel keys, or null when the panel is not
     /// one. A missing flag reads as true, which is both the majority case and the safer one: a spawner that
     /// declines to fire is indistinguishable from one that was dropped.
+    ///
+    /// <para>Also null for the game's <b>lot overflow holder</b> (see <see cref="IsLotOverflow"/>), which is not a
+    /// spawner a design authors and must not be read as one.</para>
     /// </summary>
     public static SpawnerSettings? FromPanel(IReadOnlyDictionary<string, string?> keys)
     {
         if (keys.GetValueOrDefault("strGUIPrefab") != "GUILootSpawn") return null;
+        if (IsLotOverflow(keys)) return null;
         return new SpawnerSettings
         {
             Type = ParseType(keys.GetValueOrDefault("strType")),
