@@ -1009,6 +1009,38 @@ public sealed class ShipDocument
         RaiseChanged(p.Id);
     }
 
+    /// <summary>Where a placement sits in <see cref="Placements"/>, or -1 if it is not in the document.</summary>
+    internal int IndexOf(Placement p) => _placements.IndexOf(p);
+
+    /// <summary>A drawable's place in the insertion order (<see cref="_order"/>), for a caller that means to put
+    /// it back there later. Zero for anything the document has never held.</summary>
+    internal long OrderOf(Guid id) => _order.GetValueOrDefault(id);
+
+    /// <summary>
+    /// Put a removed placement back at the index and insertion order it held, rather than on the end.
+    ///
+    /// <para>Document order is not presentation, which is what makes this a restore rather than an
+    /// <see cref="Add"/>. <see cref="ProblemScan"/>'s build-order sweep orders by build rank with a stable sort,
+    /// so within a rank the list itself decides which part the game is taken to have built first; and
+    /// <see cref="ShipExport"/> writes <c>aItems</c> in the same order, which the device-link indices and
+    /// <see cref="DockCheck.FromDocument"/> both read back. A part re-added on the end is therefore a different
+    /// design from the one that was deleted, on the plan and in the exported file alike — a bartop that keeps its
+    /// access tile clear came back unbuildable behind the stool in front of it (#66).</para>
+    ///
+    /// <para><paramref name="seq"/> is the value <see cref="OrderOf"/> gave before the removal. Restoring it
+    /// rather than taking a fresh one keeps the draw stacking too: a part deleted from under another must not
+    /// come back on top of it. Sequence numbers are handed out once and never reused, so putting an old one back
+    /// cannot collide with a live one.</para>
+    /// </summary>
+    internal void Restore(Placement p, int index, long seq)
+    {
+        _placements.Insert(index < 0 ? _placements.Count : Math.Min(index, _placements.Count), p);
+        _order[p.Id] = seq;
+        Index(p);
+        if (Part(p) is { } part) Conds.Apply(p, part.Item, +1);
+        RaiseChanged(p.Id);
+    }
+
     /// <summary>Register a placement without accumulating its tile conditions and without raising
     /// <see cref="Changed"/>. Only <see cref="Snapshot"/> may use this, because it supplies the conditions
     /// wholesale afterwards; anything else must go through <see cref="Add"/> or the document ends up with a
@@ -1159,6 +1191,22 @@ public sealed class ShipDocument
         RaiseChanged(o.Id);
     }
 
+    /// <summary>Where a deck item sits in <see cref="LooseObjects"/>, or -1 if it is not in the document.</summary>
+    internal int IndexOfLoose(LooseObject o) => _loose.IndexOf(o);
+
+    /// <summary>The loose twin of <see cref="Restore"/>: put a removed deck item back at the index and insertion
+    /// order it held. The export writes the deck items after the structure but in their own document order, so
+    /// this carries the same guarantee (see <see cref="Restore"/>).</summary>
+    internal void RestoreLoose(LooseObject o, int index, long seq)
+    {
+        if (_looseIds.Contains(o.Id)) return;
+        SeedIntrinsics(o, Catalog);
+        SeedSpawner(o, Catalog);
+        Occupy(o, index);
+        _order[o.Id] = seq;
+        RaiseChanged(o.Id);
+    }
+
     /// <summary>
     /// Give a loot spawner a panel if it has none, for the same reason the intrinsic seed above exists: it is a
     /// property of the object rather than of the route it arrived by.
@@ -1192,14 +1240,17 @@ public sealed class ShipDocument
     /// list, writing to an occupied key dropped whatever was there out of the document with no other trace, which
     /// is how importing <c>Babak</c> kept one pill in fifteen.</para>
     /// </summary>
-    private void Occupy(LooseObject o)
+    /// <param name="at">Where in <see cref="_loose"/> to file it. Null appends, which is every route in except an
+    /// undone deletion putting an item back where it was (see <see cref="RestoreLoose"/>).</param>
+    private void Occupy(LooseObject o, int? at = null)
     {
         foreach (var t in LooseTiles(o))
         {
             if (!_looseByTile.TryGetValue(t, out var list)) _looseByTile[t] = list = [];
             if (!list.Contains(o)) list.Add(o);
         }
-        if (_looseIds.Add(o.Id)) _loose.Add(o);
+        if (_looseIds.Add(o.Id))
+            _loose.Insert(at is { } i && i >= 0 ? Math.Min(i, _loose.Count) : _loose.Count, o);
         LooseConds.Apply(o.X, o.Y, o.Rot, Catalog.Lookup(o.DefName)?.Item, +1);
     }
 

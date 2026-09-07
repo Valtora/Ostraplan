@@ -191,18 +191,30 @@ public sealed class SetFillCommand(
               $"({ContainerFill.TotalMols(after):#,##0.##} mol of gas)";
 }
 
+/// <summary>
+/// Delete a batch of parts. Undo puts each one back at the index it held, not on the end: document order decides
+/// what the build-order check takes to have been built first, and it is the order the export writes
+/// <c>aItems</c> in, so appending on the way back changes the design (see <see cref="ShipDocument.Restore"/>).
+/// </summary>
 public sealed class RemoveCommand(IReadOnlyList<Placement> placements) : IDocCommand, IAuditDescribable
 {
+    // Captured in Do rather than at construction, so a redo re-reads the positions the parts hold by then.
+    private (int Index, long Seq)[] _slots = [];
+
     public void Do(ShipDocument doc)
     {
         using var _ = doc.SuspendChanged();
+        _slots = [.. placements.Select(p => (doc.IndexOf(p), doc.OrderOf(p.Id)))];
         foreach (var p in placements) doc.Remove(p);
     }
 
     public void Undo(ShipDocument doc)
     {
         using var _ = doc.SuspendChanged();
-        foreach (var p in placements) doc.Add(p);
+        // Lowest slot first. Each index was taken with every one of these parts still in the list, so it is only
+        // correct again once the ones below it are back and before the ones above it are.
+        foreach (var i in Enumerable.Range(0, placements.Count).OrderBy(i => _slots[i].Index))
+            doc.Restore(placements[i], _slots[i].Index, _slots[i].Seq);
     }
 
     public string Describe(Func<string, string?> f) =>
@@ -468,11 +480,21 @@ public sealed class SetSpawnerCommand(LooseObject obj, SpawnerSettings? before, 
     }
 }
 
-/// <summary>Remove a loose item from its tile.</summary>
+/// <summary>Remove a loose item from its tile. Undo puts it back at its own index, for the reason
+/// <see cref="RemoveCommand"/> gives.</summary>
 public sealed class RemoveLooseCommand(LooseObject obj) : IDocCommand, IAuditDescribable
 {
-    public void Do(ShipDocument doc) => doc.RemoveLoose(obj);
-    public void Undo(ShipDocument doc) => doc.AddLoose(obj);
+    private int _index = -1;
+    private long _seq;
+
+    public void Do(ShipDocument doc)
+    {
+        _index = doc.IndexOfLoose(obj);
+        _seq = doc.OrderOf(obj.Id);
+        doc.RemoveLoose(obj);
+    }
+
+    public void Undo(ShipDocument doc) => doc.RestoreLoose(obj, _index, _seq);
     public string Describe(Func<string, string?> f) =>
         $"Remove loose {AuditFmt.Name(f, obj.DefName)} {AuditFmt.At(obj.X, obj.Y)}";
 }

@@ -9,6 +9,18 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
+## [Unreleased]
+
+### Fixed
+- **Undoing a deletion puts the part back where it was, not on the end of the ship.** Deleting a bartop
+  with a stool in front of it and pressing Ctrl+Z brought back a blocking build-order warning that had
+  never been there: the bartop keeps its access tile clear, so it has to go down before the stool, and
+  coming back at the end of the list meant there was no longer any order in which it could be built.
+  Undo restores a part's position in the document now, and its place in the draw order with it, so a
+  part deleted from under another does not come back on top of it. This was never only a warning. The
+  export writes a ship's parts in document order, and the game reads that order back, so an undone
+  deletion changed the exported file as well as the plan. Thanks to nighoggDatatype. (#66)
+
 ## [1.15.0] 2026-09-03, the console screen drawn as the game draws it, and several ships in one mod
 
 ### Changed
