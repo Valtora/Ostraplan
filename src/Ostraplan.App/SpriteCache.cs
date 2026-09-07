@@ -330,8 +330,12 @@ public sealed class SpriteCache
     }
 
     /// <summary>Any game image by absolute path, cached and frozen like a sprite. For art that is not a part's
-    /// sprite and so has no <see cref="PartDef"/> to ask through, which at present is the parallax backdrop
-    /// layers. Null when the file is missing or unreadable.</summary>
+    /// sprite and so has no <see cref="PartDef"/> to ask through: the parallax backdrop layers, and the game's own
+    /// footprint marker (#63). Null when the file is missing or unreadable, which a caller must handle rather than
+    /// substituting <see cref="Missing"/> — a magenta checker in place of a small marker says nothing useful, and
+    /// a partial or modded install is a real case.
+    /// <para>Nothing is shipped with Ostraplan by reading these. It is the user's own install at runtime, exactly
+    /// as every part sprite already is (SCOPE.md).</para></summary>
     public BitmapSource? Image(string absPath) => Load(absPath);
 
     private BitmapSource? Load(string absPath)

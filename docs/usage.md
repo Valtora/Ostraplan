@@ -335,10 +335,9 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
     by default so interior routes are what you see) and chooses whether **Forbid zones**
     apply. Both settings are remembered.
 - **Access overlay** — the **Access** toolbar button or **J**. Point at a fitting and it
-  marks the tile a crew member would work it from, with a pair of feet, the way the game
-  marks it on the deck. The plan on its own cannot tell you an arcade cabinet is usable
-  from one side only, or which side that is, and the answer changes what you can put next
-  to it.
+  marks the tile a crew member would work it from, with a green reticle. The plan on its own
+  cannot tell you an arcade cabinet is usable from one side only, or which side that is, and
+  the answer changes what you can put next to it.
   - **One tile, the nearest**, which is the one the game settles on. Painting every tile in
     range answers a question nobody asked and reads as a smear around the part.
   - **One part at a time**, because the question is asked about a particular thing.
@@ -346,16 +345,20 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
     follows the cursor.
   - **Nothing marked means nothing can reach it**, which the Walk overlay is where to
     read about.
-  - **Amber instead of blue** means it can only be reached from outside the hull. That is
+  - **Amber instead of green** means it can only be reached from outside the hull. That is
     normal for hull-mounted kit, not a fault, exactly as it is in the Walk overlay.
   - It reads the same analysis the Walk overlay does, so the **View ▸ Walk overlay**
     switches apply to it too, and turning either one on computes it.
-  - It also draws every part's **declared use point** at once, in a lighter blue — the same
-    pair of footprints the game puts under the build cursor while you install something.
-    That is a different claim from the mark above: it is the side the part is worked from
-    according to its own definition, whether or not anybody can currently stand there, so a
-    deck of racks and cabinets reads at a glance and at any zoom. 103 of the 355 buildable
-    parts have one, and walls, floors and conduit have none.
+  - It also draws every part's **declared use point** at once, as **blue footprints** — the
+    game's own art, read from your install, and the same mark it puts under the build cursor
+    while you install something. That is a different claim from the reticle above: it is the
+    side the part is worked from according to its own definition, whether or not anybody can
+    currently stand there, so a deck of racks and cabinets reads at a glance and at any zoom.
+    103 of the 355 buildable parts have one, and walls, floors and conduit have none.
+  - **The two marks look different on purpose.** They sit on the same tile more often than
+    not, and telling "the game says this is the working side" from "a crew member can
+    actually get there" is the whole point of having both. Footprints in blue are the
+    game's own; a reticle in green is Ostraplan's answer about the deck you have built.
 - **Use-point footprints while you build.** The same mark appears on the part under the
   cursor as you place it, and on a selected part beside its power connector nubs, which is
   exactly where and when the game itself shows it. This needs no overlay turned on. A part

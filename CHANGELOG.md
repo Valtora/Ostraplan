@@ -62,6 +62,18 @@ each release was verified against is recorded in
   records it. Thanks to nighoggDatatype. (#67)
 
 ### Fixed
+- **The two access marks no longer look the same, or sit on top of each other.** The Access overlay
+  draws two different claims about a fitting. One is the side its own definition says it is worked
+  from, which is what the game marks under the build cursor. The other is the tile a crew member
+  could actually reach, given the deck you have built around it. Both were a pair of blue footprints,
+  and the computed one was drawn as a filled tile over the top of the other, so where they agreed,
+  which is most of the time, one was buried under the other and neither could be told apart anyway.
+  The reporter mixed the two up while writing the report, which makes the point better than the
+  screenshot does. The computed tile is now a green reticle with no fill. The declared use point
+  keeps the blue and now wears the game's own footprint art, read from your install rather than
+  approximated. Selecting a part while the overlay is on also drew that part's use point a second
+  time over itself, making it heavier than every other part's, and no longer does. Thanks to
+  nighoggDatatype. (#63)
 - **A ship imported out of a save no longer picks up a spawner that stocks nothing.** When you drop
   something onto a ship the game has not fully loaded, it cannot place the item, so it parks it in a
   holder object until the ship next loads properly. That holder wears the same control panel a real

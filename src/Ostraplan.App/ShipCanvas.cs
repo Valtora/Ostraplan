@@ -624,6 +624,7 @@ public sealed class ShipCanvas : FrameworkElement
         _oobFaceDirty = true;   // a different design has its own airlock, or none
         _extentBoxes.Clear();   // a def can resolve differently under another document's mod set
         _extentsFor = -1;
+        _useFootprintsResolved = false;   // resolved through this document's catalogue, so a swap re-asks
         doc.Changed += OnContentChanged;
         SelectedIds.Clear();
         SelectedLooseIds.Clear();   // ids from the previous document are stale, both halves alike
@@ -3179,7 +3180,10 @@ public sealed class ShipCanvas : FrameworkElement
             if (Doc.Part(p) is { } sel)
             {
                 if (sel.IsPowered) DrawConnectorNubs(dc, sel, p.X + offset.X, p.Y + offset.Y, p.Rot);
-                DrawUsePoint(dc, sel, p.X + offset.X, p.Y + offset.Y, p.Rot);
+                // Not while the Access overlay is on: that pass already drew every part's use point, and drawing
+                // this one a second time composited its alpha over itself, so the selected part's mark came out
+                // heavier than every other part's and read as a third kind of mark (#63).
+                if (!ShowAccess) DrawUsePoint(dc, sel, p.X + offset.X, p.Y + offset.Y, p.Rot);
             }
         }
 
@@ -3545,8 +3549,12 @@ public sealed class ShipCanvas : FrameworkElement
         var (sx, sy) = access.Standing[0];
         var pen = access.EvaOnly ? AccessEvaPen : AccessPen;
         var cell = CellRect(sx, sy, 1, 1);
-        dc.DrawRoundedRectangle(access.EvaOnly ? AccessEvaFill : AccessFill, pen, cell, 2, 2);
-        DrawStandMark(dc, cell, access.EvaOnly);
+        // A reticle rather than footprints, and no fill (#63). These two marks land on the same tile more often
+        // than not, and they used to be the same pair of feet in the same blue with this one filled over the top
+        // of the other, so the mark that mirrors the game was buried under the one that does not, and neither
+        // could be told from the other anyway. The declared use point keeps the feet, because it is the one the
+        // game itself draws; this one is a target on a tile, which is what it means.
+        DrawAccessTarget(dc, cell, pen);
 
         // The part outlined in the same colour, so the mark is visibly about that thing rather than about whatever
         // else happens to be beside it.
@@ -3554,12 +3562,11 @@ public sealed class ShipCanvas : FrameworkElement
         dc.DrawRectangle(null, pen, CellRect(bx, by, bw, bh));
     }
 
-    /// <summary>A pair of feet on the tile: the game marks the spot with a footprint sprite, and a shape reads as
-    /// "stand here" where a plain tint reads as one more overlay. Drawn rather than lifted, since no game art ships
-    /// with the tool.</summary>
-    private static void DrawStandMark(DrawingContext dc, Rect cell, bool evaOnly, Brush? ink = null)
+    /// <summary>A pair of feet on the tile, drawn rather than lifted. The <b>fallback</b> for the declared use
+    /// point when the install's own <c>GUIFootprints</c> art cannot be read (see <see cref="UseFootprints"/>);
+    /// nothing else draws feet any more.</summary>
+    private static void DrawStandMark(DrawingContext dc, Rect cell, Brush brush)
     {
-        var brush = ink ?? (evaOnly ? AccessEvaMark : AccessMark);
         var w = cell.Width * 0.17;
         var h = cell.Height * 0.34;
         if (w < 1.2 || h < 2) return;   // zoomed too far out for the shape to say anything
@@ -3569,6 +3576,28 @@ public sealed class ShipCanvas : FrameworkElement
         foreach (var dx in new[] { -gap - w / 2, gap + w / 2 })
             dc.DrawRoundedRectangle(brush, null,
                 new Rect(cell.X + cell.Width / 2 + dx - w / 2, cy - h / 2, w, h), w / 2, w / 2);
+    }
+
+    /// <summary>
+    /// Four corner brackets inset into the tile, the mark for <b>where a crew member could actually stand</b>.
+    ///
+    /// <para>Deliberately not feet. The declared use point wears the feet, because that is the mark the game
+    /// itself draws, and the two land on the same tile often enough that sharing a glyph made the plan
+    /// unreadable (#63). A reticle also says the right thing: this is a tile the analysis picked out of the deck
+    /// as it is actually built, rather than a side of the part declared by its def.</para>
+    /// </summary>
+    private static void DrawAccessTarget(DrawingContext dc, Rect cell, Pen pen)
+    {
+        var arm = Math.Min(cell.Width, cell.Height) * 0.3;
+        if (arm < 2) { dc.DrawRectangle(null, pen, cell); return; }   // too small for the shape to read
+        var inset = Math.Min(cell.Width, cell.Height) * 0.12;
+        double l = cell.Left + inset, r = cell.Right - inset, t = cell.Top + inset, b = cell.Bottom - inset;
+        foreach (var (cx, cy, sx, sy) in new[]
+                 { (l, t, 1.0, 1.0), (r, t, -1.0, 1.0), (l, b, 1.0, -1.0), (r, b, -1.0, -1.0) })
+        {
+            dc.DrawLine(pen, new Point(cx, cy), new Point(cx + arm * sx, cy));
+            dc.DrawLine(pen, new Point(cx, cy), new Point(cx, cy + arm * sy));
+        }
     }
 
     /// <summary>The bounding rect of a part's tiles, so its outline is one stroke rather than a grid of them.</summary>
@@ -3597,21 +3626,51 @@ public sealed class ShipCanvas : FrameworkElement
         return SelectionCount == 0 && _hoverCell is { } hover ? _walkOverlay.AccessAt(hover) : null;
     }
 
-    private static readonly Brush AccessFill = Frozen(Color.FromArgb(70, 90, 190, 255));
-    private static readonly Pen AccessPen = FrozenPen(Color.FromArgb(210, 120, 205, 255), 1.5);
-    // Amber rather than blue, matching the "suit up" language the walk overlay already uses for a doorway with
+    // GREEN, and not the blue it used to be (#63). Blue belongs to the declared use point, which is what the
+    // game's own build cursor draws in blue, and the two marks share a tile more often than not. Green also pairs
+    // with the walk overlay's existing language: red is a fitting nobody can operate, amber is one you have to
+    // suit up for, and this is where somebody would actually stand to work it.
+    private static readonly Pen AccessPen = FrozenPen(Color.FromArgb(230, 110, 225, 140), 1.6);
+    // Amber rather than green, matching the "suit up" language the walk overlay already uses for a doorway with
     // vacuum across it: reachable, but not on a stroll.
-    private static readonly Brush AccessEvaFill = Frozen(Color.FromArgb(60, 235, 175, 70));
-    private static readonly Pen AccessEvaPen = FrozenPen(Color.FromArgb(200, 245, 190, 90), 1.5);
-    private static readonly Brush AccessMark = Frozen(Color.FromArgb(235, 150, 215, 255));
-    private static readonly Brush AccessEvaMark = Frozen(Color.FromArgb(235, 250, 205, 120));
+    private static readonly Pen AccessEvaPen = FrozenPen(Color.FromArgb(220, 245, 190, 90), 1.6);
 
-    // The declared use point (#41), which is a different claim from the access mark above and is drawn more
-    // lightly to say so: this is the side the part is worked from by its own def, not a tile anybody was checked
-    // to be able to reach. The game's own build cursor draws it in blue, so the hue is the same as the access
-    // mark's and only the weight differs.
+    // The declared use point (#41). It keeps the blue and the feet, because it is the one mark on the plan that
+    // reproduces something the game draws: prefabUsePointTile, a pair of blue footprints on the tile.
     private static readonly Brush UsePointMark = Frozen(Color.FromArgb(190, 130, 200, 250));
-    private static readonly Pen UsePointPen = FrozenPen(Color.FromArgb(140, 120, 205, 255), 1.0);
+
+    /// <summary>
+    /// The install's own footprint art, for the declared use point (#63).
+    ///
+    /// <para>The game draws this mark from <c>prefabUsePointTile</c>, which is a Unity <c>Resources</c> prefab and
+    /// so out of reach of the sprite pipeline entirely. <c>GUIFootprints.png</c> is the same pair of blue boots as
+    /// a PNG in <c>StreamingAssets/images</c>, where every other sprite is read from, so the plan can wear the
+    /// game's own art rather than an approximation of it. It carries a black outline as well as a blue body, which
+    /// is what lets it read on a light backdrop and a dark one alike with no second version.</para>
+    ///
+    /// <para>Null on an install that does not have the file, which <see cref="DrawUsePoint"/> falls back from.
+    /// Resolved per call and cached by <see cref="SpriteCache"/> rather than held here, so a catalogue swap (a
+    /// different install picked in Settings) is picked up without a stale bitmap surviving it.</para>
+    /// </summary>
+    private System.Windows.Media.Imaging.BitmapSource? UseFootprints
+    {
+        get
+        {
+            // Resolved once and held, not per call. The Access overlay draws a use point for every part that has
+            // one, so asking through the index and the sprite cache each time would be two dictionary lookups and
+            // a lock per part per frame, on a station that is hundreds of parts.
+            if (_useFootprintsResolved) return _useFootprints;
+            if (Sprites is not { } sprites || Doc is null) return null;   // not wired up yet: ask again next frame
+            _useFootprints = Doc.Catalog.Index?.ResolveImage(UseFootprintsImage) is { } abs ? sprites.Image(abs) : null;
+            _useFootprintsResolved = true;
+            return _useFootprints;
+        }
+    }
+
+    private System.Windows.Media.Imaging.BitmapSource? _useFootprints;
+    private bool _useFootprintsResolved;
+
+    private const string UseFootprintsImage = "GUIFootprints";
 
     /// <summary>
     /// The footprints on a part's declared use point: the mark the game puts under the build cursor to say which
@@ -3626,8 +3685,10 @@ public sealed class ShipCanvas : FrameworkElement
     {
         if (UsePoint.At(part, gx, gy, rot) is not { } pt) return;
         var cell = new Rect(_pan.X + (pt.X - 0.5) * Zoom, _pan.Y + (pt.Y - 0.5) * Zoom, Zoom, Zoom);
-        dc.DrawRoundedRectangle(null, UsePointPen, cell, 2, 2);
-        DrawStandMark(dc, cell, evaOnly: false, UsePointMark);
+        // The game's own art where the install has it. No outline box under it: the sprite carries its own, and
+        // the box was half of what made this indistinguishable from the access mark beside it (#63).
+        if (UseFootprints is { } art) dc.DrawImage(art, cell);
+        else DrawStandMark(dc, cell, UsePointMark);
     }
 
     private void DrawWalkOverlay(DrawingContext dc)
