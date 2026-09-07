@@ -45,7 +45,7 @@ right, but treat a mismatch as "double-check in-game".
 | **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**, an **ITEMS** tab for loose floor cargo, a **SPECIAL** tab for the structure the game places but never lets you build, and a **FAV/REC** tab at the front for the parts you pinned and the ones you just placed. Search by friendly or internal name. Modded parts show a small origin badge. |
 | **Canvas** (centre) | The tile grid. Place, paint, select, pan and zoom here. A **tab strip** appears above it as soon as a second design is open, and disappears again when you are back to one. |
 | **Inspector** (right) | The selected part's details, ship stats, the **Problems** list, and the **Law report**. |
-| **Toolbar** (top) | The actions, grouped **File · Edit · Design · Analyse**, with **⚙ Settings** and the **Help ▾** menu on the right. Then two groups, divided by what a button does. **Edit modes** change what a click does: **Symmetry** (click to cycle the axes) and **Surfaces**. **Overlays** only change what you see and never affect editing: **Zones · Rooms · Power · Light · Walk · Access · Wire**. Each highlights in the accent colour while active, and **Light** and **Walk** carry a **▾** for their own options. **Fit** frames the design. Narrow the window past the point where all of that fits on one line and the two groups drop to a second row of their own, returning beside the actions when there is room again. The design's name sits in the middle, with its make, model and designation underneath once you have set them in **Ship Info**. When a newer release exists it is downloaded in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
+| **Toolbar** (top) | The actions, grouped **File · Edit · Design · Analyse**, with **⚙ Settings** and the **Help ▾** menu on the right. Then two groups, divided by what a button does. **Edit modes** change what a click does: **Symmetry** (click to cycle the axes), **Surfaces**, and **Force**, which stops the placement law refusing anything (see [Force place](#the-law--live-validation)) and puts a red **FORCE PLACE** marker in the status bar for as long as it is on. **Overlays** only change what you see and never affect editing: **Zones · Rooms · Power · Light · Walk · Access · Wire**. Each highlights in the accent colour while active, and **Light** and **Walk** carry a **▾** for their own options. **Fit** frames the design. Narrow the window past the point where all of that fits on one line and the two groups drop to a second row of their own, returning beside the actions when there is room again. The design's name sits in the middle, with its make, model and designation underneath once you have set them in **Ship Info**. When a newer release exists it is downloaded in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
 
 ### Settings
 
@@ -128,7 +128,8 @@ palette opens on this tab; a fresh install still lands on the full catalogue.
 ### The Law — live validation
 
 Ostraplan runs the game's real placement check. **You cannot place anything the
-game would refuse.** The ghost is **green** where it fits and **red** where it
+game would refuse**, unless you deliberately turn that off (see **Force place**
+below). The ghost is **green** where it fits and **red** where it
 doesn't, with the offending tiles highlighted and the reason in the status bar
 (e.g. "needs a wall alongside", "needs floor beneath", "beyond the airlock face").
 
@@ -143,8 +144,30 @@ mod can add its own conditions or even code). So a modded part flagged illegal i
 **yellow warning**, not a red error — "modded part may not fit; verify in-game." To
 place a modded part where the rules say it doesn't fit, turn on **Mod overrides**
 in **⚙ Settings**: the ghost turns **amber** (placing against the rules, flagged) and
-the part lands, flagged in Problems. **Core parts are always enforced** — the toggle
-only affects modded content.
+the part lands, flagged in Problems. That toggle only affects modded content. For core
+parts, **Force place** below is the deliberate way out.
+
+**Build last.** Some fittings are only legal in one build sequence: a rack under an
+overhead bin has to go up after the bin, because the bin wants that tile clear at the
+moment it is installed. Ostraplan searches for a build order that works, but it never
+takes anything down again, so it cannot find an order that needs a part laid *after*
+something already standing in the way, and it reports the pair as unbuildable. Right-click
+the part that should go up last and choose **Build last**. Nothing about the part moves,
+and it is not drawn any differently. It goes to the end of its own class (docking, then
+floors, then walls, then fittings), which is the order the game builds in, and the choice
+is saved with the design and travels into the game on export.
+
+**Force place.** The **Force** button on the toolbar stops the placement law blocking
+anything at all, core parts included. It is the escape hatch for a build Ostraplan cannot
+describe, the clearest case being one that needs temporary flooring laid and then taken up
+again, which no ordering of the finished ship can represent. Try **Build last** first,
+because it fixes an ordering problem without breaking any rule.
+
+What Force place does **not** do is make a placement legal. Everything you put down under
+it is still checked and still listed in **Problems** as a blocking build-order failure, and
+that flag never clears. The ghost turns **amber** and the status bar says "forcing" while
+it is on. It is remembered between sessions, so the status bar reads **FORCE PLACE** in red
+for as long as it is on and every bug report records it. Turn it off when you are done.
 
 **Overhead lights and power conduits.** Overhead ceiling lights are the one part the
 game's *interactive* builder only lets a crew hang on a power conduit — but every

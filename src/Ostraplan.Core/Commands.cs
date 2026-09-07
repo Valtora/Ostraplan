@@ -224,6 +224,49 @@ public sealed class RemoveCommand(IReadOnlyList<Placement> placements) : IDocCom
 }
 
 /// <summary>
+/// Send parts to the end of the build order, leaving their poses and their draw order alone.
+///
+/// <para>The sweep in <see cref="ProblemScan"/> looks for <i>some</i> order that builds every part legally, but it
+/// never un-places anything, so it cannot find an order that needs a part to go down after something already
+/// standing where the part wants clear space. A rack under an overhead bin is the reported case: legal in game if
+/// built in the right sequence, and unreachable for a sweep that meets the rack first. This is how a design says
+/// which one goes up last (#67).</para>
+///
+/// <para><b>Its reach is one build rank.</b> The sweep sorts by build rank first and only breaks ties on document
+/// order, so this moves a part to the end of its own class (docking, floors, walls, fixtures) rather than to the
+/// end of the ship. That is the order the game builds in anyway.</para>
+/// </summary>
+public sealed class BuildLastCommand(IReadOnlyList<Placement> placements) : IDocCommand, IAuditDescribable
+{
+    // Where each part sat before, captured in Do so a redo re-reads the positions they hold by then.
+    private int[] _before = [];
+
+    public void Do(ShipDocument doc)
+    {
+        using var _ = doc.SuspendChanged();
+        _before = [.. placements.Select(doc.IndexOf)];
+        // Lowest first, each to the very end, so the batch keeps the relative order it already had.
+        foreach (var i in Ascending()) doc.SetBuildIndex(placements[i], doc.Placements.Count - 1);
+    }
+
+    public void Undo(ShipDocument doc)
+    {
+        using var _ = doc.SuspendChanged();
+        // Lowest original index first, for the reason RemoveCommand.Undo gives: a slot is only correct again
+        // once everything that belongs below it is back.
+        foreach (var i in Ascending()) doc.SetBuildIndex(placements[i], _before[i]);
+    }
+
+    private IEnumerable<int> Ascending() =>
+        Enumerable.Range(0, placements.Count).OrderBy(i => _before[i]);
+
+    public string Describe(Func<string, string?> f) =>
+        placements.Count == 1
+            ? $"Build {AuditFmt.Name(f, placements[0].DefName)} {AuditFmt.At(placements[0].X, placements[0].Y)} last"
+            : $"Build {AuditFmt.Batch(placements.Select(p => p.DefName), f)} last";
+}
+
+/// <summary>
 /// Shift a batch of parts by a fixed offset. Undo restores the poses <b>and</b> the given-ness the parts
 /// held beforehand: moving an imported part re-authors it (the placement law then judges it, and the bill
 /// counts it as new construction), so an undo that only put the tiles back would leave the design

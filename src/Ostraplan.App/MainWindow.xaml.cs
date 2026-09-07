@@ -158,6 +158,9 @@ public partial class MainWindow : Window
             Sprites = _sprites,   // null until the game data lands; LoadDataAsync fills the startup session's in
             // restore the "allow modded parts to break the law" toggle (default off)
             AllowModdedOverrides = _settings.AllowModdedOverrides,
+            // …and the harder one, which lifts the law for every part. Remembered like the above, and announced
+            // in the status bar the whole time it is on so it is never in force unnoticed (#67).
+            ForcePlace = _settings.ForcePlace,
             // Surfaces mode's persisted preferences. All three are visible in the Surfaces bar whenever the mode is
             // on, so a remembered choice explains itself rather than turning up as a brush that won't paint.
             SurfaceGhostOpacity = _settings.SurfaceGhostOpacity,
@@ -3778,9 +3781,33 @@ public partial class MainWindow : Window
         menu.Items.Add(Item("Flip Horizontal" + suffix, "H", (_, _) => FlipSelection(horizontal: true), canRotate));
         menu.Items.Add(Item("Flip Vertical" + suffix, "Shift+H", (_, _) => FlipSelection(horizontal: false), canRotate));
         if (!multi) AddRestackItems(menu, cell, Item);
+        // "Build last": the ordering escape hatch (#67). Unlocked parts only, because the build-order sweep does
+        // not judge given or locked structure at all, so moving one through the list would change nothing.
+        if (unlocked.Count > 0)
+        {
+            menu.Items.Add(new Separator());
+            menu.Items.Add(Item("Build last" + (unlocked.Count > 1 ? $" ({unlocked.Count})" : ""), "",
+                (_, _) => BuildLast(unlocked)));
+        }
         menu.Items.Add(new Separator());
         menu.Items.Add(Item("Delete" + suffix, "Del", (_, _) => DeleteSelection(), canAct));
         menu.IsOpen = true;
+    }
+
+    /// <summary>
+    /// Send parts to the end of the build order, for a sequence <see cref="ProblemScan"/>'s sweep cannot find on
+    /// its own: a rack that is only legal once the overhead bin above it is already up, which the sweep meets the
+    /// wrong way round and reports as unbuildable (#67).
+    ///
+    /// <para>Nothing about the part moves. This is document order, which is what the sweep breaks ties on within a
+    /// build rank and what the export writes <c>aItems</c> in, so it travels into the game and into the
+    /// <c>.oplan</c> with everything else. The draw order is a separate thing and is left alone.</para>
+    /// </summary>
+    private void BuildLast(IReadOnlyList<Placement> parts)
+    {
+        if (_doc is null || parts.Count == 0) return;
+        // The push raises Changed, which re-runs the scan — the point of the change is what the checker then says.
+        _stack.Push(_doc, new BuildLastCommand([.. parts]));
     }
 
     /// <summary>Context menu for a loose floor item (the Items palette): change its stacked quantity (when the item
@@ -5837,6 +5864,8 @@ public partial class MainWindow : Window
         BtnAccess.IsChecked = Board.ShowAccess;
         BtnWire.IsChecked = Board.ShowWire;
         BtnSurface.IsChecked = Board.SurfaceMode;
+        BtnForce.IsChecked = Board.ForcePlace;
+        ForceBadge.Visibility = Board.ForcePlace ? Visibility.Visible : Visibility.Collapsed;
         // Lit whenever any axis is live. The button cycles four states but only reports two, because "mirroring
         // or not" is what the highlight is for; which axes is answered by the axes drawn on the plan.
         BtnSymmetry.IsChecked = Board.SymMode != SymmetryMode.Off;
@@ -6424,7 +6453,10 @@ public partial class MainWindow : Window
         $"- OS: {DescribeOs()}\n" +
         $"- Game: {_env?.InstalledVersion ?? "unknown"}\n" +
         $"- Design: {DescribeDocument()}\n" +
-        $"- Mod overrides: {(Board.AllowModdedOverrides ? "on" : "off")}\n";
+        $"- Mod overrides: {(Board.AllowModdedOverrides ? "on" : "off")}\n" +
+        // Worth a line of its own in every report: a design built under it can carry placements the Law refuses,
+        // and a reader who does not know that will look for a bug in the checker instead (#67).
+        $"- Force place: {(Board.ForcePlace ? "on" : "off")}\n";
 
     /// <summary>Ostraplan's crash log (unhandled-exception stack traces), beside the activity log.</summary>
     private static string ErrorLogPath => Path.Combine(AuditLog.Dir, "error.log");
@@ -6660,6 +6692,30 @@ public partial class MainWindow : Window
             : "Modded overrides disabled — modded parts are enforced like core.");
     }
 
+    /// <summary>
+    /// Whether the placement law blocks or merely reports (persisted, and announced in the status bar the whole
+    /// time it is on). The escape hatch for a build order the checker cannot work out for itself, so a forced part
+    /// is still a Blocking problem afterwards: this stops the tool refusing the placement, it does not bless it
+    /// (#67).
+    ///
+    /// <para>Applied to <b>every</b> open design rather than the active one. It is a property of how you are
+    /// working, not of one document, and a mode this consequential must not be on in one tab and off in the next
+    /// with the same marker showing in the status bar for both.</para>
+    /// </summary>
+    private void SetForcePlace(bool on)
+    {
+        foreach (var s in _sessions) s.Board.ForcePlace = on;
+        _settings.ForcePlace = on;
+        _settings.Save();
+        SyncViewToggles();          // the button and the status-bar marker
+        Board.InvalidateVisual();   // refresh the armed ghost under the new rule
+        AuditLog.Add(on
+            ? "Force place enabled — the placement law reports but no longer blocks."
+            : "Force place disabled — the placement law is enforced again.");
+    }
+
+    private void OnForceToggleClick(object sender, RoutedEventArgs e) => SetForcePlace(!Board.ForcePlace);
+
     /// <summary>Whether the arrange window draws the nav modules with the game's art (persisted). The art itself
     /// is read at startup whatever this says, so switching it on takes effect at the next Arrange screen.</summary>
     private void SetNavModuleArt(bool on)
@@ -6841,11 +6897,13 @@ public partial class MainWindow : Window
             ("Move", "Drag selection", "Move the selected parts, and any loose deck items caught with them."),
             ("Step down a stack", "`", "Select the next thing down the pile under the cursor, wrapping at the bottom — the quick way to reach a part drawn underneath another without going through the right-click list. Loose items are in the pile too."),
             ("Re-stack", "Ctrl+[ / Ctrl+]", "Move the selected part or loose item one step back / forward through the pile sharing its tile, when the automatic draw order isn't what you want. Reset order (right-click) hands that pile back to it. Both stay inside the render layer, so nothing lands under a deck plate or over a conduit run, and the choice is saved with the design."),
-            ("Context menu", "RMB", "Use as brush · Replace with… · Find and Replace All… · Make Loose Item / Install item · Repair · Move Back / Move Forward / Reset order · pick a buried layer on stacked tiles · Select only, including the loose items in the catch (after a box-select) · Close/Open door. Also cancels placement while armed."),
+            ("Context menu", "RMB", "Use as brush · Replace with… · Find and Replace All… · Make Loose Item / Install item · Repair · Move Back / Move Forward / Reset order · Build last · pick a buried layer on stacked tiles · Select only, including the loose items in the catch (after a box-select) · Close/Open door. Also cancels placement while armed."),
             ("Rotate part", "R / Shift+R", "CW / CCW — the armed part, a selected part in place, or a whole selection about its centre (walls & floors auto-tile rather than turn). The brush keeps its angle when you arm another part; the ghost draws a needle towards its leading edge and the status bar reads out the angle."),
             ("Flip selection", "H / Shift+H", "Mirror the selection about its centre — H horizontal (left↔right), Shift+H vertical (up↔down); each part reflects and snaps to a real rotation."),
             ("Symmetry", "M", "Cycle Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on. While on, it also drives editing: selecting a part grabs its mirror partner(s), and moving, rotating, or deleting the group keeps it symmetric (the far side tracks in the mirrored direction)."),
             ("Mod overrides", "Settings", "Let modded parts place where the core-game rules say they don't fit (ghost turns amber, flagged as a warning — verify in-game). Core parts stay enforced."),
+            ("Force place", "Force", "Stop the placement law blocking anything, core parts included, for a build the checker can't find an order for. What you place is still reported as a build-order problem, so this lets the part down rather than declaring it legal. It is remembered between sessions and the status bar reads FORCE PLACE in red the whole time it is on. Try \"Build last\" on the right-click menu first: it fixes an ordering problem without breaking the rules."),
+            ("Build last", "RMB", "Send the selected part to the end of the build order, for the case the checker can't work out on its own — a rack that is only legal once the bin above it is already up. It moves the part to the end of its own class (docking, then floors, then walls, then fittings), which is the order the game builds in, and it changes nothing about where the part sits or what it is drawn over."),
             ("Power overlay", "P", "Show/hide PowerViz: lit conduit runs flow from a live generator/battery, orphaned runs are dim red, and a wired device with no feed gets an amber marker. A powered part also shows its connector badges (blue IN, green OUT) while armed or selected."),
             ("Rooms overlay", "C", "Show/hide RoomViz: every compartment the game would flood-fill, tinted in its own colour and labelled with what it certifies as, its size and its value. A room that certifies as nothing says why — what to add, and which item in it blocks the spec (a canister parked in a quarters, say). Unsealed compartments are red. The exterior isn't tinted, so a room open to space simply loses its tint."),
             ("Light overlay", "L", "Show/hide Light Viz: interior lighting simulated from every fixture and lit device. Each light floods its compartment (bounded by walls) in its own colour, so dark corners and colour clashes show at a glance. The View menu's Light Viz sliders set the light brightness and how far unlit areas darken (from a glow over the full-bright ship up to the in-game dark look)."),

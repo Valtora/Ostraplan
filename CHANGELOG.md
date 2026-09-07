@@ -11,6 +11,24 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **Build last, and a Force button for the builds that need one.** Some fittings are only legal in one
+  build sequence. A rack under an overhead bin has to go up after the bin, because the bin wants that
+  tile clear at the moment it is installed. Ostraplan looks for a build order that works but never takes
+  anything down again, so it cannot find an order that needs a part laid after something already
+  standing in the way, and it called the pair unbuildable. Right-click the part that should go up last
+  and choose **Build last**. Nothing about the part moves and nothing about how it is drawn changes: it
+  goes to the end of its own class, which is the order the game builds in, and the choice is saved with
+  the design and exported with it.
+
+  For the builds that no ordering can describe, the clearest being one that needs temporary flooring laid
+  and then taken up again, the toolbar's new **Force** button stops the placement law blocking anything
+  at all, core parts included. It does not make a placement legal. Everything put down under it is still
+  reported in Problems as a blocking failure, and that flag does not clear, which is the point: the
+  toggle stops the tool refusing the placement rather than blessing it. Force place is remembered between
+  sessions, so the status bar reads **FORCE PLACE** in red the whole time it is on and every bug report
+  records it. Thanks to nighoggDatatype. (#67)
+
 ### Changed
 - **The docking check calls a dock by the name you gave it.** Every row of the compatibility list read
   `Secondary (x,y)`, so checking a ship against an apartment with four airlocks on it produced four

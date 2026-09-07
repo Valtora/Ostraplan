@@ -1041,6 +1041,27 @@ public sealed class ShipDocument
         RaiseChanged(p.Id);
     }
 
+    /// <summary>
+    /// Move a part to another position in the document, changing nothing else about it. Document order is what
+    /// <see cref="ProblemScan"/>'s build-order sweep breaks ties on within a build rank, and it is the order
+    /// <see cref="ShipExport"/> writes <c>aItems</c> in, so this is the whole of "build this one later" (#67).
+    ///
+    /// <para><b>The draw order deliberately does not follow.</b> That lives in <see cref="_order"/> and is read
+    /// by <see cref="RenderKey"/>, which this leaves alone: when a part is built and what it is drawn over are
+    /// different questions, and a rack told to go up last must not climb out from under the bin above it to say
+    /// so. <see cref="RaiseChangedOrderIntact"/> for the same reason, since nothing the render key reads moved.</para>
+    /// </summary>
+    internal void SetBuildIndex(Placement p, int index)
+    {
+        var from = _placements.IndexOf(p);
+        if (from < 0) return;
+        var to = Math.Clamp(index, 0, _placements.Count - 1);
+        if (from == to) return;
+        _placements.RemoveAt(from);
+        _placements.Insert(to, p);
+        RaiseChangedOrderIntact();
+    }
+
     /// <summary>Register a placement without accumulating its tile conditions and without raising
     /// <see cref="Changed"/>. Only <see cref="Snapshot"/> may use this, because it supplies the conditions
     /// wholesale afterwards; anything else must go through <see cref="Add"/> or the document ends up with a

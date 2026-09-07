@@ -430,6 +430,12 @@ public sealed class ShipCanvas : FrameworkElement
     /// <see cref="AppSettings.AllowModdedOverrides"/>.</summary>
     public bool AllowModdedOverrides { get; set; }
 
+    /// <summary>When true, the placement law stops <b>blocking</b> and only reports: any part may be put down
+    /// wherever the cursor is, core parts included, and <see cref="ProblemScan"/> flags what is wrong afterwards.
+    /// It lifts the whole of <see cref="CheckFit"/>, the airlock envelope included, so that "forced" means one
+    /// thing rather than "forced, except for this rule". Set from <see cref="AppSettings.ForcePlace"/> (#67).</summary>
+    public bool ForcePlace { get; set; }
+
     private enum Drag { None, Pan, Move, Band, Paint, BoxFill, ZonePaint, ZoneBox, Aim, DamagePaint, DamageBox, SymMove }
     private Drag _drag;
     private Point _dragStartScreen;
@@ -2368,10 +2374,12 @@ public sealed class ShipCanvas : FrameworkElement
             }
             if (SameDefAtPose(Doc.PlacementsAt(pose.X, pose.Y), pose.X, pose.Y, pose.Rot, part.DefName)) continue;   // skip an exact duplicate (paint-stroke re-entry), not a legal overlap
             // the placement law: skip any pose the game's Item.CheckFit would refuse (each symmetry mirror judged
-            // independently — legal ones land, illegal ones don't). EXCEPTION: a MODDED part may be placed against
-            // the core-only law when the override toggle is on — it lands and is flagged as a warning (ProblemScan).
+            // independently — legal ones land, illegal ones don't). TWO EXCEPTIONS, both opt-in and both leaving
+            // ProblemScan to report what went down: a MODDED part against the core-only law (flagged a warning,
+            // since a mod may add behaviour the port cannot model), and ANY part under Force place, which is the
+            // escape hatch for a build order the sweep cannot reach and stays a Blocking problem (#67).
             if (!CheckFit.Check(Doc, part, pose.X, pose.Y, pose.Rot, includeEnvelope: true).Ok
-                && !(AllowModdedOverrides && part.IsModded)) continue;
+                && !ForcePlace && !(AllowModdedOverrides && part.IsModded)) continue;
             var cmd = new PlaceCommand(new Placement
             {
                 DefName = part.DefName,
@@ -3153,7 +3161,10 @@ public sealed class ShipCanvas : FrameworkElement
             {
                 var why = bad.Reason ?? "doesn't fit here";
                 var modded = cursorPart.IsModded && !cursorForced;   // a mode refusal is not the law, and no override lifts it
-                if (modded && AllowModdedOverrides) RaiseGhostReason(why, willPlace: true);
+                // Force place is checked first because it covers modded parts too, so the modded wording below
+                // would otherwise tell the user to turn on a toggle that would change nothing.
+                if (ForcePlace && !cursorForced) RaiseGhostReason(why + " — forcing", willPlace: true);
+                else if (modded && AllowModdedOverrides) RaiseGhostReason(why, willPlace: true);
                 else if (modded) RaiseGhostReason(why + " — modded; turn on \"Mod overrides\" to place it anyway");
                 else RaiseGhostReason(why);
             }
@@ -4105,7 +4116,9 @@ public sealed class ShipCanvas : FrameworkElement
         // same amber: it places, and the amber outline + tinted advisory cell say "noted" without saying "can't".
         // A forced verdict is never an overridable law failure: the stroke will skip this tile whatever the
         // mod-override toggle says, so it must not draw the amber "against the rules, but placing" ghost.
-        var overriding = verdict is null && !fit.Ok && AllowModdedOverrides && part.IsModded;
+        // Force place reaches this the same way, and for the same reason: the pose is against the rules and going
+        // down anyway, which is neither the green of a legal pose nor the red of one that will not land.
+        var overriding = verdict is null && !fit.Ok && (ForcePlace || (AllowModdedOverrides && part.IsModded));
         var advisory = fit.Ok && fit.Advisory is not null;
         var outlinePen = fit.Ok ? (advisory ? GhostOverridePen : GhostOkPen) : overriding ? GhostOverridePen : GhostBadPen;
         var cellFill = overriding ? OverrideFill : HazardFill;

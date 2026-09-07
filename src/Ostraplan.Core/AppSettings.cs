@@ -140,6 +140,12 @@ public sealed class AppSettings
     /// <summary>Let modded parts be placed where Ostraplan's core-game placement law says they don't fit (they are
     /// still flagged as warnings). Core parts stay hard-blocked. Off by default — the Law is authoritative for core.</summary>
     [JsonPropertyName("allowModdedOverrides")] public bool AllowModdedOverrides { get; set; }
+    /// <summary>Place any part where the placement law says it doesn't fit, core parts included, and let
+    /// <c>ProblemScan</c> report it afterwards. This is the deliberate escape hatch for a build the sweep cannot
+    /// find an order for: a rack under an overhead bin, or one that needs temporary flooring taken up again
+    /// (#67). Off by default. It is remembered between sessions, and the status bar says so in red the whole time
+    /// it is on, because a law bypass nobody can see is how an unbuildable ship gets designed by accident.</summary>
+    [JsonPropertyName("forcePlace")] public bool ForcePlace { get; set; }
     /// <summary>Draw the nav console's modules with the game's own panel art in the arrange window (read out of
     /// the install's <c>resources.assets</c>, see <c>NavModArt</c>) rather than as flat labelled panels. On by
     /// default; the flat panels are what the window falls back to when the art cannot be read either way.</summary>

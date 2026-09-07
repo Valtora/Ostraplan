@@ -237,6 +237,11 @@
                             ToolTip="Mirror what you place. Click to cycle the axes, drag the handle to move them. (M)"/>
                     <ToggleButton x:Name="BtnSurface" Content="Surfaces" Style="{StaticResource OverlayToggle}" Click="OnSurfaceToggleClick"
                             ToolTip="Ghost all but walls and floors, and paint skins onto the deck. (T)"/>
+                    <!-- No keyboard gesture on purpose: this one bypasses the placement law, and the reporter's own
+                         argument was that it should take a deliberate click rather than a key nobody meant to press
+                         (#67). The status bar carries a red marker for as long as it is on. -->
+                    <ToggleButton x:Name="BtnForce" Content="Force" Style="{StaticResource OverlayToggle}" Click="OnForceToggleClick"
+                            ToolTip="Place parts where the placement law says they don't fit. They are still reported as build-order problems, so use this only for a sequence the checker can't work out for itself."/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 
@@ -311,6 +316,12 @@
             <StatusBarItem><TextBlock x:Name="TxtParts" Text=""/></StatusBarItem>
             <Separator/>
             <StatusBarItem><TextBlock x:Name="TxtGhost" Text="" FontWeight="SemiBold" Foreground="{DynamicResource Bad}"/></StatusBarItem>
+            <!-- Force place is remembered between sessions, so this is what stops it being on without you knowing.
+                 Collapsed the rest of the time, which is why it takes no width when off. -->
+            <StatusBarItem x:Name="ForceBadge" Visibility="Collapsed">
+                <TextBlock Text="FORCE PLACE" FontWeight="Bold" Foreground="{DynamicResource Bad}"
+                           ToolTip="The placement law is not blocking placements. Turn off Force in the toolbar to restore it."/>
+            </StatusBarItem>
             <StatusBarItem HorizontalAlignment="Right">
                 <TextBlock x:Name="TxtHint" Opacity="0.7"
                            Text="drag paint · Shift+drag fill · Ctrl+Shift hollow · RMB menu · R rotate · Q/E view · WASD pan · F1 help"/>
