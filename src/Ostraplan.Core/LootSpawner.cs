@@ -20,6 +20,35 @@ public enum SpawnerType
 }
 
 /// <summary>
+/// When the plan draws a spawner's scatter square (#68). The toggle itself decides whether spawners are drawn at
+/// all; this decides how much of one is shown once they are.
+/// </summary>
+public enum SpawnerScatterWhen
+{
+    /// <summary>The origin only: the spawner's icon on its own tile, and nothing about its reach.</summary>
+    Never = 0,
+
+    /// <summary>Only around the spawner you have selected, so a deck full of them stays readable. The default.</summary>
+    Selected = 1,
+
+    /// <summary>Around every spawner, all the time, which is what the game's own editor does.</summary>
+    Always = 2,
+}
+
+/// <summary>How the scatter square is drawn once <see cref="SpawnerScatterWhen"/> says to draw it.</summary>
+public enum SpawnerScatterStyle
+{
+    /// <summary>An outlined box over the tiles it reaches. Reads on a crowded deck, because it covers nothing up.
+    /// The default.</summary>
+    Box = 0,
+
+    /// <summary>The spawner's own icon blown up to fill the square, which is exactly what the base game's editor
+    /// draws (<c>LootSpawner.UpdateAppearance</c> scales the object by <c>1 + 2·strRange</c>). Puts the two views
+    /// side by side, at the cost of hiding what is under it.</summary>
+    Sprite = 1,
+}
+
+/// <summary>
 /// A loot spawner's control panel (<c>GUILootSpawn</c>): what it spawns, how far it scatters, how many, and which
 /// conditions of ship it fires on.
 ///
@@ -79,6 +108,42 @@ public sealed record SpawnerSettings
     /// can take that role's place (see <see cref="ShipExport"/>).</summary>
     public bool IsBoardingRole =>
         Type == SpawnerType.Pspec && Target is BoardingRole or NotBoardingRole;
+
+    /// <summary>
+    /// The square of tiles this spawner scatters over, given the tile it sits on: <c>(2·Range + 1)</c> a side,
+    /// centred on the spawner. <c>Range</c> 0 is the spawner's own tile alone.
+    ///
+    /// <para><b>It is a square and not a circle</b>, which is worth stating because "radius" reads like one.
+    /// <c>LootSpawner.GetSpawnZone</c> calls <c>TileUtils.GetZoneFromTileRadius</c> leaving its <c>bCircle</c>
+    /// argument at false, so the zone is the whole box; the tile-less fallback in
+    /// <c>LootSpawner.GetSpawnPosition</c> rolls x and y independently over the same interval, which is the same
+    /// shape again. The game's editor draws the spawner icon at exactly this size
+    /// (<c>LootSpawner.UpdateAppearance</c> sets <c>localScale</c> to <c>1 + 2·strRange</c>), so an overlay of
+    /// this box is what puts Ostraplan's plan and the base editor's view side by side (#68).</para>
+    /// </summary>
+    public (int X, int Y, int Size) ScatterBox(int x, int y) =>
+        (x - Range, y - Range, 2 * Range + 1);
+
+    /// <summary>Every tile of <see cref="ScatterBox"/>, row by row. The zone the game builds is shuffled before
+    /// it is walked, so a caller placing into it shuffles this for itself (see <see cref="SpawnerRun"/>).</summary>
+    public IEnumerable<(int X, int Y)> ScatterTiles(int x, int y)
+    {
+        var (left, top, size) = ScatterBox(x, y);
+        for (var row = 0; row < size; row++)
+            for (var col = 0; col < size; col++)
+                yield return (left + col, top + row);
+    }
+
+    /// <summary>Whether this spawner fires on a ship the game instantiates in <paramref name="condition"/>. The
+    /// game's <c>LootSpawner.ShipMatch</c>: one flag per case, and a spawner that does not match makes nothing.
+    /// <c>Damage.Used</c> reads the same flag as <c>Damaged</c> there, so the three cases here are the whole
+    /// set.</summary>
+    public bool FiresWhen(ShipCondition condition) => condition switch
+    {
+        ShipCondition.Damaged => WhenDamaged,
+        ShipCondition.Derelict => WhenDerelict,
+        _ => WhenNew,
+    };
 
     /// <summary>Settings forced into range. A design can arrive from an <c>.oplan</c> or an imported ship, so
     /// nothing downstream should have to defend itself against a range of two million tiles.</summary>

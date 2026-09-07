@@ -754,15 +754,30 @@ public sealed record LootDef(string Name, string[] Conds, string[] Loots)
     /// <summary>True when this loot spawns items rather than applying conditions.</summary>
     public bool IsItemLoot => string.Equals(Type, "item", StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>
+    /// <c>aCOs</c> as the game parses it: one group per array entry, each holding the alternatives the entry's
+    /// <c>|</c> separates, with their chances and count ranges intact.
+    ///
+    /// <para><see cref="Conds"/> and <see cref="Items"/> above are the <b>deterministic</b> reading of the same
+    /// array, which is what a socket mask and a container's stock fill want: no chance, no range, first
+    /// alternative only. This is the reading a <b>roll</b> wants (see <see cref="LootRoll"/>), and both are kept
+    /// because neither can be derived from the other.</para>
+    /// </summary>
+    public IReadOnlyList<IReadOnlyList<LootUnit>> CoUnits { get; init; } = [];
+
+    /// <summary><c>aLoots</c> parsed the same way: each alternative names another table to roll.</summary>
+    public IReadOnlyList<IReadOnlyList<LootUnit>> LootUnits { get; init; } = [];
+
     public static LootDef Parse(JsonElement e)
     {
         var cos = Json.StrArray(e, "aCOs");
+        var loots = Json.StrArray(e, "aLoots");
         var type = Json.Str(e, "strType") ?? "";
         var isItem = string.Equals(type, "item", StringComparison.OrdinalIgnoreCase);
         return new(
             Json.Str(e, "strName") ?? "",
             cos.Select(CondName).Where(s => s.Length > 0).ToArray(),
-            Json.StrArray(e, "aLoots").Where(s => s.Length > 0).ToArray())
+            loots.Where(s => s.Length > 0).ToArray())
         {
             Type = type,
             Items = isItem
@@ -770,6 +785,8 @@ public sealed record LootDef(string Name, string[] Conds, string[] Loots)
                      .Where(c => c.Def.Length > 0 && c.Count > 0)
                      .ToArray()
                 : [],
+            CoUnits = LootUnit.ParseGroups(cos),
+            LootUnits = LootUnit.ParseGroups(loots),
         };
     }
 

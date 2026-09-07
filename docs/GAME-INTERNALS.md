@@ -878,6 +878,57 @@ rather than broken.
 > where `SaveEdit` rebuilds `aItems` from the surviving originals verbatim and so
 > preserves them untouched; importing them there would write a second copy beside each.
 
+### The scatter is a square, and the editor draws it at full size
+
+`strRange` reads like a radius and is not a circle. `LootSpawner.GetSpawnZone` calls
+`TileUtils.GetZoneFromTileRadius(ship, position, range, bShuffled: true)` and **leaves
+`bCircle` at its default false**, so `GetSurroundingTilesRadius` walks the whole box:
+rows `r−n … r+n` by columns `c−n … c+n`, corners included. The tile-less fallback in
+`GetSpawnPosition` agrees, rolling `Random.Range(−n, n+1)` on each axis independently.
+`IsOverWall` scans the same box.
+
+**The game's editor draws the spawner object at exactly that size.**
+`LootSpawner.UpdateAppearance` sets `transform.localScale` to `1 + 2 * strRange` on both
+axes, which is why a spawner in the base editor can be a large square rather than the
+1×1 its footprint says (`items.json` gives `SysLootSpawner` `nCols: 1`). The material is
+`IcoLootPspec` when `strType` contains "Pspec" and `IcoLoot` otherwise.
+
+> **Ported in Ostraplan:** `SpawnerSettings.ScatterBox` / `ScatterTiles`, drawn by
+> `ShipCanvas.DrawSpawnerOverlay` as a box over the tiles it reaches or as the enlarged
+> icon, per the user's choice (#68).
+
+### What a spawner actually makes (`LootSpawner.DoLoot`)
+
+`ShipMatch` gates the whole thing on the ship's `DMGStatus` against `strNew` /
+`strDamaged` / `strDerelict` (`Damage.Used` reads the `strDamaged` flag). A `Loot`
+spawner then rolls `DataHandler.GetLoot(strLoot).GetCOLoot(null, false)` once per
+`strCount` and hands the result to `TileUtils.DropCOsNearby`, which stacks onto nearby
+objects passing `TIsLootSpawnOK` (forbids `IsSystem`, `IsHuman`), then places each
+survivor at the first zone tile `TryFitItem` accepts, then **destroys whatever is left**.
+
+`TryFitItem` runs `Item.CheckFit` per tile, and the loose forbid mask names `IsItemTile`,
+so the game refuses a tile another object already claims. With `strRange` 0 (2,849 of the
+3,631 authored spawners) that is one unstacked object and the remainder destroyed.
+
+The roll itself is `Loot.ParseLootDef` plus `Loot.GetCOLoot`. Each string of `aCOs` /
+`aLoots` is one **group**, its alternatives separated by `|` and each written
+`Name=chance x min-max`. One `Rand(0,1)` is drawn per group and the alternatives are
+tested against a **running** total, so `A=0.8x1|B=0.1x1-2` is 80% A, 10% B and 10%
+nothing. Three details are easy to get wrong and are ported as written: an entry with no
+`=` is dropped rather than read as a certainty, an `aCOs` count is **floored** while an
+`aLoots` count drives `for (j = 0; j < amount; j++)` and so is not, and `GetAmount`
+negates a leading-`-` entry which `GetCOLoot` then negates again, so the two cancel.
+
+`Loot.bNested` and `Loot.bSuppress` are **declared and read but never assigned** anywhere
+in the assembly, and `JsonLoot` carries no field for either, so both are dead in this
+build and are deliberately not ported.
+
+> **Ported in Ostraplan:** `LootUnit.ParseGroups` and `LootRoll.Roll` (the roll, faithful),
+> `SpawnerRun` (the placement, which keeps the shuffled square, the same-def stack merge
+> and the destroy-the-remainder rule, but not the container overflow `DropCOsNearby` also
+> does). Running a spawner consumes it, because a design holding the cargo *and* the
+> spawner would arrive carrying it twice (#65).
+
 ---
 
 ## 7. The coordinate model

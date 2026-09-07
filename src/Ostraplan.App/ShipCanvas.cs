@@ -116,6 +116,11 @@ public sealed class ShipCanvas : FrameworkElement
     private static readonly Pen NeedleHaloPen = Frozen(new Pen(new SolidColorBrush(NeedleHaloColor), 4.5) { StartLineCap = PenLineCap.Round, EndLineCap = PenLineCap.Round });
     private static readonly Brush NeedleHaloBrush = Frozen(new SolidColorBrush(NeedleHaloColor));
     // per-cell hazard fill for both a ghost's failing cells and existing illegal placements (same red vocabulary)
+    // The spawner scatter square (#68). Violet, so it is not any of the marks already on the plan: selection
+    // blue, the green/red ghosts, the amber override or the cyan leak. Its own colour at an alpha that reads on
+    // any backdrop, so it takes no light twin (CONVENTIONS).
+    private static readonly Pen SpawnerPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xCC, 0xB0, 0x7A, 0xE8)), 1.5));
+    private static readonly Brush SpawnerFill = Frozen(new SolidColorBrush(Color.FromArgb(0x22, 0xB0, 0x7A, 0xE8)));
     private static readonly Brush HazardFill = Frozen(new SolidColorBrush(Color.FromArgb(0x66, 0xD6, 0x45, 0x45)));
     private static readonly Brush OverrideFill = Frozen(new SolidColorBrush(Color.FromArgb(0x55, 0xE0, 0xB0, 0x40)));   // amber tint for an overridden modded part's failing cells
     // the sub-floor reservation a part projects under walkable floor (the tanks' 7x7 ring vs their 3x3 body)
@@ -308,6 +313,26 @@ public sealed class ShipCanvas : FrameworkElement
     /// wiring is edited from a part's own context menu (see <see cref="BeginWirePick"/>), so turning the overlay
     /// on never changes what a click does.</summary>
     public bool ShowWire { get; private set; }
+
+    /// <summary>
+    /// Spawners view: draw loot spawners on the plan at all (#68). On by default.
+    ///
+    /// <para>Unlike the other view toggles this one <b>hides part of the document</b> rather than adding a layer
+    /// over it, which is the whole request: a spawner is an editor object that is invisible in play, and someone
+    /// laying out the ship itself wants it out of the way. It changes nothing about what the design holds, so a
+    /// hidden spawner still exports, still counts and is still there when the toggle comes back on.</para>
+    /// </summary>
+    public bool ShowSpawners { get; private set; } = true;
+
+    /// <summary>Spawners view: when the scatter square is drawn. See <see cref="SpawnerScatterWhen"/>.</summary>
+    public SpawnerScatterWhen ScatterWhen { get; private set; } = SpawnerScatterWhen.Selected;
+
+    /// <summary>Spawners view: how the scatter square is drawn. See <see cref="SpawnerScatterStyle"/>.</summary>
+    public SpawnerScatterStyle ScatterStyle { get; private set; } = SpawnerScatterStyle.Box;
+
+    /// <summary>True while the mod's ship portrait is baking, which is the one pass <see cref="ShowSpawners"/>
+    /// does not reach: that art is an exported asset and must not change with a view toggle.</summary>
+    private bool _portraitPass;
 
     /// <summary>
     /// A wiring pick in progress: the part it was started from and which end of the connection that part is. Armed
@@ -572,6 +597,7 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action? ShowLightChanged;              // the Light Viz overlay was toggled (update the menu check + trigger a scan)
     public event Action? ShowWalkChanged;               // the WalkViz overlay was toggled (update the toolbar caption + trigger a scan)
     public event Action? ShowWireChanged;               // WireViz was toggled (update the toolbar check)
+    public event Action? ShowSpawnersChanged;           // the spawners view was toggled or retuned (update the toolbar check)
     public event Action? WirePickChanged;               // a wiring pick was armed or dropped (update the hint)
     public event Action? SurfaceModeChanged;            // Surfaces mode was toggled (update the toolbar highlight / hint / pattern bar)
     public event Action<Placement, Placement>? LinkToggleRequested;   // connect driver→driven, or disconnect if already linked
@@ -735,6 +761,33 @@ public sealed class ShipCanvas : FrameworkElement
         if (!on) { _powerOverlay = PowerOverlay.Empty; DiscardedAnalysis(); }
         UpdatePowerAnimation();
         ShowPowerChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    /// <summary>Toggle the spawners view (see <see cref="ShowSpawners"/>).</summary>
+    public void ToggleShowSpawners() => SetShowSpawners(!ShowSpawners);
+
+    public void SetShowSpawners(bool on)
+    {
+        if (ShowSpawners == on) return;
+        ShowSpawners = on;
+        // The spawner sprites are part of the baked ship, so the bake has to go with them. Nothing else about the
+        // document changed, which is why this drops the caches rather than raising a content change. The lit
+        // composite bakes the same sprites, so hiding a spawner has to reach that too or Light Viz still shows it.
+        _staticShip = null;
+        RebuildLightComposite();
+        ShowSpawnersChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    /// <summary>Set how much of a spawner is shown. Neither of these hides the spawner itself, so neither touches
+    /// the baked ship: they only decide what the overlay draws on top of it.</summary>
+    public void SetSpawnerView(SpawnerScatterWhen when, SpawnerScatterStyle style)
+    {
+        if (ScatterWhen == when && ScatterStyle == style) return;
+        ScatterWhen = when;
+        ScatterStyle = style;
+        ShowSpawnersChanged?.Invoke();
         InvalidateVisual();
     }
 
@@ -2778,11 +2831,14 @@ public sealed class ShipCanvas : FrameworkElement
 
         var dv = new DrawingVisual();
         RenderOptions.SetBitmapScalingMode(dv, BitmapScalingMode.NearestNeighbor);
-        using (var ctx = dv.RenderOpen())
+        _portraitPass = true;
+        try
         {
+            using var ctx = dv.RenderOpen();
             ctx.DrawRectangle(PreviewBg, null, new Rect(0, 0, PreviewW, PreviewH));
             foreach (var i in Doc!.RenderOrder()) DrawItem(ctx, i, (0, 0));
         }
+        finally { _portraitPass = false; }
         var rtb = new System.Windows.Media.Imaging.RenderTargetBitmap(PreviewW, PreviewH, 96, 96, PixelFormats.Pbgra32);
         rtb.Render(dv);
 
@@ -3094,6 +3150,7 @@ public sealed class ShipCanvas : FrameworkElement
         dc.Pop();
         if (lit ? _drag is Drag.Move or Drag.Paint : _drag == Drag.Move) DrawInFluxParts(dc);
 
+        DrawSpawnerOverlay(dc);   // the scatter squares, under the selection outline so a selected spawner still rings
         DrawLooseSelection(dc);   // the outlines on the selected loose items; the items themselves draw with the ship
         DrawIllegalCells(dc);
         DrawLeakCells(dc);
@@ -4644,6 +4701,49 @@ public sealed class ShipCanvas : FrameworkElement
         }
     }
 
+    /// <summary>
+    /// Draw each spawner's scatter square (#68).
+    ///
+    /// <para><b>It is a square, and that is not a simplification.</b> The game builds a spawner's zone with
+    /// <c>TileUtils.GetZoneFromTileRadius</c> and leaves its <c>bCircle</c> argument false, so the reach is the
+    /// whole box: <c>2·Range + 1</c> tiles a side, centred on the spawner. Drawing a circle would say the corners
+    /// are out of reach when they are the likeliest tiles of all.</para>
+    ///
+    /// <para>The box carries its own colour at an alpha that reads on any backdrop, so it needs no light twin
+    /// (CONVENTIONS): it is a deliberate mark rather than a faint scratch on the ground. The enlarged-sprite style
+    /// draws the spawner's own icon scaled to fill the square, which is what the base editor does
+    /// (<c>LootSpawner.UpdateAppearance</c> sets the object's scale to <c>1 + 2·strRange</c>), so the two views
+    /// can be put side by side.</para>
+    /// </summary>
+    private void DrawSpawnerOverlay(DrawingContext dc)
+    {
+        if (!ShowSpawners || ScatterWhen == SpawnerScatterWhen.Never || Doc is null) return;
+
+        var offset = _drag == Drag.Move ? _moveDelta : (X: 0, Y: 0);
+        foreach (var o in Doc.LooseObjects)
+        {
+            if (o.Spawner is not { } settings) continue;
+            var selected = SelectedLooseIds.Contains(o.Id);
+            if (ScatterWhen == SpawnerScatterWhen.Selected && !selected) continue;
+
+            var moved = selected && _drag == Drag.Move ? offset : (X: 0, Y: 0);
+            var (left, top, size) = settings.ScatterBox(o.X + moved.X, o.Y + moved.Y);
+            var box = CellRect(left, top, size, size);
+
+            if (ScatterStyle == SpawnerScatterStyle.Sprite
+                && Doc.Catalog.Lookup(o.DefName) is { } part && Sprites?.Sprite(part) is { } bmp)
+            {
+                dc.PushOpacity(0.55);   // the deck under it stays legible, which the game's opaque icon does not manage
+                dc.DrawImage(bmp, box);
+                dc.Pop();
+            }
+
+            // The outline is drawn either way: under the enlarged sprite it is what gives the blur an edge, and
+            // it is the only thing that shows a scatter of 0 as a deliberate setting rather than as nothing.
+            dc.DrawRectangle(SpawnerFill, SpawnerPen, box);
+        }
+    }
+
     /// <summary>Preview the armed loose item at the hover tile: the semi-transparent sprite, a green/red outline
     /// for whether it may lie there (nothing in the way over its whole footprint, or an accepting container), and
     /// a hazard tint on the tiles refusing it. Mirrors <see cref="TryPlaceLoose"/>'s decision so the click matches
@@ -4696,6 +4796,11 @@ public sealed class ShipCanvas : FrameworkElement
     private void DrawItem(DrawingContext dc, RenderItem item, (int X, int Y) offset)
     {
         if (item.Placement is { } p) { DrawPlacement(dc, p, offset); return; }
+        // Spawners view off: the editor objects come out of the picture entirely (#68). Gated here rather than at
+        // each walk of the render order, so the plan, the in-flux pass during a drag, the lit composite and the
+        // snapshot all agree about what is on screen. The mod's ship portrait is the deliberate exception and
+        // sets _portraitPass, because an exported asset must not change with a view toggle.
+        if (!ShowSpawners && !_portraitPass && item.Loose?.Spawner is not null) return;
         // The drawable's own condition, not whatever the tile index happens to name: a design carrying an overlap
         // has two items answering for one tile, and each has to draw at its own wear.
         if (Doc!.Catalog.Lookup(item.DefName) is { } part)

@@ -12,6 +12,38 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Loot spawners are yours to keep, to filter, or to cash in for the items they stand for.** A
+  spawner is an editor object that decides what a ship arrives carrying. It is invisible in play, and
+  until now it rode into a design on the **Items lying on the deck** checkbox, so anyone who wanted a
+  ship's actual contents without the machinery behind them had no way to say so. Three things change.
+  The import dialog has a **Loot spawners** option of its own, so the cargo and the spawners can be
+  taken or left independently. The box-select filter (**Select only**) lists **Loot spawners** and
+  **Person spawns** on rows of their own instead of burying them among the loose items. And a spawner
+  can now be **run**: right-click one and choose **Run spawner…** to roll what it would make and lay
+  that on the deck as ordinary items.
+
+  Running uses the game's own loot tables and the game's own arithmetic, so what comes out is what the
+  ship would have arrived with. The spawner is replaced by what it rolls, because a design holding
+  both would arrive carrying the cargo twice, and the whole run is one undo step. Pick which kind of
+  ship to roll for (**New**, **Damaged** or **Derelict**), since a spawner authored for a wreck makes
+  nothing on a clean ship and is left where it is. Leave the **Seed** blank for a fresh roll: the
+  number used is reported afterwards, so a deck you liked can be typed back in and got again exactly.
+  Only object spawners can be run, because a person spawner makes crew and crew are never part of a
+  design. Thanks to nighoggDatatype. (#65)
+- **The plan draws a spawner's scatter, and can take the spawners off the plan altogether.** A
+  spawner's **Scatter** setting was invisible: every one of them drew as a plain 1x1 marker, while the
+  base game's editor draws the spawner at the size of the area it fills, so the same ship looked
+  nothing like itself in the two tools. It is worth being exact about the shape, because "radius"
+  suggests a circle and the game does not use one: a spawner reaches every tile of a square
+  (2 × Scatter + 1) tiles a side, centred on its own tile, corners included. The new **Spawners**
+  toolbar toggle shows that square, and its **▾** decides how much of it you see: never, only around
+  the spawner you have selected, or always, drawn either as a box over the tiles it reaches or as the
+  spawner's own icon blown up exactly as the base editor draws it.
+
+  The toggle itself hides the spawners, which is the other half of the request. They are meta objects
+  that never appear in play, so turning them off leaves the ship itself to lay out. Hiding one changes
+  nothing about the design: it still exports, still counts, and is still there when the toggle comes
+  back on. Thanks to nighoggDatatype. (#68)
 - **Build last, and a Force button for the builds that need one.** Some fittings are only legal in one
   build sequence. A rack under an overhead bin has to go up after the bin, because the bin wants that
   tile clear at the moment it is installed. Ostraplan looks for a build order that works but never takes

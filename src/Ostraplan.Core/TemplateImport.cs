@@ -26,13 +26,17 @@ public sealed record SkippedDef(string DefName, int Count);
 /// </summary>
 /// <param name="ContainerContents">Bring each container's contents in as viewable, editable cargo.</param>
 /// <param name="LooseItems">Bring items lying loose on the deck in as loose objects.</param>
-public sealed record ImportOptions(bool ContainerContents = true, bool LooseItems = true)
+/// <param name="Spawners">Bring the ship's loot spawners in, with their panels. Separate from
+/// <paramref name="LooseItems"/> since #65: a spawner is an editor object that stands for cargo rather than cargo
+/// itself, it is invisible in play, and someone who wants a ship's actual contents and not the machinery behind
+/// them had no way to say so while the two rode on one checkbox.</param>
+public sealed record ImportOptions(bool ContainerContents = true, bool LooseItems = true, bool Spawners = true)
 {
     /// <summary>Everything the ship carries. The default, and what the for-editing path always uses.</summary>
-    public static readonly ImportOptions Everything = new(true, true);
+    public static readonly ImportOptions Everything = new(true, true, true);
 
     /// <summary>Structure only — what every path except the save-edit one used to do, with no way to say otherwise.</summary>
-    public static readonly ImportOptions LayoutOnly = new(false, false);
+    public static readonly ImportOptions LayoutOnly = new(false, false, false);
 }
 
 /// <summary>
@@ -71,9 +75,10 @@ public sealed record ImportResult(
     /// everything it was meant to spawn (#55).</summary>
     public int SpawnersKept { get; init; }
 
-    /// <summary>Loot spawners left behind: either the import was told not to bring deck items in, or the spawner
-    /// carried no <c>GUILootSpawn</c> panel to read, and a spawner without its panel makes nothing. Counted apart
-    /// from <see cref="SystemDropped"/> so the report can say which of the two happened (#64).</summary>
+    /// <summary>Loot spawners left behind: either the import was told not to bring spawners in
+    /// (<see cref="ImportOptions.Spawners"/>), or the spawner carried no <c>GUILootSpawn</c> panel to read, and a
+    /// spawner without its panel makes nothing. Counted apart from <see cref="SystemDropped"/> so the report can
+    /// say which of the two happened (#64).</summary>
     public int SpawnersDropped { get; init; }
 
     /// <summary>Items lying loose on the deck that were left behind, stack members included.</summary>
@@ -401,7 +406,7 @@ public static class TemplateImport
         // spawner that makes nothing.
         bool TakeSpawner(TemplateItem item, PartDef part)
         {
-            if (!opts.LooseItems || item.Spawner is not { } panel) return false;
+            if (!opts.Spawners || item.Spawner is not { } panel) return false;
             var (col, row, rot) = ShipGrid.TemplateTile(
                 item.FX, item.FY, item.FRotation, part.Item.Width, part.Item.Height, tmpl.VShipPosX, tmpl.VShipPosY);
             doc.AddLoose(new LooseObject

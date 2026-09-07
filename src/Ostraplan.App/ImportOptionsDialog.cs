@@ -20,9 +20,11 @@ public sealed class ImportOptionsDialog : Window
 {
     private readonly CheckBox _contents;
     private readonly CheckBox _loose;
+    private readonly CheckBox _spawners;
 
     /// <summary>What the user chose. Read only after a true dialog result.</summary>
-    public ImportOptions Options => new(_contents.IsChecked == true, _loose.IsChecked == true);
+    public ImportOptions Options =>
+        new(_contents.IsChecked == true, _loose.IsChecked == true, _spawners.IsChecked == true);
 
     /// <param name="heading">What is being imported, e.g. the ship or save name.</param>
     /// <param name="note">What this import route does with identity, wear and the rest.</param>
@@ -54,8 +56,13 @@ public sealed class ImportOptionsDialog : Window
         _loose = Option("Items lying on the deck",
             "Tools, scrap and other loose objects sitting on the floor. They are cargo, not structure, so they take "
             + "no part in the placement law or the bill of materials.", initial.LooseItems);
+        _spawners = Option("Loot spawners",
+            "The editor objects that decide what the ship arrives carrying. They are invisible in play: the game "
+            + "runs each one when the ship loads and puts real items where it stood. Leave them out to plan the "
+            + "ship's own contents by hand.", initial.Spawners);
         body.Children.Add(_contents);
         body.Children.Add(_loose);
+        body.Children.Add(_spawners);
 
         body.Children.Add(new TextBlock
         {

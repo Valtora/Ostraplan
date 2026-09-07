@@ -312,6 +312,82 @@ public class ImportOptionsTests
         Assert.Equal(0, imp.Import.LooseDropped);
     }
 
+    /// <summary>A ship carrying one ordinary deck item and one loot spawner, which is the pair the option splits.</summary>
+    private const string ShipWithBoth = """
+        [{
+          "strName": "Probe", "nCols": 6, "nRows": 6,
+          "vShipPos": { "x": 0.0, "y": 0.0 },
+          "aItems": [
+            { "strName": "ItmWall1x1",    "fX": 0.0, "fY": 0.0, "fRotation": 0.0, "strID": "wall" },
+            { "strName": "ItmScrapSteel", "fX": 1.0, "fY": 0.0, "fRotation": 0.0, "strID": "scrap" },
+            { "strName": "SysLootSpawner", "fX": 3.0, "fY": -1.0, "fRotation": 0.0, "strID": "loot",
+              "aGPMSettings": [ { "strName": "Panel A", "dictGUIPropMap": [
+                "strGUIPrefab", "GUILootSpawn", "strType", "Loot",
+                "strLoot", "ItmLootSpawnMedical", "strRange", "1", "strCount", "1" ] } ] }
+          ]
+        }]
+        """;
+
+    private static ImportResult ImportBoth(Catalog catalog, ImportOptions options)
+    {
+        var tmpl = ShipTemplate.ParseFile(ShipWithBoth).Single();
+        return TemplateImport.Build(tmpl, catalog, retainOrigin: false, options, ShipJson.Largest(ShipWithBoth));
+    }
+
+    [SkippableFact]
+    public void With_both_options_on_the_deck_item_and_the_spawner_both_come_in()
+    {
+        // The premise for the two tests below. If this ship carried only one of the pair, a test showing that one
+        // option drops it would prove nothing about the other.
+        var g = TestData.RequireGame();
+        Skip.IfNot(g.Catalog.Lookup(Scrap) is not null && g.Catalog.Lookup("SysLootSpawner") is not null,
+            "this install lacks one of the probe defs");
+
+        var r = ImportBoth(g.Catalog, ImportOptions.Everything);
+
+        Assert.Equal(1, r.LooseKept);
+        Assert.Equal(1, r.SpawnersKept);
+        Assert.Equal(0, r.SpawnersDropped);
+        Assert.Contains(r.Doc.LooseObjects, o => o.DefName == Scrap);
+        Assert.Contains(r.Doc.LooseObjects, o => o.Spawner is not null);
+    }
+
+    [SkippableFact]
+    public void Spawners_can_be_left_behind_while_the_deck_items_come_in()
+    {
+        // #65: someone who wants a ship's actual contents and not the editor objects that stand for them had no
+        // way to say so, because the spawners rode on the deck-items checkbox.
+        var g = TestData.RequireGame();
+        Skip.IfNot(g.Catalog.Lookup(Scrap) is not null && g.Catalog.Lookup("SysLootSpawner") is not null,
+            "this install lacks one of the probe defs");
+
+        var r = ImportBoth(g.Catalog, new ImportOptions(ContainerContents: true, LooseItems: true, Spawners: false));
+
+        Assert.Equal(1, r.LooseKept);
+        Assert.Contains(r.Doc.LooseObjects, o => o.DefName == Scrap);
+        Assert.Equal(0, r.SpawnersKept);
+        Assert.Equal(1, r.SpawnersDropped);
+        Assert.DoesNotContain(r.Doc.LooseObjects, o => o.Spawner is not null);
+        Assert.Equal(0, r.SystemDropped);   // a dropped spawner is still not a dropped system object (#64)
+    }
+
+    [SkippableFact]
+    public void Deck_items_can_be_left_behind_while_the_spawners_come_in()
+    {
+        // The other way round, which is what a ship modder wants: the machinery without the clutter.
+        var g = TestData.RequireGame();
+        Skip.IfNot(g.Catalog.Lookup(Scrap) is not null && g.Catalog.Lookup("SysLootSpawner") is not null,
+            "this install lacks one of the probe defs");
+
+        var r = ImportBoth(g.Catalog, new ImportOptions(ContainerContents: true, LooseItems: false, Spawners: true));
+
+        Assert.Equal(0, r.LooseKept);
+        Assert.Equal(1, r.LooseDropped);
+        Assert.Equal(1, r.SpawnersKept);
+        Assert.Equal(0, r.SpawnersDropped);
+        Assert.Equal("ItmLootSpawnMedical", Assert.Single(r.Doc.LooseObjects).Spawner!.Target);
+    }
+
     [SkippableFact]
     public void A_real_ship_template_imports_the_cargo_it_ships_with()
     {

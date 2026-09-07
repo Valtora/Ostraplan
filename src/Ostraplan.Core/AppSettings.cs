@@ -180,6 +180,19 @@ public sealed class AppSettings
     [JsonPropertyName("importContainerContents")] public bool ImportContainerContents { get; set; } = true;
     /// <summary>Import: bring items lying loose on the deck in as loose objects. On by default.</summary>
     [JsonPropertyName("importLooseItems")] public bool ImportLooseItems { get; set; } = true;
+    /// <summary>Import: bring the ship's loot spawners in with their panels. On by default, and separate from
+    /// <see cref="ImportLooseItems"/> since #65 — a spawner is an editor object that stands for cargo rather than
+    /// cargo itself, and the two used to ride on one checkbox.</summary>
+    [JsonPropertyName("importSpawners")] public bool ImportSpawners { get; set; } = true;
+    /// <summary>Spawners view: draw loot spawners on the plan at all. On by default. Off is for editing the ship
+    /// itself without the editor objects in the way, which is what #68 asked for first.</summary>
+    [JsonPropertyName("showSpawners")] public bool ShowSpawners { get; set; } = true;
+    /// <summary>Spawners view: when to draw the scatter square, by <see cref="SpawnerScatterWhen"/> name. Stored
+    /// by name like the surface focus, so an unknown value from a newer build reads as the default rather than as
+    /// whatever integer happens to land in range.</summary>
+    [JsonPropertyName("spawnerScatterWhen")] public string? SpawnerScatterWhen { get; set; }
+    /// <summary>Spawners view: how to draw it, by <see cref="SpawnerScatterStyle"/> name.</summary>
+    [JsonPropertyName("spawnerScatterStyle")] public string? SpawnerScatterStyle { get; set; }
     /// <summary>Flight Dynamics: the body last flown at, by <c>strName</c>. Null until the report is first used,
     /// and ignored if the body is no longer in the loaded data (a mod was removed).</summary>
     [JsonPropertyName("flightBody")] public string? FlightBody { get; set; }

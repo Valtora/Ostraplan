@@ -167,6 +167,14 @@ public partial class MainWindow : Window
         };
         if (Enum.TryParse<SurfacePaintMode>(_settings.SurfacePaintMode, out var paintMode)) board.SetPaintMode(paintMode);
         if (Enum.TryParse<SurfaceFocus>(_settings.SurfaceFocus, out var focus)) board.SetLayerFocus(focus);
+        // The spawners view (#68). App-wide like the backdrop rather than per design: it is about the person
+        // looking at the plan, so a design handed to somebody else opens on their own preference.
+        board.SetShowSpawners(_settings.ShowSpawners);
+        board.SetSpawnerView(
+            Enum.TryParse<SpawnerScatterWhen>(_settings.SpawnerScatterWhen, out var scatterWhen)
+                ? scatterWhen : SpawnerScatterWhen.Selected,
+            Enum.TryParse<SpawnerScatterStyle>(_settings.SpawnerScatterStyle, out var scatterStyle)
+                ? scatterStyle : SpawnerScatterStyle.Box);
 
         board.StrokeCommitted += OnStrokeCommitted;
         board.MoveRequested += OnMoveRequested;
@@ -195,6 +203,7 @@ public partial class MainWindow : Window
         board.ShowWalkChanged += OnShowWalkChanged;     // same for the crew-access analysis
         board.ShowAccessChanged += OnShowAccessChanged; // the same analysis, read one part at a time
         board.ShowWireChanged += SyncViewToggles;       // keep the toolbar's WireViz button in step
+        board.ShowSpawnersChanged += SyncViewToggles;   // and the Spawners button
         board.WirePickChanged += OnWirePickChanged;     // swap the status hint while a wiring pick runs
         board.SurfaceModeChanged += OnSurfaceModeChanged;   // show/hide the Surfaces bar and swap the status hint
         board.SymmetryChanged += SyncViewToggles;          // M and the axis drag both land on the toolbar button
@@ -3569,8 +3578,16 @@ public partial class MainWindow : Window
                 .OrderBy(g => g.Key)
                 .Select(g => (Label: LayerName(g.Key), Parts: g.ToList(), Loose: new List<LooseObject>()))
                 .ToList();
-            if (selectedLoose.Count > 0)
-                rows.Add(("Loose items", [], selectedLoose));
+            // Spawners come out of that row rather than sharing it (#65). A spawner is an editor object standing
+            // for cargo rather than cargo itself, invisible in play, so "everything except the machinery" is a
+            // narrowing worth offering. The two kinds of spawner split again where both are in the catch: a
+            // boarding point and thirty loot spawners are not the same job.
+            var cargo = selectedLoose.Where(o => o.Spawner is null).ToList();
+            var lootSpawners = selectedLoose.Where(o => o.Spawner is { IsPersonSpawn: false }).ToList();
+            var personSpawns = selectedLoose.Where(o => o.Spawner is { IsPersonSpawn: true }).ToList();
+            if (cargo.Count > 0) rows.Add(("Loose items", [], cargo));
+            if (lootSpawners.Count > 0) rows.Add(("Loot spawners", [], lootSpawners));
+            if (personSpawns.Count > 0) rows.Add(("Person spawns", [], personSpawns));
             // a row that IS the whole selection changes nothing, so it is not offered
             rows = rows.Where(r => r.Parts.Count + r.Loose.Count < Board.SelectionCount).ToList();
             if (rows.Count > 1)
@@ -3767,6 +3784,16 @@ public partial class MainWindow : Window
             menu.Items.Add(Item(_settings.IsFavorite(brushDef, false) ? "Remove from Favorites" : "Add to Favorites",
                 "", (_, _) => ToggleFavoriteByRef(brushDef, false)));
         }
+        // "Run loot spawners…": offered whenever the design has any, since the dialog can widen the scope from
+        // the catch to the whole ship (#65).
+        if (_doc is not null && SpawnerRun.Runnable(_doc).Count > 0)
+        {
+            var caught = selectedLoose.Count(SpawnerRun.IsRunnable);
+            menu.Items.Add(Item("Run loot spawners…" + (caught > 1 ? $" ({caught})" : ""), "",
+                (_, _) => RunSpawners(selectedLoose.Where(SpawnerRun.IsRunnable).ToList())));
+            menu.Items.Add(new Separator());
+        }
+
         if (canReplace)
             menu.Items.Add(Item("Replace with…" + suffix, "Ctrl+R", (_, _) => ReplaceSelection()));
         if (canFindReplace)
@@ -3810,6 +3837,63 @@ public partial class MainWindow : Window
         _stack.Push(_doc, new BuildLastCommand([.. parts]));
     }
 
+    /// <summary>
+    /// Roll a set of loot spawners into the cargo they stand for, and say what happened (#65).
+    ///
+    /// <para>The whole run is one undo step, so a deck that came out wrong is one Ctrl+Z away from the spawners
+    /// that made it. The seed is reported whether or not the user chose it: a run is random, and a result nobody
+    /// can get back again is not something a design can be built on.</para>
+    /// </summary>
+    private void RunSpawners(IReadOnlyList<LooseObject> caught)
+    {
+        if (_doc is null || _catalog is null) return;
+        var all = SpawnerRun.Runnable(_doc);
+        if (all.Count == 0) return;
+
+        var dlg = new RunSpawnersDialog(caught.Count, all.Count) { Owner = this };
+        if (dlg.ShowDialog() != true) return;
+
+        var scope = dlg.SelectionOnly && caught.Count > 0 ? caught : all;
+        var plan = SpawnerRun.Plan(_doc, _catalog, scope, dlg.Condition, dlg.Seed);
+        if (plan.IsEmpty)
+        {
+            Dlg.Info(this, "Nothing spawned", Describe(plan, scope.Count));
+            return;
+        }
+
+        _stack.Push(_doc, plan.ToCommand());
+        Board.SetSelection([], []);   // the spawners it pointed at are gone
+        Dlg.Success(this, "Spawners run", Describe(plan, scope.Count));
+
+        static string Describe(SpawnerRunPlan plan, int asked)
+        {
+            var lines = new List<string>();
+            if (plan.Consumed.Count == 0)
+                lines.Add($"None of the {asked} spawner(s) fired.");
+            else
+                lines.Add($"{plan.Consumed.Count} spawner(s) rolled {plan.Rolled} item(s) and "
+                          + $"{plan.Delivered} of them landed on the deck.");
+            if (plan.Unfired.Count > 0)
+                lines.Add($"{plan.Unfired.Count} spawner(s) do not fire on this kind of ship and were left in "
+                          + "place. Their flags are on the SPAWNER panel.");
+            if (plan.NoRoom > 0)
+                lines.Add($"{plan.NoRoom} item(s) had nowhere to go inside the scatter square and were lost. "
+                          + "The game loses these too: it refuses a tile another object already claims. Widen "
+                          + "\"Scatter\" on the spawner for more room.");
+            if (plan.MissingTables.Count > 0)
+                lines.Add("Loot tables not in your loaded data, so they made nothing:\n   • "
+                          + string.Join("\n   • ", plan.MissingTables.Take(8)));
+            if (plan.MissingItems.Count > 0)
+                lines.Add("Items not in your loaded data, so they could not be laid:\n   • "
+                          + string.Join("\n   • ", plan.MissingItems.Take(8)));
+            if (plan.Truncated)
+                lines.Add("The roll was cut short. A loot table in your data refers back to itself.");
+            lines.Add($"Seed {plan.Seed.ToString(System.Globalization.CultureInfo.InvariantCulture)}. "
+                      + "Enter it next time to get this exact result back.");
+            return string.Join("\n\n", lines);
+        }
+    }
+
     /// <summary>Context menu for a loose floor item (the Items palette): change its stacked quantity (when the item
     /// stacks) and delete it. Fired by a right-click on the item, which has already selected it.</summary>
     private void OnLooseContextMenuRequested((int X, int Y) cell)
@@ -3850,6 +3934,14 @@ public partial class MainWindow : Window
             menu.Items.Add(new Separator());
             menu.Items.Add(Item("View contents" + (held > 0 ? $" ({held})" : "") + "…", "",
                 (_, _) => OpenLooseInventory(lo, part)));
+        }
+
+        // "Run spawner…": roll what it would make and lay that on the deck instead (#65). Offered on the item
+        // itself, because that is where the question comes up.
+        if (SpawnerRun.IsRunnable(lo))
+        {
+            menu.Items.Add(new Separator());
+            menu.Items.Add(Item("Run spawner…", "", (_, _) => RunSpawners([lo])));
         }
 
         menu.Items.Add(new Separator());
@@ -5850,6 +5942,64 @@ public partial class MainWindow : Window
     private void OnAccessToggleClick(object sender, RoutedEventArgs e) => Board.ToggleAccess();
     private void OnWireToggleClick(object sender, RoutedEventArgs e) => Board.ToggleShowWire();
 
+    /// <summary>Show or hide the loot spawners, and remember the choice (#68). App-wide like Force place and the
+    /// backdrop, rather than per design: it is about the person looking at the plan, not about the ship.</summary>
+    private void OnSpawnersToggleClick(object sender, RoutedEventArgs e)
+    {
+        var on = !Board.ShowSpawners;
+        foreach (var session in _sessions) session.Board.SetShowSpawners(on);
+        _settings.ShowSpawners = on;
+        _settings.Save();
+        SyncViewToggles();
+    }
+
+    private void OnSpawnersMenuClick(object sender, RoutedEventArgs e) =>
+        OpenOptionsUnder(SpawnerOptionsItem(), BtnSpawnersMenu);
+
+    /// <summary>
+    /// The Spawners submenu: when a scatter square is drawn, and how.
+    ///
+    /// <para>Two lists rather than one, because the reporter's five modes are a <b>when</b> crossed with a
+    /// <b>how</b> and collapsing them into a flat list makes some combinations unreachable. "Only when selected,
+    /// drawn as the enlarged icon" is a perfectly reasonable way to work and a five-entry list has no room for
+    /// it. Both persist, and neither changes what the design holds.</para>
+    /// </summary>
+    private MenuItem SpawnerOptionsItem()
+    {
+        var menu = new MenuItem { Header = "Spawners" };
+
+        var when = new MenuItem { Header = "Show the scatter" };
+        when.Items.Add(MenuAction("Never (origin only)", () => SetSpawnerView(when: SpawnerScatterWhen.Never),
+            check: Board.ScatterWhen == SpawnerScatterWhen.Never));
+        when.Items.Add(MenuAction("Only when selected", () => SetSpawnerView(when: SpawnerScatterWhen.Selected),
+            check: Board.ScatterWhen == SpawnerScatterWhen.Selected));
+        when.Items.Add(MenuAction("Always", () => SetSpawnerView(when: SpawnerScatterWhen.Always),
+            check: Board.ScatterWhen == SpawnerScatterWhen.Always));
+        menu.Items.Add(when);
+
+        var style = new MenuItem { Header = "Draw it as" };
+        style.Items.Add(MenuAction("A box over the tiles it reaches",
+            () => SetSpawnerView(style: SpawnerScatterStyle.Box),
+            check: Board.ScatterStyle == SpawnerScatterStyle.Box));
+        style.Items.Add(MenuAction("The spawner, enlarged (as the game's editor)",
+            () => SetSpawnerView(style: SpawnerScatterStyle.Sprite),
+            check: Board.ScatterStyle == SpawnerScatterStyle.Sprite));
+        menu.Items.Add(style);
+
+        return menu;
+    }
+
+    /// <summary>Apply and persist one half of the spawner view, leaving the other where it was.</summary>
+    private void SetSpawnerView(SpawnerScatterWhen? when = null, SpawnerScatterStyle? style = null)
+    {
+        var nextWhen = when ?? Board.ScatterWhen;
+        var nextStyle = style ?? Board.ScatterStyle;
+        foreach (var session in _sessions) session.Board.SetSpawnerView(nextWhen, nextStyle);
+        _settings.SpawnerScatterWhen = nextWhen.ToString();
+        _settings.SpawnerScatterStyle = nextStyle.ToString();
+        _settings.Save();
+    }
+
     /// <summary>Reflect the live overlay state onto the toolbar toggle buttons' IsChecked, so the Fluent theme paints
     /// the active view with its own (theme-aware, correct-contrast) checked accent. Called at startup and from every
     /// ...Changed handler, so the highlight stays in step whether the toggle came from a button, a keyboard gesture,
@@ -5863,6 +6013,7 @@ public partial class MainWindow : Window
         BtnWalk.IsChecked = Board.ShowWalk;
         BtnAccess.IsChecked = Board.ShowAccess;
         BtnWire.IsChecked = Board.ShowWire;
+        BtnSpawners.IsChecked = Board.ShowSpawners;
         BtnSurface.IsChecked = Board.SurfaceMode;
         BtnForce.IsChecked = Board.ForcePlace;
         ForceBadge.Visibility = Board.ForcePlace ? Visibility.Visible : Visibility.Collapsed;
@@ -6253,13 +6404,15 @@ public partial class MainWindow : Window
     /// </summary>
     private ImportOptions? AskImportOptions(string heading, string note)
     {
-        var initial = new ImportOptions(_settings.ImportContainerContents, _settings.ImportLooseItems);
+        var initial = new ImportOptions(
+            _settings.ImportContainerContents, _settings.ImportLooseItems, _settings.ImportSpawners);
         var dlg = new ImportOptionsDialog(heading, note, initial) { Owner = this };
         if (dlg.ShowDialog() != true) return null;
 
         var chosen = dlg.Options;
         _settings.ImportContainerContents = chosen.ContainerContents;
         _settings.ImportLooseItems = chosen.LooseItems;
+        _settings.ImportSpawners = chosen.Spawners;
         _settings.Save();
         return chosen;
     }
@@ -6311,9 +6464,9 @@ public partial class MainWindow : Window
                       "Right-click one to change what it makes.");
         if (result.SpawnersDropped > 0)
             notes.Add($"{result.SpawnersDropped} loot spawner(s) were left behind.\n" +
-                      (opts.LooseItems
+                      (opts.Spawners
                           ? "They carry no spawn settings to read, so they'd have stocked nothing."
-                          : "Turn on \"Items lying on the deck\" at import to bring them in."));
+                          : "Turn on \"Loot spawners\" at import to bring them in."));
         if (result.SystemDropped > 0)
             notes.Add($"{result.SystemDropped} system object(s) were dropped.\nFire, explosions and the like are " +
                       "runtime state, not buildable structure.");
@@ -6911,6 +7064,7 @@ public partial class MainWindow : Window
             ("Access overlay", "J", "Point at a fitting and see the tiles a crew member would work it from, the way the game marks them on the deck. The plan alone cannot tell you an arcade cabinet is usable from one side only, or which side that is. Selecting a part pins its marks so you can look elsewhere; with nothing selected they follow the cursor. Amber instead of blue means it is reachable only from outside the hull, which is normal for hull-mounted equipment. It reads the same analysis as the Walk overlay, so the same View menu switches apply."),
             ("Surfaces mode", "T", "Treat the deck as a canvas: everything outside the focused layer is ghosted and steps out of the way of clicks, so the floor under a bed is one click away, and a 1×1 wall/floor brush re-skins whatever is already on a tile instead of refusing to land on it. Paint, box-fill (Shift+drag), outline (Ctrl at release) and the compartment fill on a bare room all work as they always did — they just re-skin whatever they land on now. In the Surfaces bar: a second brush and a checkerboard or stripe pattern; SHOW picks the focused layer (Both / Floors / Walls — Floors ghosts the walls too, which is how you reach the floors under them); PAINT picks what a stroke may do (Replace only, the default, so a stroke never spills new deck past a room's edge; Both; or Fill only). View ▸ Surfaces sets how visible the ghosted layers stay. Light Viz switches off while it is on, because a lit composite has no layers left to ghost."),
             ("Wire overlay", "Toolbar toggle", "Show the ship's signal wiring. Each wire draws from the driving device to the one it drives, with a dot at the driven end: GREEN for a sensor a device follows, VIOLET for a signal box switching one. It is a view like Power or Rooms and changes nothing about what a click does."),
+            ("Spawners view", "Toolbar toggle", "Show or hide the loot spawners. They are editor objects that decide what the ship arrives carrying and are invisible in play, so turning them off leaves you the ship itself to lay out. A spawner scatters what it makes over a SQUARE of (2 × Scatter + 1) tiles centred on its own tile, which the base game's editor shows by drawing the spawner at that size; the ▾ menu picks when the square is drawn (never, only around the selected spawner, or always) and whether it is a box over the tiles it reaches or the spawner's own icon blown up as the game draws it. Hiding a spawner changes nothing about the design: it still exports and it is still there when the toggle comes back on."),
             ("Wiring things up", "Right-click ▸ Wiring…", "Wiring is started from the part itself: right-click any device that can be wired, choose Wiring…, then click its partner in the plan. Valid partners ring while you are picking, and clicking one that is already connected disconnects it instead. You are never asked which kind of wire you are drawing — a sensor or a signal box drives, a pump or a cooler is driven, and the app knows which. A sensor or a box stays armed so you can wire it to several devices (one thermostat commonly runs every heater and cooler on a deck); a device is done after one, since it follows a single sensor. Esc or right-click cancels. The same menu lists what a part is already wired to, so you can disconnect from either end. A SENSOR link is the one that matters most: a pump with no sensor never runs unless somebody forces it on by hand. Each device's own knob and modes are on the DEVICE panel in the inspector."),
             ("Delete", "Del", "Delete the selection."),
             ("Select all", "Ctrl+A", "Select every part in the design."),

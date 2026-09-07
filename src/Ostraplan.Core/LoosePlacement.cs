@@ -47,23 +47,36 @@ public static class LoosePlacement
     /// <param name="self">The item being moved, when re-testing one already on the deck. Its own footprint is
     /// lifted out of the deck-condition layer for the test, so it does not fail against where it currently is —
     /// the same trick <see cref="CheckFit"/>'s <c>self</c> plays for a placement.</param>
-    public static FitResult Check(ShipDocument doc, PartDef item, int x, int y, int rot, LooseObject? self = null)
+    /// <param name="leaving">Items that go out of the document in the <b>same step</b> as this one lands, and so
+    /// must not block it. <see cref="SpawnerRun"/> is what needs it: a spawner is consumed by the run that rolls
+    /// it, and with a scatter range of 0 (which is most of them) the only tile its cargo can land on is the one
+    /// the spawner is still standing on while the run is being worked out.</param>
+    public static FitResult Check(ShipDocument doc, PartDef item, int x, int y, int rot, LooseObject? self = null,
+        IReadOnlyCollection<LooseObject>? leaving = null)
     {
         ArgumentNullException.ThrowIfNull(doc);
         ArgumentNullException.ThrowIfNull(item);
 
         var tiles = ShipDocument.LooseTiles(item, x, y, rot).ToList();
 
+        // Everything that should not count against this pose: the mover itself, plus anything leaving with it.
+        var exempt = new List<LooseObject>();
+        if (self is not null) exempt.Add(self);
+        if (leaving is not null) exempt.AddRange(leaving.Where(o => o is not null && o != self));
+
         // One item per tile is Ostraplan's own invariant and is tested here rather than left to the socket law,
         // because a def the catalogue only knows as a cooverlay carries no masks at all — the law would have
         // nothing to say about it and the item would land on top of whatever was already there. It also reads
         // better than the mask's generic "tile is already occupied".
-        var moving = self is null ? null : (IReadOnlySet<Guid>)new HashSet<Guid> { self.Id };
+        var moving = exempt.Count == 0 ? null : (IReadOnlySet<Guid>)exempt.Select(o => o.Id).ToHashSet();
         var taken = tiles.Where(t => !doc.LooseFreeAt(t.X, t.Y, moving)).ToList();
         if (taken.Count > 0) return new FitResult(false, taken, "another deck item is already there");
 
-        var selfItem = self is not null ? doc.Catalog.Lookup(self.DefName)?.Item : null;
-        if (selfItem is not null) doc.LooseConds.Apply(self!.X, self.Y, self.Rot, selfItem, -1);
+        var lifted = exempt
+            .Select(o => (Obj: o, Item: doc.Catalog.Lookup(o.DefName)?.Item))
+            .Where(p => p.Item is not null)
+            .ToList();
+        foreach (var (obj, lift) in lifted) doc.LooseConds.Apply(obj.X, obj.Y, obj.Rot, lift, -1);
         try
         {
             // The envelope is the primary airlock's construction bound, and it bounds CONSTRUCTION. A template
@@ -73,7 +86,7 @@ public static class LoosePlacement
         }
         finally
         {
-            if (selfItem is not null) doc.LooseConds.Apply(self!.X, self.Y, self.Rot, selfItem, +1);
+            foreach (var (obj, lift) in lifted) doc.LooseConds.Apply(obj.X, obj.Y, obj.Rot, lift, +1);
         }
     }
 

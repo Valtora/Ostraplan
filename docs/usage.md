@@ -45,7 +45,7 @@ right, but treat a mismatch as "double-check in-game".
 | **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**, an **ITEMS** tab for loose floor cargo, a **SPECIAL** tab for the structure the game places but never lets you build, and a **FAV/REC** tab at the front for the parts you pinned and the ones you just placed. Search by friendly or internal name. Modded parts show a small origin badge. |
 | **Canvas** (centre) | The tile grid. Place, paint, select, pan and zoom here. A **tab strip** appears above it as soon as a second design is open, and disappears again when you are back to one. |
 | **Inspector** (right) | The selected part's details, ship stats, the **Problems** list, and the **Law report**. |
-| **Toolbar** (top) | The actions, grouped **File · Edit · Design · Analyse**, with **⚙ Settings** and the **Help ▾** menu on the right. Then two groups, divided by what a button does. **Edit modes** change what a click does: **Symmetry** (click to cycle the axes), **Surfaces**, and **Force**, which stops the placement law refusing anything (see [Force place](#the-law--live-validation)) and puts a red **FORCE PLACE** marker in the status bar for as long as it is on. **Overlays** only change what you see and never affect editing: **Zones · Rooms · Power · Light · Walk · Access · Wire**. Each highlights in the accent colour while active, and **Light** and **Walk** carry a **▾** for their own options. **Fit** frames the design. Narrow the window past the point where all of that fits on one line and the two groups drop to a second row of their own, returning beside the actions when there is room again. The design's name sits in the middle, with its make, model and designation underneath once you have set them in **Ship Info**. When a newer release exists it is downloaded in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
+| **Toolbar** (top) | The actions, grouped **File · Edit · Design · Analyse**, with **⚙ Settings** and the **Help ▾** menu on the right. Then two groups, divided by what a button does. **Edit modes** change what a click does: **Symmetry** (click to cycle the axes), **Surfaces**, and **Force**, which stops the placement law refusing anything (see [Force place](#the-law--live-validation)) and puts a red **FORCE PLACE** marker in the status bar for as long as it is on. **Overlays** only change what you see and never affect editing: **Zones · Rooms · Power · Light · Walk · Access · Wire · Spawners**. Each highlights in the accent colour while active, and **Light**, **Walk** and **Spawners** carry a **▾** for their own options. **Spawners** is the one that hides rather than adds: it takes the loot spawners off the plan, and its ▾ decides how much of a spawner's scatter square is drawn (see [Loot spawners](#loot-spawners--what-a-ship-arrives-carrying)). **Fit** frames the design. Narrow the window past the point where all of that fits on one line and the two groups drop to a second row of their own, returning beside the actions when there is room again. The design's name sits in the middle, with its make, model and designation underneath once you have set them in **Ship Info**. When a newer release exists it is downloaded in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
 
 ### Settings
 
@@ -207,7 +207,9 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   the filter chips offered after a **Shift+drag** (which combine, where "Select only"
   picks one). Both list the render layers in the catch plus a **Loose items** row, so a
   drag over a room can keep just its walls, or just the clutter on its floor. Keeping only
-  the loose items and pressing **Del** clears a deck without touching the ship. To clear
+  the loose items and pressing **Del** clears a deck without touching the ship. Loot
+  spawners get rows of their own, **Loot spawners** and **Person spawns**, so the editor
+  objects can be kept or dropped apart from the cargo they sit among. To clear
   every deck at once, use **Design ▸ Remove All Loose Items…**.
 - **Ctrl+click** a loose item to add it to (or take it out of) the selection by hand, the
   same as Ctrl+click on a part. To reach the structure *under* a loose item, press **`**
@@ -826,8 +828,9 @@ Everything below is under **File ▸ Import** / the **Export** button.
 |---|---|
 | **Container contents** | Everything inside lockers, racks and crates, as viewable and editable cargo. Select a container and press **Contents…** in the inspector, or **Enter**. |
 | **Items lying on the deck** | Tools, scrap and other loose objects on the floor. |
+| **Loot spawners** | The editor objects that decide what the ship arrives carrying. Separate from the deck items, because a spawner stands for cargo rather than being cargo, and is invisible in play. |
 
-Both default to **on**. Crew are never imported.
+All three default to **on**. Crew are never imported.
 
 - **"For editing" always brings both**, and doesn't ask, because the write-back emits
   each container's contents from what was imported: importing without cargo would delete
@@ -1616,10 +1619,12 @@ that fill it when the game creates it, which is how one station template yields 
 with supplies in the infirmary and a wreck strewn with scrap. The game's own ships use
 thousands of them.
 
-A ship you import brings its spawners with it, as long as **Items lying on the deck** is on,
-and the import report counts them on their own line so you can see how many arrived. A spawner
-is left behind only if that option is off, or if it carries no spawn settings to read, in which
-case it would have made nothing anyway.
+A ship you import brings its spawners with it, as long as **Loot spawners** is ticked at the
+import dialog, and the import report counts them on their own line so you can see how many
+arrived. That option is separate from **Items lying on the deck**, so you can take a ship's
+actual contents and leave the machinery behind, or the other way round. A spawner is left
+behind only if the option is off, or if it carries no spawn settings to read, in which case it
+would have made nothing anyway.
 
 Place one from the loose-item picker (**SysLootSpawner**), select it, and the **SPAWNER**
 block in the inspector sets it up.
@@ -1637,6 +1642,50 @@ block in the inspector sets it up.
 
 A spawner you haven't pointed at anything says so: it defaults to the game's empty table and
 makes nothing.
+
+### Seeing them, and its scatter
+
+The toolbar's **Spawners** toggle shows or hides them on the plan. They are editor objects that
+never appear in play, so turning them off leaves you the ship itself to lay out. Hiding one
+changes nothing about the design: it still exports, and it is still there when the toggle comes
+back on.
+
+**Scatter is a square, not a circle.** A spawner reaches every tile of a box
+(2 × **Scatter** + 1) tiles a side, centred on its own tile, corners included. The base game's
+editor shows this by drawing the spawner itself at that size, which is why a spawner in the
+game's editor can be far bigger than the 1×1 marker Ostraplan used to draw. The **▾** beside
+the toggle picks how much of it you see:
+
+| | |
+|---|---|
+| **Show the scatter** | **Never** (the origin marker alone), **Only when selected** (the default, so a deck full of spawners stays readable), or **Always**. |
+| **Draw it as** | **A box over the tiles it reaches**, which covers nothing up, or **the spawner, enlarged**, which is what the base editor draws. |
+
+Both are remembered, and both apply to every design you have open.
+
+### Running them
+
+**Right-click a spawner ▸ Run spawner…**, or right-click a selection holding several and choose
+**Run loot spawners…**, to roll what they would make and lay it on the deck as ordinary items.
+It uses the game's own loot tables and the game's own arithmetic, so what comes out is what the
+ship would actually have arrived with.
+
+The spawner is **replaced** by what it rolls. A design holding both would arrive carrying the
+cargo twice, once as the items and once as the spawner rolling again in game. It is one undo
+step, so a deck that came out wrong is one **Ctrl+Z** from the spawners that made it.
+
+- **Run** — the spawners you selected, or every one in the design.
+- **As a ship the game builds** — **New**, **Damaged** or **Derelict**. A spawner whose flags do
+  not cover the case you pick makes nothing and is left where it is.
+- **Seed** — leave it blank for a fresh roll. The number used is reported afterwards, so a
+  result you liked can be typed back in to get it again exactly.
+
+Only object spawners can be run. A person spawner makes crew, and crew are never part of a
+design.
+
+Some of what a spawner rolls can have nowhere to go, and the report says how many. The game
+loses these too: it refuses a tile another object already claims, so a spawner with **Scatter**
+0 places one item and destroys the rest. Widen the scatter for more room.
 
 > **Where people arrive.** Ostraplan works out a boarding point and a crew-spawn point for
 > every ship, because one without them drops arrivals at the map origin, often outside the
@@ -1809,7 +1858,8 @@ the way the game does.
 
 Loose items select like anything else: a box-select catches them, **Ctrl+click** adds or
 removes one, and the box-select filter (**Select only**, or the chips after a
-**Shift+drag**) has a **Loose items** row for keeping or dropping the whole catch of them.
+**Shift+drag**) has a **Loose items** row for keeping or dropping the whole catch of them,
+with **Loot spawners** and **Person spawns** on rows of their own.
 Clicking anywhere on an item picks it up, not only the corner it is anchored to.
 Once selected they move, rotate, flip, copy, duplicate and delete with the structure
 around them, all in one undo step. Two things behave differently from structure, because

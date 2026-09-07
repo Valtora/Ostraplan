@@ -264,6 +264,10 @@
                             ToolTip="Point at a fitting to see where crew would work it from. (J)"/>
                     <ToggleButton x:Name="BtnWire" Content="Wire" Style="{StaticResource OverlayToggle}" Click="OnWireToggleClick"
                             ToolTip="Show signal wiring: sensors a device follows, and boxes that switch it."/>
+                    <ToggleButton x:Name="BtnSpawners" Content="Spawners" Style="{StaticResource SplitToggle}" Click="OnSpawnersToggleClick"
+                            ToolTip="Show loot spawners on the plan. They are editor objects and never appear in play, so turn them off to lay out the ship itself."/>
+                    <Button x:Name="BtnSpawnersMenu" Content="▾" Style="{StaticResource SplitArrow}" Click="OnSpawnersMenuClick"
+                            ToolTip="When to show a spawner's scatter square, and how to draw it."/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 
