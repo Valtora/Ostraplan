@@ -169,13 +169,18 @@ public class ShipImportTests(ITestOutputHelper output)
             Items =
             [
                 new TemplateItem("ItmWall1x1", 0, 0, 0, "a"),
-                new TemplateItem("SysLootSpawner", 1, 0, 0, "b"),   // IsSystem — a runtime loot spawner, not structure
+                // A spawner with no GUILootSpawn panel on it. It is left behind, but as a spawner rather than as
+                // a system object: without its panel it would stock nothing, which is a different fact about the
+                // import from "fire and explosions were dropped" and is now reported as one (#64).
+                new TemplateItem("SysLootSpawner", 1, 0, 0, "b"),
             ],
             Rooms = [], Rating = [],
         };
 
         var r = TemplateImport.FromTemplate(tmpl, g.Catalog);
-        Assert.Equal(1, r.SystemDropped);   // the spawner
+        Assert.Equal(0, r.SystemDropped);
+        Assert.Equal(1, r.SpawnersDropped);
+        Assert.Equal(0, r.SpawnersKept);
         Assert.Equal(1, r.PartCount);       // just the wall
         Assert.All(r.Doc.Placements, p => Assert.True(p.IsGiven));
     }

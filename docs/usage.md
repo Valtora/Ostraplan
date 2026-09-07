@@ -1590,6 +1590,11 @@ that fill it when the game creates it, which is how one station template yields 
 with supplies in the infirmary and a wreck strewn with scrap. The game's own ships use
 thousands of them.
 
+A ship you import brings its spawners with it, as long as **Items lying on the deck** is on,
+and the import report counts them on their own line so you can see how many arrived. A spawner
+is left behind only if that option is off, or if it carries no spawn settings to read, in which
+case it would have made nothing anyway.
+
 Place one from the loose-item picker (**SysLootSpawner**), select it, and the **SPAWNER**
 block in the inspector sets it up.
 

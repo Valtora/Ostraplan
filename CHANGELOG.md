@@ -12,6 +12,14 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Fixed
+- **The import report stops saying loot spawners were dropped when it kept them.** Importing a ship
+  template reported that "loot spawner and system object(s) were dropped", which had been true until
+  spawners started being imported and was not true afterwards: one tally still covered both, so the
+  number could not tell you which had happened. Spawners are counted on their own now and reported on
+  their own, both the ones that came in with their settings and the ones left behind, and the note
+  about system objects is about fire and explosions alone. A spawner is left behind for one of two
+  reasons and the report says which: deck items were turned off at import, or the spawner carried no
+  spawn settings to read and would have stocked nothing. Thanks to nighoggDatatype. (#64)
 - **Undoing a deletion puts the part back where it was, not on the end of the ship.** Deleting a bartop
   with a stool in front of it and pressing Ctrl+Z brought back a blocking build-order warning that had
   never been there: the bartop keeps its access tile clear, so it has to go down before the stool, and

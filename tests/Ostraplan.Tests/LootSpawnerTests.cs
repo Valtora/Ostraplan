@@ -273,6 +273,11 @@ public class LootSpawnerTests
         // wherever the export recomputed them.
         Assert.Equal(2, result.SpawnersKept);
 
+        // …and the report has to agree with that. Keeping both while telling the user that "loot spawner and
+        // system object(s) were dropped" is what #64 was: the tally was still the pre-#55 one.
+        Assert.Equal(0, result.SpawnersDropped);
+        Assert.Equal(0, result.SystemDropped);
+
         var spawners = result.Doc.LooseObjects.Where(o => o.Spawner is not null).ToList();
         Assert.Equal(2, spawners.Count);
 

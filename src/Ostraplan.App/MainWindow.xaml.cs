@@ -6276,8 +6276,18 @@ public partial class MainWindow : Window
         if (result.LooseDropped > 0)
             notes.Add($"{result.LooseDropped} item(s) lying on the deck were left behind.\n" +
                       "Turn on \"Items lying on the deck\" at import to bring them in.");
+        if (result.SpawnersKept > 0)
+            notes.Add($"{result.SpawnersKept} loot spawner(s) came in with their settings.\n" +
+                      "A spawner isn't structure: the game runs it to stock the ship when it loads. " +
+                      "Right-click one to change what it makes.");
+        if (result.SpawnersDropped > 0)
+            notes.Add($"{result.SpawnersDropped} loot spawner(s) were left behind.\n" +
+                      (opts.LooseItems
+                          ? "They carry no spawn settings to read, so they'd have stocked nothing."
+                          : "Turn on \"Items lying on the deck\" at import to bring them in."));
         if (result.SystemDropped > 0)
-            notes.Add($"{result.SystemDropped} loot spawner and system object(s) were dropped.\nThey populate the ship at runtime, and aren't buildable structure.");
+            notes.Add($"{result.SystemDropped} system object(s) were dropped.\nFire, explosions and the like are " +
+                      "runtime state, not buildable structure.");
         if (result.NavConsolesStocked > 0)
             notes.Add($"{result.NavConsolesStocked} nav console(s) came in empty and were fitted with the standard " +
                       $"module set ({result.NavModulesInstalled} module(s) in all).\n" +

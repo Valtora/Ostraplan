@@ -41,8 +41,11 @@ public sealed record ImportOptions(bool ContainerContents = true, bool LooseItem
 /// </summary>
 /// <param name="ContainedDropped">Contained sub-objects (cargo, tools, installed modules) <b>left behind</b>.</param>
 /// <param name="SystemDropped">System objects left behind: fire, explosions, and anything else flagged
-/// <c>IsSystem</c> that is runtime state rather than design data. Loot spawners used to be counted here and are
-/// now kept instead (see <see cref="ImportResult.SpawnersKept"/>).</param>
+/// <c>IsSystem</c> that is runtime state rather than design data. Loot spawners are <b>not</b> counted here.
+/// They were until #64, which put a report of "loot spawner and system object(s) were dropped" in front of an
+/// import that had just kept every spawner it found: two unrelated things under one tally, and no way to tell
+/// from the number which had happened. They have their own pair now, <see cref="ImportResult.SpawnersKept"/>
+/// and <see cref="ImportResult.SpawnersDropped"/>.</param>
 public sealed record ImportResult(
     ShipDocument Doc, IReadOnlyList<SkippedDef> Skipped, int ContainedDropped, int SystemDropped,
     string ShipName, int PartCount)
@@ -67,6 +70,11 @@ public sealed record ImportResult(
     /// used to be dropped with the rest of the <c>IsSystem</c> objects, which stripped an imported station of
     /// everything it was meant to spawn (#55).</summary>
     public int SpawnersKept { get; init; }
+
+    /// <summary>Loot spawners left behind: either the import was told not to bring deck items in, or the spawner
+    /// carried no <c>GUILootSpawn</c> panel to read, and a spawner without its panel makes nothing. Counted apart
+    /// from <see cref="SystemDropped"/> so the report can say which of the two happened (#64).</summary>
+    public int SpawnersDropped { get; init; }
 
     /// <summary>Items lying loose on the deck that were left behind, stack members included.</summary>
     public int LooseDropped { get; init; }
@@ -200,6 +208,7 @@ public static class TemplateImport
         var skipped = new Dictionary<string, int>(StringComparer.Ordinal);
         var systems = 0;
         var spawners = 0;
+        var spawnersDropped = 0;
         int looseKept = 0, looseDropped = 0;
 
         // Structural parts by their source strID, so container contents can be hung on the right ones below.
@@ -245,7 +254,7 @@ public static class TemplateImport
                 // every spawner on each round trip.
                 if (!retainOrigin && part.StartingConds.Contains("IsLootSpawner"))
                 {
-                    if (TakeSpawner(item, part)) spawners++; else systems++;
+                    if (TakeSpawner(item, part)) spawners++; else spawnersDropped++;
                     continue;
                 }
                 if (part.StartingConds.Contains("IsSystem"))   // fire, explosions — runtime, not structure
@@ -379,8 +388,12 @@ public static class TemplateImport
             // same reason the aItems spawners are.
             if (!retainOrigin)
                 foreach (var item in tmpl.ShallowPSpecs)
-                    if (catalog.Lookup(item.DefName) is { } pspecPart && TakeSpawner(item, pspecPart))
-                        spawners++;
+                    if (catalog.Lookup(item.DefName) is { } pspecPart)
+                    {
+                        // A def the loaded data has never heard of is a missing mod and belongs to Skipped, not
+                        // here; these two count the spawners we could read and chose what to do with.
+                        if (TakeSpawner(item, pspecPart)) spawners++; else spawnersDropped++;
+                    }
         }
 
         // A spawner as a deck item carrying its panel. Its position is read the same way any item's is, and its
@@ -436,6 +449,7 @@ public static class TemplateImport
             DeckDropped = deckDropped,
             LooseKept = looseKept,
             SpawnersKept = spawners,
+            SpawnersDropped = spawnersDropped,
             LooseDropped = looseDropped,
             NavConsolesStocked = navConsoles,
             NavModulesInstalled = navModules,
