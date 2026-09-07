@@ -151,14 +151,21 @@ public sealed record DockPart(string DefName, int X, int Y, int Rot, int W, int 
 /// <summary>An open docking port: which item it is, where it mates from, and which class it belongs to.</summary>
 /// <param name="Anchor">The port's grid cell, the game's <c>DockingPortDTO.GridPos</c>.</param>
 /// <param name="DocTile">The port's tile in its ship's document frame.</param>
+/// <param name="CustomName">The name the port was given, from a placement's <see cref="Placement.CustomName"/>
+/// or a template item's <c>Rename</c> panel, or null for the great majority that carry none.</param>
 public sealed record DockPort(
     string ItemId, string DefName, string Friendly, double Rotation, (int X, int Y) Anchor,
-    bool TypeB, (int X, int Y) DocTile)
+    bool TypeB, (int X, int Y) DocTile, string? CustomName = null)
 {
     /// <summary>"Secondary" when the port carries <c>IsTypeB</c>, "Primary" otherwise — the two classes the
     /// game's own <c>strNameShort</c> uses. It decides which port bounds construction, and nothing whatever
     /// about docking legality, which is purely geometric.</summary>
     public string Class => TypeB ? "Secondary" : "Primary";
+
+    /// <summary>What to call this port in a report: the name it was given, else its class. A ship with four
+    /// airlocks otherwise lists four rows reading "Secondary", which is why the coordinates always ride along
+    /// beside this rather than only when it is ambiguous (#62).</summary>
+    public string Label => CustomName is { Length: > 0 } n ? n : Class;
 }
 
 /// <summary>
@@ -341,6 +348,13 @@ public sealed class DockShip
         // ShipGrid.FromTemplate uses, so a ship read for drawing lands where an imported one would.
         var parts = new List<DockPart>(items.Count);
         var docTiles = new Dictionary<string, (int X, int Y)>(StringComparer.Ordinal);
+        // The name each item was given in game, so a report can lead with it instead of a coordinate (#62).
+        // TryAdd rather than ToDictionary: a template is not guaranteed to hold each strID once, and the same
+        // first-one-wins rule TemplateImport's own item graph uses is the right answer here too.
+        var docNames = new Dictionary<string, string>(StringComparer.Ordinal);
+        foreach (var i in tmpl.Items)
+            if (i.StrID is { Length: > 0 } sid && i.CustomName is { Length: > 0 } cn)
+                docNames.TryAdd(sid, cn);
         foreach (var item in items)
         {
             if (item.Contained || lookup(item.DefName) is not { } def) continue;
@@ -354,7 +368,7 @@ public sealed class DockShip
         {
             Name = tmpl.PublicName is { Length: > 0 } name && name != ShipExport.VariedNames ? name : tmpl.Name,
             Grid = grid,
-            Ports = PortsOf(items, grid, catalog, lookup, docTiles),
+            Ports = PortsOf(items, grid, catalog, lookup, docTiles, docNames),
             DocFrame = (0, 0, tmpl.NRows),
             Parts = parts,
         };
@@ -380,8 +394,9 @@ public sealed class DockShip
         var items = new List<DockItem>();
         var parts = new List<DockPart>();
         var docTiles = new Dictionary<string, (int X, int Y)>(StringComparer.Ordinal);
+        var docNames = new Dictionary<string, string>(StringComparer.Ordinal);
 
-        void Add(string defName, int x, int y, int rot, string id)
+        void Add(string defName, int x, int y, int rot, string id, string? customName)
         {
             if (catalog.Lookup(defName) is not { } part) return;
             var (w, h) = GridMath.Size(part.Item.Width, part.Item.Height, rot);
@@ -391,6 +406,7 @@ public sealed class DockShip
                 GridMath.Norm(-rot), id));
             parts.Add(new DockPart(defName, x, y, rot, part.Item.Width, part.Item.Height));
             docTiles[id] = (x, y);
+            if (customName is { Length: > 0 }) docNames[id] = customName;
         }
 
         // ORDER IS PART OF THE ANSWER, so it has to be the order the game will actually read. An item whose
@@ -398,15 +414,15 @@ public sealed class DockShip
         // (see BuildGrid), which makes the whole thing order-dependent. What the game reads is the emitted
         // aItems array, which ShipExport writes in document order, structure first and the deck items after
         // all of them.
-        foreach (var p in doc.Placements) Add(p.DefName, p.X, p.Y, p.Rot, p.Id.ToString());
-        foreach (var lo in doc.LooseObjects) Add(lo.DefName, lo.X, lo.Y, lo.Rot, lo.Id.ToString());
+        foreach (var p in doc.Placements) Add(p.DefName, p.X, p.Y, p.Rot, p.Id.ToString(), p.CustomName);
+        foreach (var lo in doc.LooseObjects) Add(lo.DefName, lo.X, lo.Y, lo.Rot, lo.Id.ToString(), lo.CustomName);
 
         var grid = BuildGrid(items, 0, 0, nCols, nRows, lookup);
         return new DockShip
         {
             Name = name,
             Grid = grid,
-            Ports = PortsOf(items, grid, catalog, lookup, docTiles),
+            Ports = PortsOf(items, grid, catalog, lookup, docTiles, docNames),
             DocFrame = (originCol, originRow, nRows),
             Parts = parts,
         };
@@ -423,7 +439,8 @@ public sealed class DockShip
     /// </summary>
     private static IReadOnlyList<DockPort> PortsOf(
         IEnumerable<DockItem> items, DockGrid grid, Catalog catalog, DockDefLookup lookup,
-        IReadOnlyDictionary<string, (int X, int Y)> docTiles)
+        IReadOnlyDictionary<string, (int X, int Y)> docTiles,
+        IReadOnlyDictionary<string, string> docNames)
     {
         // GatherDockingPortData reads the anchor off whichever grid cell it meets first. Every cell of one
         // bulky item shares a single wrapper, so the anchor is the same whichever that is.
@@ -441,7 +458,7 @@ public sealed class DockShip
             ports.Add(new DockPort(id, item.DefName,
                 catalog.Lookup(item.DefName)?.Friendly ?? item.DefName,
                 item.FRotation, anchor, def.Has(ProblemScan.TypeBCond),
-                docTiles.GetValueOrDefault(id)));
+                docTiles.GetValueOrDefault(id), docNames.GetValueOrDefault(id)));
         }
         return ports;
     }

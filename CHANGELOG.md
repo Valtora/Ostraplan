@@ -11,6 +11,16 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Changed
+- **The docking check calls a dock by the name you gave it.** Every row of the compatibility list read
+  `Secondary (x,y)`, so checking a ship against an apartment with four airlocks on it produced four
+  near-identical lines that only the coordinate told apart, and nobody has those memorised. A port that
+  carries a name is now listed under it, whether it came from a design you renamed here or from the
+  template of the ship you are docking with, where the name rides on the item's own `Rename` panel. The
+  coordinate stays on the line rather than being dropped once there is a name, because two docks may
+  well be called the same thing and the tile is the only part of the label guaranteed to be unique.
+  Thanks to nighoggDatatype. (#62)
+
 ### Fixed
 - **The import report stops saying loot spawners were dropped when it kept them.** Importing a ship
   template reported that "loot spawner and system object(s) were dropped", which had been true until

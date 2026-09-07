@@ -67,6 +67,55 @@ public class DockingTests
     private static DockMate Only(DockShip receiver, DockShip incoming) =>
         Assert.Single(DockMating.Cross(receiver, incoming).Pairs);
 
+    /// <summary>
+    /// A port carries the name it was given, from a design and from a template alike, so the docking report can
+    /// lead with it. Without it a ship with several airlocks lists a column of identical "Secondary" rows that
+    /// only the coordinate tells apart, which is what was reported: checking a big ship against an apartment gave
+    /// "a large list of Secondary (x,y)" and no way to tell which dock was which (#62).
+    /// </summary>
+    [Fact]
+    public void A_renamed_port_carries_its_name_off_a_design()
+    {
+        var cat = Cat();
+        var doc = Hull(cat);
+        var port = doc.Placements.Single(p => p.DefName == Dock);
+        new SetCustomNameCommand(port, null, "Starboard Collar").Do(doc);
+
+        var found = Assert.Single(Ship(doc, cat, "s").Ports);
+        Assert.Equal("Starboard Collar", found.CustomName);
+        Assert.Equal("Starboard Collar", found.Label);
+    }
+
+    [Fact]
+    public void An_unnamed_port_falls_back_to_its_class()
+    {
+        var cat = Cat();
+        var found = Assert.Single(Ship(Hull(cat, DockSecondary), cat, "s").Ports);
+        Assert.Null(found.CustomName);
+        Assert.Equal("Secondary", found.Label);
+    }
+
+    [Fact]
+    public void A_renamed_port_carries_its_name_off_a_template()
+    {
+        // The half that matters most for the report: the ship being docked WITH is read from a template, and its
+        // renames live on the template items rather than on any document.
+        var cat = Cat();
+        var tmpl = new ShipTemplate
+        {
+            Name = "T", Designation = null, NCols = 4, NRows = 4, VShipPosX = 0, VShipPosY = 0,
+            Items =
+            [
+                new TemplateItem(Wall, 0, 0, 0, "w"),
+                new TemplateItem(Dock, 1, 0, 0, "d") { CustomName = "Bow Hatch" },
+            ],
+            Rooms = [], Rating = [],
+        };
+
+        var found = Assert.Single(DockShip.FromTemplate(tmpl, cat, DockDefs.For(cat)).Ports);
+        Assert.Equal("Bow Hatch", found.CustomName);
+    }
+
     [Fact]
     public void Two_clear_hulls_mate_at_their_ports()
     {

@@ -526,11 +526,17 @@ public sealed class DockingWindow : Window
         Text = AirlockName(port), Foreground = Dim, FontSize = 12, Margin = new Thickness(0, 1, 0, 1),
     };
 
+    /// <summary>A port in prose: the name it was given if it has one, else its class, and always the tile.
+    /// A ship with several airlocks otherwise reads as a column of identical "Secondary (x,y)" rows that only
+    /// the coordinate tells apart, and nobody has those memorised (#62).</summary>
     private static string AirlockName(DockPort port) =>
-        $"{port.Class} airlock at ({port.DocTile.X},{port.DocTile.Y})";
+        port.CustomName is { Length: > 0 } n
+            ? $"{n} at ({port.DocTile.X},{port.DocTile.Y})"
+            : $"{port.Class} airlock at ({port.DocTile.X},{port.DocTile.Y})";
 
-    /// <summary>A row's airlock: its class and the tile it sits on, on one line.</summary>
-    private static string PairName(DockPort port) => $"{port.Class} ({port.DocTile.X},{port.DocTile.Y})";
+    /// <summary>A row's airlock: its name (or class) and the tile it sits on, on one line. The tile stays even
+    /// when there is a name, because two docks may carry the same one and it is the only unique thing here.</summary>
+    private static string PairName(DockPort port) => $"{port.Label} ({port.DocTile.X},{port.DocTile.Y})";
 
     /// <summary>A small dim column heading. Upper case because it labels a column rather than naming a thing,
     /// which is how the other reports already mark their section headers. Trimmed rather than wrapped: a ship

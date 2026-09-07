@@ -455,6 +455,9 @@ and until now the only way to find out was to build the ship and try it in game.
   airlock of yours, reading **Docks** or **Blocked** with the number of tiles in the way. Pick
   the other ship from a **ship template** (the usual question: will this fit that station),
   **another open design** in a second tab, a saved **.oplan** file, or a **ship in a save**.
+  An airlock you have named is listed under that name rather than as "Primary" or "Secondary",
+  on both sides of the pairing, with its tile still beside it so two docks sharing a name are
+  still told apart.
 
   Each row has a **Show on Planner** button, and it **draws the two ships docked** on the
   plan: the other hull is ghosted at the pose that mates it with yours, under your own design
