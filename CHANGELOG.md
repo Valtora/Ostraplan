@@ -12,6 +12,15 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Ostraplan opens where you left it.** The window remembered nothing between runs: every launch put
+  the same 1440 × 920 window in the middle of the screen, whatever you had last dragged it to, so
+  anyone designing at a size larger than that resized the window before they could start. It now
+  reopens at the size and position it was closed at, and maximised if it was closed maximised.
+  **Settings ▸ Open as** is the override: leave it on **Last size and position**, or set **Maximised**
+  to have it fill the screen every launch whatever you closed it at, with un-maximising still giving
+  back the window you had. Where the window was is checked against your monitors as they are now, so
+  unplugging the screen it was last on opens it centred the way it always did rather than off the edge
+  of everything. Thanks to nighoggDatatype. (#69)
 - **Loot spawners are yours to keep, to filter, or to cash in for the items they stand for.** A
   spawner is an editor object that decides what a ship arrives carrying. It is invisible in play, and
   until now it rode into a design on the **Items lying on the deck** checkbox, so anyone who wanted a

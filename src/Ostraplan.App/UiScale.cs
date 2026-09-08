@@ -54,6 +54,10 @@ public static class UiScale
     /// change scales from the original rather than compounding. Weak, so a closed window is collectable.</summary>
     private static readonly ConditionalWeakTable<Window, Metrics> Bases = new();
 
+    /// <summary>Windows whose <see cref="Window.Width"/>/<see cref="Window.Height"/> are already a real size rather
+    /// than a declared one — see <see cref="KeepSize"/>. Weak for the same reason <see cref="Bases"/> is.</summary>
+    private static readonly ConditionalWeakTable<Window, object> Sized = new();
+
     private static bool _installed;
 
     /// <summary>The size a window asked for before any scaling. <see cref="double.NaN"/> width/height means the
@@ -80,6 +84,21 @@ public static class UiScale
         EventManager.RegisterClassHandler(typeof(ContextMenu), ContextMenu.OpenedEvent, new RoutedEventHandler(ScalePopup));
         EventManager.RegisterClassHandler(typeof(ToolTip), ToolTip.OpenedEvent, new RoutedEventHandler(ScalePopup));
     }
+
+    /// <summary>
+    /// Exempt a window from the startup size scaling: its <see cref="Window.Width"/>/<see cref="Window.Height"/>
+    /// are a real size somebody chose, not a size the XAML declared, so scaling them is wrong.
+    ///
+    /// <para>The main window's restored placement (#69) is the case. A declared 1440×920 means "the size this
+    /// layout was drawn for", which at 150% should become 2160×1380; a restored 1100×700 is the window the user
+    /// dragged out <i>while already at 150%</i>, and multiplying it again grows the window by half on every launch
+    /// until it hits the work area. The Min/Max constraints still scale — they are declared either way — and the
+    /// re-centring is skipped along with the resize, since a restored position is not one to centre over.</para>
+    ///
+    /// <para>Call it before the window is shown. It says nothing about the content transform, which every window
+    /// gets.</para>
+    /// </summary>
+    public static void KeepSize(Window w) => Sized.AddOrUpdate(w, new object());
 
     /// <summary>Scale a popup that has just opened. See the popup-layer note on the class.</summary>
     private static void ScalePopup(object sender, RoutedEventArgs e)
@@ -127,6 +146,9 @@ public static class UiScale
         if (b.MinHeight > 0) w.MinHeight = Math.Min(b.MinHeight * Scale, work.Height);
         if (double.IsFinite(b.MaxWidth)) w.MaxWidth = Math.Min(b.MaxWidth * grow, work.Width);
         if (double.IsFinite(b.MaxHeight)) w.MaxHeight = Math.Min(b.MaxHeight * grow, work.Height);
+
+        // A window carrying a size somebody chose rather than a declared one is left alone, constraints aside.
+        if (Sized.TryGetValue(w, out _)) return;
 
         // Per dimension, because SizeToContent is per dimension: the common "fixed width, height follows the
         // content" dialog still needs its width scaled or the content is squeezed into the old column. A window

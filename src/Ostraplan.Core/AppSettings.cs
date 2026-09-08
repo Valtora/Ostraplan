@@ -114,6 +114,16 @@ public sealed class AppSettings
     /// <summary>The backdrop to actually draw: whatever is set, clamped, or the default when nothing is.</summary>
     public BackdropSettings BackdropOrDefault() => (Backdrop ?? BackdropSettings.Default).Clamped();
 
+    /// <summary>Where the main window was and how big, as it was last closed (#69). Null until the first close, and
+    /// in a settings file written before this existed, both of which open the window where the app always did.
+    /// Checked against the desktop as it now is before being used — see <see cref="WindowPlacement.FitTo"/>.</summary>
+    [JsonPropertyName("windowPlacement")] public WindowPlacement? WindowPlacement { get; set; }
+
+    /// <summary>How the main window opens, by <see cref="Core.WindowOpenAs"/> name. Stored by name like the surface
+    /// and spawner modes, and read through <see cref="Core.WindowPlacement.ParseOpenAs"/>, which puts an
+    /// unrecognised value back to the default.</summary>
+    [JsonPropertyName("windowOpenAs")] public string? WindowOpenAs { get; set; }
+
     /// <summary>Width of the parts palette, in logical pixels, as the user last dragged it. Zero means collapsed;
     /// the width to restore to is <see cref="PaletteRestoreWidth"/>, so collapsing does not lose the size.</summary>
     [JsonPropertyName("paletteWidth")] public double PaletteWidth { get; set; } = 330;

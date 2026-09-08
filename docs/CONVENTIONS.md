@@ -310,6 +310,15 @@ line by construction and a wrapped item would push the strip open.
 `ShipInfoUI`'s `SideValue` style and `WizardStep.Note` set it for every label that goes through
 them, which is why the misses are always the hand-rolled `TextBlock` that skipped the helper.
 
+**A size somebody chose is not a size the XAML declared.** `UiScale` multiplies a window's declared
+`Width`/`Height` by the scale on its first `Loaded`, which is right for a number that means "the size this
+layout was drawn for" and wrong for one that came off a real window. The main window's remembered
+placement (#69) is the second kind: it was measured *with* the scale already applied, so scaling it again
+grows the window by the scale factor on every launch until it hits the work area, and nothing about that
+looks like a bug until the third or fourth run. `UiScale.KeepSize` is the opt-out, and any window that
+learns to restore its own geometry needs it. The Min/Max constraints still scale, because those are
+declared either way.
+
 ## Tunable parameters are user controls, not constants
 
 When a visual or behavioural parameter is a **feel** knob (a display level, a brightness

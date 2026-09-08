@@ -14,6 +14,7 @@ namespace Ostraplan.App;
 /// </summary>
 /// <param name="Theme">"system" / "light" / "dark".</param>
 /// <param name="Scale">The UI scale factor (1.0 = 100%), already clamped by the dialog.</param>
+/// <param name="OpenAs">How the main window should open next launch.</param>
 /// <param name="Backdrop">What the plan is drawn on, and its grid markings.</param>
 /// <param name="ModOverrides">Whether modded parts may be placed against the core placement law.</param>
 /// <param name="NavModuleArt">Whether the arrange window draws the nav modules with the game's own art.</param>
@@ -22,6 +23,7 @@ namespace Ostraplan.App;
 public sealed record SettingsHooks(
     Action<string> Theme,
     Action<double> Scale,
+    Action<WindowOpenAs> OpenAs,
     Action<BackdropSettings> Backdrop,
     Action<bool> ModOverrides,
     Action<bool> NavModuleArt,
@@ -70,6 +72,7 @@ public sealed class SettingsDialog : Window
         Section(body, "APPEARANCE", first: true);
         body.Children.Add(ThemeRow());
         body.Children.Add(ScaleRow());
+        body.Children.Add(OpenAsRow());
         body.Children.Add(NavArtRow());
 
         Section(body, "THE PLAN'S BACKDROP");
@@ -184,6 +187,24 @@ public sealed class SettingsDialog : Window
             + "a high-resolution monitor run at 100% Windows scaling, where the text would otherwise be tiny; "
             + "below it to fit more into the window you have, on a laptop panel or beside a second copy of the "
             + "app. Dialogs and reports resize with it; the main window keeps the size you gave it.");
+    }
+
+    private UIElement OpenAsRow()
+    {
+        var combo = new ComboBox { Width = 200, HorizontalAlignment = HorizontalAlignment.Left };
+        combo.Items.Add("Last size and position");
+        combo.Items.Add("Maximised");
+        combo.SelectedIndex = WindowPlacement.ParseOpenAs(_settings.WindowOpenAs) == WindowOpenAs.Maximised ? 1 : 0;
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (_init) return;
+            _hooks.OpenAs(combo.SelectedIndex == 1 ? WindowOpenAs.Maximised : WindowOpenAs.Last);
+        };
+        return Row("Open as", combo,
+            "Ostraplan remembers where its window was and how big it was either way. This is whether it comes back "
+            + "like that, or maximised every time whatever you closed it at — which is what you want if the "
+            + "windowed size is never big enough to design in. Un-maximising still gives back the window you had. "
+            + "Read at launch, so a change takes effect next time Ostraplan starts.");
     }
 
     private UIElement NavArtRow()

@@ -121,6 +121,7 @@ public partial class MainWindow : Window
         _autoSaveTimer.Tick += (_, _) => RunAutoSave();
         RestartAutoSaveTimer();   // off unless the user has opted in
 
+        RestoreWindowPlacement();   // the size, position and maximised state the window was last closed at (#69)
         RestorePaneWidths();   // the palette / inspector widths the user last dragged, and whether either is hidden
 
         // The tab the app opens on, built last because activating it touches the timers and the freeze gate above.
@@ -135,8 +136,89 @@ public partial class MainWindow : Window
         Closing += (_, e) =>
         {
             if (!ConfirmDiscardEverything()) e.Cancel = true;
-            else _settings.Save();
+            else { CaptureWindowPlacement(); _settings.Save(); }
         };
+        // Maximising or restoring the window records it there and then, so a session that ends in a crash or a
+        // power cut still reopens the way this one looked rather than the way the one before it ended (#69). Only
+        // the state changes are worth a write: a drag would otherwise write settings.json on every pixel, which is
+        // the same reason the pane splitters persist on DragCompleted rather than on move.
+        StateChanged += (_, _) => { if (CaptureWindowPlacement()) _settings.Save(); };
+    }
+
+    // ---- the window's own geometry (#69) ----
+
+    /// <summary>
+    /// Open the window where it was last closed, at the size it was, and maximised if it was — or maximised
+    /// regardless, when that is what Settings ▸ Open as says.
+    ///
+    /// <para>Called from the constructor rather than from <see cref="FrameworkElement.Loaded"/>, because by Loaded
+    /// the window has already been shown at its declared size and centred on the screen: restoring there is a
+    /// visible jump. The geometry is checked against the desktop as it now is first
+    /// (<see cref="WindowPlacement.FitTo"/>), so a monitor that has gone away since cannot open the window off the
+    /// edge of everything.</para>
+    ///
+    /// <para>A restored size is a real one and must not be scaled again, hence <see cref="UiScale.KeepSize"/>: the
+    /// stored figure was already measured with the UI scale applied. The <b>maximised</b> decision is made whether
+    /// or not the geometry was usable, since it needs no coordinates of its own; what it costs is the restore-down
+    /// size, which falls back to the size declared in XAML.</para>
+    /// </summary>
+    private void RestoreWindowPlacement()
+    {
+        var stored = _settings.WindowPlacement;
+        if (stored?.FitTo(
+                SystemParameters.VirtualScreenLeft, SystemParameters.VirtualScreenTop,
+                SystemParameters.VirtualScreenWidth, SystemParameters.VirtualScreenHeight) is { } fit)
+        {
+            WindowStartupLocation = WindowStartupLocation.Manual;
+            Left = fit.Left;
+            Top = fit.Top;
+            Width = fit.Width;
+            Height = fit.Height;
+            UiScale.KeepSize(this);
+        }
+
+        var openAs = WindowPlacement.ParseOpenAs(_settings.WindowOpenAs);
+        if (openAs == WindowOpenAs.Maximised || (openAs == WindowOpenAs.Last && stored?.Maximised == true))
+            WindowState = WindowState.Maximized;
+    }
+
+    /// <summary>
+    /// Record where the window is and how big, for the next launch. Returns true when something was recorded, which
+    /// is what tells the caller whether the settings file is worth writing.
+    ///
+    /// <para><see cref="Window.RestoreBounds"/> rather than the live size, because those are the same thing while
+    /// the window is Normal and the <i>restore-down</i> bounds while it is maximised — which is the pair worth
+    /// keeping, since a maximised window's own size is just the screen's. A window that has never been shown has
+    /// no bounds at all (its Left and Top are <see cref="double.NaN"/>), and a minimised one's are not worth
+    /// keeping either: both leave the last good placement in place rather than overwriting it with nothing.</para>
+    /// </summary>
+    private bool CaptureWindowPlacement()
+    {
+        if (WindowState == WindowState.Minimized) return false;
+
+        var bounds = RestoreBounds;
+        if (bounds.IsEmpty || bounds.Width <= 0 || bounds.Height <= 0) return false;
+        if (!double.IsFinite(bounds.Left) || !double.IsFinite(bounds.Top)) return false;
+
+        _settings.WindowPlacement = new WindowPlacement
+        {
+            Left = bounds.Left,
+            Top = bounds.Top,
+            Width = bounds.Width,
+            Height = bounds.Height,
+            Maximised = WindowState == WindowState.Maximized,
+        };
+        return true;
+    }
+
+    /// <summary>Settings ▸ Open as: whether the window opens at the geometry it was closed at or maximised every
+    /// time. It reads at launch, so a change here shows up next time — which is what the note in the dialog says.
+    /// The geometry itself is remembered either way.</summary>
+    private void SetWindowOpenAs(WindowOpenAs openAs)
+    {
+        _settings.WindowOpenAs = openAs.ToString();
+        _settings.Save();
+        AuditLog.Setting("Open as", openAs == WindowOpenAs.Maximised ? "maximised" : "last size and position");
     }
 
     // ---- document tabs ----
@@ -6772,7 +6854,8 @@ public partial class MainWindow : Window
         if (_settingsDialog is { } open) { open.Activate(); return; }
 
         var dlg = new SettingsDialog(_settings, _catalog, _env, new SettingsHooks(
-            SetTheme, SetUiScale, SetBackdrop, SetModOverrides, SetNavModuleArt, SetGameRoot, SetSavesDir))
+            SetTheme, SetUiScale, SetWindowOpenAs, SetBackdrop, SetModOverrides, SetNavModuleArt, SetGameRoot,
+            SetSavesDir))
         {
             Owner = this,
         };
