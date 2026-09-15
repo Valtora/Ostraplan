@@ -7,7 +7,13 @@ namespace Ostraplan.App;
 
 /// <summary>The backdrop as the canvas needs it: the brush to fill with, and whether it is light enough that the
 /// plan's overlays have to be drawn in dark ink instead of the white they have always used.</summary>
-public sealed record BackdropVisual(Brush Brush, bool IsLight);
+/// <param name="Brush">Fills the whole control, before any view transform. Anchored to the screen.</param>
+/// <param name="IsLight">Whether the overlays need dark ink.</param>
+/// <param name="TileCell">For a backdrop laid on the tile grid, one tile's pattern over a 0..2 square, which the
+/// canvas tiles under its own view transform (see <see cref="BackdropBrushes.TileBrush"/>). Null for a backdrop
+/// anchored to the screen, which is all of <paramref name="Brush"/>.</param>
+/// <param name="TileFar">What <paramref name="TileCell"/> fades to when a tile is too few pixels to show it.</param>
+public sealed record BackdropVisual(Brush Brush, bool IsLight, Drawing? TileCell = null, Brush? TileFar = null);
 
 /// <summary>
 /// Builds the plan's backdrop brush from a <see cref="BackdropSettings"/>.
@@ -39,10 +45,25 @@ public sealed class BackdropBrushes(SpriteCache sprites)
         return settings.Kind switch
         {
             BackdropKind.Checker => Checker(settings),
+            BackdropKind.TileChecker => TileChecker(settings),
             BackdropKind.Locale when catalog is not null && Locale(settings, catalog) is { } visual => visual,
             _ => Solid(settings.Solid),
         };
     }
+
+    /// <summary>
+    /// The brush that lays <paramref name="cell"/> across the plan one tile at a time, starting from the tile
+    /// corner at <paramref name="origin"/> (the plan's origin in the coordinates being drawn in, which on the canvas
+    /// is its pan) at <paramref name="tilePx"/> pixels a tile. Built per frame, because the pan and zoom are part of
+    /// the brush; the drawing inside it is frozen and shared, so a frame costs one small object.
+    /// </summary>
+    public static Brush TileBrush(Drawing cell, Vector origin, double tilePx) => new DrawingBrush(cell)
+    {
+        TileMode = TileMode.Tile,
+        Viewport = new Rect(origin.X, origin.Y, tilePx, tilePx),
+        ViewportUnits = BrushMappingMode.Absolute,
+        Stretch = Stretch.Fill,
+    };
 
     private static BackdropVisual Solid(string hex)
     {
@@ -59,19 +80,8 @@ public sealed class BackdropBrushes(SpriteCache sprites)
     /// </summary>
     private static BackdropVisual Checker(BackdropSettings settings)
     {
-        var (ar, ag, ab) = Backdrop.ParseColour(settings.Solid)!.Value;
-        var (br, bg, bb) = Backdrop.ParseColour(settings.CheckerAlt)!.Value;
-        var a = Color.FromRgb(ar, ag, ab);
-        var b = Color.FromRgb(br, bg, bb);
-
-        const double cell = 1.0;
-        var group = new DrawingGroup();
-        group.Children.Add(new GeometryDrawing(new SolidColorBrush(a), null, new RectangleGeometry(new Rect(0, 0, 2 * cell, 2 * cell))));
-        group.Children.Add(new GeometryDrawing(new SolidColorBrush(b), null, new RectangleGeometry(new Rect(cell, 0, cell, cell))));
-        group.Children.Add(new GeometryDrawing(new SolidColorBrush(b), null, new RectangleGeometry(new Rect(0, cell, cell, cell))));
-
         double square = settings.CheckerSquare;
-        var brush = new DrawingBrush(group)
+        var brush = new DrawingBrush(CheckerCell(settings))
         {
             TileMode = TileMode.Tile,
             Viewport = new Rect(0, 0, 2 * square, 2 * square),
@@ -79,11 +89,40 @@ public sealed class BackdropBrushes(SpriteCache sprites)
             Stretch = Stretch.Fill,
         };
         brush.Freeze();
+        return new BackdropVisual(brush, Backdrop.IsLightChecker(settings.Solid, settings.CheckerAlt));
+    }
 
-        // The ink follows the mean of the two squares: a black-and-white board is mid grey overall, and either
-        // choice of ink is wrong on half of it, so the tie has to break somewhere and the average is honest.
-        var mean = Backdrop.Luminance(ar, ag, ab) / 2 + Backdrop.Luminance(br, bg, bb) / 2;
-        return new BackdropVisual(brush, mean > Backdrop.LightThreshold);
+    /// <summary>
+    /// The checkerboard on the tile grid (#71): the same 2x2 cell as <see cref="Checker"/>, laid once per tile under
+    /// the canvas's view transform rather than across the screen. What fills the control underneath is the first
+    /// colour, so a turned view's corners, which the tiled pass does not reach, match the ground rather than show a
+    /// seam of something else.
+    /// </summary>
+    private static BackdropVisual TileChecker(BackdropSettings settings)
+    {
+        var (fr, fg, fb) = Backdrop.Blend(settings.Solid, settings.CheckerAlt);
+        var far = new SolidColorBrush(Color.FromRgb(fr, fg, fb));
+        far.Freeze();
+        var ground = Solid(settings.Solid).Brush;
+        return new BackdropVisual(ground, Backdrop.IsLightChecker(settings.Solid, settings.CheckerAlt),
+            CheckerCell(settings), far);
+    }
+
+    /// <summary>One cell of either checkerboard over a 0..2 square: the first colour, with the second in the top
+    /// right and bottom left.</summary>
+    private static Drawing CheckerCell(BackdropSettings settings)
+    {
+        var (ar, ag, ab) = Backdrop.ParseColour(settings.Solid)!.Value;
+        var (br, bg, bb) = Backdrop.ParseColour(settings.CheckerAlt)!.Value;
+        var a = new SolidColorBrush(Color.FromRgb(ar, ag, ab));
+        var b = new SolidColorBrush(Color.FromRgb(br, bg, bb));
+
+        var group = new DrawingGroup();
+        group.Children.Add(new GeometryDrawing(a, null, new RectangleGeometry(new Rect(0, 0, 2, 2))));
+        group.Children.Add(new GeometryDrawing(b, null, new RectangleGeometry(new Rect(1, 0, 1, 1))));
+        group.Children.Add(new GeometryDrawing(b, null, new RectangleGeometry(new Rect(0, 1, 1, 1))));
+        group.Freeze();
+        return group;
     }
 
     private BackdropVisual? Locale(BackdropSettings settings, Catalog catalog)

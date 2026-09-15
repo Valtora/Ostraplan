@@ -95,4 +95,43 @@ public class BackdropTests
         // A settings.json from a build before this existed has no "backdrop" key at all.
         Assert.Equal(BackdropSettings.Default, new AppSettings().BackdropOrDefault());
     }
+
+    // ---- the checkerboard on the tile grid (#71) ----
+
+    [Fact]
+    public void The_stored_kinds_keep_their_numbers()
+    {
+        // The kind is written to settings.json as a number, so a value moving would change every saved backdrop.
+        Assert.Equal(0, (int)BackdropKind.Solid);
+        Assert.Equal(1, (int)BackdropKind.Checker);
+        Assert.Equal(2, (int)BackdropKind.Locale);
+        Assert.Equal(3, (int)BackdropKind.TileChecker);
+    }
+
+    [Fact]
+    public void A_tile_grid_checker_survives_clamping_and_an_unknown_kind_draws_as_the_default()
+    {
+        var tile = BackdropSettings.Default with { Kind = BackdropKind.TileChecker };
+        Assert.Equal(BackdropKind.TileChecker, tile.Clamped().Kind);
+
+        // A settings file from a newer build may name a kind this one has never heard of.
+        var future = BackdropSettings.Default with { Kind = (BackdropKind)42 };
+        Assert.Equal(BackdropKind.Solid, future.Clamped().Kind);
+    }
+
+    [Fact]
+    public void Both_checkerboards_take_their_ink_from_the_mean_of_the_two_colours()
+    {
+        Assert.False(Backdrop.IsLightChecker(BackdropSettings.DefaultSolid, BackdropSettings.DefaultCheckerAlt));
+        Assert.True(Backdrop.IsLightChecker("#FFFFFF", "#C8CCD2"));
+        // Black and white: mean luminance exactly 0.5, which is not above the threshold, so the ink stays light.
+        Assert.False(Backdrop.IsLightChecker("#000000", "#FFFFFF"));
+    }
+
+    [Fact]
+    public void The_far_colour_is_the_two_averaged()
+    {
+        Assert.Equal(((byte)0x80, (byte)0x80, (byte)0x80), Backdrop.Blend("#000000", "#FFFFFF"));
+        Assert.Equal(((byte)0x27, (byte)0x20, (byte)0x36), Backdrop.Blend(BackdropSettings.DefaultSolid, BackdropSettings.DefaultCheckerAlt));
+    }
 }

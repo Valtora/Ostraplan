@@ -56,7 +56,8 @@ than part of a design. Changes apply as you make them.
 | Setting | What it does |
 |---|---|
 | **Theme** | Follow Windows, or force light or dark. Chrome only. The canvas follows **The plan's backdrop** below instead, not the theme. |
-| **The plan's backdrop** | What the plan is drawn on: a solid colour, a checkerboard, or one of the game's own places. See [The plan's backdrop](#the-plans-backdrop). |
+| **The plan's backdrop** | What the plan is drawn on: a solid colour, a checkerboard fixed to the screen or laid on the tile grid, or one of the game's own places. See [The plan's backdrop](#the-plans-backdrop). |
+| **Tabs** | Reopening last session's designs, the backup of unsaved changes, and what closing does with them. See [Picking up where you left off](#picking-up-where-you-left-off). |
 | **Scale markings** | A brighter grid line every 5, 10 or 20 tiles, for judging the size of a hull at a glance. Off by default. |
 | **Panels** | The palette and the inspector are both resizable: drag the divider beside either one, down to a minimum that keeps the panel readable. Double-click a divider, or press **F2** for the palette and **F3** for the inspector, to hide that panel entirely and give the canvas the whole window; the same gesture brings it back at the width you had. Both widths are remembered between sessions. |
 | **UI scale** | 80% to 200%, scaling everything Ostraplan draws, right-click menus, dropdowns and tooltips included. Above 100% for a high-resolution monitor run at 100% Windows scaling, where the app's text would otherwise be tiny; below it to fit more into the window you have, on a laptop panel or beside a second copy of the app. It is a layout scale, not a magnifying glass, so text and vectors stay sharp. Dialogs and reports resize with it; the main window keeps the size you gave it, and below 100% spends the space it saves on the canvas. |
@@ -2089,20 +2090,30 @@ your desktop, and the backdrop should make *your* ship easy to read.
 ## The plan's backdrop
 
 The plan was drawn on one near-black for a long time, and a dark hull on a dark backdrop is
-hard to read. **Settings ▸ The plan's backdrop** changes it. Three kinds:
+hard to read. **Settings ▸ The plan's backdrop** changes it. Four kinds:
 
 - **Solid colour.** Type any `#RRGGBB`, or click one of the swatches: the app's own dark,
   black, white, three greys, and seven colours at three brightnesses each.
-- **Checkerboard.** Two colours in squares of a size you set. For when no single colour
-  beats the hull, because a hull cannot match both squares at once.
+- **Checkerboard, fixed to the screen.** Two colours in squares of a size you set, which hold
+  still while the ship moves over them. For when no single colour beats the hull, because a
+  hull cannot match both squares at once.
+- **Checkerboard, on the tile grid.** The same two colours as a 2×2 pattern inside every
+  tile, like floor tiles, so it pans, zooms and turns with the ship and every square lines
+  up with the grid. Zoomed far enough out that the squares would be a pixel or two, it fades
+  to the two colours blended, since a pattern that fine only shimmers.
 - **A place from the game.** Any of the thirty-two the game draws behind your ship, built
   from its own art: Venus from orbit, Jupiter's cloud tops, the Mars surface, the OKLG
   boneyard. **Dimming** darkens it so the art stays behind the ship rather than competing
   with it, and at 0% it is the art as the game draws it.
 
+Both colours of either checkerboard can be typed as a hex code or picked from the swatches.
+Every setting has a **Reset** beside it that says what the default is and puts it back, and
+**Reset the backdrop to the default** at the bottom of the section puts everything back at
+once: a solid Ostraplan dark with no scale markings.
+
 Each place always composites the same way, so a backdrop you liked for a screenshot is one
-you can go back to. The backdrop holds still while the ship moves over it, so nothing
-drifts about while you pan.
+you can go back to. A place and the screen checkerboard hold still while the ship moves over
+them, so nothing drifts about while you pan.
 
 Pick a light backdrop and the grid, the origin marker and the hover ring switch to dark ink
 so they stay visible.

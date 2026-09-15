@@ -14,6 +14,11 @@ public enum BackdropKind
 
     /// <summary>One of the game's own parallax backdrops (see <see cref="ParallaxLocale"/>).</summary>
     Locale = 2,
+
+    /// <summary>The same two colours laid on the plan's tile grid instead of the screen (#71): a 2x2 pattern inside
+    /// every tile, like floor tiles, which pans, zooms and turns with the ship. Numbered after <see cref="Locale"/>
+    /// because the kind is stored as a number, so the existing values cannot move.</summary>
+    TileChecker = 3,
 }
 
 /// <summary>
@@ -28,16 +33,17 @@ public sealed record BackdropSettings
 {
     public BackdropKind Kind { get; init; } = BackdropKind.Solid;
 
-    /// <summary>The flat colour, and the ground the checkerboard's dark squares use.</summary>
+    /// <summary>The flat colour, and the ground both checkerboards' first squares use.</summary>
     public string Solid { get; init; } = DefaultSolid;
 
-    /// <summary>The checkerboard's second colour.</summary>
+    /// <summary>Both checkerboards' second colour.</summary>
     public string CheckerAlt { get; init; } = DefaultCheckerAlt;
 
-    /// <summary>The checkerboard's square size, in logical pixels. Pixels rather than tiles because the backdrop
-    /// is anchored to the viewport and does not zoom with the plan, so it has no size in tiles to be measured in.
-    /// Clamped to <see cref="MinCheckerSquare"/>..<see cref="MaxCheckerSquare"/>.</summary>
-    public int CheckerSquare { get; init; } = 64;
+    /// <summary>The screen checkerboard's square size, in logical pixels. Pixels rather than tiles because that
+    /// board is anchored to the viewport and does not zoom with the plan, so it has no size in tiles to be measured
+    /// in. The tile-grid board ignores it: its squares are half a tile by definition. Clamped to
+    /// <see cref="MinCheckerSquare"/>..<see cref="MaxCheckerSquare"/>.</summary>
+    public int CheckerSquare { get; init; } = DefaultCheckerSquare;
 
     /// <summary>The <see cref="ParallaxLocale.Name"/> to draw, or null for none chosen yet.</summary>
     public string? Locale { get; init; }
@@ -62,6 +68,7 @@ public sealed record BackdropSettings
 
     public const double DefaultLocaleDimming = 0.45;
 
+    public const int DefaultCheckerSquare = 64;
     public const int MinCheckerSquare = 8;
     public const int MaxCheckerSquare = 512;
     public const int MaxCoarseGrid = 100;
@@ -73,6 +80,7 @@ public sealed record BackdropSettings
     /// (an infinite loop) or a dimming of -4 (a brighter-than-white backdrop).</summary>
     public BackdropSettings Clamped() => this with
     {
+        Kind = Enum.IsDefined(Kind) ? Kind : BackdropKind.Solid,   // a kind from a newer build draws as the default
         Solid = Backdrop.NormaliseColour(Solid, DefaultSolid),
         CheckerAlt = Backdrop.NormaliseColour(CheckerAlt, DefaultCheckerAlt),
         CheckerSquare = Math.Clamp(CheckerSquare, MinCheckerSquare, MaxCheckerSquare),
@@ -113,6 +121,27 @@ public static class Backdrop
 
     /// <summary>Whether the plan's overlays need dark ink to be visible on this colour.</summary>
     public static bool IsLight(byte r, byte g, byte b) => Luminance(r, g, b) > LightThreshold;
+
+    /// <summary>
+    /// Whether a checkerboard of two colours needs dark ink: by the mean of their luminances. A black-and-white
+    /// board is mid grey overall and either ink is wrong on half of it, so the tie has to break somewhere and the
+    /// average is honest. Both checkerboards use it, so switching between them never flips the ink.
+    /// </summary>
+    public static bool IsLightChecker(string a, string b)
+    {
+        var (ar, ag, ab) = ParseColour(a) ?? ParseColour(BackdropSettings.DefaultSolid)!.Value;
+        var (br, bg, bb) = ParseColour(b) ?? ParseColour(BackdropSettings.DefaultCheckerAlt)!.Value;
+        return Luminance(ar, ag, ab) / 2 + Luminance(br, bg, bb) / 2 > LightThreshold;
+    }
+
+    /// <summary>The two colours averaged channel by channel. What the tile-grid checkerboard fades to once its
+    /// squares are too small to draw, since a pattern finer than the pixels showing it only shimmers.</summary>
+    public static (byte R, byte G, byte B) Blend(string a, string b)
+    {
+        var (ar, ag, ab) = ParseColour(a) ?? ParseColour(BackdropSettings.DefaultSolid)!.Value;
+        var (br, bg, bb) = ParseColour(b) ?? ParseColour(BackdropSettings.DefaultCheckerAlt)!.Value;
+        return ((byte)((ar + br + 1) / 2), (byte)((ag + bg + 1) / 2), (byte)((ab + bb + 1) / 2));
+    }
 
     /// <summary>Parse <c>#RRGGBB</c> (with or without the hash, and case-insensitive). Null when it is not a
     /// colour, which is what a hand-edited settings file is allowed to contain.</summary>

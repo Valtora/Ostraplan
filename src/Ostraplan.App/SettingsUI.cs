@@ -84,11 +84,14 @@ public sealed class SettingsDialog : Window
         body.Children.Add(NavArtRow());
 
         Section(body, "THE PLAN'S BACKDROP");
-        body.Children.Add(BackdropKindRow());
+        body.Children.Add(_kindRow);
         body.Children.Add(_solidRow);
-        body.Children.Add(_checkerRow);
+        body.Children.Add(_checkerColourRow);
+        body.Children.Add(_checkerSizeRow);
         body.Children.Add(_localeRow);
-        body.Children.Add(CoarseGridRow());
+        body.Children.Add(_coarseRow);
+        body.Children.Add(_resetAllRow);
+        RebuildBackdropRows();
 
         Section(body, "TABS");
         body.Children.Add(RestoreTabsRow());
@@ -238,16 +241,29 @@ public sealed class SettingsDialog : Window
             + "map and the callsign stay blank.");
     }
 
-    // ---- the plan's backdrop (#43) ----
+    // ---- the plan's backdrop (#43, #71) ----
 
+    // One host per row, so a reset can rebuild every row from the stored settings and each control shows the value
+    // it now has. Building a row sets its control's value before its change handler is attached, so a rebuild never
+    // reads as the user changing anything.
+    private readonly ContentControl _kindRow = new();
     private readonly ContentControl _solidRow = new();
-    private readonly ContentControl _checkerRow = new();
+    private readonly ContentControl _checkerColourRow = new();
+    private readonly ContentControl _checkerSizeRow = new();
     private readonly ContentControl _localeRow = new();
-    private ComboBox? _localeCombo;
+    private readonly ContentControl _coarseRow = new();
+    private readonly ContentControl _resetAllRow = new();
+
+    /// <summary>The backdrop kinds in the order the combo lists them. Not the enum's order: the tile-grid
+    /// checkerboard was added after the locale and belongs beside the other checkerboard.</summary>
+    private static readonly BackdropKind[] KindOrder =
+        [BackdropKind.Solid, BackdropKind.Checker, BackdropKind.TileChecker, BackdropKind.Locale];
 
     /// <summary>The backdrop as the dialog currently has it. Every control edits a copy of this and pushes the
     /// whole record back, so a change to one field never resets another.</summary>
     private BackdropSettings Current => _settings.BackdropOrDefault();
+
+    private static BackdropSettings Defaults => BackdropSettings.Default;
 
     private void Push(BackdropSettings next)
     {
@@ -256,65 +272,133 @@ public sealed class SettingsDialog : Window
         SyncBackdropRows();
     }
 
+    /// <summary>Put part of the backdrop back to its default and rebuild the rows, so the controls show it.</summary>
+    private void Reset(BackdropSettings next)
+    {
+        _hooks.Backdrop(next.Clamped());
+        RebuildBackdropRows();
+    }
+
+    private void RebuildBackdropRows()
+    {
+        _resets.Clear();
+        _kindRow.Content = BackdropKindRow();
+        _solidRow.Content = SolidRow();
+        _checkerColourRow.Content = CheckerColourRow();
+        _checkerSizeRow.Content = CheckerSizeRow();
+        _localeRow.Content = LocaleRow();
+        _coarseRow.Content = CoarseGridRow();
+        _resetAllRow.Content = ResetAllRow();
+        SyncBackdropRows();
+    }
+
     /// <summary>Show only the controls the chosen kind actually uses. A checkerboard's second colour and a
     /// locale's dimming are meaningless to each other, and a dialog that shows every control for every kind makes
-    /// the reader work out which of them is live.</summary>
+    /// the reader work out which of them is live. The square size belongs to the screen checkerboard alone: the
+    /// tile-grid one takes its size from the tiles.</summary>
     private void SyncBackdropRows()
     {
         var kind = Current.Kind;
-        _solidRow.Visibility = kind is BackdropKind.Solid or BackdropKind.Checker ? Visibility.Visible : Visibility.Collapsed;
-        _checkerRow.Visibility = kind == BackdropKind.Checker ? Visibility.Visible : Visibility.Collapsed;
+        var checker = kind is BackdropKind.Checker or BackdropKind.TileChecker;
+        _solidRow.Visibility = kind == BackdropKind.Solid || checker ? Visibility.Visible : Visibility.Collapsed;
+        _checkerColourRow.Visibility = checker ? Visibility.Visible : Visibility.Collapsed;
+        _checkerSizeRow.Visibility = kind == BackdropKind.Checker ? Visibility.Visible : Visibility.Collapsed;
         _localeRow.Visibility = kind == BackdropKind.Locale ? Visibility.Visible : Visibility.Collapsed;
+        var current = Current;
+        foreach (var (button, isDefault) in _resets) button.IsEnabled = !isDefault(current);
+        if (_resetAllRow.Content is FrameworkElement all)
+            all.IsEnabled = current != Defaults.Clamped();
     }
+
+    /// <summary>Every Reset on screen, with the test for whether its value is already the default, so each one
+    /// follows the value as it changes rather than only as it stood when the row was built.</summary>
+    private readonly List<(Button Button, Func<BackdropSettings, bool> IsDefault)> _resets = [];
+
+    /// <summary>A Reset beside a control: disabled while the value is already the default, and naming the default
+    /// either way, so what the default even is never has to be found out by experiment.</summary>
+    private Button ResetButton(Func<BackdropSettings, bool> isDefault, string defaultIs, Action reset)
+    {
+        var button = new Button
+        {
+            Content = "Reset", Padding = new Thickness(12, 2, 12, 2), Margin = new Thickness(10, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center, IsEnabled = !isDefault(Current),
+            ToolTip = "Back to the default: " + defaultIs,
+        };
+        ToolTipService.SetShowOnDisabled(button, true);
+        button.Click += (_, _) => reset();
+        _resets.Add((button, isDefault));
+        return button;
+    }
+
+    /// <summary>The name a colour goes by in the palette, with its hex, or the hex alone.</summary>
+    private static string ColourName(string hex) =>
+        Backdrop.Palette.FirstOrDefault(s => string.Equals(s.Hex, hex, StringComparison.OrdinalIgnoreCase)) is { } swatch
+            ? $"{swatch.Name} ({swatch.Hex})"
+            : hex;
 
     private UIElement BackdropKindRow()
     {
-        var combo = new ComboBox { Width = 220, HorizontalAlignment = HorizontalAlignment.Left };
+        var combo = new ComboBox { Width = 260, HorizontalAlignment = HorizontalAlignment.Left };
         combo.Items.Add("Solid colour");
-        combo.Items.Add("Checkerboard");
+        combo.Items.Add("Checkerboard, fixed to the screen");
+        combo.Items.Add("Checkerboard, on the tile grid");
         combo.Items.Add("A place from the game");
-        combo.SelectedIndex = (int)Current.Kind;
+        combo.SelectedIndex = Math.Max(0, Array.IndexOf(KindOrder, Current.Kind));
         combo.SelectionChanged += (_, _) =>
         {
             if (combo.SelectedIndex < 0) return;
-            var kind = (BackdropKind)combo.SelectedIndex;
+            var kind = KindOrder[combo.SelectedIndex];
             var next = Current with { Kind = kind };
             // Choosing the game's art with nothing picked yet would show the old backdrop and look like a dead
             // control, so the first locale in the list stands in until the user picks one.
             if (kind == BackdropKind.Locale && next.Locale is null && Locales().FirstOrDefault() is { } first)
                 next = next with { Locale = first.Name };
             Push(next);
-            if (_localeCombo is { } lc && lc.SelectedIndex < 0 && lc.Items.Count > 0) lc.SelectedIndex = 0;
+            if (_localeRow.Content is FrameworkElement && _localeCombo is { } lc && lc.SelectedIndex < 0 && lc.Items.Count > 0)
+                lc.SelectedIndex = 0;
         };
-
-        _solidRow.Content = SolidRow();
-        _checkerRow.Content = CheckerRow();
-        _localeRow.Content = LocaleRow();
 
         return Row("Backdrop", combo,
             "What the plan is drawn on. A dark hull on the near-black default is hard to read, which is what this "
-            + "is for. Whatever you pick is also what a Design ▸ Snapshot PNG is drawn on. It applies to every "
-            + "open design and is remembered between sessions; it is not part of a design, so a ship you send "
-            + "somebody opens on their backdrop, not yours.");
+            + "is for. The screen checkerboard holds still while the ship moves over it; the tile-grid one lays a "
+            + "2×2 pattern in every tile, like floor tiles, and moves with the ship. Whatever you pick is also what "
+            + "a Design ▸ Snapshot PNG is drawn on. It applies to every open design and is remembered between "
+            + "sessions; it is not part of a design, so a ship you send somebody opens on their backdrop, not yours. "
+            + "Default: solid colour.");
     }
 
-    private UIElement SolidRow()
+    private UIElement SolidRow() =>
+        ColourRow("Colour", Current.Solid, BackdropSettings.DefaultSolid,
+            pick => Current with { Solid = pick }, b => b.Solid,
+            "Any #RRGGBB, or one of the swatches, and the first colour of either checkerboard. On a light colour the "
+            + "plan's grid, hover ring and origin marker switch to dark ink so they stay visible.");
+
+    private UIElement CheckerColourRow() =>
+        ColourRow("Second colour", Current.CheckerAlt, BackdropSettings.DefaultCheckerAlt,
+            pick => Current with { CheckerAlt = pick }, b => b.CheckerAlt,
+            "The other half of either checkerboard, against the colour above. A hull never matches both squares at "
+            + "once, which is the whole point of a missing-texture check pattern.");
+
+    /// <summary>A colour as a hex box, the swatch palette and a Reset. Shared by the ground colour and the
+    /// checkerboard's second colour, which used to have the hex box alone (#71).</summary>
+    private UIElement ColourRow(string label, string value, string defaultHex, Func<string, BackdropSettings> with,
+        Func<BackdropSettings, string> read, string note)
     {
         var hex = new TextBox
         {
-            Width = 100, Text = Current.Solid, FontFamily = new FontFamily("Consolas"),
+            Width = 100, Text = value, FontFamily = new FontFamily("Consolas"),
             VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
         };
         var swatches = SwatchGrid(pick =>
         {
             hex.Text = pick;
-            Push(Current with { Solid = pick });
+            Push(with(pick));
         });
         hex.LostFocus += (_, _) =>
         {
-            var normalised = Backdrop.NormaliseColour(hex.Text, Current.Solid);
+            var normalised = Backdrop.NormaliseColour(hex.Text, read(Current));
             hex.Text = normalised;
-            Push(Current with { Solid = normalised });
+            Push(with(normalised));
         };
 
         var panel = new StackPanel();
@@ -324,33 +408,22 @@ public sealed class SettingsDialog : Window
         {
             Text = "or pick one below", Foreground = Dim, FontSize = 11, VerticalAlignment = VerticalAlignment.Center,
         });
+        top.Children.Add(ResetButton(
+            b => string.Equals(read(b), defaultHex, StringComparison.OrdinalIgnoreCase), ColourName(defaultHex),
+            () => Reset(with(defaultHex))));
         panel.Children.Add(top);
         panel.Children.Add(swatches);
 
-        return Row("Colour", panel,
-            "Any #RRGGBB, or one of the swatches. On a light colour the plan's grid, hover ring and origin marker "
-            + "switch to dark ink so they stay visible.");
+        return Row(label, panel, note + " Default: " + ColourName(defaultHex) + ".");
     }
 
-    private UIElement CheckerRow()
+    private UIElement CheckerSizeRow()
     {
-        var hex = new TextBox
-        {
-            Width = 100, Text = Current.CheckerAlt, FontFamily = new FontFamily("Consolas"),
-            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(0, 0, 8, 0),
-        };
-        hex.LostFocus += (_, _) =>
-        {
-            var normalised = Backdrop.NormaliseColour(hex.Text, Current.CheckerAlt);
-            hex.Text = normalised;
-            Push(Current with { CheckerAlt = normalised });
-        };
-
         var size = new Slider
         {
             Minimum = BackdropSettings.MinCheckerSquare, Maximum = BackdropSettings.MaxCheckerSquare,
             Value = Current.CheckerSquare, TickFrequency = 8, IsSnapToTickEnabled = true,
-            Width = 180, VerticalAlignment = VerticalAlignment.Center,
+            Width = 220, VerticalAlignment = VerticalAlignment.Center,
         };
         var readout = new TextBlock
         {
@@ -365,17 +438,21 @@ public sealed class SettingsDialog : Window
         };
 
         var row = new StackPanel { Orientation = Orientation.Horizontal };
-        row.Children.Add(hex);
         row.Children.Add(size);
         row.Children.Add(readout);
+        row.Children.Add(ResetButton(b => b.CheckerSquare == BackdropSettings.DefaultCheckerSquare,
+            $"{BackdropSettings.DefaultCheckerSquare} px",
+            () => Reset(Current with { CheckerSquare = BackdropSettings.DefaultCheckerSquare })));
 
-        return Row("Second colour and square size", row,
-            "The other half of the checkerboard, against the colour above. A hull never matches both squares at "
-            + "once, which is the whole point of a missing-texture check pattern.");
+        return Row("Square size", row,
+            "How big each square of the screen checkerboard is. It does not zoom with the plan, so it is measured in "
+            + $"pixels. Default: {BackdropSettings.DefaultCheckerSquare} px.");
     }
 
     private IReadOnlyList<ParallaxLocale> Locales() =>
         _catalog is { } c ? ParallaxCatalog.All(c) : [];
+
+    private ComboBox? _localeCombo;
 
     private UIElement LocaleRow()
     {
@@ -395,7 +472,7 @@ public sealed class SettingsDialog : Window
         {
             Minimum = 0, Maximum = 100, Value = Current.LocaleDimming * 100,
             TickFrequency = 5, IsSnapToTickEnabled = true,
-            Width = 180, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0),
+            Width = 150, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0),
         };
         var readout = new TextBlock
         {
@@ -412,11 +489,17 @@ public sealed class SettingsDialog : Window
         row.Children.Add(combo);
         row.Children.Add(dim);
         row.Children.Add(readout);
+        // The place has no default worth resetting to (none is chosen until the kind is), so this is the dimming.
+        row.Children.Add(ResetButton(
+            b => Math.Abs(b.LocaleDimming - BackdropSettings.DefaultLocaleDimming) < 0.001,
+            $"{BackdropSettings.DefaultLocaleDimming * 100:0}% dimming",
+            () => Reset(Current with { LocaleDimming = BackdropSettings.DefaultLocaleDimming })));
 
         var note = locales.Count > 0
             ? "The game's own parallax art for a place, composited into one backdrop. Dimming darkens it so the "
               + "ship stays the thing you are reading; at 0% it is the art as the game draws it. Each place "
-              + "always composites the same way, so a screenshot is repeatable."
+              + $"always composites the same way, so a screenshot is repeatable. Default dimming: "
+              + $"{BackdropSettings.DefaultLocaleDimming * 100:0}%."
             : "No backdrops found in the loaded game data.";
 
         return Row("Place and dimming", row, note);
@@ -443,10 +526,31 @@ public sealed class SettingsDialog : Window
                 Push(Current with { CoarseGrid = presets[combo.SelectedIndex] });
         };
 
-        return Row("Scale markings", combo,
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        row.Children.Add(combo);
+        row.Children.Add(ResetButton(b => b.CoarseGrid == Defaults.CoarseGrid, "off",
+            () => Reset(Current with { CoarseGrid = Defaults.CoarseGrid })));
+
+        return Row("Scale markings", row,
             "A brighter grid line every so many tiles, measured from the ship's origin. The one-tile grid stays, "
             + "so you can still count tiles inside a marking; this is for judging how big a hull is getting "
-            + "without counting at all.");
+            + "without counting at all. Default: off.");
+    }
+
+    /// <summary>Everything about the backdrop back to how Ostraplan ships, in one click.</summary>
+    private UIElement ResetAllRow()
+    {
+        var button = new Button
+        {
+            Content = "Reset the backdrop to the default", Padding = new Thickness(12, 3, 12, 3),
+            HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 12, 0, 0),
+            IsEnabled = Current != Defaults.Clamped(),
+            ToolTip = "A solid " + ColourName(BackdropSettings.DefaultSolid) + ", with no scale markings. The "
+                      + "checkerboard colours, square size and dimming go back to their defaults too.",
+        };
+        ToolTipService.SetShowOnDisabled(button, true);
+        button.Click += (_, _) => Reset(Defaults);
+        return button;
     }
 
     // ---- tabs (#73) ----

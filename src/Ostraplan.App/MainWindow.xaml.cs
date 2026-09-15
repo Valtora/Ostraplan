@@ -7460,7 +7460,7 @@ public partial class MainWindow : Window
         var visual = _backdrops.For(backdrop, _catalog);
         foreach (var s in _sessions)
         {
-            s.Board.SetBackdrop(visual.Brush, visual.IsLight);
+            s.Board.SetBackdrop(visual.Brush, visual.IsLight, visual.TileCell, visual.TileFar);
             s.Board.CoarseGrid = backdrop.CoarseGrid;
         }
     }
@@ -7470,6 +7470,7 @@ public partial class MainWindow : Window
     private static string BackdropLabel(BackdropSettings b) => b.Kind switch
     {
         BackdropKind.Checker => $"checker {b.Solid}/{b.CheckerAlt}",
+        BackdropKind.TileChecker => $"tile-grid checker {b.Solid}/{b.CheckerAlt}",
         BackdropKind.Locale => b.Locale ?? "locale (none chosen)",
         _ => b.Solid,
     };

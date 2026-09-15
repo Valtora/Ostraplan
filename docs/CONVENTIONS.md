@@ -256,6 +256,14 @@ colour at an alpha that reads on anything, and a room label draws on an opaque d
 its own, so none of them switches. Adding a new low-alpha white overlay means adding its
 dark twin at the same time, or it vanishes on a white backdrop and nothing will tell you.
 
+**Two layers, because one backdrop moves with the ship.** Everything but the tile-grid
+checkerboard is `BackdropVisual.Brush`, filled across the control before any view transform, so
+it holds still. The tile-grid checkerboard (#71) cannot be: it is `BackdropVisual.TileCell`, one
+tile's pattern that `ShipCanvas.DrawTileBackdrop` lays under the view rotation from the plan's
+origin at the live pan and zoom, and again under a snapshot's orientation in `RenderSnapshot`.
+Anything new that draws the plan somewhere else has to call it too, or that picture comes out on
+the plain ground colour.
+
 **The backdrop is app-wide, not per design.** It is about the person looking at the plan,
 so a design shared with somebody else opens on *their* backdrop. It also reaches
 `RenderSnapshot`, the plain PNG export. It deliberately does **not** reach the room-diagram

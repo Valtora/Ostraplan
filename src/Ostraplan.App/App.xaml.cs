@@ -552,6 +552,9 @@ public partial class App : Application
                     ("Default", BackdropSettings.Default),
                     ("White", BackdropSettings.Default with { Solid = "#FFFFFF" }),
                     ("Checker", BackdropSettings.Default with { Kind = BackdropKind.Checker }),
+                    // Drawn at 25 px a tile from a corner that is not a tile boundary, so the cell shows it is laid on
+                    // a plan's grid rather than on the preview square.
+                    ("Tile-grid checker", BackdropSettings.Default with { Kind = BackdropKind.TileChecker }),
                 };
                 samples.AddRange(ParallaxCatalog.All(catalog).Select(l =>
                     (l.Display, BackdropSettings.Default with { Kind = BackdropKind.Locale, Locale = l.Name })));
@@ -572,6 +575,9 @@ public partial class App : Application
                         var y = pad + i / cols * (cell + pad + labelH);
                         var visualFor = brushes.For(sample, catalog);
                         dc.DrawRectangle(visualFor.Brush, null, new Rect(x, y, cell, cell));
+                        if (visualFor.TileCell is { } tileCell)
+                            dc.DrawRectangle(BackdropBrushes.TileBrush(tileCell, new Vector(x - 12.5, y - 12.5), 25),
+                                null, new Rect(x, y, cell, cell));
                         dc.DrawText(
                             new FormattedText(
                                 visualFor.IsLight ? label + " (dark ink)" : label,

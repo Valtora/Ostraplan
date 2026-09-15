@@ -12,6 +12,17 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **A checkerboard laid on the tile grid, swatches for its second colour, and a Reset on every backdrop
+  setting.** The checkerboard backdrop holds still on the screen while the ship moves over it, which is
+  useful, but it was never quite what was asked for: a pattern that sits on the plan like floor tiles. That
+  is now its own option. **Checkerboard, on the tile grid** puts a 2×2 pattern inside every tile, so it
+  pans, zooms and turns with the ship and lines up with the grid, and it fades to the two colours blended
+  once you zoom out far enough that the squares would only shimmer. It also shows in a PNG snapshot. The
+  original is still there as **Checkerboard, fixed to the screen**. The second colour of either board
+  could only be typed as a hex code, and it now has the same swatches as the first. Every backdrop setting
+  also has a **Reset** that names its default, and **Reset the backdrop to the default** puts the whole
+  section back at once, so the default no longer has to be found by trial and error. Thanks to
+  nighoggDatatype. (#71)
 - **Lock a design so it can be looked at but not changed.** Going through somebody else's design, or one
   of your own kept for reference, meant one misclick or a Ctrl+S out of habit could change the file
   without your noticing. A padlock beside Undo and Redo now locks the design on screen, and **File ▸ Open

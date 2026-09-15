@@ -74,12 +74,49 @@ public sealed class ShipCanvas : FrameworkElement
     /// <summary>What the plan is drawn on, and whether its overlays need dark ink. Set from the app's settings at
     /// startup and whenever they change; the canvas only draws what it is given, because resolving a backdrop
     /// needs the sprite cache and the catalogue and neither belongs to this control.</summary>
-    public void SetBackdrop(Brush brush, bool isLight)
+    public void SetBackdrop(Brush brush, bool isLight, Drawing? tileCell = null, Brush? tileFar = null)
     {
-        if (ReferenceEquals(_backdrop, brush) && _backdropIsLight == isLight) return;
+        if (ReferenceEquals(_backdrop, brush) && _backdropIsLight == isLight
+            && ReferenceEquals(_tileCell, tileCell) && ReferenceEquals(_tileFar, tileFar)) return;
         _backdrop = brush;
         _backdropIsLight = isLight;
+        _tileCell = tileCell;
+        _tileFar = tileFar;
         InvalidateVisual();
+    }
+
+    private Drawing? _tileCell;   // the checkerboard on the tile grid (#71), or null for a backdrop fixed to the screen
+    private Brush? _tileFar;      // what that pattern fades to when a tile is too few pixels to show it
+
+    /// <summary>Below this many pixels a square, the tile-grid checkerboard is drawn as its blended colour alone:
+    /// a pattern finer than that only shimmers as the view moves.</summary>
+    private const double TileCheckerMinSquarePx = 2;
+
+    /// <summary>Between <see cref="TileCheckerMinSquarePx"/> and this, the blended colour is laid over the pattern at
+    /// a strength that falls to nothing, so zooming out fades the squares away instead of switching them off.</summary>
+    private const double TileCheckerFadeSquarePx = 5;
+
+    /// <summary>
+    /// Lay the tile-grid checkerboard over <paramref name="area"/>, in whatever coordinates the plan is being drawn in:
+    /// under the view rotation on screen, or under a snapshot's orientation. It starts from the plan's origin at the
+    /// current pan and zoom, so it is aligned to the tiles the grid draws, and moves with them.
+    /// </summary>
+    private void DrawTileBackdrop(DrawingContext dc, Rect area)
+    {
+        if (_tileCell is null || _tileFar is null || area.Width <= 0 || area.Height <= 0) return;
+        var square = Zoom / 2;
+        if (square < TileCheckerMinSquarePx)
+        {
+            dc.DrawRectangle(_tileFar, null, area);
+            return;
+        }
+        dc.DrawRectangle(BackdropBrushes.TileBrush(_tileCell, _pan, Zoom), null, area);
+        if (square < TileCheckerFadeSquarePx)
+        {
+            dc.PushOpacity((TileCheckerFadeSquarePx - square) / (TileCheckerFadeSquarePx - TileCheckerMinSquarePx));
+            dc.DrawRectangle(_tileFar, null, area);
+            dc.Pop();
+        }
     }
 
     /// <summary>Draw a brighter grid line every this many tiles, or 0 for none. The sense-of-scale marking a
@@ -2553,6 +2590,8 @@ public sealed class ShipCanvas : FrameworkElement
             {
                 ctx.DrawRectangle(_backdrop, null, new Rect(0, 0, outW, outH));
                 ctx.PushTransform(m);
+                // Under the orientation, so the squares sit on the snapshot's tiles exactly as they do on screen.
+                DrawTileBackdrop(ctx, new Rect(0, 0, pxW, pxH));
                 foreach (var i in Doc.RenderOrder()) DrawItem(ctx, i, (0, 0));
                 ctx.Pop();
             }
@@ -3155,6 +3194,7 @@ public sealed class ShipCanvas : FrameworkElement
         if (rotated) dc.PushTransform(new RotateTransform(ViewRot, RenderSize.Width / 2, RenderSize.Height / 2));
         var view = ViewportRect();
 
+        DrawTileBackdrop(dc, view);   // the checkerboard on the tile grid, when that is the backdrop (#71)
         DrawGrid(dc, view);
 
         // The placement sprites. Always a cached backdrop plus whatever is in flux on top of it, in every state
