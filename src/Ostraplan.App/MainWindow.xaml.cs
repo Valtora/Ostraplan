@@ -5876,14 +5876,18 @@ public partial class MainWindow : Window
     {
         if (kg.Equals(doc.ExtraMassKg)) return;
         // The design this box measures, which need not be the one on screen: a report stays open beside its tab.
-        if (_sessions.FirstOrDefault(s => ReferenceEquals(s.Doc, doc)) is { ReadOnly: true })
+        var owner = _sessions.FirstOrDefault(s => ReferenceEquals(s.Doc, doc));
+        if (owner is { ReadOnly: true })
         {
             OnEditRefused();
             return;
         }
         doc.ExtraMassKg = kg;
-        _stateDirty = true;
-        RefreshChrome();
+        // The owner is marked, not the tab on screen: marking the active one left the edited design looking saved,
+        // so closing it lost the change without a prompt, and it was never backed up.
+        if (owner is not null) owner.StateDirty = true;
+        if (owner is null || ReferenceEquals(owner, _active)) RefreshChrome();
+        else RefreshDocTabs();
     }
 
     /// <summary>A Q/E view rotation changes persisted state now (the .oplan stores the orientation), so flag the

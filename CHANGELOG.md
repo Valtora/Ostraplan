@@ -127,6 +127,10 @@ each release was verified against is recorded in
   records it. Thanks to nighoggDatatype. (#67)
 
 ### Fixed
+- **A towed mass typed into a Ship Rating report left open beside another tab is no longer lost.** The report
+  stays open while you work in other tabs, and changing its towed mass from there marked the design on screen
+  as unsaved instead of the one the report measures. The measured design looked saved, so closing it threw
+  the change away without asking. It is now that design that shows the unsaved star and prompts on close.
 - **The two access marks no longer look the same, or sit on top of each other.** The Access overlay
   draws two different claims about a fitting. One is the side its own definition says it is worked
   from, which is what the game marks under the build cursor. The other is the tile a crew member
