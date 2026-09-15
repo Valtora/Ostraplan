@@ -60,6 +60,11 @@ public partial class MainWindow : Window
     private CancellationTokenSource? _scanCts;        // cancels a superseded scan
     private readonly DispatcherTimer _autoSaveTimer;  // opt-in rotating snapshots of the open designs (see RunAutoSave)
     private bool _autoSaveWarned;                     // a failing auto-save says so once, then only logs — see RunAutoSave
+    private readonly DispatcherTimer _backupTimer;    // the unsaved-changes backup of every open design (#73, RunSessionBackup)
+    private IDisposable? _sessionLock;                // held while this window owns the session store; null otherwise
+    private bool _restoringSession;                   // the open designs are not recorded while they are being reopened
+    private string? _lastManifest;                    // the manifest as last written, so an unchanged one is not rewritten
+    private bool _backupWarned;                       // a failing backup says so once per run, then only logs
 
     // ---- the open documents ----
 
@@ -121,6 +126,11 @@ public partial class MainWindow : Window
         _autoSaveTimer.Tick += (_, _) => RunAutoSave();
         RestartAutoSaveTimer();   // off unless the user has opted in
 
+        // Started once the session store is taken (RestoreSession), because a window that does not own it has no
+        // business writing into it.
+        _backupTimer = new DispatcherTimer();
+        _backupTimer.Tick += (_, _) => RunSessionBackup();
+
         RestoreWindowPlacement();   // the size, position and maximised state the window was last closed at (#69)
         RestorePaneWidths();   // the palette / inspector widths the user last dragged, and whether either is hidden
 
@@ -135,8 +145,8 @@ public partial class MainWindow : Window
         Loaded += async (_, _) => await LoadDataAsync();
         Closing += (_, e) =>
         {
-            if (!ConfirmDiscardEverything()) e.Cancel = true;
-            else { CaptureWindowPlacement(); _settings.Save(); }
+            if (!ConfirmClose()) e.Cancel = true;
+            else { CaptureWindowPlacement(); _settings.Save(); EndSession(); }
         };
         // Maximising or restoring the window records it there and then, so a session that ends in a crash or a
         // power cut still reopens the way this one looked rather than the way the one before it ended (#69). Only
@@ -293,6 +303,7 @@ public partial class MainWindow : Window
         board.ActiveZoneChanged += UpdateZones;   // reflect which zone (if any) is being painted
 
         var session = new DocumentSession { Board = board, UntitledSlot = FreeUntitledSlot() };
+        session.Stack.StateChanged += () => session.Revision++;   // before RefreshChrome, which records the session
         session.Stack.StateChanged += RefreshChrome;
         // Audit every edit/undo/redo, resolving each part's friendly name so the trail records what/where
         // ("Place Nav Station @(12,7)") rather than a context-free "Place" — the detail a bug report needs.
@@ -370,6 +381,7 @@ public partial class MainWindow : Window
 
         CloseReports(session);
         session.DetachDoc();
+        DropBackup(session);   // resolved one way or the other at the prompt, so nothing is left to recover
         var at = _sessions.IndexOf(session);
         _sessions.Remove(session);
         CanvasHost.Children.Remove(session.Board);
@@ -387,17 +399,267 @@ public partial class MainWindow : Window
         ActivateSession(_sessions[((at + delta) % _sessions.Count + _sessions.Count) % _sessions.Count]);
     }
 
-    /// <summary>Every open design gets its unsaved-changes prompt before the window closes. Answering Cancel to any
-    /// of them cancels the close, leaving that design the one on screen.</summary>
-    private bool ConfirmDiscardEverything()
+    /// <summary>Every open design gets its unsaved-changes prompt before the window closes, except those in
+    /// <paramref name="kept"/>, whose changes are going with the session rather than being resolved now. Answering
+    /// Cancel to any of them cancels the close, leaving that design the one on screen.</summary>
+    private bool ConfirmDiscardEverything(IReadOnlySet<DocumentSession>? kept = null)
     {
         foreach (var session in _sessions.ToList())
         {
-            if (!session.Dirty) continue;
+            if (!session.Dirty || kept?.Contains(session) == true) continue;
             ActivateSession(session);
             if (!ConfirmDiscardChanges()) return false;
         }
         return true;
+    }
+
+    // ---- the session: what is open, and a backup of what is unsaved (#73) ----
+
+    /// <summary>True when closing keeps unsaved changes in their backups instead of asking about them. Needs the
+    /// store, and needs backups on: with nowhere to keep the changes, closing asks the way it always has.</summary>
+    private bool KeepsUnsavedOnClose =>
+        _sessionLock is not null && _settings.SessionBackup &&
+        SessionStore.ParseCloseMode(_settings.CloseWithUnsaved) == SessionCloseMode.KeepInBackup;
+
+    /// <summary>
+    /// Decide whether the window may close, asking about unsaved changes as the close mode says.
+    ///
+    /// <para>Keeping changes in the backup is decided per design, after a fresh backup of each. A design that could
+    /// not be backed up (its mods are missing, or the write failed) is asked about like any other, and its stale
+    /// backup is removed afterwards so an older copy of the changes cannot come back in place of the answer.</para>
+    /// </summary>
+    private bool ConfirmClose()
+    {
+        var kept = KeepsUnsavedOnClose
+            ? _sessions.Where(s => s.Dirty && BackUp(s)).ToHashSet()
+            : [];
+        if (!ConfirmDiscardEverything(kept)) return false;
+        foreach (var s in _sessions)
+            if (!kept.Contains(s)) DropBackup(s);
+        return true;
+    }
+
+    /// <summary>
+    /// Record the orderly end of this run and give up the store. The manifest keeps a backup only for a design whose
+    /// changes are being kept (<see cref="ConfirmClose"/> has removed every other), and a clean exit is what tells the
+    /// next launch there was no crash to recover from.
+    /// </summary>
+    private void EndSession()
+    {
+        _backupTimer.Stop();
+        if (_sessionLock is null) return;
+        WriteManifest(BuildManifest(cleanExit: true));
+        _sessionLock.Dispose();
+        _sessionLock = null;
+    }
+
+    /// <summary>The open designs as the session file records them. A design with neither a file nor a backup is left
+    /// out, since a launch would have nothing to bring it back from: the blank tab the app opens on, or an untitled
+    /// sketch whose changes were discarded.</summary>
+    private SessionManifest BuildManifest(bool cleanExit)
+    {
+        var manifest = new SessionManifest { CleanExit = cleanExit };
+        foreach (var session in _sessions)
+        {
+            if (session.Doc is not { } doc) continue;
+            if (doc.FilePath is null && session.Backup is null) continue;
+            if (ReferenceEquals(session, _active)) manifest.Active = manifest.Tabs.Count;
+            manifest.Tabs.Add(new SessionTab { Path = doc.FilePath, Backup = session.Backup, Name = session.DisplayName });
+        }
+        return manifest;
+    }
+
+    /// <summary>Write down which designs are open, if anything about that has changed. Called on every refresh of
+    /// the tab strip, which is every change to the set of tabs, their files and which one is on screen, and after
+    /// every round of backups. The comparison with the last write is what keeps that from being a disk write per
+    /// edit.</summary>
+    private void RecordSession()
+    {
+        if (_sessionLock is null || _restoringSession) return;
+        WriteManifest(BuildManifest(cleanExit: false));
+    }
+
+    private void WriteManifest(SessionManifest manifest)
+    {
+        var json = SessionStore.Serialize(manifest);
+        if (json == _lastManifest) return;
+        try
+        {
+            SessionStore.Default.Save(manifest);
+            _lastManifest = json;
+        }
+        catch (Exception ex) { AuditLog.Add($"Could not record the open designs: {ex.Message}"); }
+    }
+
+    /// <summary>
+    /// Back up the unsaved changes in every open design (#73), then record the session so the manifest names the
+    /// backups. A tick is skipped while an engine reads a design off-thread, the same as auto-save.
+    /// </summary>
+    private void RunSessionBackup()
+    {
+        if (_sessionLock is null || _index is null || _freeze.IsFrozen || !_settings.SessionBackup) return;
+        foreach (var session in _sessions) BackUp(session);
+        RecordSession();
+    }
+
+    /// <summary>
+    /// Bring one design's backup up to date. Returns true when its unsaved changes are safely in the backup, which is
+    /// also true of a design with none.
+    ///
+    /// <para>A design with nothing unsaved has its backup removed: it is exactly its file now, and a backup left
+    /// behind would bring back changes the user has since saved or undone. A design that has not changed since its
+    /// last backup is not written again. A design held read-only for missing mods is never backed up, for the reason
+    /// auto-save gives: the copy would be the design with those parts dropped.</para>
+    /// </summary>
+    private bool BackUp(DocumentSession session)
+    {
+        if (session.Doc is not { } doc || _index is null || _sessionLock is null) return false;
+        if (!session.Dirty)
+        {
+            DropBackup(session);
+            return true;
+        }
+        if (session.UnresolvedParts.Count > 0) return false;
+        if (session.Backup is not null && session.BackedUpRevision == session.Revision) return true;
+
+        try
+        {
+            var file = OplanFile.FromDocument(doc, _index, session.Meta);
+            file.ViewRot = session.Board.ViewRot;
+            session.Backup = SessionStore.Default.WriteBackup(file, session.BackupId);
+            session.BackedUpRevision = session.Revision;
+            return true;
+        }
+        catch (Exception ex)
+        {
+            AuditLog.Add($"Backup of \"{session.DisplayName}\" failed: {ex.Message}");
+            if (!_backupWarned)
+            {
+                _backupWarned = true;   // said once, then only logged, so a broken folder does not interrupt every tick
+                Dlg.Warn(this, "Backup failed",
+                    "Ostraplan could not back up your unsaved changes:\n\n" + ex.Message + "\n\n" +
+                    "It keeps trying, but this won't be reported again this session. Save your work with Ctrl+S.");
+            }
+            return false;
+        }
+    }
+
+    /// <summary>Remove one design's backup, if it has one.</summary>
+    private void DropBackup(DocumentSession session)
+    {
+        if (session.Backup is { } backup) SessionStore.Default.DeleteBackup(backup);
+        session.Backup = null;
+        session.BackedUpRevision = -1;
+    }
+
+    private void RestartBackupTimer()
+    {
+        _backupTimer.Stop();
+        if (_sessionLock is null || !_settings.SessionBackup) return;
+        _backupTimer.Interval = TimeSpan.FromSeconds(SessionStore.ClampBackupSeconds(_settings.SessionBackupSeconds));
+        _backupTimer.Start();
+    }
+
+    /// <summary>
+    /// Take the session store for this run and bring back what the last one left (#73): the designs that were open,
+    /// when tabs are restored, and the unsaved changes of any design that has a backup, whatever that setting says.
+    ///
+    /// <para>Runs once, straight after the game data loads and the blank startup design exists, so the first design
+    /// reopened takes that tab over rather than leaving an empty one beside it. Nothing is recorded while it runs:
+    /// each reopened tab would otherwise write a manifest missing the backups of the tabs still to come, and a crash
+    /// part-way would lose them.</para>
+    ///
+    /// <para>Another copy of the app already running holds the store, so this one restores nothing and records
+    /// nothing. It says so in the activity log rather than on screen, because nothing is wrong: the first copy's
+    /// designs are still open in the first copy.</para>
+    /// </summary>
+    private void RestoreSession()
+    {
+        if (_catalog is not { } catalog) return;
+        _sessionLock = SessionStore.Default.TryLock();
+        if (_sessionLock is null)
+        {
+            AuditLog.Add("Another Ostraplan is running, so this window's designs will not be reopened next time.");
+            return;
+        }
+
+        var store = SessionStore.Default;
+        var plan = SessionRestore.Plan(store.Load(), _settings.RestoreTabs, store, File.Exists);
+
+        _restoringSession = true;
+        var failed = new List<(string Name, string Why)>();
+        var incomplete = new List<(string Name, OplanFile File, List<OplanPart> Missing)>();
+        var recovered = new List<string>();
+        DocumentSession? active = null;
+        try
+        {
+            for (var i = 0; i < plan.Items.Count; i++)
+            {
+                var item = plan.Items[i];
+                var tab = item.Tab;
+                var name = tab.Name ?? (tab.Path is { } p ? Path.GetFileNameWithoutExtension(p) : "Untitled");
+                if (!item.FromBackup && tab.Path is { } open && SessionFor(open) is not null) continue;
+
+                OplanFile file;
+                List<OplanPart> missing;
+                ShipDocument doc;
+                try
+                {
+                    file = OplanFile.Load(item.LoadFrom);
+                    (doc, missing) = file.ToDocument(catalog);
+                }
+                catch (Exception ex)
+                {
+                    failed.Add((name, ex.Message));
+                    continue;
+                }
+
+                AdoptLoadedDocument(file, doc, missing, tab.Path, dirty: item.FromBackup);
+                AttachLegacySavedCargoAsync(doc, file.Source);
+                if (item.FromBackup)
+                {
+                    // Keep writing the file it came back from, so the manifest goes on naming it.
+                    _active.BackupId = Path.GetFileNameWithoutExtension(tab.Backup!);
+                    _active.Backup = tab.Backup;
+                    recovered.Add(tab.Path is { } saved ? $"{name} ({Path.GetFileName(saved)})" : $"{name} (never saved)");
+                }
+                if (missing.Count > 0) incomplete.Add((_meta.Name, file, missing));
+                if (i == plan.Active) active = _active;
+                AuditLog.Add(item.FromBackup
+                    ? $"Reopened \"{name}\" with its unsaved changes from {item.LoadFrom}."
+                    : $"Reopened {item.LoadFrom}.");
+            }
+        }
+        finally { _restoringSession = false; }
+
+        if (active is not null) ActivateSession(active);
+
+        // A backup no open design is using can go. The one exception is a backup that would not load: it stays on
+        // disk for the rest of this run, so the file can still be rescued by hand, and is pruned next launch.
+        var keep = _sessions.Select(s => s.Backup).OfType<string>()
+            .Concat(plan.Items.Where(i => i.FromBackup).Select(i => i.Tab.Backup!))
+            .ToList();
+        store.PruneBackups(keep);
+        _lastManifest = null;
+        RecordSession();   // this run is under way: an exit from here on that is not a close is a crash
+        RestartBackupTimer();
+
+        if (recovered.Count > 0 && plan.ImproperExit)
+            Dlg.Info(this, "Unsaved changes recovered",
+                "Ostraplan didn't close properly last time. These designs had unsaved changes, and they have been " +
+                "brought back from the backup:\n\n" +
+                string.Join("\n", recovered.Select(r => "   • " + r)) +
+                "\n\nThey are open as unsaved changes. Nothing has been written to your files: save the ones you " +
+                "want to keep.");
+
+        var lost = plan.Missing.Select(t => $"   • {t.Name ?? Path.GetFileName(t.Path)}: {t.Path} is no longer there")
+            .Concat(failed.Select(f => $"   • {f.Name}: {f.Why}"))
+            .ToList();
+        if (lost.Count > 0)
+            Dlg.Warn(this, "Some designs didn't reopen",
+                $"{lost.Count} of the designs open last time could not be reopened:\n\n" + string.Join("\n", lost));
+
+        WarnMissingMods(incomplete);
     }
 
     /// <summary>
@@ -407,6 +669,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void RefreshDocTabs()
     {
+        RecordSession();   // whatever changed the strip may have changed what a launch should reopen
         DocTabBar.Visibility = _sessions.Count > 1 ? Visibility.Visible : Visibility.Collapsed;
         DocTabStrip.Children.Clear();
         if (_sessions.Count <= 1) return;
@@ -617,6 +880,7 @@ public partial class MainWindow : Window
 
         BuildPalette();
         NewDocument();
+        RestoreSession();   // the designs open last time, and any unsaved changes they had (#73)
 
         var v = env.InstalledVersion ?? "unknown";
         AuditLog.Add($"Loaded game data (Game {v}).");
@@ -1076,6 +1340,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void DocumentChanged(DocumentSession session)
     {
+        session.Revision++;   // the backup has not seen this yet (RunSessionBackup)
         session.Board.SetLeakCells([]);   // any Ship Rating leak highlight is stale once the design changes
         // An open report measured the design as it was a moment ago, so an edit is what makes it out of date. It says
         // so rather than going on showing figures for a ship that no longer exists (see ReportWindow).
@@ -2360,6 +2625,13 @@ public partial class MainWindow : Window
                 string.Join("\n", failed.Select(f => $"   • {Path.GetFileName(f.Path)}: {f.Why}")) +
                 (opened > 0 ? $"\n\nThe other {opened} opened." : ""));
 
+        WarnMissingMods(incomplete);
+    }
+
+    /// <summary>The missing-mods warning for designs just opened together: the full account for one, a summary for
+    /// several, nothing for none.</summary>
+    private void WarnMissingMods(IReadOnlyList<(string Name, OplanFile File, List<OplanPart> Missing)> incomplete)
+    {
         if (incomplete.Count == 1)
             WarnMissingMods(incomplete[0].Name, incomplete[0].File, incomplete[0].Missing);
         else if (incomplete.Count > 1)
@@ -6927,7 +7199,7 @@ public partial class MainWindow : Window
 
         var dlg = new SettingsDialog(_settings, _catalog, _env, new SettingsHooks(
             SetTheme, SetUiScale, SetWindowOpenAs, SetBackdrop, SetModOverrides, SetNavModuleArt, SetGameRoot,
-            SetSavesDir))
+            SetSavesDir, SetRestoreTabs, SetSessionBackup, SetSessionBackupSeconds, SetCloseWithUnsaved))
         {
             Owner = this,
         };
@@ -6985,6 +7257,52 @@ public partial class MainWindow : Window
         AuditLog.Setting("UI scale", UiScaling.Percent(_settings.UiScale));
         _settings.Save();
         UiScale.Apply(_settings.UiScale);
+    }
+
+    /// <summary>Settings ▸ Tabs: reopen last session's designs at launch (#73). Read at the next launch.</summary>
+    private void SetRestoreTabs(bool on)
+    {
+        _settings.RestoreTabs = on;
+        _settings.Save();
+        AuditLog.Setting("Reopen designs from last time", on ? "on" : "off");
+    }
+
+    /// <summary>Settings ▸ Tabs: back up unsaved changes (#73). Turning it off removes every backup there and then,
+    /// because a backup nothing will keep up to date is one that brings back stale changes after the next crash.</summary>
+    private void SetSessionBackup(bool on)
+    {
+        _settings.SessionBackup = on;
+        _settings.Save();
+        _backupWarned = false;   // a fresh opt-in earns a fresh warning if the store still can't be written
+        if (on) RunSessionBackup();
+        else
+        {
+            foreach (var session in _sessions) DropBackup(session);
+            RecordSession();
+        }
+        RestartBackupTimer();
+        AuditLog.Setting("Back up unsaved changes", on
+            ? $"on, every {SessionStore.ClampBackupSeconds(_settings.SessionBackupSeconds)} s"
+            : "off");
+    }
+
+    /// <summary>Settings ▸ Tabs: seconds between backups. Restarts the timer so the change applies from now.</summary>
+    private void SetSessionBackupSeconds(int seconds)
+    {
+        var value = SessionStore.ClampBackupSeconds(seconds);
+        if (value == _settings.SessionBackupSeconds) return;
+        _settings.SessionBackupSeconds = value;
+        _settings.Save();
+        RestartBackupTimer();
+    }
+
+    /// <summary>Settings ▸ Tabs: what closing does with unsaved changes.</summary>
+    private void SetCloseWithUnsaved(SessionCloseMode mode)
+    {
+        _settings.CloseWithUnsaved = mode.ToString();
+        _settings.Save();
+        AuditLog.Setting("When closing with unsaved changes",
+            mode == SessionCloseMode.KeepInBackup ? "keep them for next time" : "ask");
     }
 
     /// <summary>Whether modded parts may be placed where Ostraplan's core-game placement law says they don't fit
@@ -7164,8 +7482,11 @@ public partial class MainWindow : Window
                 (dirty ? "\n\nYou'll be asked about your unsaved changes first." : ""),
                 "Restart now", "Later"))
             return;
-        if (!ConfirmDiscardEverything()) return;   // Cancel there cancels the restart, not just the save
+        if (!ConfirmClose()) return;   // Cancel there cancels the restart, not just the save
         _settings.Save();
+        // Recorded as a clean exit, so the relaunch reopens the designs rather than reading the restart as a crash.
+        // The store is released when the process ends, which is before the new build starts.
+        WriteManifest(BuildManifest(cleanExit: true));
         try
         {
             AuditLog.Add($"Applying update v{ver} and restarting.");
@@ -7173,6 +7494,7 @@ public partial class MainWindow : Window
         }
         catch (Exception ex)
         {
+            RecordSession();   // still running after all: back to a run in progress
             AuditLog.Add($"Update failed to apply: {ex.Message}");
             Dlg.Error(this, "Update failed", "Ostraplan couldn't apply the update:\n\n" + ex.Message +
                 "\n\nYou can keep using this version, or download the latest release manually.");

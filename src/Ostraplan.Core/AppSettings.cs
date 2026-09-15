@@ -228,6 +228,22 @@ public sealed class AppSettings
     /// <summary>How many snapshots each design keeps; older ones rotate out. Clamped like
     /// <see cref="AutoSaveMinutes"/>.</summary>
     [JsonPropertyName("autoSaveKeep")] public int AutoSaveKeep { get; set; } = AutoSaveStore.DefaultKeep;
+    /// <summary>Reopen the designs that were open when the app last closed (#73). On by default: a design with no
+    /// unsaved changes is exactly its file, so reopening it can lose nothing, and closing still resolves every unsaved
+    /// change first unless <see cref="CloseWithUnsaved"/> says otherwise.</summary>
+    [JsonPropertyName("restoreTabs")] public bool RestoreTabs { get; set; } = true;
+    /// <summary>Keep a backup of the unsaved changes in every open design, untitled ones included, in the session
+    /// store (see <see cref="SessionStore"/>), for recovery after a run that does not close properly. On by default,
+    /// unlike <see cref="AutoSave"/>: crash protection nobody has switched on protects nobody, and a backup is written
+    /// only for a design that has changed since its last one, never to the design's own file.</summary>
+    [JsonPropertyName("sessionBackup")] public bool SessionBackup { get; set; } = true;
+    /// <summary>Seconds between backups. Clamped to
+    /// <see cref="SessionStore.MinBackupSeconds"/>..<see cref="SessionStore.MaxBackupSeconds"/> at use.</summary>
+    [JsonPropertyName("sessionBackupSeconds")] public int SessionBackupSeconds { get; set; } = SessionStore.DefaultBackupSeconds;
+    /// <summary>What closing does with unsaved changes, by <see cref="SessionCloseMode"/> name. Read through
+    /// <see cref="SessionStore.ParseCloseMode"/>, which reads anything unrecognised as <c>Ask</c>. Only meaningful
+    /// while <see cref="SessionBackup"/> is on: with nothing to keep the changes in, closing always asks.</summary>
+    [JsonPropertyName("closeWithUnsaved")] public string? CloseWithUnsaved { get; set; }
     /// <summary>Parts the user pinned for quick access (the palette's ★ tab's Favorites group), in pin order.</summary>
     [JsonPropertyName("favorites")] public List<PartRef> Favorites { get; set; } = [];
     /// <summary>The most-recently-placed parts, newest first, capped at <see cref="RecentCap"/> (the ★ tab's Recent group).</summary>

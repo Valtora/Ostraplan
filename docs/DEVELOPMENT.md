@@ -197,7 +197,13 @@ profile:
 
 - **Install root:** `%LOCALAPPDATA%\Ostraplan`
 - **User data:** `%APPDATA%\Ostraplan` (settings, activity log, bug-report diagnostics,
-  and the `autosave\` snapshot store). It survives updates and uninstalls.
+  the `autosave\` snapshot store, and the `session\` store of open tabs and their
+  unsaved-changes backups). It survives updates and uninstalls.
+
+The session store is taken with a lock file by the first running copy of the app, so a
+second copy reads and writes none of it. The lock is taken in `MainWindow.RestoreSession`,
+on `Loaded`, which is why the tests that construct a `MainWindow` never touch the real one:
+`Loaded` is never raised there.
 
 Velopack replaced a self-installing, self-adopting exe in v0.49.0. That build put itself
 in `%LOCALAPPDATA%\Programs\Ostraplan`, and `LegacyInstall.cs` tidies that directory away

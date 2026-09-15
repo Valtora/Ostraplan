@@ -779,6 +779,37 @@ and a nav console's screen arrangement — so a bank of labelled, filled tanks p
 labelled and filled. What they cannot carry is the copy's link back to a save game: a
 pasted part is new construction, priced and legality-checked as such.
 
+### Picking up where you left off
+
+**Settings ▸ Tabs** holds three settings about what survives closing Ostraplan.
+
+| | |
+|---|---|
+| **Reopen tabs** | On by default. Each design open when you closed Ostraplan comes back from its own file, in the same tab order, with the one you were looking at on screen. A file that has since been moved or deleted is listed in a warning rather than skipped without a word. |
+| **Backup** | On by default, every **30 seconds** (5 seconds to 10 minutes). Keeps one copy of the unsaved changes in each open design, untitled ones included. It is written only when a design has changed since its last backup, and never to your own `.oplan`. |
+| **When closing with unsaved changes** | **Ask me to save or discard each one** (the default), or **Keep them in the backup for next time**. Needs the backup on. |
+
+**If Ostraplan does not close properly**, whether it crashed, was killed, or the machine lost
+power, the next launch brings back every design that had a backup, with its changes still
+marked unsaved, and tells you which. Saving one writes to its own file as usual, and an
+untitled one asks where to put it. This happens whatever **Reopen tabs** is set to, because
+it is unsaved work you never chose to discard.
+
+**Asking on close is the default on purpose.** With it, a change is finished only once it is
+in your `.oplan`, and the backup exists for the crash alone. **Keeping them** closes without a
+prompt and reopens those designs next time with the changes still unsaved, which is quicker,
+but the change then lives in the backup and nowhere else until you save it, and an `.oplan`
+you send somebody does not have it. A design whose mods are missing is always asked about,
+because it cannot be backed up without dropping the parts it is missing.
+
+The backup lives in `%APPDATA%\Ostraplan\session`, beside the auto-save folder. It is not
+the same thing as auto-save: auto-save keeps a history of snapshots you recover by hand, and
+the backup keeps one current copy per open design that comes back on its own.
+
+**Only one copy of Ostraplan remembers its designs.** Start a second copy while the first is
+running and the second one reopens nothing and records nothing, so it can neither overwrite
+the first copy's tabs nor mistake the first copy for a crash.
+
 ### Auto-save
 
 **File ▸ Auto-save** takes a rotating snapshot of the open design on a timer. It is

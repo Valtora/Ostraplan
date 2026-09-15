@@ -97,6 +97,8 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 | The bake window (what the ship cache may cull) | — | `BakeWindowTests`† |
 | Document tabs (session isolation, the strip, close/cycle) | `DocumentSessionTests`, `MainWindowTabsTests`† | — |
 | Auto-save rotation (per path, per untitled slot) | `AutoSaveTests` | — |
+| Session restore and backups (what a launch reopens, the lock, pruning) | `SessionStoreTests` | — |
+| Opening a design that is already open | `DesignPathTests` | — |
 | UI scale (clamp, popup layer) | `SettingsTests`, `UiScalePopupTests`† | — |
 
 `RenderSmokeTests` is mostly smoke — it writes PNGs for eyeballing and asserts only that they are not blank.

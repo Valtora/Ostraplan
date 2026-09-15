@@ -83,7 +83,34 @@ internal sealed class DocumentSession
     public SaveShipContext? SaveContext { get; set; }
 
     /// <summary>Non-command persisted edits (ship identity, view orientation) — their unsaved state.</summary>
-    public bool StateDirty { get; set; }
+    public bool StateDirty
+    {
+        get => _stateDirty;
+        set
+        {
+            if (value) Revision++;   // a non-command edit is still an edit the backup has not seen
+            _stateDirty = value;
+        }
+    }
+    private bool _stateDirty;
+
+    /// <summary>Counts every change to this design: each command done, undone or redone, each change the document
+    /// reports, and each non-command edit. Only ever compared with <see cref="BackedUpRevision"/>, so its value means
+    /// nothing on its own. See <c>MainWindow.RunSessionBackup</c>.</summary>
+    public long Revision { get; set; }
+
+    /// <summary>The <see cref="Revision"/> the last backup of this design was taken at. A backup is written only
+    /// when the two differ, which is what lets the timer run every few seconds without rewriting a design nobody
+    /// is touching.</summary>
+    public long BackedUpRevision { get; set; } = -1;
+
+    /// <summary>This tab's backup file in the session store, or null while it has none (see
+    /// <see cref="SessionStore"/>). Named by <see cref="BackupId"/>, so a restored tab goes on writing the file it
+    /// came back from.</summary>
+    public string? Backup { get; set; }
+
+    /// <summary>What this tab's backup is called in the session store. Stable for the life of the tab.</summary>
+    public string BackupId { get; set; } = Guid.NewGuid().ToString("N");
 
     /// <summary>Parts an opened .oplan referenced whose defs aren't in the current game + mods data. While this is
     /// non-empty the design is INCOMPLETE and held read-only. See <c>MainWindow.GuardIncompleteSave</c>.</summary>

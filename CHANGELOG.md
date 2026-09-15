@@ -12,6 +12,22 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Your designs come back next time, and so do unsaved changes after a crash.** Closing Ostraplan used
+  to cost you your set of open tabs, so a session spread over several designs had to be opened again by
+  hand every day. A new **Tabs** section in Settings covers it. **Reopen tabs** brings back every design
+  that was open, in the same order and with the same one on screen. **Backup** keeps one copy of the
+  unsaved changes in every tab, including designs you have never saved, and writes it only when a design
+  changes, never to your own file. If Ostraplan crashes, is killed or loses power, the next launch brings
+  those designs back with their changes still unsaved and tells you which ones it recovered. Both are on
+  by default.
+
+  **When closing with unsaved changes** decides what a normal close does. It asks about each design by
+  default, as it always has, so your .oplan stays the place a finished change lives and the backup is
+  only for a crash. It can instead keep the changes in the backup and reopen them next time without
+  asking. A design missing its mods is still asked about either way, since it cannot be backed up
+  without losing those parts. A second copy of Ostraplan running at the same time remembers nothing, so
+  it cannot overwrite the first copy's tabs. Auto-save is unchanged and separate: it keeps a history of
+  snapshots to recover by hand. Thanks to nighoggDatatype. (#73)
 - **Open several designs in one go.** The Open dialog took one file at a time, which made sense when
   Ostraplan held one design and stopped making sense once it had tabs. Select as many as you like with
   Ctrl+click or Shift+click and each opens in a tab of its own. A file that will not open no longer stops

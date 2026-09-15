@@ -20,6 +20,10 @@ namespace Ostraplan.App;
 /// <param name="NavModuleArt">Whether the arrange window draws the nav modules with the game's own art.</param>
 /// <param name="GameRoot">The Ostranauts install folder, or null to go back to auto-detection.</param>
 /// <param name="SavesDir">The Saves folder, or null to go back to auto-detection.</param>
+/// <param name="RestoreTabs">Whether a launch reopens the designs that were open last time.</param>
+/// <param name="SessionBackup">Whether unsaved changes are backed up.</param>
+/// <param name="BackupSeconds">Seconds between backups, already clamped by the dialog.</param>
+/// <param name="CloseMode">What closing does with unsaved changes.</param>
 public sealed record SettingsHooks(
     Action<string> Theme,
     Action<double> Scale,
@@ -28,7 +32,11 @@ public sealed record SettingsHooks(
     Action<bool> ModOverrides,
     Action<bool> NavModuleArt,
     Action<string?> GameRoot,
-    Action<string?> SavesDir);
+    Action<string?> SavesDir,
+    Action<bool> RestoreTabs,
+    Action<bool> SessionBackup,
+    Action<int> BackupSeconds,
+    Action<SessionCloseMode> CloseMode);
 
 /// <summary>
 /// Ostraplan's own preferences: appearance (theme and UI scale), the one editing rule that is a preference rather
@@ -81,6 +89,11 @@ public sealed class SettingsDialog : Window
         body.Children.Add(_checkerRow);
         body.Children.Add(_localeRow);
         body.Children.Add(CoarseGridRow());
+
+        Section(body, "TABS");
+        body.Children.Add(RestoreTabsRow());
+        body.Children.Add(BackupRow());
+        body.Children.Add(CloseModeRow());
 
         Section(body, "EDITING");
         body.Children.Add(ModOverrideRow());
@@ -434,6 +447,97 @@ public sealed class SettingsDialog : Window
             "A brighter grid line every so many tiles, measured from the ship's origin. The one-tile grid stays, "
             + "so you can still count tiles inside a marking; this is for judging how big a hull is getting "
             + "without counting at all.");
+    }
+
+    // ---- tabs (#73) ----
+
+    private ComboBox? _closeModeCombo;
+
+    private UIElement RestoreTabsRow()
+    {
+        var box = new CheckBox
+        {
+            Content = "Reopen the designs that were open last time",
+            IsChecked = _settings.RestoreTabs,
+            Foreground = Ink,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        box.Checked += (_, _) => { if (!_init) _hooks.RestoreTabs(true); };
+        box.Unchecked += (_, _) => { if (!_init) _hooks.RestoreTabs(false); };
+        return Row("Reopen tabs", box,
+            "Each design comes back from its own file, in the tab order you left, with the one you were looking at "
+            + "on screen. A design you never saved has no file to come back from, so only a backup below can bring "
+            + "one of those back. A file that has since been moved or deleted is reported rather than skipped.");
+    }
+
+    private UIElement BackupRow()
+    {
+        var box = new CheckBox
+        {
+            Content = "Back up unsaved changes in every tab",
+            IsChecked = _settings.SessionBackup,
+            Foreground = Ink,
+            VerticalAlignment = VerticalAlignment.Center,
+            Margin = new Thickness(0, 0, 16, 0),
+        };
+        var slider = new Slider
+        {
+            Minimum = SessionStore.MinBackupSeconds, Maximum = SessionStore.MaxBackupSeconds,
+            Value = SessionStore.ClampBackupSeconds(_settings.SessionBackupSeconds),
+            TickFrequency = 5, IsSnapToTickEnabled = true,
+            Width = 150, VerticalAlignment = VerticalAlignment.Center,
+        };
+        var readout = new TextBlock
+        {
+            Text = $"every {slider.Value:0} s", Foreground = Ink, Width = 76, TextAlignment = TextAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0),
+        };
+        void Sync(bool on)
+        {
+            slider.IsEnabled = readout.IsEnabled = on;
+            if (_closeModeCombo is { } combo) combo.IsEnabled = on;
+        }
+        box.Checked += (_, _) => { Sync(true); if (!_init) _hooks.SessionBackup(true); };
+        box.Unchecked += (_, _) => { Sync(false); if (!_init) _hooks.SessionBackup(false); };
+        slider.ValueChanged += (_, e) =>
+        {
+            readout.Text = $"every {e.NewValue:0} s";
+            if (!_init) _hooks.BackupSeconds(SessionStore.ClampBackupSeconds((int)Math.Round(e.NewValue)));
+        };
+        Sync(_settings.SessionBackup);
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        row.Children.Add(box);
+        row.Children.Add(slider);
+        row.Children.Add(readout);
+
+        return Row("Backup", row,
+            "Keeps one copy of the unsaved changes in each design, untitled ones included, so a crash, a killed "
+            + "process or a power cut costs you nothing. If Ostraplan does not close properly, the next launch "
+            + "brings those designs back with their changes still unsaved. A backup never touches your own .oplan "
+            + "and is only written when a design has changed. It is separate from File ▸ Auto-save, which keeps a "
+            + "history of snapshots to recover by hand.");
+    }
+
+    private UIElement CloseModeRow()
+    {
+        var combo = new ComboBox { Width = 320, HorizontalAlignment = HorizontalAlignment.Left };
+        _closeModeCombo = combo;
+        combo.Items.Add("Ask me to save or discard each one");
+        combo.Items.Add("Keep them in the backup for next time");
+        combo.SelectedIndex = SessionStore.ParseCloseMode(_settings.CloseWithUnsaved) == SessionCloseMode.KeepInBackup ? 1 : 0;
+        combo.IsEnabled = _settings.SessionBackup;
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (_init || combo.SelectedIndex < 0) return;
+            _hooks.CloseMode(combo.SelectedIndex == 1 ? SessionCloseMode.KeepInBackup : SessionCloseMode.Ask);
+        };
+        return Row("When closing with unsaved changes", combo,
+            "Asking keeps your .oplan files the one place a finished change lives: the backup is only used after a "
+            + "run that did not close properly. Keeping them closes without a prompt and reopens those designs next "
+            + "time with the changes still unsaved, which is quicker but means a change can live in the backup and "
+            + "nowhere else until you save it. A design whose mods are missing is always asked about. Needs the "
+            + "backup on.");
     }
 
     // ---- editing ----

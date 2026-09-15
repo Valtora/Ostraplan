@@ -172,7 +172,10 @@ public sealed class OplanFile
         return file;
     }
 
-    public void Save(string path) => File.WriteAllText(path, JsonSerializer.Serialize(this, Options));
+    public void Save(string path) => File.WriteAllText(path, ToJson());
+
+    /// <summary>The file's contents as <see cref="Save"/> writes them.</summary>
+    public string ToJson() => JsonSerializer.Serialize(this, Options);
 
     public static OplanFile Load(string path)
     {
