@@ -83,8 +83,64 @@ public static class ProblemScan
         AddBlockedPortWarnings(doc, catalog, ports, problems);
         AddLegalityProblems(doc, problems);
         AddWalkabilityWarnings(doc, catalog, problems);
+        AddMultipleReactorWarning(doc, catalog, problems);
 
         return problems;
+    }
+
+    /// <summary>The dismiss key for the more-than-one-reactor warning.</summary>
+    public const string MultipleReactorsAlertKey = "multiple-reactors";
+
+    /// <summary>
+    /// More than one fusion reactor core installed (#72). The game builds it and spawns it, and then runs it badly,
+    /// which is why this is a Warning rather than a block, and why it has to be said at all.
+    ///
+    /// <para><b>The ship has one reactor as far as anything but the core itself is concerned.</b> <c>Ship.AddCO</c>
+    /// files every condowner matching <c>TIsReactorICNAVUsable</c> into <c>Ship.aCores</c>, but <c>Ship.Reactor</c>
+    /// is just <c>aCores[0]</c>, and it is what the nav station's torch and course modules read and write
+    /// (<c>Ship.GetReactorGPMValue</c> / <c>SetReactorGPMValue</c>), what <c>Ship.PostUpdate</c> checks for
+    /// <c>IsReadyFusion</c> before zeroing thrust, and the only core <c>Powered</c> feeds modules from. Starting a
+    /// core works against that: each step of the start (Off, Batt, Ignition) is a <c>CondOwner.ModeSwitch</c>
+    /// that removes the old condowner from <c>aCores</c> and appends the new one, so the core being lit falls to
+    /// the back of the list and the unlit one becomes the ship's reactor. The console then drives the wrong core
+    /// and <c>PostUpdate</c> keeps putting the torch's thrust back to zero. Re-read against 1.0.0.13.</para>
+    ///
+    /// <para>Counted by the game's own trigger, so it matches what fills <c>aCores</c>: the core in any installed
+    /// state, stock or modded. Not the station power generators (<c>ItmReactorIC02*</c>, which carry only
+    /// <c>IsReactorIC02</c> and of which a station may have twenty), not the archived <c>ItmReactorIC03</c>, not
+    /// the core's own modules, and not a core lying loose on the deck, which is not a placement at all. No stock
+    /// ship carries more than one core.</para>
+    /// </summary>
+    private static void AddMultipleReactorWarning(ShipDocument doc, Catalog catalog, List<Problem> problems)
+    {
+        var cores = doc.Placements.Where(p => IsReactorCore(doc.Part(p), catalog)).ToList();
+        if (cores.Count < 2) return;
+
+        var cells = cores.SelectMany(p =>
+        {
+            var (w, h) = doc.FootprintOf(p);
+            return from r in Enumerable.Range(0, h) from c in Enumerable.Range(0, w) select (p.X + c, p.Y + r);
+        }).ToList();
+        var listed = string.Join(", ", cores.Select(p => $"{doc.Part(p)?.Friendly ?? p.DefName} at ({p.X},{p.Y})"));
+
+        problems.Add(new Problem(ProblemSeverity.Warning,
+            $"{cores.Count} fusion reactor cores",
+            $"The game runs a ship's torch drive from one reactor core, even when only one is switched on. The nav " +
+            "station and the ship's thrust follow whichever core the game treats as the reactor, and starting a " +
+            "core moves the other one into that place, so the console ends up driving the core that is not lit " +
+            $"and the torch reads no thrust. Found: {listed}. Keep one core, or Dismiss if the spare is deliberate.",
+            cells, DismissKey: MultipleReactorsAlertKey));
+    }
+
+    /// <summary>True for a part the game would file as one of the ship's reactors: the condowner matches
+    /// <see cref="Propulsion.ReactorTrigger"/>. A synthetic catalogue carries no triggers, so it falls back to the
+    /// trigger's own two requirements.</summary>
+    public static bool IsReactorCore(PartDef? part, Catalog catalog)
+    {
+        if (part is null) return false;
+        return catalog.Triggers.TryGetValue(Propulsion.ReactorTrigger, out var ct)
+            ? CondEval.Triggered(ct, part.StartingConds.ToHashSet(StringComparer.Ordinal), catalog)
+            : part.StartingConds.Contains("IsFusionReactorCore") && part.StartingConds.Contains("IsInstalled");
     }
 
     /// <summary>

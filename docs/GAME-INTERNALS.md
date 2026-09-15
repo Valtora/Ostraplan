@@ -2842,6 +2842,41 @@ invisible to the reactor however much fuel it declares.
 > resolved through to its `…Ignition` counterpart. The RCS side needs no such help:
 > `Catalog.PreferPoweredState` already builds the switched-on cluster and distributor.
 
+### One reactor per ship, whatever is installed
+
+A ship can hold any number of fusion cores and the game will build and spawn them, but it
+runs the ship from one. Re-read against **1.0.0.13**:
+
+- `Ship.AddCO` files every condowner matching **`TIsReactorICNAVUsable`**
+  (`IsFusionReactorCore` + `IsInstalled`) into `Ship.aCores`, and `Ship.RemoveCO` takes it
+  out again. **`Ship.Reactor` is `aCores[0]`** and nothing else.
+- Everything outside the core's own `FusionIC` goes through `Ship.Reactor`: the nav station's
+  torch and course modules (`GetReactorGPMValue` / `SetReactorGPMValue`, read by
+  `NavModTorchDrive`, `NavModCoursePlot`, `NavData`, `FlyToPath.PlanTrip4`), the modules
+  `Powered` feeds, the `GUIFFWD` catch-up, and `Ship.PostUpdate`, which sets
+  `bFusionReactorRunning = false` and `SetThrust(0)` on every update where `Reactor` lacks
+  `IsReadyFusion`.
+- **Starting a core reorders the list against the player.** Off → Batt → Ignition is a
+  `CondOwner.ModeSwitch` at each step, which removes the old condowner and appends the new
+  one. The core being lit falls to the back and the unlit one becomes `Ship.Reactor`, so the
+  console drives the dark core while `PostUpdate` keeps zeroing the lit one's thrust against
+  `FusionIC.Fusion` restoring it every 0.27 s.
+- With both lit, each core's `Fusion` overwrites `fFusionThrustMax`, the thrust and
+  `fShallowFusionRemain` rather than adding to them, both burn the same tanks, and the shared
+  `Ship.bCheckFusion` is cleared by whichever rescans its modules first.
+
+What the trigger does **not** match: the station generators `ItmReactorIC02*` and
+`ItmReactorIC02IgnitionMini` (installed forms carry only `IsReactorIC02`; `MHNG_BBL` has 21),
+the archived self-contained `ItmReactorIC03*` (`IsReactorIC`, no `IsFusionReactorCore`; only
+`archived_content\ships\TorchPartsTest.json` uses it), the core's modules
+(`IsFusionCoreModule`), and a loose core, which lacks `IsInstalled`. `TIsReactorIC` is the
+wrong test for counting: it matches loose IC02 and IC03 as well. None of the 220 stock
+templates carries more than one installed core.
+
+> **Ported in Ostraplan:** `ProblemScan.IsReactorCore` counts by the game's trigger, and a
+> second core raises the dismissible "fusion reactor cores" warning (#72). Not ported: the
+> reordering itself, since a plan has no lit state to reorder.
+
 ### What a planner cannot reproduce exactly
 
 `GetCOsAtWorldCoords1` is a **physics raycast** (`Physics.RaycastAll`) against colliders,

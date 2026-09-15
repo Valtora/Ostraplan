@@ -12,6 +12,15 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **A design with more than one fusion reactor core now says so.** The game lets you build a second
+  core and spawns the ship with both, then runs the ship from only one of them, which it picks from its
+  own list. Starting a core moves it to the back of that list, so the core you have just lit stops being
+  the one the game treats as the reactor. The nav station then drives the unlit core, and the torch keeps
+  being set back to no thrust. That holds even with only one core ever switched on, which is why it
+  catches people out. Problems now lists a warning naming every core and highlighting them on the plan.
+  It is a warning rather than a block, because the ship is still valid in game, and it can be dismissed.
+  Station power generators, which a station carries by the dozen, and the core's own modules are not
+  counted. Thanks to nighoggDatatype. (#72)
 - **Ostraplan opens where you left it.** The window remembered nothing between runs: every launch put
   the same 1440 × 920 window in the middle of the screen, whatever you had last dragged it to, so
   anyone designing at a size larger than that resized the window before they could start. It now
