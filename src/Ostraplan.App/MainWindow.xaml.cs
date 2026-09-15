@@ -65,6 +65,7 @@ public partial class MainWindow : Window
     private bool _restoringSession;                   // the open designs are not recorded while they are being reopened
     private string? _lastManifest;                    // the manifest as last written, so an unchanged one is not rewritten
     private bool _backupWarned;                       // a failing backup says so once per run, then only logs
+    private readonly List<SessionTab> _unrestored = [];   // backups that would not load at launch, kept in the manifest
 
     // ---- the open documents ----
 
@@ -304,7 +305,13 @@ public partial class MainWindow : Window
         board.EditRefused += OnEditRefused;        // a locked design (#74) says why the click did nothing
 
         var session = new DocumentSession { Board = board, UntitledSlot = FreeUntitledSlot() };
-        session.Stack.StateChanged += () => session.Revision++;   // before RefreshChrome, which records the session
+        session.Stack.StateChanged += () =>   // before RefreshChrome, which records the session
+        {
+            session.Revision++;
+            // Undone back to clean: the design is its file again, so its backup goes now rather than at the next
+            // tick, where a crash in between would bring the undone edits back as unsaved changes.
+            if (!session.Dirty) DropBackup(session);
+        };
         session.Stack.StateChanged += RefreshChrome;
         session.Stack.Refused += OnEditRefused;   // the backstop behind a locked tab caught an edit (#74)
         // Audit every edit/undo/redo, resolving each part's friendly name so the trail records what/where
@@ -486,6 +493,9 @@ public partial class MainWindow : Window
 
     private void WriteManifest(SessionManifest manifest)
     {
+        // Every write goes through here, so this is the one check that keeps a second running copy out of the file.
+        if (_sessionLock is null) return;
+        foreach (var tab in _unrestored) manifest.Tabs.Add(tab);   // not lost just because they would not load
         var json = SessionStore.Serialize(manifest);
         if (json == _lastManifest) return;
         try
@@ -615,7 +625,15 @@ public partial class MainWindow : Window
                 }
                 catch (Exception ex)
                 {
-                    failed.Add((name, ex.Message));
+                    if (item.FromBackup)
+                    {
+                        // Unsaved work that would not load is still unsaved work. It stays named in the manifest, so
+                        // nothing prunes it, and it is tried again next launch; deleting the file is how to let it go.
+                        _unrestored.Add(tab);
+                        failed.Add((name, $"{ex.Message}\n      Its unsaved changes are kept at {item.LoadFrom}, and " +
+                            "Ostraplan will try them again next time. Delete that file to let them go."));
+                    }
+                    else failed.Add((name, ex.Message));
                     continue;
                 }
 
@@ -629,6 +647,9 @@ public partial class MainWindow : Window
                     // Keep writing the file it came back from, so the manifest goes on naming it.
                     _active.BackupId = Path.GetFileNameWithoutExtension(tab.Backup!);
                     _active.Backup = tab.Backup;
+                    // With backups since switched off, nothing would keep this one up to date, and a stale copy
+                    // would come back over newer work after the next crash. The design stays open as unsaved.
+                    if (!_settings.SessionBackup) DropBackup(_active);
                     recovered.Add(tab.Path is { } saved ? $"{name} ({Path.GetFileName(saved)})" : $"{name} (never saved)");
                 }
                 if (missing.Count > 0) incomplete.Add((_meta.Name, file, missing));
@@ -642,10 +663,9 @@ public partial class MainWindow : Window
 
         if (active is not null) ActivateSession(active);
 
-        // A backup no open design is using can go. The one exception is a backup that would not load: it stays on
-        // disk for the rest of this run, so the file can still be rescued by hand, and is pruned next launch.
+        // A backup no open design is using can go, except one that would not load, which the manifest goes on naming.
         var keep = _sessions.Select(s => s.Backup).OfType<string>()
-            .Concat(plan.Items.Where(i => i.FromBackup).Select(i => i.Tab.Backup!))
+            .Concat(_unrestored.Select(t => t.Backup!))
             .ToList();
         store.PruneBackups(keep);
         _lastManifest = null;
@@ -2290,6 +2310,7 @@ public partial class MainWindow : Window
         }
         _stack.MarkSaved();
         _stateDirty = false;
+        DropBackup(_active);   // the file is the design now; a backup left until the next tick would outlive a crash
         AuditLog.Add($"Saved {_doc.FilePath}.");
         _settings.Touch(_doc.FilePath);
         _settings.Save();
@@ -5861,7 +5882,12 @@ public partial class MainWindow : Window
     private void MarkViewOrientationChanged()
     {
         // A locked design still turns, because turning is how you look at it. It just isn't a change to save.
-        if (_doc is null || _stateDirty || _active.ReadOnly) return;
+        if (_doc is null || _active.ReadOnly) return;
+        if (_stateDirty)
+        {
+            _active.Revision++;   // already unsaved, but the backup still holds the old orientation
+            return;
+        }
         _stateDirty = true;
         RefreshChrome();
     }
