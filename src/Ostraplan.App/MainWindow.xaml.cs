@@ -2275,50 +2275,122 @@ public partial class MainWindow : Window
         catch (Exception ex) { Dlg.Error(this, "Auto-save", ex.Message); }
     }
 
+    /// <summary>File ▸ Open. Takes as many designs as the dialog is given, each into a tab of its own (#70).</summary>
     private void OpenFile()
     {
         if (_catalog is null) return;
-        var dlg = new OpenFileDialog { Filter = "Ostraplan ship (*.oplan)|*.oplan|All files (*.*)|*.*" };
+        var dlg = new OpenFileDialog
+        {
+            Filter = "Ostraplan ship (*.oplan)|*.oplan|All files (*.*)|*.*",
+            Multiselect = true,
+        };
         if (dlg.ShowDialog(this) != true) return;
-
-        OplanFile file;
-        List<OplanPart> missing;
-        ShipDocument doc;
-        try
-        {
-            file = OplanFile.Load(dlg.FileName);
-            (doc, missing) = file.ToDocument(_catalog);
-        }
-        catch (Exception ex)
-        {
-            Dlg.Show(this, ex.Message, "Open failed", MessageBoxButton.OK, MessageBoxImage.Error);
-            return;
-        }
-
-        AdoptLoadedDocument(file, doc, missing, dlg.FileName, dirty: false);
-        _settings.Touch(dlg.FileName);
-        _settings.Save();
-        AuditLog.Add($"Opened {dlg.FileName}.");
-
-        // A design written by an older build stored only the layout and left its container contents in the save
-        // it named. Re-read them once so the inventory viewer works right away, after which the design owns them
-        // and the file stops naming a save at all. Eager, off-thread, and it reports nothing if the save has moved.
-        AttachLegacySavedCargoAsync(doc, file.Source);
-
-        if (missing.Count > 0)
-            Dlg.Warn(this, "This design is missing mods",
-                $"{_meta.Name} uses {missing.Count} part(s) that aren't in your current game and mods data.\n" +
-                "They were left out, so this design is incomplete.\n\n" +
-                FormatMissingDefs(missing) +
-                "\n\nIt depends on these mods.\n\n" +
-                FormatModDeps(file.Mods) +
-                "\n\nTo get them back: install or subscribe to those mods and enable them, then reopen this design.\n" +
-                "Run Ostrasort to confirm they're subscribed, enabled, and in a working load order.\n\n" +
-                "Until then the design is held read only — saving would rewrite it without those parts, and building " +
-                "over the space where they belong (or moving parts into it) can produce a ship that's invalid in game.\n\n" +
-                "If you're done with those mods and want the parts gone, Save and confirm: it will drop them and the " +
-                "design becomes editable as it stands.");
+        OpenDesigns(dlg.FileNames);
     }
+
+    /// <summary>The open tab already holding the design at <paramref name="path"/>, or null. See
+    /// <see cref="DesignPath"/> for why a file is only ever open once.</summary>
+    private DocumentSession? SessionFor(string path) =>
+        _sessions.FirstOrDefault(s => DesignPath.Same(s.Doc?.FilePath, path));
+
+    /// <summary>
+    /// Open each of <paramref name="paths"/> in a tab of its own, in the order given, leaving the last one opened on
+    /// screen.
+    ///
+    /// <para>One file that fails does not stop the rest. What went wrong is gathered and reported once at the end,
+    /// and so is the missing-mods warning: a single design still gets the full account of what it is missing, but
+    /// several at once get one summary rather than a dialog per file to click through.</para>
+    ///
+    /// <para>A design that is already open is not opened again. Its tab is brought forward instead when nothing
+    /// else was opened, because two tabs on one file both write it and the last save wins.</para>
+    /// </summary>
+    private void OpenDesigns(IReadOnlyList<string> paths)
+    {
+        if (_catalog is not { } catalog) return;
+
+        var failed = new List<(string Path, string Why)>();
+        var incomplete = new List<(string Name, OplanFile File, List<OplanPart> Missing)>();
+        DocumentSession? alreadyOpen = null;
+        var opened = 0;
+
+        foreach (var path in paths)
+        {
+            if (SessionFor(path) is { } open)
+            {
+                alreadyOpen = open;
+                AuditLog.Add($"{path} is already open; not opened a second time.");
+                continue;
+            }
+
+            OplanFile file;
+            List<OplanPart> missing;
+            ShipDocument doc;
+            try
+            {
+                file = OplanFile.Load(path);
+                (doc, missing) = file.ToDocument(catalog);
+            }
+            catch (Exception ex)
+            {
+                failed.Add((path, ex.Message));
+                continue;
+            }
+
+            AdoptLoadedDocument(file, doc, missing, path, dirty: false);
+            _settings.Touch(path);
+            AuditLog.Add($"Opened {path}.");
+            opened++;
+
+            // A design written by an older build stored only the layout and left its container contents in the save
+            // it named. Re-read them once so the inventory viewer works right away, after which the design owns them
+            // and the file stops naming a save at all. Eager, off-thread, and it reports nothing if the save has moved.
+            AttachLegacySavedCargoAsync(doc, file.Source);
+
+            if (missing.Count > 0) incomplete.Add((_meta.Name, file, missing));
+        }
+
+        if (opened > 0) _settings.Save();
+        else if (alreadyOpen is not null) ActivateSession(alreadyOpen);
+
+        if (failed.Count == 1)
+            Dlg.Show(this, failed[0].Why, "Open failed", MessageBoxButton.OK, MessageBoxImage.Error);
+        else if (failed.Count > 1)
+            Dlg.Error(this, "Open failed",
+                $"{failed.Count} of the designs could not be opened:\n\n" +
+                string.Join("\n", failed.Select(f => $"   • {Path.GetFileName(f.Path)}: {f.Why}")) +
+                (opened > 0 ? $"\n\nThe other {opened} opened." : ""));
+
+        if (incomplete.Count == 1)
+            WarnMissingMods(incomplete[0].Name, incomplete[0].File, incomplete[0].Missing);
+        else if (incomplete.Count > 1)
+            Dlg.Warn(this, "Some designs are missing mods",
+                $"{incomplete.Count} of the designs you opened use parts that aren't in your current game and mods " +
+                "data. Those parts were left out, so each of these is incomplete:\n\n" +
+                string.Join("\n", incomplete.Select(i =>
+                    $"   • {i.Name}: {i.Missing.Count} part(s)" +
+                    (i.File.Mods.Count > 0
+                        ? ", from " + string.Join(", ", i.File.Mods.Select(m => m.Name.Length > 0 ? m.Name : m.Entry))
+                        : ""))) +
+                "\n\nTo get them back: install or subscribe to those mods and enable them, then reopen the designs.\n" +
+                "Run Ostrasort to confirm they're subscribed, enabled, and in a working load order.\n\n" +
+                "Until then each one is held read only, the same as when a single design is opened this way. " +
+                "Save one and confirm to drop its missing parts and make it editable as it stands.");
+    }
+
+    /// <summary>The full missing-mods account for one design that has just been opened.</summary>
+    private void WarnMissingMods(string name, OplanFile file, IReadOnlyList<OplanPart> missing) =>
+        Dlg.Warn(this, "This design is missing mods",
+            $"{name} uses {missing.Count} part(s) that aren't in your current game and mods data.\n" +
+            "They were left out, so this design is incomplete.\n\n" +
+            FormatMissingDefs(missing) +
+            "\n\nIt depends on these mods.\n\n" +
+            FormatModDeps(file.Mods) +
+            "\n\nTo get them back: install or subscribe to those mods and enable them, then reopen this design.\n" +
+            "Run Ostrasort to confirm they're subscribed, enabled, and in a working load order.\n\n" +
+            "Until then the design is held read only — saving would rewrite it without those parts, and building " +
+            "over the space where they belong (or moving parts into it) can produce a ship that's invalid in game.\n\n" +
+            "If you're done with those mods and want the parts gone, Save and confirm: it will drop them and the " +
+            "design becomes editable as it stands.");
 
     /// <summary>
     /// Swap a loaded <c>.oplan</c> in as the active document — the shared tail of Open and auto-save recovery.

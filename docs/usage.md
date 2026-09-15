@@ -738,6 +738,13 @@ opening something never closes what you already have — there is no "save your 
 first?" prompt on the way in any more. The tab strip appears above the canvas the moment
 there are two, and hides again when you are back to one.
 
+**File ▸ Open** takes several designs at once: Ctrl+click or Shift+click them in the dialog
+and each opens in a tab of its own, the last one on screen. One that fails to open does not
+stop the rest, and anything that went wrong, or any design missing its mods, is reported
+once at the end rather than a dialog per file. **A design that is already open is not
+opened again.** Its tab comes forward instead, because two tabs on one file would both
+write it and whichever saved last would lose the other's work.
+
 | | |
 |---|---|
 | **Switch** | Click a tab, or **Ctrl+Tab** / **Ctrl+Shift+Tab** to step through them. |

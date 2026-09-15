@@ -12,6 +12,13 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Open several designs in one go.** The Open dialog took one file at a time, which made sense when
+  Ostraplan held one design and stopped making sense once it had tabs. Select as many as you like with
+  Ctrl+click or Shift+click and each opens in a tab of its own. A file that will not open no longer stops
+  the others, and what went wrong is reported once at the end, as is a missing-mods warning covering
+  several designs. Opening a design that is already open now brings its tab forward instead of opening it
+  a second time. Before, the same file could sit in two tabs, and saving one threw away whatever had been
+  done in the other. Thanks to nighoggDatatype. (#70)
 - **A design with more than one fusion reactor core now says so.** The game lets you build a second
   core and spawns the ship with both, then runs the ship from only one of them, which it picks from its
   own list. Starting a core moves it to the back of that list, so the core you have just lit stops being
