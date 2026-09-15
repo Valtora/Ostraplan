@@ -118,12 +118,15 @@ public class SessionStoreTests : IDisposable
             CleanExit = true, Active = 1,
             Tabs = [Tab(@"C:\ships\A.oplan"), Tab(null, SessionStore.BackupName("x"), "Sketch")],
         };
+        manifest.Tabs[0].ReadOnly = true;   // the lock (#74) is the tab's, and it comes back with the tab
         _store.Save(manifest);
 
         var back = _store.Load();
         Assert.NotNull(back);
         Assert.True(back.CleanExit);
         Assert.Equal(1, back.Active);
+        Assert.True(back.Tabs[0].ReadOnly);
+        Assert.False(back.Tabs[1].ReadOnly);
         Assert.Equal(SessionStore.Serialize(manifest), SessionStore.Serialize(back));
 
         File.WriteAllText(Path.Combine(_root, "session.json"), "{ not json");

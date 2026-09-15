@@ -191,6 +191,12 @@
                             ToolTip="Undo the last edit. (Ctrl+Z)"/>
                     <Button x:Name="BtnRedo" Content="Redo" Padding="10,3" Margin="0,0,3,0" Click="OnRedoClick"
                             ToolTip="Redo the last undone edit. (Ctrl+Y)"/>
+                    <!-- The tab's lock (#74). Only there while the design has a file behind it, since locking is
+                         about not overwriting that file by accident. A ToggleButton for the Fluent checked accent,
+                         with IsChecked driven from the session by RefreshChrome and Click as the only way in. -->
+                    <ToggleButton x:Name="BtnLock" Content="🔒" Style="{StaticResource OverlayToggle}" Click="OnLockClick"
+                            Visibility="Collapsed"
+                            ToolTip="Lock this design so it can be looked at but not changed. Click again to unlock."/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 
@@ -325,6 +331,11 @@
             <StatusBarItem x:Name="ForceBadge" Visibility="Collapsed">
                 <TextBlock Text="FORCE PLACE" FontWeight="Bold" Foreground="{DynamicResource Bad}"
                            ToolTip="The placement law is not blocking placements. Turn off Force in the toolbar to restore it."/>
+            </StatusBarItem>
+            <!-- The design on screen is locked (#74), so nothing a click does will change it. -->
+            <StatusBarItem x:Name="ReadOnlyBadge" Visibility="Collapsed">
+                <TextBlock Text="🔒 READ ONLY" FontWeight="Bold" Foreground="{DynamicResource Warn}"
+                           ToolTip="This design is locked. Unlock it with the padlock in the toolbar to edit it."/>
             </StatusBarItem>
             <StatusBarItem HorizontalAlignment="Right">
                 <TextBlock x:Name="TxtHint" Opacity="0.7"

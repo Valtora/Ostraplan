@@ -251,6 +251,48 @@ public class MainWindowTabsTests
         return null;
     }
 
+    /// <summary>
+    /// Locking a tab (#74) locks its canvas and its undo stack together, and only its own: the other tabs stay
+    /// editable. A locked canvas refuses a brush and says so, and a locked stack refuses an edit that reaches it by
+    /// any other route. The session file records the lock, so a restored tab comes back locked.
+    /// </summary>
+    [Fact]
+    public void Locking_a_tab_locks_its_canvas_and_stack_and_leaves_the_others_editable()
+    {
+        RunSta(() =>
+        {
+            var w = new MainWindow();
+            var first = w.ActiveSession;
+            var second = w.CreateSession();
+
+            second.ReadOnly = true;
+            Assert.True(second.Board.ReadOnly);
+            Assert.True(second.Stack.ReadOnly);
+            Assert.False(first.ReadOnly);
+            Assert.False(first.Board.ReadOnly);
+
+            var cat = new Fixtures().Floor("Floor").Build();
+            var refused = 0;
+            second.Board.EditRefused += () => refused++;
+            second.Board.SetArmed(cat.ByDefName["Floor"]);
+            Assert.Null(second.Board.ArmedPart);   // nothing in hand, so nothing can be painted
+            Assert.Equal(1, refused);
+
+            first.Board.SetArmed(cat.ByDefName["Floor"]);
+            Assert.NotNull(first.Board.ArmedPart);
+
+            // Locking with a brush already in hand drops it.
+            first.ReadOnly = true;
+            Assert.Null(first.Board.ArmedPart);
+
+            second.ReadOnly = false;
+            Assert.False(second.Board.ReadOnly);
+            Assert.False(second.Stack.ReadOnly);
+
+            w.Close();
+        });
+    }
+
     /// <summary>Exactly one canvas on screen, and it is the one belonging to <paramref name="expected"/>.</summary>
     private static void AssertOnlyVisible(Grid host, DocumentSession expected)
     {

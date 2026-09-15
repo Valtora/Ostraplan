@@ -779,6 +779,40 @@ and a nav console's screen arrangement — so a bank of labelled, filled tanks p
 labelled and filled. What they cannot carry is the copy's link back to a save game: a
 pasted part is new construction, priced and legality-checked as such.
 
+### Locking a design
+
+Lock a design to look at it without being able to change it: a ship somebody sent you, or
+one of your own kept as the reference you build variations from. A stray click, a key
+pressed out of habit or a Ctrl+S then cannot touch the file.
+
+- **The padlock** in the toolbar, beside Undo and Redo, locks and unlocks the design on
+  screen. **File ▸ Lock Design…** does the same. It is only there for a design saved to a
+  file, since locking is about keeping that file as it is.
+- **File ▸ Open Read-only…** (**Alt+Shift+O**) opens designs already locked, as many at once
+  as you select.
+
+Either way you are asked first. Unlocking is always allowed: the lock guards against
+accidents and is not a security measure. **A design with unsaved changes cannot be locked as
+it stands.** You are asked to save the changes or discard them, and discarding reloads the
+design from its file, because a locked design is exactly what is in its file.
+
+While a design is locked, the tab, the title bar and the status bar all show 🔒, and
+nothing that would change it works. Arming a part, painting, moving, deleting, pasting,
+renaming, zones, wiring, fills, the damage brush, dismissing a warning, Ship Info, undo and
+redo are all refused, and the status bar says why. Looking still works: pan, zoom, rotate
+the view (which does not count as a change on a locked design), select, every overlay, the
+reports, snapshots and the contents viewer. **Export** asks you to unlock first, because the
+wizard writes the ship's identity and any stand-in parts back into the design.
+
+**Saving a locked design offers an editable copy instead.** Pick a name and the copy opens
+in a tab of its own ready to edit, with the locked original left open beside it.
+
+The lock belongs to the tab, not the file. It is never written into the `.oplan`, so a
+design you send somebody opens editable for them, and it is remembered with your open tabs,
+so a locked tab reopens locked next time. **A design can only be open one way at a time.**
+Opening a file read-only while it is open to edit in another tab, or the other way round,
+brings that tab forward and points you at its padlock instead of opening a second copy.
+
 ### Picking up where you left off
 
 **Settings ▸ Tabs** holds three settings about what survives closing Ostraplan.

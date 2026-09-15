@@ -170,6 +170,22 @@ internal sealed class DocumentSession
         }
     }
 
+    /// <summary>
+    /// The tab is locked against edits (#74). It belongs to the tab, not the design: it is recorded with the session
+    /// (<see cref="SessionTab.ReadOnly"/>) and never written into the <c>.oplan</c>, which describes a ship and not how
+    /// somebody chose to look at it. Setting it locks the undo stack and the canvas together, so neither can be left
+    /// editable behind the other.
+    /// </summary>
+    public bool ReadOnly
+    {
+        get => Stack.ReadOnly;
+        set
+        {
+            Stack.ReadOnly = value;
+            Board.ReadOnly = value;
+        }
+    }
+
     /// <summary>True when closing this tab would lose work.</summary>
     public bool Dirty => Doc is not null && (Stack.Dirty || StateDirty);
 }

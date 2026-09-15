@@ -64,6 +64,25 @@ Two rules that are easy to get wrong, both of which cost a design's work when th
   `session.LastProblems` whichever tab is on screen. Only the *shared* chrome (the toolbar,
   the PROBLEMS list, the title) is guarded on `ReferenceEquals(session, _active)`.
 
+## A new way to edit a design has to respect the tab lock
+
+A tab can be locked (#74), and a locked design must not change by any route. Three things hold
+that, and a new edit has to land behind one of them:
+
+- **Through the undo stack.** `CommandStack.ReadOnly` refuses `Push`, `Undo` and `Redo` and raises
+  `Refused`, which the window turns into the status-bar explanation. An edit that is a command pushed
+  onto the session's stack is covered with no further thought, including one pushed from a child window.
+- **Stopped at the gesture, where the stack is too late.** `PushExecuted` records a command that has
+  already run, so a canvas stroke or a damage-brush stroke is refused by `ShipCanvas.ReadOnly` before it
+  starts rather than after. Anything new that edits live and pushes afterwards needs the same guard.
+- **`RefuseIfReadOnly()` at the top of everything else.** A non-command edit (`_stateDirty = true`,
+  a direct property set such as dismissing an alert or `ExtraMassKg`) never reaches the stack, and an
+  edit that shows a dialog first should not let somebody fill the dialog in only to be refused at the
+  end. `OnShipInfoClick` and `OpenFill` are the working examples.
+
+Set the lock through `DocumentSession.ReadOnly` only. It locks the stack and the canvas together, and
+setting either alone leaves a way round the other.
+
 ## A fractional tile coordinate is ambiguous, so say which frame it is in
 
 Integer tile coordinates are unambiguous. A **continuous** one is not, and the two halves of the app had picked

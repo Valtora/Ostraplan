@@ -58,8 +58,24 @@ public sealed class CommandStack
     /// listener can log it. Seeding a document outside the stack (the primary airlock) doesn't fire.</summary>
     public event Action<IDocCommand, CommandAction>? Applied;
 
+    /// <summary>
+    /// While true the stack refuses every change to its document (#74): <see cref="Push"/> does not run the command,
+    /// and <see cref="Undo"/> and <see cref="Redo"/> do nothing, each raising <see cref="Refused"/> instead. It is the
+    /// backstop behind a locked tab. The window stops the edits it can see coming at the gesture, but an edit route
+    /// added later, or one reached from a child window, goes through here whether or not anyone remembered the lock.
+    ///
+    /// <para><see cref="PushExecuted"/> is refused too, but it cannot put the document back, because the command has
+    /// already run. Whatever calls it has to be stopped before it edits, which is what <c>ShipCanvas.ReadOnly</c> is
+    /// for.</para>
+    /// </summary>
+    public bool ReadOnly { get; set; }
+
+    /// <summary>Raised when a change is refused because the stack is <see cref="ReadOnly"/>.</summary>
+    public event Action? Refused;
+
     public void Push(ShipDocument doc, IDocCommand cmd)
     {
+        if (ReadOnly) { Refused?.Invoke(); return; }
         cmd.Do(doc);
         PushExecuted(cmd);
     }
@@ -67,6 +83,7 @@ public sealed class CommandStack
     /// <summary>Record a command whose Do already ran (live paint strokes commit this way).</summary>
     public void PushExecuted(IDocCommand cmd)
     {
+        if (ReadOnly) { Refused?.Invoke(); return; }
         _undo.Push(cmd);
         _redo.Clear();
         if (_savedDepth > _undo.Count - 1) _savedDepth = -1;   // saved state no longer reachable
@@ -77,6 +94,7 @@ public sealed class CommandStack
     public void Undo(ShipDocument doc)
     {
         if (_undo.Count == 0) return;
+        if (ReadOnly) { Refused?.Invoke(); return; }
         var cmd = _undo.Pop();
         cmd.Undo(doc);
         _redo.Push(cmd);
@@ -87,6 +105,7 @@ public sealed class CommandStack
     public void Redo(ShipDocument doc)
     {
         if (_redo.Count == 0) return;
+        if (ReadOnly) { Refused?.Invoke(); return; }
         var cmd = _redo.Pop();
         cmd.Do(doc);
         _undo.Push(cmd);

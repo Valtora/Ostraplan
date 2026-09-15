@@ -99,6 +99,7 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 | Auto-save rotation (per path, per untitled slot) | `AutoSaveTests` | — |
 | Session restore and backups (what a launch reopens, the lock, pruning) | `SessionStoreTests` | — |
 | Opening a design that is already open | `DesignPathTests` | — |
+| The tab lock (the stack's backstop, canvas and stack locked together) | `CommandStackReadOnlyTests`, `MainWindowTabsTests`† | — |
 | UI scale (clamp, popup layer) | `SettingsTests`, `UiScalePopupTests`† | — |
 
 `RenderSmokeTests` is mostly smoke — it writes PNGs for eyeballing and asserts only that they are not blank.

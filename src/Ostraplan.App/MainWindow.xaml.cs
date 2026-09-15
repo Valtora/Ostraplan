@@ -301,10 +301,12 @@ public partial class MainWindow : Window
         board.SymmetryChanged += SyncViewToggles;          // M and the axis drag both land on the toolbar button
         board.LinkToggleRequested += OnLinkToggleRequested;   // connect/disconnect two devices via the command stack
         board.ActiveZoneChanged += UpdateZones;   // reflect which zone (if any) is being painted
+        board.EditRefused += OnEditRefused;        // a locked design (#74) says why the click did nothing
 
         var session = new DocumentSession { Board = board, UntitledSlot = FreeUntitledSlot() };
         session.Stack.StateChanged += () => session.Revision++;   // before RefreshChrome, which records the session
         session.Stack.StateChanged += RefreshChrome;
+        session.Stack.Refused += OnEditRefused;   // the backstop behind a locked tab caught an edit (#74)
         // Audit every edit/undo/redo, resolving each part's friendly name so the trail records what/where
         // ("Place Nav Station @(12,7)") rather than a context-free "Place" — the detail a bug report needs.
         session.Stack.Applied += (cmd, action) => AuditLog.Command(action, cmd, DefFriendlyName);
@@ -464,7 +466,10 @@ public partial class MainWindow : Window
             if (session.Doc is not { } doc) continue;
             if (doc.FilePath is null && session.Backup is null) continue;
             if (ReferenceEquals(session, _active)) manifest.Active = manifest.Tabs.Count;
-            manifest.Tabs.Add(new SessionTab { Path = doc.FilePath, Backup = session.Backup, Name = session.DisplayName });
+            manifest.Tabs.Add(new SessionTab
+            {
+                Path = doc.FilePath, Backup = session.Backup, Name = session.DisplayName, ReadOnly = session.ReadOnly,
+            });
         }
         return manifest;
     }
@@ -615,6 +620,9 @@ public partial class MainWindow : Window
                 }
 
                 AdoptLoadedDocument(file, doc, missing, tab.Path, dirty: item.FromBackup);
+                // A locked tab never has a backup, since it cannot have unsaved changes. Checked anyway, because a
+                // design that came back with changes has to be editable for them to be saved.
+                if (tab.ReadOnly && !item.FromBackup && tab.Path is not null) _active.ReadOnly = true;
                 AttachLegacySavedCargoAsync(doc, file.Source);
                 if (item.FromBackup)
                 {
@@ -714,7 +722,7 @@ public partial class MainWindow : Window
 
         row.Children.Add(new TextBlock
         {
-            Text = session.TabName + (session.Dirty ? " *" : ""),
+            Text = (session.ReadOnly ? "🔒 " : "") + session.TabName + (session.Dirty ? " *" : ""),
             TextTrimming = TextTrimming.CharacterEllipsis,
             VerticalAlignment = VerticalAlignment.Center,
         });
@@ -2040,6 +2048,7 @@ public partial class MainWindow : Window
     /// problems from the last scan — no re-scan needed, since dismissal only filters the display.</summary>
     private void DismissAlert(string key)
     {
+        if (RefuseIfReadOnly()) return;   // dismissals are saved in the .oplan, so they are an edit
         if (_doc is null || !_doc.DismissAlert(key)) return;
         Board.SetLeakCells([]);   // if the dismissed warning's leak points were showing, drop them
         _stateDirty = true;
@@ -2050,6 +2059,7 @@ public partial class MainWindow : Window
     /// <summary>Restore every dismissed warning (the "Restore Alerts" button).</summary>
     private void RestoreDismissedAlerts()
     {
+        if (RefuseIfReadOnly()) return;
         if (_doc is null || !_doc.RestoreAlerts()) return;
         _stateDirty = true;
         RefreshChrome();
@@ -2058,14 +2068,19 @@ public partial class MainWindow : Window
 
     private void RefreshChrome()
     {
-        BtnUndo.IsEnabled = _stack.CanUndo;
-        BtnRedo.IsEnabled = _stack.CanRedo;
+        var locked = _active.ReadOnly;
+        BtnUndo.IsEnabled = _stack.CanUndo && !locked;
+        BtnRedo.IsEnabled = _stack.CanRedo && !locked;
+        BtnLock.Visibility = locked || _doc?.FilePath is not null ? Visibility.Visible : Visibility.Collapsed;
+        BtnLock.IsChecked = locked;
+        ReadOnlyBadge.Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
         var name = _doc?.FilePath is { } f ? Path.GetFileNameWithoutExtension(f) : _meta.Name;
         var star = _stack.Dirty || _stateDirty ? " *" : "";
         var incomplete = _unresolvedParts.Count > 0 ? "  ⚠ MISSING MODS — read-only" : "";
-        TxtDoc.Text = name + star + incomplete;
+        var readOnly = locked ? "  🔒 READ ONLY" : "";
+        TxtDoc.Text = name + star + incomplete + readOnly;
         SetDocByline();
-        Title = $"Ostraplan v{AppVersion} — {name}{star}{incomplete}";
+        Title = $"Ostraplan v{AppVersion} — {name}{star}{incomplete}{readOnly}";
         SyncDocumentKindChrome();
         RefreshDocTabs();   // the strip carries the same name and the same unsaved star, for every open design
     }
@@ -2259,6 +2274,7 @@ public partial class MainWindow : Window
     private bool Save()
     {
         if (_doc is null || _index is null) return false;
+        if (_active.ReadOnly) return SaveEditableCopy();
         if (!GuardIncompleteSave()) return false;
         if (_doc.FilePath is null) return SaveAs();
         try
@@ -2283,6 +2299,7 @@ public partial class MainWindow : Window
     private bool SaveAs()
     {
         if (_doc is null) return false;
+        if (_active.ReadOnly) return SaveEditableCopy();
         if (!GuardIncompleteSave()) return false;
         var dlg = new SaveFileDialog
         {
@@ -2290,6 +2307,13 @@ public partial class MainWindow : Window
             FileName = string.Join("_", _meta.Name.Split(Path.GetInvalidFileNameChars())),
         };
         if (dlg.ShowDialog(this) != true) return false;
+        // Two tabs on one file both write it (see DesignPath), so a design cannot be saved over one open elsewhere.
+        if (SessionFor(dlg.FileName) is { } open && !ReferenceEquals(open, _active))
+        {
+            Dlg.Warn(this, "Save As", $"{Path.GetFileName(dlg.FileName)} is open in another tab, so it can't be " +
+                "replaced from here. Pick another name, or close that tab first.");
+            return false;
+        }
         _doc.FilePath = dlg.FileName;
         _meta.Name = Path.GetFileNameWithoutExtension(dlg.FileName);
         return Save();
@@ -2540,17 +2564,166 @@ public partial class MainWindow : Window
         catch (Exception ex) { Dlg.Error(this, "Auto-save", ex.Message); }
     }
 
-    /// <summary>File ▸ Open. Takes as many designs as the dialog is given, each into a tab of its own (#70).</summary>
-    private void OpenFile()
+    /// <summary>File ▸ Open, and File ▸ Open read-only (#74). Takes as many designs as the dialog is given, each
+    /// into a tab of its own (#70).</summary>
+    private void OpenFile(bool readOnly = false)
     {
         if (_catalog is null) return;
         var dlg = new OpenFileDialog
         {
+            Title = readOnly ? "Open read-only" : "Open",
             Filter = "Ostraplan ship (*.oplan)|*.oplan|All files (*.*)|*.*",
             Multiselect = true,
         };
         if (dlg.ShowDialog(this) != true) return;
-        OpenDesigns(dlg.FileNames);
+        OpenDesigns(dlg.FileNames, readOnly);
+    }
+
+    // ---- the tab lock (#74) ----
+
+    /// <summary>True when the design on screen is locked, having said so in the status bar. For the top of an edit
+    /// that has a dialog to show first, so nobody fills one in only to be refused at the end.</summary>
+    private bool RefuseIfReadOnly()
+    {
+        if (!_active.ReadOnly) return false;
+        OnEditRefused();
+        return true;
+    }
+
+    /// <summary>An edit was refused because its design is locked: say why nothing happened. The inspector is rebuilt
+    /// as well, after the event that asked for the edit has finished, because a device panel's control has already
+    /// moved to the value that was refused and would otherwise go on showing it.</summary>
+    private void OnEditRefused()
+    {
+        TxtGhost.Text = "🔒 This design is read only. Unlock it with the padlock in the toolbar to edit it.";
+        Dispatcher.BeginInvoke(UpdateInspector, DispatcherPriority.Background);
+    }
+
+    private void OnLockClick(object sender, RoutedEventArgs e)
+    {
+        ToggleLock(_active);
+        RefreshChrome();   // put the toggle back where the session says, whatever WPF's own click did to it
+    }
+
+    /// <summary>
+    /// Lock or unlock one design, asking first either way. Neither is a security measure, so unlocking is always
+    /// allowed; both just take a deliberate answer rather than a stray click.
+    ///
+    /// <para><b>A design with unsaved changes cannot be locked as it stands.</b> A locked design is its file, and
+    /// changes it cannot save would be stranded in it. So the user saves them, or discards them, which reloads the
+    /// design from its file, and the lock goes on after that. A design with no file at all has nothing to protect
+    /// and nothing to reload, and the padlock is not shown for one.</para>
+    /// </summary>
+    internal void ToggleLock(DocumentSession session)
+    {
+        if (session.Doc is not { } doc) return;
+        ActivateSession(session);
+
+        if (session.ReadOnly)
+        {
+            if (!Dlg.Confirm(this, DlgKind.Info, "Unlock this design?",
+                    $"“{session.DisplayName}” can then be edited, and Ctrl+S will write to {Path.GetFileName(doc.FilePath)} " +
+                    "again.", "Unlock"))
+                return;
+            session.ReadOnly = false;
+            AuditLog.Add($"Unlocked \"{session.DisplayName}\".");
+            return;
+        }
+
+        if (doc.FilePath is null) return;
+        if (session.Dirty)
+        {
+            var choice = Dlg.Choose(this, DlgKind.Warning, "Lock with unsaved changes?",
+                $"“{session.DisplayName}” has unsaved changes. A locked design is exactly what is in its file, so save " +
+                "the changes or discard them first.\n\nDiscarding reloads the design from " +
+                $"{Path.GetFileName(doc.FilePath)}.",
+                "Save and lock", "Discard and lock");
+            if (choice == MessageDialog.Choice.Cancel) return;
+            if (choice == MessageDialog.Choice.Primary && !Save()) return;
+            if (choice == MessageDialog.Choice.Secondary && !ReloadFromFile(session)) return;
+        }
+        else if (!Dlg.Confirm(this, DlgKind.Info, "Lock this design?",
+                     $"“{session.DisplayName}” will open to look at and nothing about it can be changed until you unlock " +
+                     "it. Saving offers to make an editable copy instead of writing the file.", "Lock"))
+            return;
+
+        session.ReadOnly = true;
+        AuditLog.Add($"Locked \"{session.DisplayName}\".");
+    }
+
+    /// <summary>Throw away a design's unsaved changes by reading its file again, into the same tab. Returns false,
+    /// having said why, when the file cannot be read, in which case the design is left exactly as it was.</summary>
+    private bool ReloadFromFile(DocumentSession session)
+    {
+        if (_catalog is not { } catalog || session.Doc?.FilePath is not { } path) return false;
+        OplanFile file;
+        List<OplanPart> missing;
+        ShipDocument doc;
+        try
+        {
+            file = OplanFile.Load(path);
+            (doc, missing) = file.ToDocument(catalog);
+        }
+        catch (Exception ex)
+        {
+            Dlg.Error(this, "Couldn't reload the design", $"{Path.GetFileName(path)} could not be read:\n\n{ex.Message}");
+            return false;
+        }
+
+        ActivateSession(session);
+        AdoptLoadedDocument(file, doc, missing, path, dirty: false, newTab: false);
+        AttachLegacySavedCargoAsync(doc, file.Source);
+        DropBackup(session);
+        AuditLog.Add($"Discarded the unsaved changes to \"{session.DisplayName}\" and reloaded {path}.");
+        return true;
+    }
+
+    /// <summary>
+    /// Save on a locked design: offer an editable copy rather than writing the file. The copy is written from the
+    /// design as it stands, which is its file, and opens in a tab of its own, so the locked original stays open and
+    /// untouched beside it. That is the reporter's use: keep a reference design locked and make variations of it.
+    /// </summary>
+    private bool SaveEditableCopy()
+    {
+        if (_doc is null || _index is null) return false;
+        if (!Dlg.Confirm(this, DlgKind.Info, "Save an editable copy?",
+                $"“{_active.DisplayName}” is locked, so saving won't write its file. You can save a copy instead, which " +
+                "opens in a new tab ready to edit, with the locked design left as it is.", "Save a copy…"))
+            return false;
+
+        var dlg = new SaveFileDialog
+        {
+            Filter = "Ostraplan ship (*.oplan)|*.oplan",
+            FileName = _active.DisplayName + " copy",
+            InitialDirectory = Path.GetDirectoryName(_doc.FilePath) ?? "",
+        };
+        if (dlg.ShowDialog(this) != true) return false;
+        if (SessionFor(dlg.FileName) is { } open)
+        {
+            Dlg.Warn(this, "Save a copy", $"{Path.GetFileName(dlg.FileName)} is open in another tab, so it can't be " +
+                "replaced from here. Pick another name, or close that tab first.");
+            return false;
+        }
+
+        try
+        {
+            var copy = OplanFile.FromDocument(_doc, _index, _meta);
+            copy.ViewRot = Board.ViewRot;
+            // The copy is named after its file, as Save As names a design. On a clone of the metadata: the file holds
+            // the locked design's own, and renaming that would change the original's name on screen.
+            copy.Meta = System.Text.Json.JsonSerializer.Deserialize<OplanMeta>(
+                System.Text.Json.JsonSerializer.Serialize(_meta))!;
+            copy.Meta.Name = Path.GetFileNameWithoutExtension(dlg.FileName);
+            copy.Save(dlg.FileName);
+        }
+        catch (Exception ex)
+        {
+            Dlg.Show(this, ex.Message, "Save failed", MessageBoxButton.OK, MessageBoxImage.Error);
+            return false;
+        }
+        AuditLog.Add($"Saved an editable copy of \"{_active.DisplayName}\" to {dlg.FileName}.");
+        OpenDesigns([dlg.FileName]);
+        return true;
     }
 
     /// <summary>The open tab already holding the design at <paramref name="path"/>, or null. See
@@ -2567,14 +2740,18 @@ public partial class MainWindow : Window
     /// several at once get one summary rather than a dialog per file to click through.</para>
     ///
     /// <para>A design that is already open is not opened again. Its tab is brought forward instead when nothing
-    /// else was opened, because two tabs on one file both write it and the last save wins.</para>
+    /// else was opened, because two tabs on one file both write it and the last save wins. That holds across the
+    /// lock too (#74): a file open to edit in one tab is not also opened read-only in another, or the other way
+    /// round, since the read-only tab would go on showing a design the other tab has since changed. The user is
+    /// told which tab has it and pointed at the padlock, which is how a tab changes between the two.</para>
     /// </summary>
-    private void OpenDesigns(IReadOnlyList<string> paths)
+    private void OpenDesigns(IReadOnlyList<string> paths, bool readOnly = false)
     {
         if (_catalog is not { } catalog) return;
 
         var failed = new List<(string Path, string Why)>();
         var incomplete = new List<(string Name, OplanFile File, List<OplanPart> Missing)>();
+        var otherWay = new List<DocumentSession>();
         DocumentSession? alreadyOpen = null;
         var opened = 0;
 
@@ -2583,6 +2760,7 @@ public partial class MainWindow : Window
             if (SessionFor(path) is { } open)
             {
                 alreadyOpen = open;
+                if (open.ReadOnly != readOnly) otherWay.Add(open);
                 AuditLog.Add($"{path} is already open; not opened a second time.");
                 continue;
             }
@@ -2602,8 +2780,9 @@ public partial class MainWindow : Window
             }
 
             AdoptLoadedDocument(file, doc, missing, path, dirty: false);
+            if (readOnly) _active.ReadOnly = true;
             _settings.Touch(path);
-            AuditLog.Add($"Opened {path}.");
+            AuditLog.Add(readOnly ? $"Opened {path} read-only." : $"Opened {path}.");
             opened++;
 
             // A design written by an older build stored only the layout and left its container contents in the save
@@ -2614,8 +2793,19 @@ public partial class MainWindow : Window
             if (missing.Count > 0) incomplete.Add((_meta.Name, file, missing));
         }
 
-        if (opened > 0) _settings.Save();
+        if (opened > 0) { _settings.Save(); RefreshChrome(); }
         else if (alreadyOpen is not null) ActivateSession(alreadyOpen);
+
+        if (otherWay.Count > 0)
+            Dlg.Info(this, readOnly ? "Already open to edit" : "Already open read-only",
+                (otherWay.Count == 1
+                    ? $"“{otherWay[0].DisplayName}” is already open {(readOnly ? "to edit" : "read-only")} in a tab of its own."
+                    : $"These are already open {(readOnly ? "to edit" : "read-only")}:\n\n" +
+                      string.Join("\n", otherWay.Select(s => "   • " + s.DisplayName))) +
+                "\n\nA design can only be open one way at a time, so it wasn't opened again. " +
+                (readOnly
+                    ? "To look at it without being able to change it, lock that tab with the padlock in the toolbar."
+                    : "To edit it, unlock that tab with the padlock in the toolbar."));
 
         if (failed.Count == 1)
             Dlg.Show(this, failed[0].Why, "Open failed", MessageBoxButton.OK, MessageBoxImage.Error);
@@ -2671,10 +2861,11 @@ public partial class MainWindow : Window
     /// <paramref name="dirty"/> starts it with unsaved changes, which a recovered snapshot always has: what is on the
     /// canvas is by definition not what is on disk.</para>
     /// </summary>
-    private void AdoptLoadedDocument(OplanFile file, ShipDocument doc, List<OplanPart> missing, string? filePath, bool dirty)
+    private void AdoptLoadedDocument(OplanFile file, ShipDocument doc, List<OplanPart> missing, string? filePath, bool dirty,
+        bool newTab = true)
     {
         if (_catalog is not { } catalog) return;
-        BeginDocumentInNewTab();
+        if (newTab) BeginDocumentInNewTab();
         CloseReports(_active);
 
         // Designs saved before the primary-airlock convention gain one at the origin. IsLocked reads the port's
@@ -2799,7 +2990,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void DeleteSelection()
     {
-        if (_doc is null) return;
+        if (_doc is null || RefuseIfReadOnly()) return;
         var selected = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
         var loose = Board.SelectedLooseObjects();
         if (selected.Count == 0 && loose.Count == 0) return;
@@ -3214,7 +3405,7 @@ public partial class MainWindow : Window
 
     private void OnAddZoneClick(object sender, RoutedEventArgs e)
     {
-        if (_doc is null) return;
+        if (_doc is null || RefuseIfReadOnly()) return;
         var zone = new ShipZone
         {
             Name = NextZoneName(),
@@ -3242,7 +3433,7 @@ public partial class MainWindow : Window
 
     private void EditZone(ShipZone zone)
     {
-        if (_doc is null) return;
+        if (_doc is null || RefuseIfReadOnly()) return;
         var before = zone.Meta;
         var dlg = new ZoneEditorDialog(this, "Edit zone", before) { Owner = this };
         if (dlg.ShowDialog() == true && dlg.Result is { } meta)
@@ -3251,7 +3442,7 @@ public partial class MainWindow : Window
 
     private void DeleteZone(ShipZone zone)
     {
-        if (_doc is null) return;
+        if (_doc is null || RefuseIfReadOnly()) return;
         if (!Dlg.Confirm(this, DlgKind.Warning, "Delete zone?",
             $"Delete the zone “{zone.Name}” and its painted tiles?", "Delete zone")) return;
         if (Board.ActiveZoneId == zone.Id) Board.SetActiveZone(null);
@@ -3348,7 +3539,7 @@ public partial class MainWindow : Window
 
     private void RotateSelection(int delta)
     {
-        if (_doc is null) return;
+        if (_doc is null || RefuseIfReadOnly()) return;
         var parts = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
         var loose = Board.SelectedLooseObjects();
         if (parts.Count + loose.Count == 0) return;
@@ -3485,7 +3676,7 @@ public partial class MainWindow : Window
 
     private void DuplicateSelection()
     {
-        if (_doc is null) return;
+        if (_doc is null || RefuseIfReadOnly()) return;
         var selected = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
         var loose = Board.SelectedLooseObjects();
         if (selected.Count == 0 && loose.Count == 0) return;
@@ -3587,7 +3778,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void RenamePart(Placement p)
     {
-        if (_doc is null || _catalog is null) return;
+        if (_doc is null || _catalog is null || RefuseIfReadOnly()) return;
         var part = _doc.Part(p);
         if (!Rename.CanRename(part)) return;
 
@@ -3609,7 +3800,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void RenameLoose(LooseObject lo, PartDef part)
     {
-        if (_doc is null) return;
+        if (_doc is null || RefuseIfReadOnly()) return;
         var dlg = new RenameDialog(part.Friendly, lo.CustomName, "item") { Owner = this };
         if (dlg.ShowDialog() != true) return;
         var chosen = Rename.Typed(dlg.ChosenName, part);   // the stock name typed back means the same as an empty box
@@ -3630,7 +3821,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void RestateAll(IReadOnlyList<Placement> parts, Func<string, string?> peer)
     {
-        if (_doc is null || _catalog is null || parts.Count == 0) return;
+        if (_doc is null || _catalog is null || parts.Count == 0 || RefuseIfReadOnly()) return;
         var commands = new List<IDocCommand>();
         var newIds = new List<Guid>();
         foreach (var p in parts)
@@ -3658,7 +3849,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void SwapForms(IReadOnlyList<(Placement Part, string Target)> swaps)
     {
-        if (_doc is null || FormSwap.BuildSwap(_doc, swaps) is not { } swap) return;
+        if (_doc is null || RefuseIfReadOnly() || FormSwap.BuildSwap(_doc, swaps) is not { } swap) return;
         _stack.Push(_doc, swap.Cmd);
         Board.SelectedIds.Clear();
         foreach (var p in swap.New) Board.SelectedIds.Add(p.Id);
@@ -3710,7 +3901,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void RemoveAllLooseItems()
     {
-        if (_doc is null) return;
+        if (_doc is null || RefuseIfReadOnly()) return;
         var loose = _doc.LooseObjects.ToList();
         if (loose.Count == 0)
         {
@@ -3744,7 +3935,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void ReplaceSelection()
     {
-        if (_doc is null || _catalog is null) return;
+        if (_doc is null || _catalog is null || RefuseIfReadOnly()) return;
         var parts = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
         if (parts.Count == 0 || ReplaceOps.CommonClass(_doc, parts) is not { } cls) return;
 
@@ -3773,7 +3964,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void FindAndReplace()
     {
-        if (_doc is null || _catalog is null) return;
+        if (_doc is null || _catalog is null || RefuseIfReadOnly()) return;
         var selected = Board.SelectedPlacements();
         if (ReplaceOps.SoleDef(selected) is not { } defName) return;
         if (ReplaceOps.CommonClass(_doc, [selected[0]]) is not { } cls) return;
@@ -3806,7 +3997,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void OnThemeClick(object sender, RoutedEventArgs e)
     {
-        if (_doc is null || _catalog is null) return;
+        if (_doc is null || _catalog is null || RefuseIfReadOnly()) return;
 
         // Wall and floor skins are the buildable variants over the 1×1 wall / floor base (the only
         // footprint they come in). Present each as a palette thumbnail (reusing the built VMs).
@@ -3936,7 +4127,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void PasteClipboard((int X, int Y)? at = null)
     {
-        if (_doc is null || _clip.Count + _clipLoose.Count == 0) return;
+        if (_doc is null || _clip.Count + _clipLoose.Count == 0 || RefuseIfReadOnly()) return;
         var anchor = at ?? Board.PasteCell ?? _clipOrigin;
         var clones = ClipboardClones(_clip, anchor);
         var looseClones = ClipboardLooseClones(anchor, out var skipped);
@@ -4258,7 +4449,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void BuildLast(IReadOnlyList<Placement> parts)
     {
-        if (_doc is null || parts.Count == 0) return;
+        if (_doc is null || parts.Count == 0 || RefuseIfReadOnly()) return;
         // The push raises Changed, which re-runs the scan — the point of the change is what the checker then says.
         _stack.Push(_doc, new BuildLastCommand([.. parts]));
     }
@@ -4272,7 +4463,7 @@ public partial class MainWindow : Window
     /// </summary>
     private void RunSpawners(IReadOnlyList<LooseObject> caught)
     {
-        if (_doc is null || _catalog is null) return;
+        if (_doc is null || _catalog is null || RefuseIfReadOnly()) return;
         var all = SpawnerRun.Runnable(_doc);
         if (all.Count == 0) return;
 
@@ -4384,14 +4575,18 @@ public partial class MainWindow : Window
     private void OpenLooseInventory(LooseObject lo, PartDef part)
     {
         if (_doc is null || _catalog is null || _sprites is null) return;
-        new InventoryWindow(_catalog, _sprites, lo.DefName, Rename.Display(lo, part), lo.Cargo, _doc, _stack, rootLoose: lo)
-        { Owner = this }.ShowDialog();
+        // A locked design's contents open to look at: without the document and stack the window is a viewer.
+        var window = _active.ReadOnly
+            ? new InventoryWindow(_catalog, _sprites, lo.DefName, Rename.Display(lo, part), lo.Cargo)
+            : new InventoryWindow(_catalog, _sprites, lo.DefName, Rename.Display(lo, part), lo.Cargo, _doc, _stack, rootLoose: lo);
+        window.Owner = this;
+        window.ShowDialog();
     }
 
     /// <summary>Prompt for a new stacked quantity (1..stack limit) and apply it as one undo step.</summary>
     private void ChangeLooseQuantity(LooseObject lo, PartDef part)
     {
-        if (_doc is null) return;
+        if (_doc is null || RefuseIfReadOnly()) return;
         var max = Math.Max(1, part.StackLimit);
         var dlg = new LooseQuantityDialog(Rename.Display(lo, part), lo.Quantity, max) { Owner = this };
         if (dlg.ShowDialog() != true || dlg.Quantity == lo.Quantity) return;
@@ -4414,7 +4609,11 @@ public partial class MainWindow : Window
     {
         if (_doc is null || _catalog is null || _sprites is null) return;
         var friendly = Rename.Display(p, _doc.Part(p));
-        new InventoryWindow(_catalog, _sprites, p.DefName, friendly, p.Cargo, _doc, _stack, p) { Owner = this }.ShowDialog();
+        var window = _active.ReadOnly
+            ? new InventoryWindow(_catalog, _sprites, p.DefName, friendly, p.Cargo)   // a viewer, on a locked design
+            : new InventoryWindow(_catalog, _sprites, p.DefName, friendly, p.Cargo, _doc, _stack, p);
+        window.Owner = this;
+        window.ShowDialog();
     }
 
     /// <summary>Open the nav console's screen arrangement — the planner's stand-in for the console's own edit
@@ -4422,7 +4621,7 @@ public partial class MainWindow : Window
     /// arrange, and says so rather than opening an empty board.</summary>
     private async void OpenNavArrange(Placement p)
     {
-        if (_doc is null || _catalog is null) return;
+        if (_doc is null || _catalog is null || RefuseIfReadOnly()) return;
         if (NavConsole.NeedsModules(p.Cargo))
         {
             Dlg.Info(this, "Arrange screen",
@@ -4452,7 +4651,7 @@ public partial class MainWindow : Window
     /// rating report is refreshed with it.</summary>
     private void OpenFill(Placement p)
     {
-        if (_doc is null || _catalog is null) return;
+        if (_doc is null || _catalog is null || RefuseIfReadOnly()) return;
         if (ContainerFill.Describe(_doc.Part(p), _catalog) is not { } spec) return;
 
         var dlg = new FillDialog(Rename.Display(p, _doc.Part(p)), spec, p.Fill, _catalog) { Owner = this };
@@ -4559,6 +4758,16 @@ public partial class MainWindow : Window
         if (_freeze.IsFrozen) return;   // an engine is reading the live document off-thread; no edits until it lands
         var ctrl = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
         var shift = Keyboard.Modifiers.HasFlag(ModifierKeys.Shift);
+
+        // Alt+Shift+O: open read-only (#74). WPF reports a key held with Alt as Key.System and puts the real key in
+        // SystemKey, which is why this cannot be one more case in the switch below.
+        if (e.Key == Key.System && e.SystemKey == Key.O && shift && !ctrl && !e.IsRepeat
+            && Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
+        {
+            OpenFile(readOnly: true);
+            e.Handled = true;
+            return;
+        }
 
         switch (e.Key)
         {
@@ -5389,6 +5598,7 @@ public partial class MainWindow : Window
                 + "APPS section of the palette.");
             return;
         }
+        if (RefuseIfReadOnly()) return;
         new WeaponsWindow(_catalog, _doc, _stack) { Owner = this }.ShowDialog();
     }
 
@@ -5425,7 +5635,7 @@ public partial class MainWindow : Window
         // Never overwrite what is being typed. This runs on every document change, and the rename itself is one.
         if (!InsFriendly.IsKeyboardFocusWithin) InsFriendly.Text = text;
 
-        var editable = target is not null && Rename.CanRename(part);
+        var editable = target is not null && Rename.CanRename(part) && !_active.ReadOnly;   // a locked design (#74)
         InsFriendly.IsReadOnly = !editable;
         InsFriendly.Focusable = editable;
         InsFriendly.MaxLength = Rename.MaxLength;
@@ -5613,7 +5823,7 @@ public partial class MainWindow : Window
     /// both persist in the .oplan, and the identity pre-fills the export dialog.</summary>
     private void OnShipInfoClick(object sender, RoutedEventArgs e)
     {
-        if (_doc is null) return;
+        if (_doc is null || RefuseIfReadOnly()) return;
         var dlg = new ShipInfoDialog(_meta, _doc.Kind) { Owner = this };
         if (dlg.ShowDialog() != true) return;
         if (dlg.PublicName == _meta.PublicName && dlg.Make == _meta.Make && dlg.Model == _meta.Model
@@ -5635,6 +5845,12 @@ public partial class MainWindow : Window
     private void SetExtraMass(ShipDocument doc, double kg)
     {
         if (kg.Equals(doc.ExtraMassKg)) return;
+        // The design this box measures, which need not be the one on screen: a report stays open beside its tab.
+        if (_sessions.FirstOrDefault(s => ReferenceEquals(s.Doc, doc)) is { ReadOnly: true })
+        {
+            OnEditRefused();
+            return;
+        }
         doc.ExtraMassKg = kg;
         _stateDirty = true;
         RefreshChrome();
@@ -5644,7 +5860,8 @@ public partial class MainWindow : Window
     /// design as having unsaved changes — but only for a real document (not the empty startup state).</summary>
     private void MarkViewOrientationChanged()
     {
-        if (_doc is null || _stateDirty) return;
+        // A locked design still turns, because turning is how you look at it. It just isn't a change to save.
+        if (_doc is null || _stateDirty || _active.ReadOnly) return;
         _stateDirty = true;
         RefreshChrome();
     }
@@ -5661,6 +5878,16 @@ public partial class MainWindow : Window
     private void OpenExportWizard(ExportDestination? preselect, SaveSourceRef? updateTarget = null)
     {
         if (_doc is null || _catalog is null || _index is null || _env is null) return;
+        // Exporting writes back into the design: stand-in parts for anything the game cannot take, and the name and
+        // identity typed into the wizard. So it waits for the lock to come off, or for an editable copy.
+        if (_active.ReadOnly)
+        {
+            Dlg.Info(this, "Export",
+                "This design is locked, and exporting can change it: the wizard records the name and identity you " +
+                "give the ship, and puts stand-in parts on the design for anything the game cannot take.\n\n" +
+                "Unlock it with the padlock in the toolbar, or save an editable copy (Ctrl+S) and export that.");
+            return;
+        }
         if (_doc.Placements.Count == 0)
         {
             Dlg.Show(this, "Place some parts before exporting.", "Export",
@@ -5914,6 +6141,11 @@ public partial class MainWindow : Window
         var m = new ContextMenu();
         m.Items.Add(MenuAction("New", () => OnNewClick(this, e), gesture: "Ctrl+N"));
         m.Items.Add(MenuAction("Open…", () => OnOpenClick(this, e), gesture: "Ctrl+O"));
+        m.Items.Add(MenuAction("Open Read-only…", () => OpenFile(readOnly: true), gesture: "Alt+Shift+O"));
+        // The lock on the design on screen, for the menu as well as the padlock. Only for a design with a file.
+        if (_active.ReadOnly || _doc?.FilePath is not null)
+            m.Items.Add(MenuAction(_active.ReadOnly ? "Unlock Design…" : "Lock Design…",
+                () => { ToggleLock(_active); RefreshChrome(); }));
         // Only worth an item once there is more than one to close: with a single design open the tab strip is not
         // shown either, and closing the last one is refused.
         m.Items.Add(MenuAction("Close Design", () => CloseSession(_active), enabled: _sessions.Count > 1,
@@ -6018,7 +6250,7 @@ public partial class MainWindow : Window
     /// The inverse of a brush stroke, and the only one there is.</summary>
     private void ClearPaintedCondition(IReadOnlyList<Placement> parts, IReadOnlyList<LooseObject> loose)
     {
-        if (_doc is null || parts.Count + loose.Count == 0) return;
+        if (_doc is null || parts.Count + loose.Count == 0 || RefuseIfReadOnly()) return;
         var cmds = new List<IDocCommand>(parts.Count + loose.Count);
         foreach (var p in parts) cmds.Add(new SetConditionCommand(p, p.Condition, null));
         foreach (var o in loose) cmds.Add(new SetLooseConditionCommand(o, o.Condition, null));
@@ -6039,6 +6271,7 @@ public partial class MainWindow : Window
         // Capture the SESSION, not the shim. The window outlives this method and its strokes land whenever the
         // user gets round to them, by which point _stack/_doc resolve to whichever tab is active then — so a
         // stroke painted on this design would be recorded against another one's undo history (see CONVENTIONS).
+        if (RefuseIfReadOnly()) return;   // every stroke paints condition onto the design
         var session = _active;
         var window = new DamageBrushWindow(Board, _doc) { Owner = this };
         window.Committed += stroke =>
@@ -7553,7 +7786,8 @@ public partial class MainWindow : Window
             ("Zoom", "Mouse wheel / + −", "Wheel zooms at the cursor in fine 0.1× steps (hold Shift for 0.5×); + and − zoom at the view centre."),
             ("Fit to ship", "F", "Fit the view to the whole ship."),
             ("Undo / redo", "Ctrl+Z / Ctrl+Y", "Undo · redo (Ctrl+Shift+Z also redoes)."),
-            ("New / open / save", "Ctrl+N / O / S", "New · open · save (Ctrl+Shift+S = Save As). New and Open each start their design in a tab of its own, so nothing you have open is closed to make room."),
+            ("New / open / save", "Ctrl+N / O / S", "New · open · save (Ctrl+Shift+S = Save As). New and Open each start their design in a tab of its own, so nothing you have open is closed to make room, and Open takes several designs at once."),
+            ("Open read-only", "Alt+Shift+O", "Open designs locked, to look at without changing them. The padlock in the toolbar locks or unlocks the design on screen, and saving a locked design offers an editable copy."),
             ("Switch / close design", "Ctrl+Tab / Ctrl+W", "Step through the open designs (Ctrl+Shift+Tab goes back) · close the one on screen. The tab strip appears above the canvas as soon as a second design is open; copy and paste work between them."),
             ("Export", "Ctrl+E", "Export the design as a spawnable local data mod."),
             ("Ship Info / Materials", "Ctrl+I / Ctrl+B", "Edit the in-game identity · open the bill of materials."),

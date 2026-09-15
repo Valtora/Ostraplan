@@ -12,6 +12,19 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
+- **Lock a design so it can be looked at but not changed.** Going through somebody else's design, or one
+  of your own kept for reference, meant one misclick or a Ctrl+S out of habit could change the file
+  without your noticing. A padlock beside Undo and Redo now locks the design on screen, and **File ▸ Open
+  Read-only…** (Alt+Shift+O) opens designs already locked. A locked design shows 🔒 on its tab, in the
+  title and in the status bar. Nothing that would change it works, and the status bar says why when you
+  try, while panning, selecting, the overlays, the reports and the contents viewer all still work. Saving
+  a locked design offers to save an editable copy, which opens in its own tab beside the original. A
+  design with unsaved changes has to be saved or discarded before it can be locked, and unlocking is
+  always one confirmation away, since this guards against accidents rather than people. The lock belongs
+  to the tab rather than the file: it is never saved into the .oplan, and a locked tab reopens locked
+  next launch. A file can only be open one way at a time, so opening it read-only while it is open to
+  edit brings that tab forward instead. Save As also refuses to overwrite a file open in another tab.
+  Thanks to nighoggDatatype. (#74)
 - **Your designs come back next time, and so do unsaved changes after a crash.** Closing Ostraplan used
   to cost you your set of open tabs, so a session spread over several designs had to be opened again by
   hand every day. A new **Tabs** section in Settings covers it. **Reopen tabs** brings back every design

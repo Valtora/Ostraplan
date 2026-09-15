@@ -17,6 +17,10 @@ public sealed class SessionTab
     /// <summary>What the tab was called, so a design that can no longer be reopened can still be named.</summary>
     [JsonPropertyName("name")] public string? Name { get; set; }
 
+    /// <summary>The tab was locked against edits (#74). Kept here rather than in the design's file because the lock
+    /// is about how the tab was being used, not about the ship.</summary>
+    [JsonPropertyName("readOnly")] public bool ReadOnly { get; set; }
+
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 }
 

@@ -351,6 +351,7 @@ public sealed class ShipCanvas : FrameworkElement
     /// see the candidates for is a guess.</summary>
     public void BeginWirePick(Placement anchor, WireEnd end)
     {
+        if (_readOnly) { EditRefused?.Invoke(); return; }
         _wirePick = (anchor, end);
         SetShowWire(true);
         WirePickChanged?.Invoke();
@@ -460,6 +461,37 @@ public sealed class ShipCanvas : FrameworkElement
     /// It lifts the whole of <see cref="CheckFit"/>, the airlock envelope included, so that "forced" means one
     /// thing rather than "forced, except for this rule". Set from <see cref="AppSettings.ForcePlace"/> (#67).</summary>
     public bool ForcePlace { get; set; }
+
+    /// <summary>
+    /// While true the canvas edits nothing (#74): no brush can be armed, nothing is painted, placed, filled, moved,
+    /// wired or zoned. Looking is untouched, so pan, zoom, rotation, selection, box select, flood select, the
+    /// overlays and the right-click menus all still work. Set from the tab's lock (<c>DocumentSession.ReadOnly</c>).
+    ///
+    /// <para>The guards sit on the gestures that start an edit rather than on the document, because a paint stroke
+    /// runs its commands against the document live and only hands them to the undo stack when the mouse comes up.
+    /// By then refusing the stroke would mean undoing what is already on the plan. Switching the lock on also drops
+    /// whatever was in hand: an armed brush, a wiring pick and an active zone.</para>
+    /// </summary>
+    public bool ReadOnly
+    {
+        get => _readOnly;
+        set
+        {
+            if (_readOnly == value) return;
+            _readOnly = value;
+            if (!value) return;
+            if (_drag is not (Drag.None or Drag.Pan)) { _drag = Drag.None; ReleaseMouseCapture(); }
+            if (ArmedPart is not null) { SetArmed(null); Disarmed?.Invoke(); }
+            ClearWirePick();
+            SetActiveZone(null);
+            InvalidateVisual();
+        }
+    }
+    private bool _readOnly;
+
+    /// <summary>Raised when a gesture that would edit the design is refused because the canvas is
+    /// <see cref="ReadOnly"/>, so the window can say why nothing happened.</summary>
+    public event Action? EditRefused;
 
     private enum Drag { None, Pan, Move, Band, Paint, BoxFill, ZonePaint, ZoneBox, Aim, DamagePaint, DamageBox, SymMove }
     private Drag _drag;
@@ -670,7 +702,7 @@ public sealed class ShipCanvas : FrameworkElement
     /// </summary>
     public void FillAirSelection()
     {
-        if (Doc is null || ArmedPart is null || _armedLoose || _airSelection.Count == 0) return;
+        if (_readOnly || Doc is null || ArmedPart is null || _armedLoose || _airSelection.Count == 0) return;
         var (w, h) = GridMath.Size(ArmedPart.Item.Width, ArmedPart.Item.Height, ArmedRot);
         _stroke.Clear();
         // one coalesced Changed for the whole fill (a big compartment is many tiles), like the box-fill path
@@ -693,6 +725,13 @@ public sealed class ShipCanvas : FrameworkElement
 
     public void SetArmed(PartDef? part, bool loose = false)
     {
+        if (_readOnly && part is not null)
+        {
+            // Nothing is armed, and the window hears Disarmed so the palette row it highlighted lets go again.
+            Disarmed?.Invoke();
+            EditRefused?.Invoke();
+            return;
+        }
         ArmedPart = part;
         _armedLoose = loose && part is not null;
         if (part is not null)
@@ -1122,6 +1161,7 @@ public sealed class ShipCanvas : FrameworkElement
     /// forces the overlay on so the painted zone is visible. Mirrors <see cref="SetArmed"/>.</summary>
     public void SetActiveZone(Guid? zoneId)
     {
+        if (_readOnly && zoneId is not null) { EditRefused?.Invoke(); return; }
         if (ActiveZoneId == zoneId) return;
         ActiveZoneId = zoneId;
         if (zoneId is not null)
@@ -1291,6 +1331,7 @@ public sealed class ShipCanvas : FrameworkElement
     /// this is the one place that decides the drag is on.</summary>
     private void BeginMoveDrag((int X, int Y) cell)
     {
+        if (_readOnly) return;   // the click still selects; it just cannot carry the selection anywhere
         _drag = Drag.Move;
         _dragStartCell = cell;
         _moveDelta = (0, 0);
@@ -1764,7 +1805,7 @@ public sealed class ShipCanvas : FrameworkElement
         // The Damage Brush: intercepts on the same terms as aiming, and for the same reason — a stroke must not
         // move or place anything it is painting over. A tile is reported per cell rather than per pixel, so the
         // window rolls a condition once per object however slowly the mouse crosses it.
-        if (_damageBrush && e.ChangedButton == MouseButton.Left)
+        if (_damageBrush && !_readOnly && e.ChangedButton == MouseButton.Left)
         {
             _damagePainted.Clear();
             var start = CellAt(screen);
@@ -1920,7 +1961,7 @@ public sealed class ShipCanvas : FrameworkElement
         // Zone-paint mode (a zone is active): left = add tiles, Ctrl+left = erase, Shift+left = box, double-click =
         // fill the enclosed room. This intercepts before the part select/flood logic below (a double-click here is a
         // room-fill, not a part flood-select). The stroke edits a working set previewed live; commit is one command.
-        if (ActiveZoneId is { } azid && Doc.Zones.FirstOrDefault(z => z.Id == azid) is { } activeZone)
+        if (!_readOnly && ActiveZoneId is { } azid && Doc.Zones.FirstOrDefault(z => z.Id == azid) is { } activeZone)
         {
             _zoneErase = Keyboard.Modifiers.HasFlag(ModifierKeys.Control);
             _zoneBefore = [.. activeZone.Tiles];
@@ -2351,7 +2392,7 @@ public sealed class ShipCanvas : FrameworkElement
     /// </summary>
     private void TryPlaceLoose((int X, int Y) cell)
     {
-        if (Doc is null || ArmedPart is null) return;
+        if (_readOnly || Doc is null || ArmedPart is null) return;
         var item = ArmedPart;
 
         if (LoosePlacement.AcceptingContainerAt(Doc, Doc.Catalog, cell.X, cell.Y, item) is { } container)
@@ -2393,7 +2434,7 @@ public sealed class ShipCanvas : FrameworkElement
 
     private void TryPlacePose(int x, int y, int rot)
     {
-        if (Doc is null || ArmedPart is null) return;
+        if (_readOnly || Doc is null || ArmedPart is null) return;
         var (w, h) = GridMath.Size(ArmedPart.Item.Width, ArmedPart.Item.Height, rot);
         var surface = SurfaceBrush;
         var seen = new HashSet<(int, int, int)>();
