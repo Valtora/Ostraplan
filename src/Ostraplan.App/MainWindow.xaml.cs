@@ -2707,6 +2707,15 @@ public partial class MainWindow : Window
     private bool SaveEditableCopy()
     {
         if (_doc is null || _index is null) return false;
+        // A copy is written from the canvas, and a design missing its mods is missing those parts there. Say so, and
+        // leave the locked original's own record of them alone: it is still the complete file.
+        if (_active.UnresolvedParts.Count > 0
+            && !Dlg.Confirm(this, DlgKind.Danger, "Copy without the missing-mod parts?",
+                $"{_active.UnresolvedParts.Count} part(s) in this design come from mods that aren't loaded, so they " +
+                "aren't on the canvas:\n\n" + FormatMissingDefs(_active.UnresolvedParts) +
+                "\n\nA copy saved now leaves them out. The locked design's own file keeps them either way.",
+                "Copy without them"))
+            return false;
         if (!Dlg.Confirm(this, DlgKind.Info, "Save an editable copy?",
                 $"“{_active.DisplayName}” is locked, so saving won't write its file. You can save a copy instead, which " +
                 "opens in a new tab ready to edit, with the locked design left as it is.", "Save a copy…"))
