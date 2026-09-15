@@ -9,7 +9,7 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
-## [Unreleased]
+## [1.23.1] 2026-09-15, your tabs come back, designs you can lock, and loot spawners you can run
 
 ### Added
 - **A checkerboard laid on the tile grid, swatches for its second colour, and a Reset on every backdrop
@@ -126,6 +126,16 @@ each release was verified against is recorded in
   sessions, so the status bar reads **FORCE PLACE** in red the whole time it is on and every bug report
   records it. Thanks to nighoggDatatype. (#67)
 
+### Changed
+- **The docking check calls a dock by the name you gave it.** Every row of the compatibility list read
+  `Secondary (x,y)`, so checking a ship against an apartment with four airlocks on it produced four
+  near-identical lines that only the coordinate told apart, and nobody has those memorised. A port that
+  carries a name is now listed under it, whether it came from a design you renamed here or from the
+  template of the ship you are docking with, where the name rides on the item's own `Rename` panel. The
+  coordinate stays on the line rather than being dropped once there is a name, because two docks may
+  well be called the same thing and the tile is the only part of the label guaranteed to be unique.
+  Thanks to nighoggDatatype. (#62)
+
 ### Fixed
 - **A towed mass typed into a Ship Rating report left open beside another tab is no longer lost.** The report
   stays open while you work in other tabs, and changing its towed mass from there marked the design on screen
@@ -152,18 +162,6 @@ each release was verified against is recorded in
   nothing where it stood. It is runtime state rather than anything a design says the ship carries, so
   it is now dropped on import and counted alongside fire and explosions. Spawners the ship actually
   authors are untouched, and no ship the game ships contains one of these at all.
-
-### Changed
-- **The docking check calls a dock by the name you gave it.** Every row of the compatibility list read
-  `Secondary (x,y)`, so checking a ship against an apartment with four airlocks on it produced four
-  near-identical lines that only the coordinate told apart, and nobody has those memorised. A port that
-  carries a name is now listed under it, whether it came from a design you renamed here or from the
-  template of the ship you are docking with, where the name rides on the item's own `Rename` panel. The
-  coordinate stays on the line rather than being dropped once there is a name, because two docks may
-  well be called the same thing and the tile is the only part of the label guaranteed to be unique.
-  Thanks to nighoggDatatype. (#62)
-
-### Fixed
 - **The import report stops saying loot spawners were dropped when it kept them.** Importing a ship
   template reported that "loot spawner and system object(s) were dropped", which had been true until
   spawners started being imported and was not true afterwards: one tally still covered both, so the
