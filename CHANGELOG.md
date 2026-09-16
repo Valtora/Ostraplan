@@ -9,7 +9,7 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
-## [Unreleased]
+## [1.23.2] 2026-09-16, a toolbar that holds still
 
 ### Fixed
 - **The toolbar no longer jitters on a maximised window, or runs through the ship's name.** When the window
