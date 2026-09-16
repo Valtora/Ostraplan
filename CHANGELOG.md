@@ -9,6 +9,17 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
+## [Unreleased]
+
+### Fixed
+- **The toolbar no longer jitters on a maximised window, or runs through the ship's name.** When the window
+  is too narrow for one row, the overlay buttons drop to a second row. At a few widths, which a maximised
+  window on a common screen could land on, the toolbar kept changing its mind and flipped between one row
+  and two about twice a second, shaking the whole app with it. It now picks one and stays there. On two
+  rows the name and the make and model line under it were centred across both rows, so the second row ran
+  straight through them. The name now sits on the top row beside the buttons. Thanks to nighoggDatatype.
+  (#75)
+
 ## [1.23.1] 2026-09-15, your tabs come back, designs you can lock, and loot spawners you can run
 
 ### Added

@@ -2204,18 +2204,23 @@ public partial class MainWindow : Window
     /// window wide enough not to need it, and left the name floating in the middle of a mostly empty row. So the
     /// toggles ride row 0 beside the actions while there is room, and drop to row 1 when there is not.</para>
     ///
-    /// <para><b>This cannot oscillate</b>, which is the trap with any layout that reacts to its own size. The
-    /// decision is made from the three toolbars' <see cref="UIElement.DesiredSize"/>, and those are the widths of
-    /// the same buttons with the same content either way, so moving the toggles between rows does not change any
-    /// number the decision reads. A test on ActualWidth would flip forever: dropping the toggles widens the name
-    /// column, which then says there is room to bring them back up.</para>
+    /// <para><b>This must not oscillate</b>, which is the trap with any layout that reacts to its own size. The
+    /// decision is made from the three toolbars' <see cref="UIElement.DesiredSize"/>, never from ActualWidth: a
+    /// test on ActualWidth flips forever, because dropping the toggles widens the name column, which then says there
+    /// is room to bring them back up. The same holds for any number the move itself changes, and the toggles'
+    /// leading separator is one. It collapses on row 1, so its 15px vanished from the toggles' desired width, and a
+    /// window within 15px of the switch dropped the toggles, found room, raised them and dropped them again about
+    /// twice a second (#75). So the separator is counted at its full width whichever row it is on.</para>
     /// </summary>
-    private void RelayoutRibbon()
+    internal void RelayoutRibbon()
     {
         var available = RibbonGrid.ActualWidth;
         if (available <= 0) return;
 
-        var needed = RibbonActions.DesiredSize.Width + RibbonToggles.DesiredSize.Width
+        var sep = RibbonTogglesSep;
+        var togglesOnOneRow = RibbonToggles.DesiredSize.Width - sep.DesiredSize.Width
+                            + sep.Width + sep.Margin.Left + sep.Margin.Right;
+        var needed = RibbonActions.DesiredSize.Width + togglesOnOneRow
                    + RibbonRight.DesiredSize.Width + RibbonNameFloor;
         var oneRow = available >= needed;
         if (_ribbonOneRow == oneRow) return;

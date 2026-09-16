@@ -164,8 +164,12 @@
 
              Four columns rather than three so the switch is two attached properties and no reparenting: the
              toggles sit in their own Auto column when they are on row 0, and that column collapses to nothing
-             when they drop to row 1. The identity block spans both rows so its byline is centred under its name
-             whichever arrangement is live. -->
+             when they drop to row 1. The identity block stays on row 0 in both arrangements, since row 1 is the
+             toggles' whole width when they are on it (#75).
+
+             The actions and the right-hand block change width on their own (the lock appears once a design has a
+             file, an update button appears after the check), and the grid's size does not move when they do, so
+             they ask for a relayout too. -->
         <Border DockPanel.Dock="Top" Background="{DynamicResource PanelBg}" Padding="8,6">
             <Grid x:Name="RibbonGrid" SizeChanged="OnRibbonSizeChanged">
                 <Grid.ColumnDefinitions>
@@ -180,7 +184,8 @@
                 </Grid.RowDefinitions>
 
                 <!-- The actions. Always row 0, always leftmost. -->
-                <StackPanel x:Name="RibbonActions" Grid.Row="0" Grid.Column="0" Orientation="Horizontal">
+                <StackPanel x:Name="RibbonActions" Grid.Row="0" Grid.Column="0" Orientation="Horizontal"
+                            SizeChanged="OnRibbonSizeChanged">
                     <Button x:Name="BtnFileMenu" Content="File ▾" Padding="10,3" Margin="0,0,3,0" Click="OnFileMenuClick"
                             ToolTip="New, open, save, import, export, and write back to a save."/>
 
@@ -283,10 +288,11 @@
                 </StackPanel>
 
 
-                <!-- The design's identity, spanning both rows so the byline sits directly under the name in either
-                     arrangement. Both strings are as long as the data makes them, so both trim rather than push
-                     the column open (CONVENTIONS: a wrapping TextBlock sets the width, not the other way round). -->
-                <StackPanel x:Name="RibbonIdentity" Grid.Row="0" Grid.Column="2" Grid.RowSpan="2"
+                <!-- The design's identity, on row 0 only. It used to span both rows so it centred on the ribbon, and
+                     once the toggles dropped to row 1 they ran straight through the name (#75). Both strings are as
+                     long as the data makes them, so both trim rather than push the column open (CONVENTIONS: a
+                     wrapping TextBlock sets the width, not the other way round). -->
+                <StackPanel x:Name="RibbonIdentity" Grid.Row="0" Grid.Column="2"
                             HorizontalAlignment="Center" VerticalAlignment="Center" Margin="12,0,12,0">
                     <TextBlock x:Name="TxtDoc" HorizontalAlignment="Center" TextTrimming="CharacterEllipsis"
                                Foreground="{DynamicResource Ink}" FontWeight="SemiBold"/>
@@ -296,7 +302,8 @@
                 </StackPanel>
 
                 <!-- Right side. Always row 0. -->
-                <StackPanel x:Name="RibbonRight" Grid.Row="0" Grid.Column="3" Orientation="Horizontal" HorizontalAlignment="Right">
+                <StackPanel x:Name="RibbonRight" Grid.Row="0" Grid.Column="3" Orientation="Horizontal" HorizontalAlignment="Right"
+                            SizeChanged="OnRibbonSizeChanged">
                     <TextBlock x:Name="TxtWarnings" VerticalAlignment="Center"
                                Foreground="{DynamicResource Warn}" Margin="12,0,0,0"/>
                     <TextBlock x:Name="TxtVersion" VerticalAlignment="Center"
