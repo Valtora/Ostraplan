@@ -69,8 +69,8 @@ public sealed class ObtainablePanel : UserControl
         });
         _specialWrap = PaneUi.Add(body, new WrapPanel { Margin = new Thickness(6, 0, 0, 2) });
         PaneUi.Note(body,
-            "Heads up: the game always lists a Special Offer ship at \"$0\". The real price only shows when you click " +
-            "Buy (a game quirk, not a pricing error). Add it to a broker kiosk above for a visible list price.",
+            "The game lists a Special Offer ship at \"$0\" until you click Buy. Add a broker kiosk above for a " +
+            "visible price.",
             indent: 6);
 
         _startingShip = PaneUi.Add(body, new CheckBox
@@ -108,10 +108,8 @@ public sealed class ObtainablePanel : UserControl
         startRow.Children.Add(_startMortgage);
 
         PaneUi.Note(body,
-            "The game has no true ship picker. \"Weighted chance\" adds your ship as one option among the vanilla " +
-            "salvage pods. \"Only your ship offered\" replaces that start-event pool with just your ship, so a fresh " +
-            "Shipbreaker always starts with it (this drops the vanilla pods, and any other mod's start ships, from " +
-            "the roll).", indent: 20);
+            "\"Only your ship offered\" drops the vanilla pods and any other mod's start ships, so a new Shipbreaker " +
+            "always gets yours.", indent: 20);
         body.Children.Add(new TextBlock
         {
             Text = "Derelict fields (found while salvaging):", Foreground = PaneUi.Ink, Margin = new Thickness(0, 14, 0, 3),
@@ -127,19 +125,17 @@ public sealed class ObtainablePanel : UserControl
         }
         _bandHint = PaneUi.Note(body, "", indent: 6);
         PaneUi.Note(body,
-            "The game wrecks a derelict itself when it first loads, so an export aimed only at these leaves the " +
-            "condition slider off. Venus is its own flavour of hull rather than a size.", indent: 6);
+            "The game damages derelicts itself, so a derelict-only export turns wear off. Venus is a hull type, " +
+            "not a size.", indent: 6);
         PaneUi.Add(body, new TextBlock
         {
-            Text = "Only a NEW GAME. Derelicts are scattered when the world is generated, so a save you already " +
-                   "have will never grow one.",
+            Text = "Derelicts only appear in a NEW GAME, not in saves you already have.",
             Foreground = ThemeManager.Warn, FontSize = 11, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(6, 6, 0, 0),
         });
 
         PaneUi.Note(body,
-            "If another ship mod adds to the same pools, run Ostrasort's conflict patch afterward so both mods' " +
-            "ships survive.");
+            "If another mod uses the same pools, run Ostrasort's conflict patch so both mods' ships appear.");
         _problem = PaneUi.Problem(body);
 
         // ---- the escape hatch ----
@@ -161,9 +157,8 @@ public sealed class ObtainablePanel : UserControl
         var advancedBody = new StackPanel { Margin = new Thickness(0, 4, 0, 4) };
         advancedBody.Children.Add(_noRoute);
         PaneUi.Note(advancedBody,
-            "Writes the ship file and nothing else, so the game will never spawn it on its own. Pick this when you " +
-            "are assembling a modpack, editing loot.json yourself, or referencing the ship from another mod. " +
-            "Ticking any route above takes precedence over it.", indent: 24);
+            "Writes only the ship file, so the game never spawns it on its own. For modpacks, hand-edited loot, or " +
+            "use from another mod.", indent: 24);
 
         _advanced = PaneUi.Add(body, new Expander
         {
@@ -282,8 +277,7 @@ public sealed class ObtainablePanel : UserControl
         AnyRoute() || _noRoute.IsChecked == true
             ? PaneUi.ShowProblem(_problem, null)
             : PaneUi.ShowProblem(_problem,
-                "Pick at least one way to get this ship in game. Without one, the mod writes a ship file that " +
-                "nothing in the game will ever spawn. If that is what you want, say so under Advanced.");
+                "Pick at least one way to get this ship in game, or tick \"No route\" under Advanced.");
 
     /// <summary>Write the panel back onto the ship's routes.</summary>
     public void Save(DeliveryPlan mod)

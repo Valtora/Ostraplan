@@ -44,8 +44,7 @@ public sealed class RunSpawnersDialog : Window
         var body = new StackPanel { Margin = new Thickness(20, 18, 20, 16) };
         body.Children.Add(Head("Roll what these spawners would make"));
         body.Children.Add(Note(
-            "A spawner is replaced by the items it rolls, because a design holding both would arrive carrying the "
-            + "cargo twice. Undo puts it back."));
+            "Each spawner is replaced by the items it rolls. Undo puts it back."));
 
         // Scope. Only worth a control when the two numbers differ: a design with three spawners, all selected,
         // has nothing to decide.
@@ -90,8 +89,8 @@ public sealed class RunSpawnersDialog : Window
         _seed.Padding = new Thickness(6, 4, 6, 4);
         _seed.Margin = new Thickness(0, 2, 0, 0);
         body.Children.Add(_seed);
-        body.Children.Add(Note("Leave it blank for a fresh roll. The number used is reported afterwards, so a "
-            + "result you want back can be typed in here."));
+        body.Children.Add(Note("Leave blank for a fresh roll. The seed used is reported afterwards; type it here "
+            + "to get the same result."));
 
         var buttons = new StackPanel
         {

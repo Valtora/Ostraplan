@@ -22,7 +22,7 @@ public sealed class ModDriver : ExportDriver
     public override ExportDestination Destination => ExportDestination.Mod;
     public override string Name => "As a mod";
     public override string Blurb =>
-        "A mod folder the game loads: shareable, works in any save, and can be sold at a kiosk or handed to a new Shipbreaker.";
+        "A shareable mod folder that works in any save. The ship can be sold at a kiosk or given to a new Shipbreaker.";
     public override string CommitVerb => "Export";
 
     /// <summary>Always available. A design with parts can always be written as a mod, which is what makes this the
@@ -70,7 +70,7 @@ public sealed class ModDriver : ExportDriver
             new("Ship", $"{plan.ShipName}  ({ship.AItems.Length} parts, {roomCount} certified room(s))"),
             new("Rating", string.IsNullOrEmpty(rating.Display) ? "None" : rating.Display),
             new("In-game name", publicName == ShipExport.VariedNames
-                ? "the game's usual varied names, a fresh one per spawn"
+                ? "a different game-generated name per spawn"
                 : publicName),
             new("Condition", _pinnedWear.Enabled
                 ? $"worn to ~{_pinnedWear.TargetCondition * 100:0}% average (parts vary, none below 10%)"
@@ -80,26 +80,21 @@ public sealed class ModDriver : ExportDriver
             facts.Add(new ReviewFact("Replaces", $"the existing ship \"{_replaceTarget}\""));
         facts.Add(new ReviewFact("Obtainable via", Describe(_delivery) is { Length: > 0 } d
             ? d
-            : "nothing. You chose to wire this up yourself, so the ship file goes out on its own"));
-        facts.Add(new ReviewFact("Preview art",
-            "a ship image plus a thumbnail per certified room, so the ship shows a picture at the kiosk and in " +
-            "character creation instead of a missing-image X"));
+            : "nothing (ship file only, no route)"));
+        facts.Add(new ReviewFact("Preview art", "a ship image plus a thumbnail per certified room"));
         facts.Add(new ReviewFact("Writes to", _modDir));
         facts.Add(new ReviewFact("Registering", plan.Mod.RegisterWithOstrasort
-            ? "handed to Ostrasort right after the write"
-            : "left to you (Ostraplan never edits loading_order.json)"));
+            ? "by Ostrasort, right after the write"
+            : "left to you"));
 
         var warnings = new List<string>(buildWarnings);
         if (_delivery.Derelicts.Count > 0)
-            warnings.Add("Derelict fields are filled when a world is generated, so this reaches a NEW GAME only. " +
-                         "A save you already have will never grow one.");
+            warnings.Add("Derelicts only appear in a NEW GAME, not in saves you already have.");
 
         var acks = new List<string>();
         if (Directory.Exists(_modDir) && Directory.EnumerateFileSystemEntries(_modDir).Any())
-            acks.Add($"A folder named \"{Path.GetFileName(_modDir)}\" already exists here. Its data files (ship, and " +
-                     $"any loot/lifeevents/interactions) will be replaced, and any left over from a route you have " +
-                     $"since taken away will be deleted. The preview art in images\\ships\\{strName} is redrawn. " +
-                     "Other files in the folder are left alone.");
+            acks.Add($"A folder named \"{Path.GetFileName(_modDir)}\" already exists here. Its ship data and preview " +
+                     "art will be replaced, and data for routes you removed will be deleted. Other files are left alone.");
 
         return new BuildOutcome(facts, warnings, acks);
     }
@@ -166,14 +161,13 @@ public sealed class ModDriver : ExportDriver
         lines.AddRange(plan.Mod.StagedIntoMods
             ?
             [
-                "It is staged into the game's Mods folder.",
-                "Register it with Ostrasort (or ModTools) before it appears in game.",
-                "Ostraplan never writes loading_order.json itself.",
+                "It's in the game's Mods folder.",
+                "Register it with Ostrasort (or ModTools) to see it in game.",
             ]
             : new[]
             {
                 "Copy this folder into Ostranauts_Data\\Mods.",
-                "Then register it with Ostrasort (or ModTools) to spawn it in game.",
+                "Then register it with Ostrasort (or ModTools) to see it in game.",
             });
         return new DoneReport($"Exported {plan.ShipName}.", lines);
     }

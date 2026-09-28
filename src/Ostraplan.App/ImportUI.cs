@@ -257,16 +257,13 @@ public sealed class ShipChoiceDialog : Window
                 // seen before and the game itself never shows one: an apartment is registered somewhere different
                 // from your vessels, which is why they can be listed apart in the first place.
                 DocumentKind.Residence =>
-                    $"Apartments in save “{saveName}” that you own, one row per station residence registered to "
-                    + "your character. Editing one keeps its registration, its place at the station and the transit "
-                    + "route that reaches it; only the layout changes.",
+                    $"Apartments you own in save “{saveName}”. Editing one changes only its layout; it stays at "
+                    + "the same station and transit route.",
                 DocumentKind.Ship =>
-                    $"Ships in save “{saveName}” that you own. Ostranauts imports the ship you're standing "
-                    + "on, which may be a station — pick the one you mean. Ships you don't own are shown but editing "
-                    + "them is unsupported and may break your save.",
+                    $"Ships you own in save “{saveName}”. Pick the one you mean. Editing a ship you don't own is "
+                    + "unsupported and may break your save.",
                 _ =>
-                    $"Everything you own in save “{saveName}”: every ship, and every apartment registered to your "
-                    + "character. The one you are standing on is only one of them, and it may be a station.",
+                    $"Every ship and apartment you own in save “{saveName}”.",
             },
             Foreground = ThemeManager.Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
         };
@@ -302,7 +299,7 @@ public sealed class ShipChoiceDialog : Window
     private static string Subtitle(SaveShipChoice c, DocumentKind? kind)
     {
         var sub = kind is null ? (c.IsResidence ? "APARTMENT   ·   " : "SHIP   ·   ") + c.Sub : c.Sub;
-        return c.Owned ? sub : sub + "   ·   NOT OWNED — station/other vessel (unsupported)";
+        return c.Owned ? sub : sub + "   ·   NOT OWNED (unsupported)";
     }
 
     private void Accept()

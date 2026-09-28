@@ -773,7 +773,7 @@ public static class SaveEdit
         {
             var id = Str(it, "strID");
             if (id is not null && !itemIds.Add(id))
-                throw new InvalidDataException($"Two items share strID '{id}' — inject aborted.");
+                throw new InvalidDataException($"Two items share the ID '{id}'. Edit aborted.");
         }
         var coIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var co in (ship["aCOs"] as JsonArray)!)
@@ -786,18 +786,18 @@ public static class SaveEdit
             var id = Str(it, "strID");
             if (id is { Length: > 0 } && !coIds.Contains(id) && !id.Contains("MP|"))
                 throw new InvalidDataException(
-                    $"Item '{id}' ({Str(it, "strName")}) has no condition owner — the game would skip it on load. Inject aborted.");
+                    $"Item '{id}' ({Str(it, "strName")}) has no condition owner, so the game would skip it on load. Edit aborted.");
         }
 
         foreach (var it in (ship["aItems"] as JsonArray)!)
         {
             var parent = Str(it, "strParentID") ?? Str(it, "strSlotParentID");
             if (parent is { Length: > 0 } && !itemIds.Contains(parent) && !coIds.Contains(parent))
-                throw new InvalidDataException($"Item '{Str(it, "strID")}' is parented to missing '{parent}' — inject aborted.");
+                throw new InvalidDataException($"Item '{Str(it, "strID")}' is parented to missing '{parent}'. Edit aborted.");
         }
         foreach (var id in ctx.Origins.Keys)   // every surviving structural part must keep its condition owner
             if (!dropSet.Contains(id) && !coIds.Contains(id))
-                throw new InvalidDataException($"Structural part '{id}' lost its condition owner — inject aborted.");
+                throw new InvalidDataException($"Structural part '{id}' lost its condition owner. Edit aborted.");
 
         ValidateSubStation(ship, ctx);
     }
@@ -823,18 +823,16 @@ public static class SaveEdit
 
         if (Str(ship, "strRegID") != ctx.Source.RegId)
             throw new InvalidDataException(
-                $"The residence's registration changed from '{ctx.Source.RegId}' to '{Str(ship, "strRegID")}' — "
-                + "the save references it by that ID, so the edit was aborted.");
+                $"The residence's registration changed from '{ctx.Source.RegId}' to '{Str(ship, "strRegID")}', "
+                + "which the save still refers to. Edit aborted.");
 
         if (ship["objSS"] is not JsonObject situ)
             throw new InvalidDataException(
-                "The residence lost its situation block (objSS), which is what locks it to its station — "
-                + "inject aborted.");
+                "The residence lost the data that locks it to its station. Edit aborted.");
 
         if (situ["bIsBO"]?.GetValue<bool>() != true || situ["bBOLocked"]?.GetValue<bool>() != true)
             throw new InvalidDataException(
-                "The residence is no longer locked to its station's body orbit (objSS.bIsBO/bBOLocked) — "
-                + "it would come adrift in the save. Inject aborted.");
+                "The residence is no longer locked to its station's body orbit and would come adrift. Edit aborted.");
     }
 
     /// <summary>

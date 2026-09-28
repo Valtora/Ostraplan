@@ -41,10 +41,9 @@ public static class ProblemScan
             // to reach for is not: a residence's front door onto the station corridor is the Primary Exterior
             // Airlock, which has no build recipe and so lives on the SPECIAL tab rather than in HULL.
             problems.Add(new Problem(ProblemSeverity.Blocking, "No docking port",
-                "Without an installed docking port the game's Ship.aDocksys stays empty and the ship can never " +
-                (doc.IsResidence
-                    ? "mate with the station. Add the Primary Exterior Airlock from the SPECIAL tab."
-                    : "hard-dock. Add one from the HULL tab (Secondary Exterior Airlock).")));
+                doc.IsResidence
+                    ? "The ship can't dock with the station without one. Add the Primary Exterior Airlock from the SPECIAL tab."
+                    : "The ship can't dock without one. Add a Secondary Exterior Airlock from the HULL tab."));
             return problems;
         }
 
@@ -75,9 +74,9 @@ public static class ProblemScan
 
             if (blocked > 0)
                 problems.Add(new Problem(ProblemSeverity.Blocking, "Construction beyond the airlock",
-                    $"{blocked} tile(s) lie beyond the mating face of \"{part.Friendly}\" at ({port.X},{port.Y}) — " +
-                    $"first at ({sample!.Value.X},{sample.Value.Y}). The game forbids building past the primary " +
-                    "airlock's face (Item.CheckFit), and a blocked face cannot mate with a station collar."));
+                    $"{blocked} tile(s) are past \"{part.Friendly}\" at ({port.X},{port.Y}) on the side it docks from, " +
+                    $"first at ({sample!.Value.X},{sample.Value.Y}). The game won't build past the primary airlock, " +
+                    "so move them inboard."));
         }
 
         AddBlockedPortWarnings(doc, catalog, ports, problems);
@@ -125,10 +124,8 @@ public static class ProblemScan
 
         problems.Add(new Problem(ProblemSeverity.Warning,
             $"{cores.Count} fusion reactor cores",
-            $"The game runs a ship's torch drive from one reactor core, even when only one is switched on. The nav " +
-            "station and the ship's thrust follow whichever core the game treats as the reactor, and starting a " +
-            "core moves the other one into that place, so the console ends up driving the core that is not lit " +
-            $"and the torch reads no thrust. Found: {listed}. Keep one core, or Dismiss if the spare is deliberate.",
+            "The nav station drives only one core and can end up driving the unlit one, leaving the torch with no " +
+            $"thrust. Found: {listed}. Keep one core, or Dismiss if the spare is deliberate.",
             cells, DismissKey: MultipleReactorsAlertKey));
     }
 
@@ -247,11 +244,8 @@ public static class ProblemScan
             var listed = string.Join(", ", distinct.Take(4)) + (distinct.Count > 4 ? ", …" : "");
             problems.Add(new Problem(ProblemSeverity.Warning,
                 $"\"{portPart.Friendly}\" at ({port.X},{port.Y}) is blocked and cannot dock",
-                $"{cells.Count} tile(s) sit ahead of its mating face ({listed}), so no station collar can reach it. " +
-                "The game allows this — only the primary airlock's face bounds construction — so it is advice, not " +
-                "a block. A part that should be mounted on the airlock (a towing brace) usually just needs to share " +
-                "the airlock's rotation; otherwise move it inboard, or Dismiss if this port is a deliberate internal " +
-                "bay (highlighted tiles show what is in the way).",
+                $"{cells.Count} tile(s) sit in front of it ({listed}), so nothing can dock there. Give a towing brace " +
+                "the airlock's rotation, move the part inboard, or Dismiss if this is an internal docking bay.",
                 cells, DismissKey: BlockedPortAlertKey));
         }
     }
@@ -292,13 +286,12 @@ public static class ProblemScan
             // Hull-mounted kit (rotors, external cargo pods) is reached on a spacewalk and is excluded upstream by
             // WalkResult.Unreachable; what is left here genuinely cannot be operated by anyone, suited or not.
             var why = unreachable.Any(d => d.Reason == WalkBlock.SightBlocked)
-                ? " Some are in range but out of sight, which the game also refuses."
+                ? " Some are in range but out of sight."
                 : "";
             problems.Add(new Problem(ProblemSeverity.Warning,
                 $"{unreachable.Count} device{(unreachable.Count == 1 ? "" : "s")} cannot be reached",
-                $"No crew member can stand where the game requires to operate: {listed}.{why} " +
-                "The devices themselves are highlighted; clear a walkable tile within range of each, " +
-                "or Dismiss to hide this alert.",
+                $"No crew member can reach: {listed}.{why} " +
+                "Clear a walkable tile within range of each, or Dismiss to hide this alert.",
                 [.. unreachable.SelectMany(d => d.BodyTiles).Distinct().Select(grid.GridToDoc)],
                 DismissKey: UnreachableAlertKey));
         }
@@ -313,9 +306,9 @@ public static class ProblemScan
         var cut = isolated.Sum(z => z.TileCount);
         problems.Add(new Problem(ProblemSeverity.Warning,
             $"{isolated.Count} sealed-off compartment{(isolated.Count == 1 ? "" : "s")}",
-            $"{cut} walkable tile(s) in {isolated.Count} area(s) have no route to the main body of the ship " +
-            "(crew would have to EVA). A stuck door counts: an unpowered, locked or damaged closed door is a solid " +
-            "wall to pathing, unlike a powered one. Use Show to highlight them, or Dismiss to hide this alert.",
+            $"{cut} walkable tile(s) in {isolated.Count} area(s) have no route to the rest of the ship, so crew " +
+            "would have to EVA. A closed door that is unpowered, locked or damaged counts as a wall. " +
+            "Use Show to highlight them, or Dismiss to hide this alert.",
             [.. isolated.SelectMany(z => z.Tiles).Select(grid.GridToDoc)],
             DismissKey: IsolatedAlertKey));
     }
@@ -409,10 +402,9 @@ public static class ProblemScan
             var distinct = g.Parts.Distinct().ToList();
             var names = string.Join(", ", distinct.Take(6)) + (distinct.Count > 6 ? ", …" : "");
             problems.Add(new Problem(ProblemSeverity.Blocking,
-                $"{reason} — {g.Parts.Count} part{(g.Parts.Count == 1 ? "" : "s")}",
-                $"The game builds incrementally (floors → walls → fixtures) and can't place these onto the ship at " +
-                $"that step: {names}. Adjust the layout so each part has a valid build sequence (highlighted tiles " +
-                "show where the rule breaks).",
+                $"{reason} ({g.Parts.Count} part{(g.Parts.Count == 1 ? "" : "s")})",
+                $"The game builds floors, then walls, then fittings, and can't place these at their step: {names}. " +
+                "Change the layout so each has something to build on. Highlighted tiles show where the rule breaks.",
                 g.Cells));
         }
 
@@ -421,10 +413,9 @@ public static class ProblemScan
             var distinct = g.Parts.Distinct().ToList();
             var names = string.Join(", ", distinct.Take(6)) + (distinct.Count > 6 ? ", …" : "");
             problems.Add(new Problem(ProblemSeverity.Warning,
-                $"modded part may not fit ({reason}) — {g.Parts.Count} part{(g.Parts.Count == 1 ? "" : "s")}",
-                $"Ostraplan's placement rules model the core game only, so these modded parts — which can add their " +
-                $"own conditions or code — may still be valid in Ostranauts: {names}. They are placed but flagged; " +
-                "verify them in-game (highlighted tiles show where the core rules disagree).",
+                $"{g.Parts.Count} modded part{(g.Parts.Count == 1 ? "" : "s")} may not fit: {reason}",
+                $"Ostraplan checks core-game rules only, and a mod may make these valid: {names}. " +
+                "Check them in game. Highlighted tiles show where the core rules disagree.",
                 g.Cells));
         }
 
@@ -444,10 +435,9 @@ public static class ProblemScan
             var distinct = g.Parts.Distinct().ToList();
             var names = string.Join(", ", distinct.Take(6)) + (distinct.Count > 6 ? ", …" : "");
             problems.Add(new Problem(ProblemSeverity.Warning,
-                $"{reason} — {g.Parts.Count} part{(g.Parts.Count == 1 ? "" : "s")}",
-                $"These place and spawn just as the game's own ships do, but the in-game interactive builder wouldn't " +
-                $"let a crew build them there: {names}. Run a POWR conduit onto the adjoining tile to satisfy the " +
-                "builder, or Dismiss if you are exporting a spawned design (highlighted tiles show where a conduit is wanted).",
+                $"{reason} ({g.Parts.Count} part{(g.Parts.Count == 1 ? "" : "s")})",
+                $"These spawn fine, but a crew couldn't build them there in game: {names}. Run a POWR conduit onto " +
+                "the highlighted tile, or Dismiss if you're exporting a spawned design.",
                 g.Cells, DismissKey: SoftReqAlertKey));
         }
     }
@@ -488,7 +478,7 @@ public static class ProblemScan
         var leakCells = breaches.SelectMany(b => b.Tiles).Distinct().ToList();
         problems.Add(new Problem(ProblemSeverity.Warning,
             $"{breaches.Count} unsealed compartment{(breaches.Count == 1 ? "" : "s")}",
-            $"{string.Join(", ", kinds)}. Use Show to highlight the leak points on the canvas, or Dismiss to hide this alert.",
+            $"{string.Join(", ", kinds)}. Use Show to highlight the leaks, or Dismiss to hide this alert.",
             leakCells, DismissKey: UnsealedAlertKey));
     }
 

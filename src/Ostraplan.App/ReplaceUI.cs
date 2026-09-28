@@ -40,7 +40,7 @@ public sealed class ReplacePickerDialog : Window
         var note = new TextBlock
         {
             Text = noteText
-                   ?? $"Swap {what} for another part of the same kind — same layer, same size on the deck. Position and rotation are kept.",
+                   ?? $"Swap {what} for another part of the same kind and size. Position and rotation are kept.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
         };
         DockPanel.SetDock(note, Dock.Top);

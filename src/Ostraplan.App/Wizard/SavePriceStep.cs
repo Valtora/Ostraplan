@@ -71,8 +71,7 @@ public sealed class SavePriceStep : WizardStep
             Content = "The original save, in place", Foreground = Ink, Margin = new Thickness(0, 2, 0, 2),
         });
         Note(body,
-            "Writing in place modifies the original save. Return to the Main Menu in game before writing, or the " +
-            "game may overwrite this on its next autosave.", indent: 20);
+            "Go to the game's Main Menu before writing in place, or its next autosave may undo this.", indent: 20);
 
         _backup = Add(body, new CheckBox
         {
@@ -80,8 +79,7 @@ public sealed class SavePriceStep : WizardStep
             Margin = new Thickness(20, 4, 0, 2),
         });
         _backupHint = Note(body,
-            "A separate, loadable copy in your Saves folder (beside this save). Untick to skip it and avoid piling " +
-            "up backups as you iterate, but then a bad write can't be rolled back.", indent: 38);
+            "Saved as a separate save beside this one. Without it, a bad write can't be undone.", indent: 38);
 
         _copy.Checked += (_, _) => { SyncBackup(); SyncIntro(); OnChanged(); };
         _inPlace.Checked += (_, _) => { SyncBackup(); SyncIntro(); OnChanged(); };
@@ -110,8 +108,7 @@ public sealed class SavePriceStep : WizardStep
             Foreground = Ink, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(24, 6, 0, 0),
         });
         Note(body,
-            "Leave this unticked and the ship is a gift. Ticked, the price comes off your character's balance, " +
-            "which is how you simulate buying it.", indent: 24);
+            "Unticked, the ship is a gift.", indent: 24);
 
         Content = body;
     }
@@ -126,12 +123,10 @@ public sealed class SavePriceStep : WizardStep
     private void SyncIntro()
     {
         var residence = _session?.Doc.IsResidence == true;
-        var what = residence
-            ? "as an apartment you own at a station, reached through that station's transit kiosk"
-            : "as a new ship you own, parked a few kilometres away and reachable by P.A.S.S. ferry";
+        var what = residence ? "as an apartment you own at a station" : "as a new ship you own";
         _intro.Text = _introPrefix + (_inPlace.IsChecked == true
-            ? $"Adds this design to the save {what}. The save itself is modified."
-            : $"Adds this design to a copy of the save {what}. The original save is never modified.");
+            ? $"Adds this design to the save itself {what}."
+            : $"Adds this design to a copy of the save {what}. The original is untouched.");
     }
 
     /// <summary>The backup choice only applies to an in-place write; a copy leaves the original untouched already.</summary>
@@ -149,8 +144,7 @@ public sealed class SavePriceStep : WizardStep
 
         var residence = session.Doc.IsResidence;
         _introPrefix = session.SourceSave is { } src
-            ? $"This {(residence ? "residence" : "ship")} was read out of \"{src.SaveName}\". " +
-              "Pick the save to add it to. "
+            ? $"This {(residence ? "residence" : "ship")} came from \"{src.SaveName}\". "
             : "";
         _stationRow.Visibility = residence ? Visibility.Visible : Visibility.Collapsed;
 
@@ -250,7 +244,7 @@ public sealed class SavePriceStep : WizardStep
         }
         else if (driver.Stations.Count == 0)
         {
-            _stationNote.Text = "This save has no stations, so there is nowhere to put a residence.";
+            _stationNote.Text = "This save has no stations to put a residence at.";
             _stationNote.Foreground = ThemeManager.Warn;
         }
         else if (_station.SelectedItem is not ResidenceStation s)
@@ -261,15 +255,14 @@ public sealed class SavePriceStep : WizardStep
         else if (!s.HasTransitRoute)
         {
             _stationNote.Text =
-                $"{s.DisplayName} has no residence transit route in the game's data, so an apartment here would " +
-                "be yours but unreachable. Pick another station unless a mod adds the route.";
+                $"{s.DisplayName} has no residence transit route, so an apartment here would be unreachable. " +
+                "Pick another station unless a mod adds the route.";
             _stationNote.Foreground = ThemeManager.Warn;
         }
         else
         {
             _stationNote.Text =
-                $"The apartment is registered at {s.DisplayName} and reached from its transit kiosk. You become a " +
-                "homeowner there, which is what unlocks the route.";
+                $"You become a homeowner at {s.DisplayName}, and reach the apartment from its transit kiosk.";
             _stationNote.Foreground = Dim;
         }
     }
@@ -294,13 +287,13 @@ public sealed class SavePriceStep : WizardStep
         }
 
         _status.Text = _session?.Doc.IsResidence == true
-            ? "The apartment is placed on its station, not parked in space."
+            ? "The apartment is placed at its station."
             : $"The ship will appear near {ctx.PlayerShipRegId}, about 3 to 5 km out.";
         var price = Price;
         _balance.Text = _charge.IsChecked != true
             ? $"Balance: {Money(ctx.Balance)} (unchanged, it's a gift)"
             : price > ctx.Balance
-                ? $"Balance: {Money(ctx.Balance)} — not enough for {Money(price)}."
+                ? $"Balance: {Money(ctx.Balance)}, not enough for {Money(price)}."
                 : $"Balance: {Money(ctx.Balance)}  →  {Money(ctx.Balance - price)}";
     }
 
@@ -318,7 +311,7 @@ public sealed class SavePriceStep : WizardStep
         {
             if (driver.Stations.Count == 0)
                 return ShowProblem(_problem,
-                    "This save has no stations in it, so there is nowhere to put a residence. Pick another save.");
+                    "This save has no stations to put a residence at. Pick another save.");
             if (driver.Station is null)
                 return ShowProblem(_problem, "Pick the station this residence belongs to.");
         }

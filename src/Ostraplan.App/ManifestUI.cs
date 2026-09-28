@@ -229,8 +229,7 @@ public sealed class ManifestWindow : ReportWindow
         grouping.Items.Add("By type");
         grouping.Items.Add("By location");
         grouping.SelectedIndex = _byLocation ? 1 : 0;
-        grouping.ToolTip = "By type counts what the ship carries. By location keeps the nesting: zone, then what "
-                         + "it is in, then what that is in.";
+        grouping.ToolTip = "By type totals each item. By location nests items inside what holds them.";
         // Attached after the initial selection, exactly as the scope picker is, so setting it up cannot re-enter a
         // redraw part-way through building the body it is going into.
         grouping.SelectionChanged += (_, _) =>
@@ -381,7 +380,7 @@ public sealed class ManifestWindow : ReportWindow
             HorizontalAlignment = HorizontalAlignment.Stretch,
             HorizontalContentAlignment = HorizontalAlignment.Stretch,
             Padding = new Thickness(8, 4, 8, 4),
-            ToolTip = node.Entry is null ? null : "Show it on the plan, or right-click to rename or remove it",
+            ToolTip = node.Entry is null ? null : "Show it on the plan. Right-click to rename or remove it.",
         };
         header.Click += (_, _) =>
         {
@@ -610,7 +609,7 @@ public sealed class ManifestWindow : ReportWindow
         // One fixed label rather than one that grows when the item has a name: the box itself says that clearing
         // it puts the stock name back, and a button that changes width leaves the column ragged.
         actions.Children.Add(Small("Rename",
-            "Give it a name, the way the game does. Clear the box to put the stock name back.",
+            "Give it a custom name. Clear the box to restore the stock name.",
             () => RenameEntry(entry)));
         actions.Children.Add(Small("Delete", "Remove it from the design", () => DeleteEntry(entry)));
 
@@ -712,8 +711,8 @@ public sealed class ManifestWindow : ReportWindow
             // Removing a host's own pocket is legal but rarely meant: without it the garment reaches the game with
             // nowhere to keep anything. Say so rather than let it read like clearing a stray.
             var intrinsic = entry.Intrinsic
-                ? "\n\nThis one comes with whatever holds it rather than being cargo put there, so removing it "
-                  + "leaves that item with one less place to keep things."
+                ? "\n\nThis is part of the item that holds it, not cargo. Removing it leaves that item with less "
+                  + "storage."
                 : "";
             if (!Dlg.Confirm(this, DlgKind.Warning, "Remove item",
                     $"Remove {Describe(entry.Name, entry.Count)} {entry.Where}.{note}{intrinsic}"
@@ -756,8 +755,8 @@ public sealed class ManifestWindow : ReportWindow
                 $"Remove all ×{count} “{line.Friendly}” from {ReachLabel}, across {places} place{Plural(places)}."
                 + (nested > 0 ? $"\n\nThey are holding {nested} item{Plural(nested)}, which go with them." : "")
                 + (intrinsic > 0
-                    ? $"\n\n{intrinsic} of them {(intrinsic == 1 ? "is a host's own pocket" : "are hosts' own pockets")}"
-                      + " rather than cargo put there, so removing them leaves those items with nowhere to keep things."
+                    ? $"\n\n{intrinsic} of them {(intrinsic == 1 ? "is part of the item holding it" : "are part of the items holding them")}"
+                      + ", not cargo. Removing them leaves those items with less storage."
                     : "")
                 + "\n\nThis is one undo step.",
                 $"Remove all ×{count}"))

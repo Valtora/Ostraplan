@@ -136,7 +136,7 @@ public sealed class DataIndex
         try
         {
             var doc = JsonDocument.Parse(text, Lenient);
-            Warnings.Add(new DataWarning(source.Label, $"{rel} parses only leniently - the game load would ERROR.", source.IsCore));
+            Warnings.Add(new DataWarning(source.Label, $"{rel} has JSON errors the game will fail to load.", source.IsCore));
             return doc;
         }
         catch (JsonException e) { lenientFailure = e; }
@@ -152,7 +152,7 @@ public sealed class DataIndex
             catch (JsonException) { /* not the problem, or not the only one */ }
         }
 
-        Warnings.Add(new DataWarning(source.Label, $"{rel} invalid JSON - {lenientFailure.Message}", source.IsCore));
+        Warnings.Add(new DataWarning(source.Label, $"{rel} is invalid JSON: {lenientFailure.Message}", source.IsCore));
         return null;
     }
 

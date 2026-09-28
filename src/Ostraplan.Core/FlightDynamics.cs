@@ -364,17 +364,15 @@ public static class FlightDynamics
         if (thrust <= 0)
             notes.Add(present > 0
                 ? $"No rotor thrust: {present} heavy lift rotor{S(present)} installed but switched off."
-                : "No rotor thrust: no heavy lift rotors installed. Without them a design can only fly on wings "
-                  + "and RCS.");
+                : "No rotor thrust: no heavy lift rotors installed, so it flies on wings and RCS only.");
         else if (on < present)
-            notes.Add($"{present - on} of {present} heavy lift rotor{S(present)} switched off and contributing nothing.");
+            notes.Add($"{present - on} of {present} heavy lift rotor{S(present)} switched off.");
 
         if (aeroParts == 0)
-            notes.Add("No aerodynamic hull: nothing on this design declares StatAeroLift, so it makes almost no "
-                      + "lift and presents its full side area to the airflow whichever way it points.");
+            notes.Add("No aerodynamic hull: the design makes almost no lift and meets the air with its full side "
+                      + "area whichever way it points.");
         else if (aero < 100)
-            notes.Add($"Aero coefficient {aero:0} is under 100, so it does not divide frontal drag at all: the "
-                      + "game's divisor is max(1, aero / 100).");
+            notes.Add($"Aero coefficient {aero:0} is under 100, so it does nothing to reduce drag.");
 
         return notes;
     }

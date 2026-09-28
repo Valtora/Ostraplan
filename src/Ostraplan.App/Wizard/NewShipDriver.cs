@@ -39,16 +39,16 @@ public sealed class NewShipDriver : ExportDriver
     public override ExportDestination Destination => ExportDestination.NewShipInSave;
     public override string Name => "Into a save game";
     public override string Blurb =>
-        "Adds the design to a save as something you already own, without replacing anything already in it.";
+        "Adds the design to a save as something you own, without replacing anything.";
     public override string CommitVerb => "Add ship";
 
     // No promise about the original save here: which save is written is the user's choice on the next step, and a
     // blurb that says "never modified" would be a claim this destination may not keep.
     public override string BlurbFor(WizardSession session) => session.ByKind(
-        "Adds the design to a save as a brand-new ship you own, parked a few kilometres out and reachable by "
-        + "P.A.S.S. ferry. Writes to a copy unless you choose otherwise.",
-        "Adds the design to a save as an apartment you own at a station of your choosing, reached through that "
-        + "station's transit kiosk. Writes to a copy unless you choose otherwise.");
+        "Adds the design to a save as a new ship you own, parked nearby and reachable by P.A.S.S. ferry. "
+        + "Writes to a copy by default.",
+        "Adds the design to a save as an apartment you own at a station you pick, reached by its transit kiosk. "
+        + "Writes to a copy by default.");
 
     public override string? Unavailable(WizardSession session) =>
         session.Saves.Count == 0 ? "No save games found." : null;
@@ -183,7 +183,7 @@ public sealed class NewShipDriver : ExportDriver
             facts.Add(new("Placed at", $"{station.DisplayName} ({station.RegId}), locked to the station"));
             facts.Add(new("Reached by", station.HasTransitRoute
                 ? $"the station's transit kiosk (route \"{station.TransitNodeName}\")"
-                : "NOTHING — this station has no residence transit route"));
+                : "NOTHING: this station has no residence transit route"));
         }
         else
         {
@@ -200,7 +200,7 @@ public sealed class NewShipDriver : ExportDriver
             facts.Add(new("Writes to", $"the save \"{ctx.SaveName}\" itself, replacing it"));
             facts.Add(new("Original save", plan.NewShip.Backup
                 ? $"backed up first, beside it, as {Path.GetFileName(SaveEdit.SuggestBackupDir(SaveDir(ctx)))}"
-                : "NOT backed up — you unticked it, so there is nothing to roll back to"));
+                : "NOT backed up, so there is nothing to roll back to"));
         }
         else
         {
@@ -211,9 +211,8 @@ public sealed class NewShipDriver : ExportDriver
         var warnings = new List<string>(_report.Warnings);
         if (residence is { HasTransitRoute: false } stranded)
             warnings.Add(
-                $"{stranded.DisplayName} has no residence transit route in the game's data (no \"{stranded.TransitNodeName}\" " +
-                "node), so this apartment will exist and be yours but nothing will be able to reach it. Vanilla "
-                + "Mercury Volanus is the known case. Pick another station unless a mod adds the route.");
+                $"{stranded.DisplayName} has no residence transit route, so nothing can reach this apartment. " +
+                "Pick another station unless a mod adds the route.");
 
         return new BuildOutcome(facts, warnings, []);
     }
@@ -276,7 +275,7 @@ public sealed class NewShipDriver : ExportDriver
             lines.Add($"Charged {Money(charged)}, leaving {Money(report.ResultingBalance ?? 0)}.");
         if (residence is { } home)
         {
-            lines.Add($"Registered to you at {home.DisplayName}, and you are now a homeowner there.");
+            lines.Add($"You are now a homeowner at {home.DisplayName}.");
             lines.Add(home.HasTransitRoute
                 ? "Take the station's transit kiosk to reach it."
                 : "WARNING: this station has no residence transit route, so nothing can reach it.");

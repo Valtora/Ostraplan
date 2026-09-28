@@ -130,10 +130,10 @@ public sealed class BundleReviewDialog : Window
             AddFact("Mod", $"\"{_options.ModName}\" {_options.ModVersion} by " +
                            (_options.Author is { Length: > 0 } a ? a : "(no author)"));
             AddFact("Writes to", ModDir());
-            AddFact("Preview art", "a ship image plus a thumbnail per certified room, for every ship in the mod");
+            AddFact("Preview art", "a ship image plus a thumbnail per certified room, for every ship");
             AddFact("Registering", _register
-                ? "handed to Ostrasort right after the write"
-                : "left to you (Ostraplan never edits loading_order.json)");
+                ? "by Ostrasort, right after the write"
+                : "left to you");
 
             foreach (var warning in built.Warnings) AddLine(_warnings, warning, ThemeManager.Warn);
             foreach (var problem in blocking) AddLine(_warnings, problem, ThemeManager.Warn);
@@ -144,7 +144,7 @@ public sealed class BundleReviewDialog : Window
         }
         catch (Exception ex)
         {
-            _status.Text = "That did not work out.";
+            _status.Text = "Couldn't build the review.";
             AddLine(_warnings, ex.Message, ThemeManager.Bad);
         }
         finally
@@ -175,8 +175,7 @@ public sealed class BundleReviewDialog : Window
             }
 
             if (options.Ships.Any(s => s.Routes.Derelicts.Count > 0))
-                warnings.Add("Derelict fields are filled when a world is generated, so those ships reach a NEW " +
-                             "GAME only. A save you already have will never grow one.");
+                warnings.Add("Derelicts only appear in a NEW GAME, not in saves you already have.");
 
             return new BuiltBundle(ships, warnings);
         });
@@ -201,7 +200,7 @@ public sealed class BundleReviewDialog : Window
         if (d.Derelicts.Count > 0) parts.Add($"{d.Derelicts.Count} derelict field(s)");
         if (ship.ReplaceTarget is { Length: > 0 } target) parts.Add($"replaces \"{target}\"");
         return parts.Count == 0
-            ? "No route: the ship file goes out on its own."
+            ? "No route: ship file only."
             : "Obtainable via " + string.Join(", ", parts) + ".";
     }
 
@@ -212,13 +211,12 @@ public sealed class BundleReviewDialog : Window
         var modDir = ModDir();
 
         if (Directory.Exists(modDir) && Directory.EnumerateFileSystemEntries(modDir).Any())
-            acks.Add($"A folder named \"{Path.GetFileName(modDir)}\" already exists here. Its data files (ships, " +
-                     "and any loot/lifeevents/interactions) will be replaced, and any left over from a route you " +
-                     "have since taken away will be deleted. Other files in the folder are left alone.");
+            acks.Add($"A folder named \"{Path.GetFileName(modDir)}\" already exists here. Its ship data will be " +
+                     "replaced, and data for routes you removed will be deleted. Other files are left alone.");
 
         if (BundleExport.OrphanedArt(modDir, _options.PreviouslyWritten ?? [], _options.Ships.Select(s => s.StrName))
             is { Count: > 0 } orphans)
-            acks.Add("These ships are no longer in the mod, so their preview art will be deleted: " +
+            acks.Add("Preview art for ships no longer in the mod will be deleted: " +
                      string.Join(", ", orphans) + ".");
 
         return acks;
@@ -312,14 +310,13 @@ public sealed class BundleReviewDialog : Window
                 this, _settings, _env, options.ModName, result.TouchedLootPools));
         else if (options.DestinationParent == _env.ModsDir)
             lines.AddRange([
-                "It is staged into the game's Mods folder.",
-                "Register it with Ostrasort (or ModTools) before it appears in game.",
-                "Ostraplan never writes loading_order.json itself.",
+                "It's in the game's Mods folder.",
+                "Register it with Ostrasort (or ModTools) to see it in game.",
             ]);
         else
             lines.AddRange([
                 "Copy this folder into Ostranauts_Data\\Mods.",
-                "Then register it with Ostrasort (or ModTools) to spawn it in game.",
+                "Then register it with Ostrasort (or ModTools) to see it in game.",
             ]);
 
         foreach (var line in lines) AddLine(_report, line, PaneUi.Dim);
@@ -347,14 +344,13 @@ public sealed class BundleReviewDialog : Window
         AddFact("Harrier", "96 parts, 6 certified room(s), rating B. Obtainable via Shipbreaker start.");
         AddFact("Mod", "\"Working Hulls\" 1.0.0 by Valtora");
         AddFact("Writes to", ModDir());
-        AddFact("Preview art", "a ship image plus a thumbnail per certified room, for every ship in the mod");
-        AddFact("Registering", "handed to Ostrasort right after the write");
+        AddFact("Preview art", "a ship image plus a thumbnail per certified room, for every ship");
+        AddFact("Registering", "by Ostrasort, right after the write");
         AddLine(_warnings, "Harrier: No docking port. Nothing can dock with this design, and it cannot dock " +
                            "anywhere itself.", ThemeManager.Warn);
-        AddAck("A folder named \"Working Hulls\" already exists here. Its data files (ships, and any " +
-               "loot/lifeevents/interactions) will be replaced, and any left over from a route you have since " +
-               "taken away will be deleted. Other files in the folder are left alone.");
-        AddAck("These ships are no longer in the mod, so their preview art will be deleted: Barge.");
+        AddAck("A folder named \"Working Hulls\" already exists here. Its ship data will be replaced, and data for " +
+               "routes you removed will be deleted. Other files are left alone.");
+        AddAck("Preview art for ships no longer in the mod will be deleted: Barge.");
     }
 
     // ---- pane furniture ----

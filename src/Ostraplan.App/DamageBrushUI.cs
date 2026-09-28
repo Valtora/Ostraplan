@@ -133,9 +133,8 @@ public sealed class DamageBrushWindow : Window
 
         root.Children.Add(new TextBlock
         {
-            Text = "Drag across the plan to paint, or hold Shift and drag to box an area and paint all of it at "
-                 + "once. Everything the stroke touches takes the condition below, and a part driven to nothing "
-                 + "breaks into its damaged form the way the game breaks it.",
+            Text = "Drag across the plan to paint, or Shift+drag to paint a box. A part painted to 0% breaks into "
+                 + "its damaged form.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12),
         });
 
@@ -152,8 +151,7 @@ public sealed class DamageBrushWindow : Window
 
         root.Children.Add(new TextBlock
         {
-            Text = "Nothing shows below 20% damage: the game draws no wear until a part is under 80% condition, "
-                 + "so a lived-in look wants a range that reaches well past it.",
+            Text = "Wear only shows below 80% condition, so reach well past that for a lived-in look.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 12, 0, 0),
         });
 

@@ -51,15 +51,14 @@ public sealed class ImportOptionsDialog : Window
         });
 
         _contents = Option("Container contents",
-            "Everything inside lockers, racks and crates, as viewable and editable cargo. Right-click a container "
-            + "and choose \"View contents\" once it is in.", initial.ContainerContents);
+            "Everything inside lockers, racks and crates, as editable cargo. Right-click a container ▸ "
+            + "\"View contents\" to see it.", initial.ContainerContents);
         _loose = Option("Items lying on the deck",
-            "Tools, scrap and other loose objects sitting on the floor. They are cargo, not structure, so they take "
-            + "no part in the placement law or the bill of materials.", initial.LooseItems);
+            "Tools, scrap and other loose objects on the floor. They don't count as structure or in the bill of "
+            + "materials.", initial.LooseItems);
         _spawners = Option("Loot spawners",
-            "The editor objects that decide what the ship arrives carrying. They are invisible in play: the game "
-            + "runs each one when the ship loads and puts real items where it stood. Leave them out to plan the "
-            + "ship's own contents by hand.", initial.Spawners);
+            "Markers the game turns into random items when the ship loads. Leave them out to plan the contents by "
+            + "hand.", initial.Spawners);
         body.Children.Add(_contents);
         body.Children.Add(_loose);
         body.Children.Add(_spawners);

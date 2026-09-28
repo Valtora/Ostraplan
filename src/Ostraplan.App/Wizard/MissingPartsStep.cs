@@ -44,11 +44,10 @@ public sealed class MissingPartsStep : WizardStep
             TextWrapping = TextWrapping.Wrap,
         });
         Note(_body,
-            "Ostraplan can't see them, so it can't lay them out or work out the ship's rooms and grid around them. " +
-            "Writing back in this state can corrupt rooms and zones.\n\n" +
-            "Best fix: cancel, enable the mods these parts come from, and import again.\n\n" +
-            "Otherwise stand a real part in for each. A stand-in REPLACES the item in the save you write, so pick " +
-            "something the same size where you can. Leaving them is allowed, and Review will say so.");
+            "Ostraplan can't see these parts, so writing back now can corrupt the ship's rooms and zones.\n\n" +
+            "Best fix: cancel, enable the mods they come from, and import again.\n\n" +
+            "Otherwise pick a stand-in for each, the same size where you can. It REPLACES the item in the save you " +
+            "write. You can also leave them, and Review will flag it.");
 
         _rowHost = Add(_body, new StackPanel { Margin = new Thickness(0, 14, 0, 0) });
         Content = _body;

@@ -45,7 +45,7 @@ public abstract class ReportWindow : Window
         bar.Children.Add(rerun);
         bar.Children.Add(new TextBlock
         {
-            Text = "The design has changed since this ran, so these figures describe the earlier ship.",
+            Text = "The design has changed since this ran. These figures are for the earlier version.",
             Foreground = ThemeManager.Warn, TextWrapping = TextWrapping.Wrap,
             VerticalAlignment = VerticalAlignment.Center,
         });

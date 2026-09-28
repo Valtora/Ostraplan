@@ -71,20 +71,18 @@ public sealed class ShipStep : WizardStep
                 : update ? "Keep each part's existing condition"
                 : null,
             keepNote: offerSourceCondition
-                ? $"The {noun} arrives in the state it is really in, part by part, rather than at a fresh average. " +
-                  $"This is what you want when you are moving a {noun} between saves. Parts you added since importing " +
-                  "it were never on the original, so they arrive undamaged."
+                ? $"Each part arrives in its current condition. Use this to move a {noun} between saves. Parts you " +
+                  "added since importing arrive undamaged."
                 : update
-                    ? $"The {noun} keeps the wear it has now. Parts you added arrive undamaged, as newly built parts do."
+                    ? $"The {noun} keeps its current wear. Parts you added arrive undamaged."
                     : null,
             keepIsSourceCondition: offerSourceCondition,
             fullLabel: update
-                ? "Repair everything — every installed part back to 100% condition"
-                : "Pristine — every installed part at 100% condition",
+                ? "Repair everything: every installed part back to 100% condition"
+                : "Pristine: every installed part at 100% condition",
             fullNote: update
-                ? $"Clears the damage every installed part on the {noun} has accumulated, not just the parts you " +
-                  "edited. Parts that are broken as a part in their own right (a damaged wall, a wrecked alarm) are " +
-                  "repaired in the editor instead, with Design ▸ Repair All."
+                ? "Repairs every installed part, not just the ones you edited. Broken parts (a damaged wall, a " +
+                  "wrecked alarm) need Design ▸ Repair All in the editor."
                 : null);
         control.Changed += () =>
         {
@@ -147,21 +145,18 @@ public sealed class ShipStep : WizardStep
     /// random name for any ship whose stored name is blank.</summary>
     private static string NoteFor(ExportDestination destination, string noun, bool isResidence)
     {
-        const string tail = "Type a name to pin it: it shows at the transponder, comms, and broker listings. The " +
-            "rest is flavor text. Edit these anytime from \"Ship Info\" — they are saved with the design.";
+        const string tail = "The in-game name shows on the transponder, comms and broker listings. The rest is " +
+            "flavour text. These are saved with the design and editable in Ship Info.";
         return destination switch
         {
             ExportDestination.UpdateShipInSave =>
-                $"These are the {noun}'s own in-game details, read out of your save. Change one and the write-back " +
-                $"changes it on the {noun}. Leave the in-game name blank to keep the name it already has. " + tail,
+                $"Read from your save. Any change is written back to the {noun}. Leave the in-game name blank to " +
+                "keep its current name. " + tail,
             ExportDestination.Mod =>
-                "Leave the in-game name blank and the game names the ship, a different name for each copy it " +
-                "spawns, exactly as it names the ships it ships with. " + tail,
+                "Leave the in-game name blank for a different game-generated name per spawn. " + tail,
             _ when isResidence =>
-                "Leave the in-game name blank and the apartment is named after its station, the way the real " +
-                "estate broker names one. " + tail,
-            _ => "Leave the in-game name blank to use the design name, so the ship is easy to pick out of your " +
-                 "save. " + tail,
+                "Leave the in-game name blank to name the apartment after its station. " + tail,
+            _ => "Leave the in-game name blank to use the design name. " + tail,
         };
     }
 

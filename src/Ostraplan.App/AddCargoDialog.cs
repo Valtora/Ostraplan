@@ -202,7 +202,7 @@ public sealed class AddCargoDialog : Window
             _list.Items.Add(Row(part));
 
         _count.Text = matches.Count > MaxRows
-            ? $"{MaxRows} of {matches.Count} — refine search"
+            ? $"{MaxRows} of {matches.Count}, refine search"
             : $"{matches.Count} item{(matches.Count == 1 ? "" : "s")}";
         if (_list.Items.Count > 0) _list.SelectedIndex = 0;
     }

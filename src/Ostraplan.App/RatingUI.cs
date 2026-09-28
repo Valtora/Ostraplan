@@ -165,8 +165,7 @@ public sealed class RatingReportWindow : ReportWindow
             body.Children.Add(Header("SNAPSHOT"));
             body.Children.Add(new TextBlock
             {
-                Text = "A room-annotated image of the ship (each compartment coloured and labelled). Save it as a PNG, or as " +
-                       "an SVG whose room tints and labels stay sharp at any zoom.",
+                Text = "An image of the ship with each compartment coloured and labelled. Save it as PNG or SVG.",
                 Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 4),
             });
             var view = new Button { Content = "View room map…", Padding = new Thickness(14, 4, 14, 4), HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 0, 0, 4) };
@@ -253,24 +252,23 @@ public sealed class RatingReportWindow : ReportWindow
             var opp = new StackPanel { Margin = new Thickness(0, 4, 0, 0) };
             opp.Children.Add(new TextBlock
             {
-                Text = "Optional ways to raise the sale price. Each room's contents are multiplied by its " +
-                       "certified room modifier; gains shown are sale-price estimates for what's already in the " +
-                       "room. Parts you add are worth their own price times the modifier on top.",
+                Text = "Optional ways to raise the sale price. Gains are estimates for what's already in each room; " +
+                       "parts you add also get the room's multiplier.",
                 Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 6),
             });
 
             if (!report.O2BonusActive)
                 opp.Children.Add(new TextBlock
                 {
-                    Text = "No working O2 supply: an air pump fed by an installed O2 canister (RTA) at its gas-input " +
-                           "tile triples the whole ship's value" +
+                    Text = "No working O2 supply. An air pump fed by an O2 canister (RTA) on its gas-input tile " +
+                           "triples the ship's value" +
                            (report.O2PotentialSell >= 1 ? $" (+${report.O2PotentialSell:N0} sale price)." : "."),
                     Foreground = Warn, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6),
                 });
             else
                 opp.Children.Add(new TextBlock
                 {
-                    Text = "×3 O2 supply bonus active (an air pump is fed by an installed O2 canister).",
+                    Text = "×3 O2 supply bonus active.",
                     Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6),
                 });
 
@@ -348,9 +346,8 @@ public sealed class RatingReportWindow : ReportWindow
             : "Maneuver is O: no RCS thrusters installed.";   // mass has its own slot above
         body.Children.Add(new TextBlock
         {
-            Text = "Condition assumes a pristine build (A). Room count is your certified compartments. " +
-                   "Mass sums the installed structure. In game the ship also carries its cargo, so a loaded one " +
-                   "reads heavier there. " + maneuverDetail,
+            Text = "Condition assumes a new build (A). Rooms counts certified compartments. " +
+                   "Mass excludes cargo, so a loaded ship reads heavier in game. " + maneuverDetail,
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 12),
         });
 
@@ -365,8 +362,7 @@ public sealed class RatingReportWindow : ReportWindow
         body.Children.Add(value2);
         body.Children.Add(new TextBlock
         {
-            Text = "Estimates from the game's room maths at the standard kiosk rates. Expect roughly ±15% variation " +
-                   "in the final in-game price.",
+            Text = "Estimates at standard kiosk rates. In-game prices vary by about ±15%.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 12),
         });
     }
@@ -397,10 +393,8 @@ public sealed class RatingReportWindow : ReportWindow
         body.Children.Add(slots);
         body.Children.Add(new TextBlock
         {
-            Text = "Room count is your certified compartments; mass sums the installed structure. "
-                 + "The Ship Rating, propulsion figures and kiosk prices are not shown: a residence has no drive "
-                 + "and no nav, and the game prices one through a Real Estate broker rather than the ship broker. "
-                 + "Rooms, airtightness and certification below all apply exactly as they do to a ship.",
+            Text = "Rooms counts certified compartments. Ship Rating, propulsion and kiosk prices don't apply to "
+                 + "a residence: a Real Estate broker prices it instead.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 12),
         });
     }
@@ -485,10 +479,9 @@ public sealed class RatingReportWindow : ReportWindow
         body.Children.Add(haul);
         body.Children.Add(new TextBlock
         {
-            Text = "Mass the layout itself does not carry: a ship under tow, or a hold full of salvage. "
-                 + "This is not fuel. It adds no reaction mass, so every figure above only gets worse as you "
-                 + "raise it. Stowed container cargo weighs nothing in game either, so put it here if you want "
-                 + "it counted. Saved with the design.",
+            Text = "Extra mass such as a ship under tow or a hold of salvage. It is not fuel, so raising it only "
+                 + "lowers the figures above. Container cargo weighs nothing in game, so add it here to count it. "
+                 + "Saved with the design.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
         });
 
@@ -517,8 +510,7 @@ public sealed class RatingReportWindow : ReportWindow
             massLine.Text = $"Mass for propulsion: {p.PartsMass:#,0} kg of placed parts"
                 + (p.LooseMass > 0 ? $" + {p.LooseMass:#,0} kg loose on deck" : "")
                 + (p.ExtraMass > 0 ? $" + {p.ExtraMass:#,0} kg dead weight" : "")
-                + $" = {p.Mass:#,0} kg. Gas never counts toward part mass, so burning reaction mass does not "
-                + "lighten the ship.";
+                + $" = {p.Mass:#,0} kg. Burning reaction mass doesn't lighten the ship.";
 
             var lines = new List<string>();
             if (p.HasRcsFigures)
@@ -530,8 +522,7 @@ public sealed class RatingReportWindow : ReportWindow
                         + $" across {p.RcsTankCount} feed position{(p.RcsTankCount == 1 ? "" : "s")}"
                         + $"; brim-full that is {Speed(p.RcsDeltaVFull)}.";
                 lines.Add(thrusters);
-                lines.Add("Delta-v is set by reaction mass over ship mass alone (the thruster count cancels out of "
-                    + "the game's own expression), so more thrusters buy acceleration, never range.");
+                lines.Add("More thrusters add acceleration, not delta-v.");
             }
             if (p.HasTorchFigures)
                 lines.Add($"Torch: pellet max {p.PelletMax:0.#} from {p.Lasers} laser array{(p.Lasers == 1 ? "" : "s")} / "
@@ -539,8 +530,7 @@ public sealed class RatingReportWindow : ReportWindow
                     + $"{p.Regulators} regulator{(p.Regulators == 1 ? "" : "s")}, giving {p.TorchThrustNewtons / 1000:#,0} kN at full cycle."
                     + (p.ReactantSeconds > 0 ? $" {p.LimitingReactant} runs out first, at full flow." : ""));
             else if (p.HasReactor)
-                lines.Add("Torch figures assume the reactor lit at full cycle and at its ideal core temperature, "
-                    + "which is what \"max\" means here; a planned reactor is always installed unlit.");
+                lines.Add("Torch figures assume the reactor lit at full cycle and ideal core temperature.");
             detail.Text = string.Join(" ", lines);
         }
 

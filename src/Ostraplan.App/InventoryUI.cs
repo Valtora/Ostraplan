@@ -614,7 +614,7 @@ public sealed class InventoryWindow : Window
             card.Children.Add(name);
             card.Children.Add(AncestorContents(level));
 
-            card.ToolTip = $"{_path[i].Title} — click to go back up, or drop an item here to move it out";
+            card.ToolTip = $"{_path[i].Title}: click to go back up, or drop an item here to move it out";
             card.Cursor = Cursors.Hand;
             card.MouseLeftButtonUp += (_, _) => { if (!_dragging) NavigateTo(depth); };
             if (Editing) _crumbTargets.Add((card, _path[i].ContainerId));
@@ -714,7 +714,7 @@ public sealed class InventoryWindow : Window
 
         var toggle = LinkLabel(
             (_showRules ? "▾  " : "▸  ") + "COMPATIBLE ITEMS",
-            "What this container will hold, and what its slots take");
+            "What this container and its slots accept");
         toggle.FontWeight = FontWeights.Bold;
         toggle.Margin = new Thickness(0, 2, 0, 4);
         toggle.MouseLeftButtonUp += (_, _) => { if (!_dragging) { _showRules = !_showRules; Render(); } };
@@ -742,7 +742,7 @@ public sealed class InventoryWindow : Window
             {
                 var raw = LinkLabel(
                     (_showRawFilter ? "▾  " : "▸  ") + "show the raw filter",
-                    "The condtriggers and conditions behind this, as they appear in the data");
+                    "The raw filter rules from the game data");
                 raw.Margin = new Thickness(0, 6, 0, 2);
                 raw.MouseLeftButtonUp += (_, _) => { if (!_dragging) { _showRawFilter = !_showRawFilter; Render(); } };
                 body.Children.Add(raw);
@@ -1020,7 +1020,7 @@ public sealed class InventoryWindow : Window
     {
         var tile = ItemTile(item, SlotPx, SlotPx, item.Stack);
         tile.ToolTip = $"{SlotFriendly(slot)}: {Label(item)}"
-            + (item.Children.Count > 0 ? $"  ({item.SubtreeCount - 1} inside — click to open)" : "");
+            + (item.Children.Count > 0 ? $"  ({item.SubtreeCount - 1} inside, click to open)" : "");
         return tile;
     }
 
@@ -1080,7 +1080,7 @@ public sealed class InventoryWindow : Window
             Child = overlay,
             ToolTip = Label(item)
                 + (count > 1 ? $"  ×{count}" : "")
-                + (drillable ? $"  ({item.SubtreeCount - 1} inside — click to open)" : "")
+                + (drillable ? $"  ({item.SubtreeCount - 1} inside, click to open)" : "")
                 + "  · Alt+click for info"
                 + (Editing && !item.Slotted ? "  · drag to move (R turns it) · right-click to remove or rename" : ""),
         };

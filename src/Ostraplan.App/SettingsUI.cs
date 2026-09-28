@@ -106,9 +106,8 @@ public sealed class SettingsDialog : Window
         body.Children.Add(PathRow(
             "Ostranauts install",
             _gameRootText,
-            "Where Ostraplan reads the game's data and sprites. Found through Steam automatically; set it by hand "
-            + "for a non-Steam or relocated install. The data is read at launch, so a change takes effect next "
-            + "time Ostraplan starts.",
+            "Where Ostraplan reads the game's data and sprites. Found through Steam; set it for a non-Steam or "
+            + "moved install. Takes effect next launch.",
             PickGameRoot,
             () => ApplyGameRoot(null)));
 
@@ -116,9 +115,8 @@ public sealed class SettingsDialog : Window
         body.Children.Add(PathRow(
             "Saves",
             _savesText,
-            "Where your save games live, for importing a ship and writing an edit back. Ostraplan follows the "
-            + "game's own save location setting, so set this only if your saves are somewhere neither the game "
-            + "nor Ostraplan knows about. Applies immediately.",
+            "Where saves are imported from and written back to. Follows the game's own save location; set it "
+            + "only if your saves are somewhere else.",
             PickSavesDir,
             () => ApplySavesDir(null)));
 
@@ -158,8 +156,7 @@ public sealed class SettingsDialog : Window
             _hooks.Theme(combo.SelectedIndex switch { 1 => "light", 2 => "dark", _ => "system" });
         };
         return Row("Theme", combo,
-            "Ostraplan's chrome only. The ship canvas stays dark either way, because the game's sprites are pixel "
-            + "art drawn for dark space.");
+            "Colours of the menus, panels and dialogs. The ship canvas stays dark either way.");
     }
 
     private UIElement ScaleRow()
@@ -199,10 +196,8 @@ public sealed class SettingsDialog : Window
         row.Children.Add(reset);
 
         return Row("UI scale", row,
-            "Scales everything Ostraplan draws — toolbar, panels, dialogs, reports and the canvas. Above 100% for "
-            + "a high-resolution monitor run at 100% Windows scaling, where the text would otherwise be tiny; "
-            + "below it to fit more into the window you have, on a laptop panel or beside a second copy of the "
-            + "app. Dialogs and reports resize with it; the main window keeps the size you gave it.");
+            "Size of everything Ostraplan draws: toolbar, panels, dialogs, reports and the canvas. The main window "
+            + "keeps its size.");
     }
 
     private UIElement OpenAsRow()
@@ -217,10 +212,7 @@ public sealed class SettingsDialog : Window
             _hooks.OpenAs(combo.SelectedIndex == 1 ? WindowOpenAs.Maximised : WindowOpenAs.Last);
         };
         return Row("Open as", combo,
-            "Ostraplan remembers where its window was and how big it was either way. This is whether it comes back "
-            + "like that, or maximised every time whatever you closed it at — which is what you want if the "
-            + "windowed size is never big enough to design in. Un-maximising still gives back the window you had. "
-            + "Read at launch, so a change takes effect next time Ostraplan starts.");
+            "Whether the main window opens as you left it or maximised. Takes effect next launch.");
     }
 
     private UIElement NavArtRow()
@@ -235,10 +227,8 @@ public sealed class SettingsDialog : Window
         box.Checked += (_, _) => { if (!_init) _hooks.NavModuleArt(true); };
         box.Unchecked += (_, _) => { if (!_init) _hooks.NavModuleArt(false); };
         return Row("Console module art", box,
-            "The Arrange screen window shows each module as the panel you would see at the console in game, read "
-            + "from your install, so a layout can be judged by eye. Off, or when the art cannot be read, the "
-            + "modules are flat labelled panels. A picture of the module, not a live screen: fuel bars, the "
-            + "map and the callsign stay blank.");
+            "Shows modules in the Arrange screen window as they look at the console in game. Off, they are flat "
+            + "labelled panels. Live readouts such as fuel and the map stay blank.");
     }
 
     // ---- the plan's backdrop (#43, #71) ----
@@ -359,25 +349,19 @@ public sealed class SettingsDialog : Window
         };
 
         return Row("Backdrop", combo,
-            "What the plan is drawn on. A dark hull on the near-black default is hard to read, which is what this "
-            + "is for. The screen checkerboard holds still while the ship moves over it; the tile-grid one lays a "
-            + "2×2 pattern in every tile, like floor tiles, and moves with the ship. Whatever you pick is also what "
-            + "a Design ▸ Snapshot PNG is drawn on. It applies to every open design and is remembered between "
-            + "sessions; it is not part of a design, so a ship you send somebody opens on their backdrop, not yours. "
-            + "Default: solid colour.");
+            "What every open design, and a Design ▸ Snapshot PNG, is drawn on. The screen checkerboard stays still "
+            + "as you pan; the tile-grid one moves with the ship. Not saved in the design. Default: solid colour.");
     }
 
     private UIElement SolidRow() =>
         ColourRow("Colour", Current.Solid, BackdropSettings.DefaultSolid,
             pick => Current with { Solid = pick }, b => b.Solid,
-            "Any #RRGGBB, or one of the swatches, and the first colour of either checkerboard. On a light colour the "
-            + "plan's grid, hover ring and origin marker switch to dark ink so they stay visible.");
+            "Any #RRGGBB or a swatch. Also the first colour of either checkerboard.");
 
     private UIElement CheckerColourRow() =>
         ColourRow("Second colour", Current.CheckerAlt, BackdropSettings.DefaultCheckerAlt,
             pick => Current with { CheckerAlt = pick }, b => b.CheckerAlt,
-            "The other half of either checkerboard, against the colour above. A hull never matches both squares at "
-            + "once, which is the whole point of a missing-texture check pattern.");
+            "The checkerboard's other colour.");
 
     /// <summary>A colour as a hex box, the swatch palette and a Reset. Shared by the ground colour and the
     /// checkerboard's second colour, which used to have the hex box alone (#71).</summary>
@@ -445,8 +429,8 @@ public sealed class SettingsDialog : Window
             () => Reset(Current with { CheckerSquare = BackdropSettings.DefaultCheckerSquare })));
 
         return Row("Square size", row,
-            "How big each square of the screen checkerboard is. It does not zoom with the plan, so it is measured in "
-            + $"pixels. Default: {BackdropSettings.DefaultCheckerSquare} px.");
+            "Size of each checkerboard square on screen. It doesn't change with zoom. "
+            + $"Default: {BackdropSettings.DefaultCheckerSquare} px.");
     }
 
     private IReadOnlyList<ParallaxLocale> Locales() =>
@@ -496,10 +480,8 @@ public sealed class SettingsDialog : Window
             () => Reset(Current with { LocaleDimming = BackdropSettings.DefaultLocaleDimming })));
 
         var note = locales.Count > 0
-            ? "The game's own parallax art for a place, composited into one backdrop. Dimming darkens it so the "
-              + "ship stays the thing you are reading; at 0% it is the art as the game draws it. Each place "
-              + $"always composites the same way, so a screenshot is repeatable. Default dimming: "
-              + $"{BackdropSettings.DefaultLocaleDimming * 100:0}%."
+            ? "The game's background art for a place. Dimming darkens it so the ship stands out; 0% shows it as "
+              + $"the game does. Default dimming: {BackdropSettings.DefaultLocaleDimming * 100:0}%."
             : "No backdrops found in the loaded game data.";
 
         return Row("Place and dimming", row, note);
@@ -532,9 +514,8 @@ public sealed class SettingsDialog : Window
             () => Reset(Current with { CoarseGrid = Defaults.CoarseGrid })));
 
         return Row("Scale markings", row,
-            "A brighter grid line every so many tiles, measured from the ship's origin. The one-tile grid stays, "
-            + "so you can still count tiles inside a marking; this is for judging how big a hull is getting "
-            + "without counting at all. Default: off.");
+            "A brighter grid line every so many tiles from the ship's origin, for judging size at a glance. "
+            + "Default: off.");
     }
 
     /// <summary>Everything about the backdrop back to how Ostraplan ships, in one click.</summary>
@@ -545,8 +526,8 @@ public sealed class SettingsDialog : Window
             Content = "Reset the backdrop to the default", Padding = new Thickness(12, 3, 12, 3),
             HorizontalAlignment = HorizontalAlignment.Left, Margin = new Thickness(0, 12, 0, 0),
             IsEnabled = Current != Defaults.Clamped(),
-            ToolTip = "A solid " + ColourName(BackdropSettings.DefaultSolid) + ", with no scale markings. The "
-                      + "checkerboard colours, square size and dimming go back to their defaults too.",
+            ToolTip = "A solid " + ColourName(BackdropSettings.DefaultSolid) + " with no scale markings. Resets "
+                      + "every backdrop setting.",
         };
         ToolTipService.SetShowOnDisabled(button, true);
         button.Click += (_, _) => Reset(Defaults);
@@ -569,9 +550,8 @@ public sealed class SettingsDialog : Window
         box.Checked += (_, _) => { if (!_init) _hooks.RestoreTabs(true); };
         box.Unchecked += (_, _) => { if (!_init) _hooks.RestoreTabs(false); };
         return Row("Reopen tabs", box,
-            "Each design comes back from its own file, in the tab order you left, with the one you were looking at "
-            + "on screen. A design you never saved has no file to come back from, so only a backup below can bring "
-            + "one of those back. A file that has since been moved or deleted is reported rather than skipped.");
+            "Reopens each saved design from its file, in the same tab order. Never-saved designs come back only "
+            + "through the backup below.");
     }
 
     private UIElement BackupRow()
@@ -616,11 +596,8 @@ public sealed class SettingsDialog : Window
         row.Children.Add(readout);
 
         return Row("Backup", row,
-            "Keeps one copy of the unsaved changes in each design, untitled ones included, so a crash, a killed "
-            + "process or a power cut costs you nothing. If Ostraplan does not close properly, the next launch "
-            + "brings those designs back with their changes still unsaved. A backup never touches your own .oplan "
-            + "and is only written when a design has changed. It is separate from File ▸ Auto-save, which keeps a "
-            + "history of snapshots to recover by hand.");
+            "Saves a copy of each design's unsaved changes so a crash loses nothing: the next launch brings them "
+            + "back. Your .oplan files are never touched. Separate from File ▸ Auto-save.");
     }
 
     private UIElement CloseModeRow()
@@ -637,11 +614,8 @@ public sealed class SettingsDialog : Window
             _hooks.CloseMode(combo.SelectedIndex == 1 ? SessionCloseMode.KeepInBackup : SessionCloseMode.Ask);
         };
         return Row("When closing with unsaved changes", combo,
-            "Asking keeps your .oplan files the one place a finished change lives: the backup is only used after a "
-            + "run that did not close properly. Keeping them closes without a prompt and reopens those designs next "
-            + "time with the changes still unsaved, which is quicker but means a change can live in the backup and "
-            + "nowhere else until you save it. A design whose mods are missing is always asked about. Needs the "
-            + "backup on.");
+            "Keeping them closes without asking and reopens those designs next time, still unsaved, so a change "
+            + "lives only in the backup until you save it. Needs Backup on.");
     }
 
     // ---- editing ----
@@ -658,8 +632,8 @@ public sealed class SettingsDialog : Window
         box.Checked += (_, _) => { if (!_init) _hooks.ModOverrides(true); };
         box.Unchecked += (_, _) => { if (!_init) _hooks.ModOverrides(false); };
         return Row("Mod overrides", box,
-            "Places a modded part where Ostraplan's core-game placement rules say it doesn't fit, and flags it as "
-            + "a warning to verify in game. Core parts stay enforced either way.");
+            "Lets you place a modded part where the core-game rules say it doesn't fit, with a warning to check it "
+            + "in game. Core parts are always enforced.");
     }
 
     // ---- game folders ----
@@ -678,8 +652,7 @@ public sealed class SettingsDialog : Window
         {
             Dlg.Warn(this, "Settings",
                 why + "\n\n" +
-                $"The folder to pick is the one holding {GameEnv.GameExeName} and the Ostranauts_Data folder, " +
-                "usually steamapps\\common\\Ostranauts.");
+                $"Pick the folder holding {GameEnv.GameExeName}, usually steamapps\\common\\Ostranauts.");
             return;
         }
         ApplyGameRoot(dlg.FolderName);
@@ -691,8 +664,7 @@ public sealed class SettingsDialog : Window
         _hooks.GameRoot(path);
         RefreshPaths();
         Dlg.Info(this, "Settings",
-            "Ostraplan reads the game's data once, at launch.\n\n" +
-            "Restart it for the new install folder to take effect.");
+            "Restart Ostraplan to use the new install folder.");
     }
 
     private void PickSavesDir()
@@ -715,8 +687,7 @@ public sealed class SettingsDialog : Window
         if (saves == 0)
             Dlg.Warn(this, "Settings",
                 $"No save games found in '{resolved}'.\n\n" +
-                "Ostraplan will use it anyway, in case the saves are yet to be written.\n" +
-                "A saves folder holds one folder per save, each with a .zip inside it.");
+                "Ostraplan will use it anyway. The right folder holds one subfolder per save.");
         ApplySavesDir(dlg.FolderName);
     }
 

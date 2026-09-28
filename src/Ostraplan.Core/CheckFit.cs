@@ -111,7 +111,7 @@ public static class CheckFit
                     if (envelope is { } env && Beyond(env, wx, wy))
                     {
                         failed.Add((wx, wy));
-                        if (reasonRank == int.MaxValue) { reason = "beyond the airlock's mating face"; reasonRank = GenericRank; }
+                        if (reasonRank == int.MaxValue) { reason = "beyond the airlock"; reasonRank = GenericRank; }
                         continue;
                     }
 
@@ -241,9 +241,9 @@ public static class CheckFit
         "IsPortal" => "needs a doorway",
         "IsPowerConduit" => "no power conduit adjacent",   // soft advisory (see SoftReqs) — overhead lights mount on a POWR conduit
         "IsFusionFieldCoilsFixture" =>
-            "needs installed Fusion Field Coils beneath — build the Field Coils first (their centre tile must stay open to space)",
+            "needs Fusion Field Coils built beneath first (their centre tile stays open to space)",
         "IsFusionReactorCoreFixture" =>
-            "needs an installed Fusion Reactor Core beneath — build the core on its Field Coils first",
+            "needs a Fusion Reactor Core built beneath first",
         _ => $"needs {cond}",
     };
 
@@ -251,7 +251,7 @@ public static class CheckFit
     {
         "IsObstruction" or "IsFixture" or "IsFixtureExt" or "IsItemTile" or "IsFloorFlex" or "IsSubTile" => "tile is already occupied",
         "IsWall" => "blocked by a wall",
-        "IsFloor" or "IsFloorSealed" => "a floor is in the way here — this tile must stay unfloored",
+        "IsFloor" or "IsFloorSealed" => "a floor is in the way (this tile must stay unfloored)",
         _ => $"blocked by {cond}",
     };
 }

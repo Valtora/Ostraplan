@@ -368,6 +368,11 @@ output disagree with the game, it does not belong.
 
 ## Prose in the app and the docs
 
-Objective and plain, in user-facing text, docs and commit messages alike. Comments earn
+Objective and plain, in user-facing text, docs and commit messages alike.
+
+Text on screen is short. A tooltip says what the control does in a sentence; a problem or dialog says what
+is wrong and what to do, in two or three. Game internals (`Ship.aDocksys`, condition and def names), how
+Ostraplan works it out, and what an older version did belong in comments, GAME-INTERNALS.md and the
+CHANGELOG, never in the UI. Name game things by their in-game friendly name. Comments earn
 their place by explaining *why* a ported rule works the way it does, since the what is
 usually already legible and the why lives in a decompile the reader does not have open.

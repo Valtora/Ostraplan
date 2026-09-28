@@ -61,8 +61,7 @@ public sealed class ShipInfoDialog : Window
         _publicName = Field(body, "In-game name (optional)", meta.PublicName);
         body.Children.Add(new TextBlock
         {
-            Text = "Leave blank to use the design name (or, when replacing a ship, the game's usual varied names). " +
-                   "Type a name to pin it — it shows at the transponder, comms and broker listings.",
+            Text = "Leave blank to use the design name. Shown at the transponder, comms and broker listings.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0),
         });
 
@@ -85,11 +84,8 @@ public sealed class ShipInfoDialog : Window
         body.Children.Add(_kind);
         body.Children.Add(new TextBlock
         {
-            Text = "A residence is built and validated exactly like a ship — same grid, same placement rules, "
-                 + "same rooms. It has no drive and no nav, so the Ship Rating, the diagnostic checklist, "
-                 + "propulsion and flight dynamics do not apply to one, and it is delivered into a save as a "
-                 + "station sub-module rather than as a vessel. Set on import from the designation; change it "
-                 + "here if that was wrong.",
+            Text = "A residence is built like a ship but has no drive or nav, so Ship Rating, Diagnostics, "
+                 + "propulsion and flight dynamics don't apply. It exports into a save as part of a station.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 3, 0, 0),
         });
 

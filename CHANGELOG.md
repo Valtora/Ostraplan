@@ -15,6 +15,10 @@ each release was verified against is recorded in
 - **What's new shows one line per change, and a click opens the rest.** After an update the window
   printed every entry in full, which made a catch-up across a few releases a wall of text. Each entry now
   shows only its summary line, and clicking it expands the details.
+- **Shorter text across the app.** Tooltips, the controls sheet, settings, the export wizard, report
+  windows, dialogs and the Problems panel said far more than they needed to, often in the game's internal
+  names. Each now says what a control does, or what is wrong and what to do, in a sentence or two. Some
+  help rows that pointed at controls which have since moved now point at the right ones.
 
 ### Fixed
 - **A ship with two primary airlocks is no longer reported as broken.** The IbexMother and MonoCarrier

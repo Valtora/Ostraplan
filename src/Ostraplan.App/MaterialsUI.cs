@@ -122,8 +122,8 @@ public sealed class MaterialsReportWindow : Window
         body.Children.Add(bar);
         body.Children.Add(new TextBlock
         {
-            Text = "Net this bill against a ship you already have — a design, a ship template, or your ship in a "
-                 + "save — to see what the conversion costs instead of what the design costs.",
+            Text = "Compare against a ship you already have (a design, a ship template or a ship in a save) to see "
+                 + "what converting it costs.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 10),
         });
     }
@@ -159,8 +159,7 @@ public sealed class MaterialsReportWindow : Window
         if (r.NoChange)
             body.Children.Add(new TextBlock
             {
-                Text = "The ship already carries exactly the parts this design calls for. Anything that moved is "
-                     + "labour, not material: uninstalling a part yields the same kit re-installing it consumes.",
+                Text = "The ship already has every part this design needs. Moved parts cost labour only.",
                 Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 6),
             });
 
@@ -182,17 +181,17 @@ public sealed class MaterialsReportWindow : Window
                      + $"{r.NonBuildableFrom} on the ship, {r.NonBuildableTo} in the design"
                      + (nonBuildableDelta == 0
                          ? ". Unchanged."
-                         : $" — {Math.Abs(nonBuildableDelta)} {(nonBuildableDelta > 0 ? "more" : "fewer")}. "
-                           + "These have no build recipe, so the difference is not something you can buy: it needs "
-                           + "a hull that already has it, or a shipyard.")
+                         : $", {Math.Abs(nonBuildableDelta)} {(nonBuildableDelta > 0 ? "more" : "fewer")}. "
+                           + "These can't be built, so the difference needs a hull that already has it, or a "
+                           + "shipyard.")
                      + " They are not listed above.",
                 Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 8, 0, 0),
             });
 
         body.Children.Add(new TextBlock
         {
-            Text = "\nMaterials only. A part that just moves costs no kit but still costs the work to uninstall "
-                 + "and re-install it, and a recovered kit assumes the part comes off intact.",
+            Text = "\nMaterials only. Moved parts cost no kit but still need uninstalling and reinstalling. "
+                 + "Recovered kits assume the part comes off intact.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0),
         });
     }

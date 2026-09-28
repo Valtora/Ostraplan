@@ -186,7 +186,7 @@ public static class DamageFallout
             found.Add(new DamageConsequence(
                 FalloutKind.Air,
                 room.Name is { } name ? $"\"{name}\" is open to space" : $"A {room.Tiles.Count}-tile compartment is open to space",
-                "It held air before the hit and does not now.",
+                "It held air before the hit.",
                 room.DocTiles));
         }
     }
@@ -224,7 +224,7 @@ public static class DamageFallout
             found.Add(new DamageConsequence(
                 FalloutKind.Access,
                 $"{Count(cut.Count, "walkable tile")} cut off from the rest of the ship",
-                "Still standable, but no route back to the main body: the crew would have to EVA.",
+                "No route back to the rest of the ship, so crew would have to EVA.",
                 [.. cut.Select(grid.GridToDoc)]));
     }
 

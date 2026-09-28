@@ -29,7 +29,7 @@ public sealed class ModTargetStep : WizardStep
 
         _toMods = Add(body, new RadioButton
         {
-            Content = "Stage into the game's Mods folder (ready to register & test)",
+            Content = "Stage into the game's Mods folder",
             Foreground = Ink, IsChecked = true, Margin = new Thickness(0, 2, 0, 2),
         });
         _toFolder = Add(body, new RadioButton
@@ -59,9 +59,8 @@ public sealed class ModTargetStep : WizardStep
             Foreground = Ink, Margin = new Thickness(0, 14, 0, 2),
         });
         Note(body,
-            "Ostraplan writes the mod folder only, and never edits loading_order.json. Ostrasort registers the mod " +
-            "(and patches kiosk-loot conflicts) so the ship appears in game. Leave this unticked to register it " +
-            "yourself later.", indent: 20);
+            "Ostrasort registers the mod and patches kiosk conflicts so the ship appears in game. Untick to " +
+            "register it yourself.", indent: 20);
 
         Content = body;
     }

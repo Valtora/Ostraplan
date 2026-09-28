@@ -806,7 +806,7 @@ public class SaveEditInjectSyntheticTests
         var ctx = ResidenceContext(items, cos, origins, ship => ship.Remove("objSS"));
 
         var ex = Assert.Throws<InvalidDataException>(() => SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs));
-        Assert.Contains("objSS", ex.Message);
+        Assert.Contains("locks it to its station", ex.Message);
     }
 
     [Fact]

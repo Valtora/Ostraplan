@@ -106,8 +106,7 @@ public sealed class BundleWindow : Window
         _exclusiveStart.Checked += (_, _) => MarkDirty();
         _exclusiveStart.Unchecked += (_, _) => MarkDirty();
         _exclusiveStart.ToolTip =
-            "The career rolls one pool, so \"only mine\" can be said once for the mod and not once per ship. It " +
-            "affects only the ships in this pack that are offered as a starting ship.";
+            "Applies to every ship in this pack that is offered as a starting ship.";
 
         // ---- the ships ----
         var listPanel = new DockPanel { Margin = new Thickness(16, 8, 8, 8) };
@@ -143,8 +142,7 @@ public sealed class BundleWindow : Window
         _shipName = PaneUi.Field(memberBody, "Ship name in game data", "");
         _shipName.TextChanged += (_, _) => OnShipNameTyped();
         PaneUi.Note(memberBody,
-            "The design's own name unless you change it here. It is what the game keys the ship, its pictures and " +
-            "its kiosk listing on, so two ships in one mod cannot share it.");
+            "Defaults to the design's name. Each ship in the mod needs a different one.");
 
         PaneUi.Header(memberBody, "REPLACE AN EXISTING SHIP");
         _replace = PaneUi.Add(memberBody, new CheckBox
@@ -172,7 +170,7 @@ public sealed class BundleWindow : Window
         _memberPane = new Border { Child = memberBody };
         _emptyHint = new TextBlock
         {
-            Text = "Add the designs you want in this mod, then pick one to say how the game should hand it out.",
+            Text = "Add designs, then select one to set how players get it in game.",
             Foreground = PaneUi.Dim, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 40, 0, 0),
             HorizontalAlignment = HorizontalAlignment.Center, MaxWidth = 360, TextAlignment = TextAlignment.Center,
         };
@@ -425,7 +423,7 @@ public sealed class BundleWindow : Window
 
         if (already.Count > 0)
             Dlg.Info(this, "Already in this mod",
-                "These designs are already in the pack, so they were not added again:\n\n" +
+                "Already in the pack, so not added again:\n\n" +
                 string.Join("\n", already.Select(a => "- " + a)));
 
         if (added.Count == 0) return;
@@ -517,7 +515,7 @@ public sealed class BundleWindow : Window
     }
 
     private static WearControl NewWearControl() => new(
-        fullNote: "The ship is built undamaged, the way a design with no wear on it should arrive.");
+        fullNote: "The ship arrives undamaged.");
 
     private void OnShipNameTyped()
     {
@@ -573,7 +571,7 @@ public sealed class BundleWindow : Window
 
         foreach (var member in _members.Where(m => m.Doc is not null && !m.Entry.Delivery.AnyRoute
                                                    && !m.Entry.Delivery.NoDeliveryRoute))
-            problems.Add($"\"{member.Name}\" has no way to be obtained in game. Pick a route for it, or say so " +
+            problems.Add($"\"{member.Name}\" has no way to be obtained in game. Pick a route, or tick \"No route\" " +
                          "under Advanced.");
 
         if (Ready() is { Count: > 0 } ships) problems.AddRange(BundleExport.Validate(ToOptions(ships, "")));

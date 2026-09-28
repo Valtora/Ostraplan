@@ -201,7 +201,7 @@
                          with IsChecked driven from the session by RefreshChrome and Click as the only way in. -->
                     <ToggleButton x:Name="BtnLock" Content="🔒" Style="{StaticResource OverlayToggle}" Click="OnLockClick"
                             Visibility="Collapsed"
-                            ToolTip="Lock this design so it can be looked at but not changed. Click again to unlock."/>
+                            ToolTip="Lock the design against changes. Click again to unlock."/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 
@@ -216,7 +216,7 @@
                     <!-- Analyse (headline action — kept prominent) -->
                     <Button x:Name="BtnRating" Content="Ship Rating" Padding="10,3" Margin="0,0,3,0" Click="OnShipRatingClick"
                             Background="{DynamicResource AccentBg}" Foreground="{DynamicResource AccentText}"
-                            ToolTip="Score the design: rooms, airtightness, certification and the game's Ship Rating."/>
+                            ToolTip="Score the design: rooms, airtightness, certification and Ship Rating."/>
                     <Button x:Name="BtnDiagnostics" Content="Diagnostics" Padding="10,3" Margin="0,0,3,0" Click="OnDiagnosticsClick"
                             ToolTip="The game's nav-console checklist: power, thrusters, antenna and life support."/>
                 </StackPanel>
@@ -252,7 +252,7 @@
                          argument was that it should take a deliberate click rather than a key nobody meant to press
                          (#67). The status bar carries a red marker for as long as it is on. -->
                     <ToggleButton x:Name="BtnForce" Content="Force" Style="{StaticResource OverlayToggle}" Click="OnForceToggleClick"
-                            ToolTip="Place parts where the placement law says they don't fit. They are still reported as build-order problems, so use this only for a sequence the checker can't work out for itself."/>
+                            ToolTip="Place parts where the placement law says they don't fit. They still show as build-order problems."/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 
@@ -276,7 +276,7 @@
                     <ToggleButton x:Name="BtnWire" Content="Wire" Style="{StaticResource OverlayToggle}" Click="OnWireToggleClick"
                             ToolTip="Show signal wiring: sensors a device follows, and boxes that switch it."/>
                     <ToggleButton x:Name="BtnSpawners" Content="Spawners" Style="{StaticResource SplitToggle}" Click="OnSpawnersToggleClick"
-                            ToolTip="Show loot spawners on the plan. They are editor objects and never appear in play, so turn them off to lay out the ship itself."/>
+                            ToolTip="Show loot spawners on the plan. They never appear in play."/>
                     <Button x:Name="BtnSpawnersMenu" Content="▾" Style="{StaticResource SplitArrow}" Click="OnSpawnersMenuClick"
                             ToolTip="When to show a spawner's scatter square, and how to draw it."/>
 
@@ -311,7 +311,7 @@
                     <Button x:Name="BtnUpdate" Padding="10,3" Margin="6,0,0,0"
                             Visibility="Collapsed" Click="OnUpdateClick"
                             Background="{DynamicResource AccentBg}" Foreground="{DynamicResource AccentText}"
-                            ToolTip="A newer release is available — click to open the download page"/>
+                            ToolTip="A newer release is available. Click to open the download page."/>
                     <Button x:Name="BtnSettings" Content="⚙ Settings" Padding="10,3" Margin="6,0,0,0"
                             Click="OnSettingsClick"
                             ToolTip="Theme, UI scale, mod overrides, and the game folders. (Ctrl+,)"/>
@@ -337,12 +337,12 @@
                  Collapsed the rest of the time, which is why it takes no width when off. -->
             <StatusBarItem x:Name="ForceBadge" Visibility="Collapsed">
                 <TextBlock Text="FORCE PLACE" FontWeight="Bold" Foreground="{DynamicResource Bad}"
-                           ToolTip="The placement law is not blocking placements. Turn off Force in the toolbar to restore it."/>
+                           ToolTip="The placement law is off. Turn off Force in the toolbar to restore it."/>
             </StatusBarItem>
             <!-- The design on screen is locked (#74), so nothing a click does will change it. -->
             <StatusBarItem x:Name="ReadOnlyBadge" Visibility="Collapsed">
                 <TextBlock Text="🔒 READ ONLY" FontWeight="Bold" Foreground="{DynamicResource Warn}"
-                           ToolTip="This design is locked. Unlock it with the padlock in the toolbar to edit it."/>
+                           ToolTip="This design is locked. Click the padlock in the toolbar to unlock it."/>
             </StatusBarItem>
             <StatusBarItem HorizontalAlignment="Right">
                 <TextBlock x:Name="TxtHint" Opacity="0.7"
@@ -427,7 +427,7 @@
                     <TextBlock Text="SURFACES" Foreground="{DynamicResource Dim}" FontSize="11" FontWeight="Bold"/>
                     <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                         <ToggleButton x:Name="SlotA" Padding="6,3" Margin="0,0,4,0" Click="OnSurfaceSlotClick"
-                                      ToolTip="The main brush — arm it from the palette">
+                                      ToolTip="The main brush. Pick it from the palette.">
                             <StackPanel Orientation="Horizontal">
                                 <Image x:Name="ImgSlotA" Width="22" Height="22" Stretch="Uniform" Margin="0,0,6,0"
                                        RenderOptions.BitmapScalingMode="NearestNeighbor"/>
@@ -436,7 +436,7 @@
                             </StackPanel>
                         </ToggleButton>
                         <ToggleButton x:Name="SlotB" Padding="6,3" Margin="0,0,4,0" Click="OnSurfaceSlotClick"
-                                      ToolTip="The second brush of a pattern — click this, then pick a matching wall or floor from the palette">
+                                      ToolTip="The pattern's second brush. Click this, then pick a matching wall or floor.">
                             <StackPanel Orientation="Horizontal">
                                 <Image x:Name="ImgSlotB" Width="22" Height="22" Stretch="Uniform" Margin="0,0,6,0"
                                        RenderOptions.BitmapScalingMode="NearestNeighbor"/>
@@ -464,14 +464,14 @@
                                       Click="OnSurfaceFocusClick" ToolTip="Walls and floors both bright"/>
                         <ToggleButton x:Name="FocusFloors" Content="Floors" Tag="Floors" Padding="8,3" Margin="0,0,3,0"
                                       Click="OnSurfaceFocusClick"
-                                      ToolTip="Ghost the walls too, so the floors under them can be seen and clicked"/>
+                                      ToolTip="Ghost the walls too, to see and click the floors under them"/>
                         <ToggleButton x:Name="FocusWalls" Content="Walls" Tag="Walls" Padding="8,3" Margin="0,0,12,0"
                                       Click="OnSurfaceFocusClick" ToolTip="Ghost the floors, so a wall run reads on its own"/>
                         <TextBlock Text="PAINT" Foreground="{DynamicResource Dim}" FontSize="10" FontWeight="Bold"
                                    VerticalAlignment="Center" Margin="0,0,5,0"/>
                         <ToggleButton x:Name="ModeReplace" Content="Replace" Tag="Replace" Padding="8,3" Margin="0,0,3,0"
                                       Click="OnSurfaceModeButtonClick"
-                                      ToolTip="Only re-skin what is already there — a stroke past the edge of a room adds nothing"/>
+                                      ToolTip="Only re-skin what is already there. Bare tiles are skipped."/>
                         <ToggleButton x:Name="ModeBoth" Content="Both" Tag="ReplaceAndFill" Padding="8,3" Margin="0,0,3,0"
                                       Click="OnSurfaceModeButtonClick" ToolTip="Re-skin what is there, and lay a new one on a bare tile"/>
                         <ToggleButton x:Name="ModeFill" Content="Fill" Tag="Fill" Padding="8,3"

@@ -446,13 +446,12 @@ public sealed class SimulateWindow : Window
         var where = _strongBodies.Count switch
         {
             0 => "Every micrometeoroid in the game hits at exactly " + standard + ".",
-            _ => $"Anywhere you fly, a micrometeoroid hits at exactly {standard}. Only inside "
-                 + Join(_strongBodies) + "'s atmosphere can one hit harder, and the faster you are going "
-                 + "through it the harder it is.",
+            _ => $"A micrometeoroid hits at exactly {standard}, except inside "
+                 + Join(_strongBodies) + "'s atmosphere, where it hits harder the faster you fly.",
         };
         // The one thing the number on the slider does not say for itself: the game rolls the strength of every
         // strike and this is the top of that roll, so a hull that survives this survives all of them.
-        _speedLabel.Text = where + " This is the hardest a strike can land: the game rolls under it.";
+        _speedLabel.Text = where + " The slider sets the strongest strike; the game rolls at or below it.";
         _speedLabel.Foreground = Dim;
         _damageReset.IsEnabled = Math.Abs(_damage.Value - MicrometeoroidStrike.StandardDamage) >= 0.5;
 
@@ -461,8 +460,8 @@ public sealed class SimulateWindow : Window
         _pathLabel.Text = _path is { } p
             ? $"Aim: ({p.Start.X:0.0}, {p.Start.Y:0.0}) → ({p.End.X:0.0}, {p.End.Y:0.0}).  "
               + "Press Fire to hit it again, or drag a new one."
-            : "Drag a line across the plan to aim. It carries on along that line until it hits something or "
-              + "leaves the ship, however short the drag. Releasing fires it.";
+            : "Drag a line across the plan to aim, and release to fire. The shot continues along the line until "
+              + "it hits something or leaves the ship.";
 
         _board.SetAiming(true, IsMicrometeoroid ? PivotForCanvas() : null);
     }
@@ -480,7 +479,7 @@ public sealed class SimulateWindow : Window
             var r = MicrometeoroidStrike.Fire(_doc, path.Start, path.End, speed, _state);
             landed = !r.Missed;
             _resultLine.Text = r.Missed
-                ? "Missed. That path crossed nothing able to absorb it."
+                ? "Missed. Nothing on that path could absorb it."
                 : Describe(TallyOf(r), r.Delivered);
         }
         else
@@ -550,8 +549,7 @@ public sealed class SimulateWindow : Window
     {
         var parts = $"{t.Parts} part{(t.Parts == 1 ? "" : "s")} hit for {delivered:0} damage";
         if (t.Changed == 0)
-            return $"{parts}. {(t.Parts == 1 ? "It is" : "All still")} the part{(t.Parts == 1 ? "" : "s")} "
-                 + "you drew, just carrying damage.";
+            return $"{parts}, {(t.Parts == 1 ? "damaged but intact" : "all damaged but intact")}.";
 
         // Worst first, and a term is only printed when it has something in it: "0 destroyed" is noise on a shot
         // that destroyed nothing, and it was the old line's only nod to there being more than one outcome.

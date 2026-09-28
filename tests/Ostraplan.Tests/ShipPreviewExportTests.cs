@@ -144,7 +144,7 @@ public class ShipPreviewExportTests
             var dir = Path.Combine(result.ModDir, "images", "ships", "Engineering");
             Assert.Equal(Bytes(1), File.ReadAllBytes(Path.Combine(dir, "Engineering.png")));
             Assert.Equal(1, result.PreviewCount);
-            Assert.Contains(result.Warnings, w => w.Contains("collides", StringComparison.OrdinalIgnoreCase));
+            Assert.Contains(result.Warnings, w => w.Contains("same name as the ship", StringComparison.OrdinalIgnoreCase));
         }
         finally { Directory.Delete(dest, recursive: true); }
     }

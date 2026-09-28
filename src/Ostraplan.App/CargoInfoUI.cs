@@ -112,7 +112,7 @@ public sealed class CargoInfoWindow : Window
             });
             _body.Children.Add(new TextBlock
             {
-                Text = "The def's own values. The game does not show these; they are here for save editing.",
+                Text = "The item's raw values, for save editing. The game doesn't show these.",
                 Foreground = Dim, FontSize = 10, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0),
             });
         }
@@ -135,7 +135,7 @@ public sealed class CargoInfoWindow : Window
             FontWeight = FontWeights.Bold,
             Padding = new Thickness(0),
             MaxLength = Rename.MaxLength,
-            ToolTip = "Type a name. Clear it, or type the stock name, to put it back.",
+            ToolTip = "Type a name. Clear it to restore the stock name.",
         };
 
         box.GotKeyboardFocus += (_, _) =>

@@ -98,7 +98,7 @@ public sealed class WearControl : StackPanel
     /// <param name="fullNote">The explanation under <paramref name="fullLabel"/>.</param>
     public WearControl(
         string? keepLabel = null, string? keepNote = null, bool keepIsSourceCondition = false,
-        string fullLabel = "Pristine — every installed part at 100% condition", string? fullNote = null)
+        string fullLabel = "Pristine: every installed part at 100% condition", string? fullNote = null)
     {
         _keepIsSourceCondition = keepIsSourceCondition;
         // Radio groups are matched by name across the whole visual tree, so a per-instance name is what stops two
@@ -118,7 +118,7 @@ public sealed class WearControl : StackPanel
         Children.Add(_full);
         if (fullNote is { Length: > 0 }) Children.Add(Note(fullNote));
 
-        _worn = Choice(group, "Worn (spawn the ship used, like a broker kiosk ship)");
+        _worn = Choice(group, "Worn (used, like a kiosk ship)");
         Children.Add(_worn);
 
         _condition = new Slider
@@ -135,8 +135,8 @@ public sealed class WearControl : StackPanel
 
         _spread = new TextBlock
         {
-            Text = "Each installed part is damaged randomly around this average, so condition varies part to part " +
-                   "(no part ever drops below 10%). 88% matches the game's own kiosk (\"Used\") ships.",
+            Text = "Each part is damaged randomly around this average, never below 10%. 88% matches the game's " +
+                   "\"Used\" kiosk ships.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(24, 4, 0, 0),
         };
         Children.Add(_spread);

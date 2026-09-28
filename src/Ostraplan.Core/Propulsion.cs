@@ -441,7 +441,7 @@ public static class Propulsion
                 ? $"No RCS thrust: {present} RCS cluster{S(present)} installed but switched off."
                 : "No RCS thrust: no RCS clusters installed.");
         else if (on < present)
-            notes.Add($"{present - on} of {present} RCS cluster{S(present)} switched off and contributing nothing.");
+            notes.Add($"{present - on} of {present} RCS cluster{S(present)} switched off.");
 
         if (feed.ReactionMass <= 0)
         {
@@ -450,7 +450,7 @@ public static class Propulsion
             else if (feed.DistrosOn == 0)
                 notes.Add($"No reaction mass: {feed.DistrosPresent} RCS distributor{S(feed.DistrosPresent)} installed but switched off.");
             else if (feed.TankCount == 0)
-                notes.Add("No reaction mass: no airtight tank sits on a distributor's gas input. A canister in a rack feeds nothing.");
+                notes.Add("No reaction mass: no airtight tank sits on a distributor's gas input. A canister in a rack doesn't count.");
             else
                 notes.Add($"No reaction mass: {feed.TankCount} tank{S(feed.TankCount)} plumbed in, all empty.");
         }
@@ -501,11 +501,11 @@ public static class Propulsion
         }
 
         if (t.Ve <= 0)
-            notes.Add($"No exhaust velocity for '{t.CoreDef}': the core declares no StatICVe, even ignited.");
+            notes.Add($"No thrust: the reactor core '{t.CoreDef}' has no exhaust velocity.");
         if (t.ReactantD2O <= 0)
-            notes.Add($"No deuterium aboard: the torch burns it from {D2OTankDef} tanks only.");
+            notes.Add("No deuterium aboard. The torch draws it from D2O Canisters only.");
         if (t.ReactantHe3 <= 0)
-            notes.Add($"No helium-3 aboard: the torch burns it from {He3TankDef} tanks only (the smaller LHe01 tank is the cryo feed and holds none).");
+            notes.Add("No helium-3 aboard. The torch draws it from Liq. He Canisters only, not the Cryo Reservoir.");
         return notes;
     }
 

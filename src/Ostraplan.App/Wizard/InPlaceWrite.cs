@@ -16,21 +16,17 @@ internal static class InPlaceWrite
     /// pane, which the user may have read minutes earlier.</summary>
     public static string GameRunningWarning() =>
         System.Diagnostics.Process.GetProcessesByName("Ostranauts").Length > 0
-            ? "Ostranauts is running.\n" +
-              "Writing in place is only safe from the Main Menu.\n" +
-              "If this save is loaded, the game will overwrite this on its next autosave.\n\n" +
-              "Confirm you are at the Main Menu, not in your loaded game, before continuing.\n\n"
+            ? "Ostranauts is running. If this save is loaded, its next autosave will undo this.\n" +
+              "Only continue if the game is at the Main Menu.\n\n"
             : "";
 
     /// <summary>What the backup choice actually buys, in the terms of <paramref name="what"/> (the thing being
     /// written: "edit", "ship", "apartment").</summary>
     public static string BackupExplanation(bool backup, string what) =>
         backup
-            ? "Ostraplan first copies this save to a separate backup save in your Saves folder, beside this one, not inside it.\n" +
-              $"Then it writes your {what} into the original save, replacing it.\n" +
-              $"If the {what} goes wrong, load the backup to recover."
-            : $"You unticked the backup, so this writes your {what} straight into the original save, replacing it.\n" +
-              "There will be no backup to roll back to if it goes wrong.";
+            ? $"Ostraplan first backs this save up as a separate save beside it, then writes your {what} into the original.\n" +
+              "If it goes wrong, load the backup."
+            : $"No backup: this writes your {what} straight into the original save, with nothing to roll back to.";
 
     /// <summary>The Done pane's last line: what became of the original save. <paramref name="backupName"/> is the
     /// backup save's folder name, or null when none was taken.</summary>
@@ -38,7 +34,6 @@ internal static class InPlaceWrite
         !inPlace
             ? "Your original save is unchanged."
             : backupName is not null
-                ? $"Your original save was backed up first, as a separate save named {backupName}. It sits beside " +
-                  "this save in your Saves folder, not inside it, so deleting the written save won't remove it."
-                : $"No backup was made (you unticked it), so this wrote the {what} into the original save in place.";
+                ? $"Your original save was backed up first as a separate save, {backupName}."
+                : $"No backup was made. The {what} was written into the original save.";
 }

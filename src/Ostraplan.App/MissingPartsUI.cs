@@ -56,9 +56,8 @@ public sealed class MissingPartsPanel : StackPanel
                 var dlg = new ReplacePickerDialog(
                     palette, def.DefName,
                     title: $"Stand in for {def.DefName}",
-                    noteText: $"Pick a part to take the place of {def.DefName} (×{def.Count}). It will REPLACE those "
-                              + "items in the save you write back — the modded part is not kept. Prefer one with the "
-                              + "same footprint, or the ship's rooms and grid will shift.")
+                    noteText: $"Pick a part to replace {def.DefName} (×{def.Count}) in the save you write back. "
+                              + "The modded part is not kept. Pick one the same size, or rooms and the grid will shift.")
                 { Owner = Window.GetWindow(this) };
                 if (dlg.ShowDialog() != true || dlg.Selected is not { } part) return;
                 def.StandIn = part;
@@ -133,12 +132,10 @@ public sealed class MissingPartsDialog : Window
 
         var note = new TextBlock
         {
-            Text = "Ostraplan can't see them, so it can't lay them out or work out the ship's rooms and grid around "
-                   + "them. Writing back to your save in this state can corrupt rooms and zones.\n\n"
-                   + "Best fix: cancel, enable the mods these parts come from (Ostrasort will confirm they're "
-                   + "subscribed and enabled), and import again.\n\n"
-                   + "Otherwise you can stand a real part in for each. A stand-in REPLACES the item in the save "
-                   + "you write — the original modded part is not kept — so pick something the same size where you can.",
+            Text = "Writing back to your save without them can corrupt rooms and zones.\n\n"
+                   + "Best fix: cancel, enable the mods these parts come from, and import again.\n\n"
+                   + "Or pick a stand-in for each. A stand-in replaces the item in the save you write, and the "
+                   + "modded part is not kept, so pick something the same size.",
             Foreground = Dim, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12),
         };
         DockPanel.SetDock(note, Dock.Top);

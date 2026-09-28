@@ -604,7 +604,7 @@ public static class SaveGrant
         var itemIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var item in ship["aItems"] as JsonArray ?? [])
             if (Str(item, "strID") is { Length: > 0 } id && !itemIds.Add(id))
-                throw new InvalidDataException($"Two items share strID '{id}' — grant aborted.");
+                throw new InvalidDataException($"Two items share the ID '{id}'. Grant aborted.");
 
         var coIds = new HashSet<string>(StringComparer.Ordinal);
         foreach (var co in ship["aCOs"] as JsonArray ?? [])
@@ -615,11 +615,11 @@ public static class SaveGrant
             var id = Str(item, "strID");
             if (id is { Length: > 0 } && !coIds.Contains(id))
                 throw new InvalidDataException(
-                    $"Item '{id}' ({Str(item, "strName")}) has no condition owner — the game would skip it on load. Grant aborted.");
+                    $"Item '{id}' ({Str(item, "strName")}) has no condition owner, so the game would skip it on load. Grant aborted.");
 
             var parent = Str(item, "strParentID") ?? Str(item, "strSlotParentID");
             if (parent is { Length: > 0 } && !itemIds.Contains(parent))
-                throw new InvalidDataException($"Item '{id}' is parented to missing '{parent}' — grant aborted.");
+                throw new InvalidDataException($"Item '{id}' is parented to missing '{parent}'. Grant aborted.");
         }
     }
 
@@ -655,8 +655,8 @@ public static class SaveGrant
         // that cannot write those produces a ship the player does not own and their crew will not work on.
         var playerCo = FindCo(record, coId)
             ?? throw new InvalidDataException(
-                "The player's character wasn't found on the ship they're standing on, so ownership can't be written. " +
-                "Load the save in game, then save again from aboard your own ship.");
+                "The player's character wasn't found on the ship they're on, so ownership can't be written. " +
+                "Load the save in game and save again aboard your own ship.");
 
         // Decoded, because the file name is not the RegID: the game substitutes '|' and '*' on write
         // (SaveZip), so an apartment's BCRS|RES_1 is stored as BCRS%RES_1 and a raw read would let a mint
@@ -794,7 +794,7 @@ public static class SaveGrant
         CheckPrice(ctx, price);
 
         var playerCo = FindCo(ctx.PlayerShipRecord, ctx.PlayerCoId)
-            ?? throw new InvalidDataException("The player's character owner disappeared from the record — grant aborted.");
+            ?? throw new InvalidDataException("The player's character disappeared from the save record. Grant aborted.");
 
         if (residence is { } home)
         {
@@ -851,8 +851,7 @@ public static class SaveGrant
         {
             if (!InsertShipOwner(r, w, regId, ctx.PlayerCoId))
                 throw new InvalidDataException(
-                    "This save's character record has no ship-owner registry (dictShipOwners), so the ship can't be " +
-                    "registered to the player. Grant aborted.");
+                    "This save has no ship-owner list, so the ship can't be registered to the player. Grant aborted.");
         });
     }
 

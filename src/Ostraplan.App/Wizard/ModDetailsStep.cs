@@ -52,9 +52,8 @@ public sealed class ModDetailsStep : WizardStep
         _picker.SelectionChanged += (_, _) => { SyncModName(); OnChanged(); };
 
         Note(body,
-            "Your design takes over the chosen ship's identity, so the game spawns yours in its place everywhere " +
-            "(brokers, derelicts, missions). Structure only: the original's cargo and crew loadout are not carried " +
-            "over. It only affects new spawns, not ships already in a save.", indent: 20);
+            "The game spawns your design wherever it would spawn the chosen ship. The original's cargo and crew " +
+            "aren't carried over, and ships already in a save don't change.", indent: 20);
 
         Content = body;
     }

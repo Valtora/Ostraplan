@@ -113,7 +113,7 @@ public sealed class GameEnv
         foreach (var need in new[] { "data", "images" })
             if (!Directory.Exists(Path.Combine(streaming, need)))
                 return $"'{full}' has no Ostranauts_Data\\StreamingAssets\\{need} folder, " +
-                        "so the game's own data is not there to read.";
+                        "so the install looks incomplete.";
 
         return null;
     }
@@ -141,8 +141,8 @@ public sealed class GameEnv
         else
         {
             throw new DirectoryNotFoundException(
-                "Could not find the Ostranauts install (checked the Steam registry, every Steam " +
-                "library, and the default path). Pick the game folder manually in Settings.");
+                "Couldn't find the Ostranauts install in Steam or the default path. " +
+                "Pick the game folder in Settings.");
         }
 
         var dataDir = Path.Combine(root, "Ostranauts_Data");

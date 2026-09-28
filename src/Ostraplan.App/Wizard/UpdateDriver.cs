@@ -39,19 +39,17 @@ public sealed class UpdateDriver : ExportDriver
     public override ExportDestination Destination => ExportDestination.UpdateShipInSave;
     public override string Name => "Update something in a save";
     public override string Blurb =>
-        "Rewrites what is in a save to this design, keeping everything about it except the layout.";
+        "Replaces the layout of something in a save with this design, keeping everything else.";
     public override string CommitVerb => "Write";
 
     public override string NameFor(WizardSession session) =>
         session.ByKind("Update a ship in a save", "Update an apartment in a save");
 
     public override string BlurbFor(WizardSession session) => session.ByKind(
-        "Rewrites a ship in a save to this design, keeping its crew, cargo, world position and identity. Uses the "
-        + "ship the design came from, or asks which one to replace. Writes a copy by default; can edit the original "
-        + "in place.",
-        "Rewrites an apartment in a save to this design, keeping its crew, cargo, identity, its place at the "
-        + "station and the transit route that reaches it. Uses the apartment the design came from, or asks which "
-        + "one to replace. Writes a copy by default; can edit the original in place.");
+        "Replaces a ship's layout with this design, keeping its crew, cargo, position and identity. Uses the ship "
+        + "the design came from, or asks which one. Writes to a copy by default.",
+        "Replaces an apartment's layout with this design, keeping its crew, cargo, identity, station and transit "
+        + "route. Uses the apartment the design came from, or asks which one. Writes to a copy by default.");
 
     public override string? Unavailable(WizardSession session) =>
         session.Saves.Count == 0 ? "No save games found." : null;
@@ -201,9 +199,8 @@ public sealed class UpdateDriver : ExportDriver
             Dlg.Show(owner,
                 residence
                     ? all.Count > 0
-                        ? $"No apartments in \"{save.Name}\". Ostraplan found {all.Count} ship(s) there, so the save "
-                          + "read fine — you just don't own a residence in it. Use \"Into a save game\" to add this "
-                          + "design as a new apartment instead."
+                        ? $"You don't own an apartment in \"{save.Name}\". Use \"Into a save game\" to add this "
+                          + "design as a new one."
                         : $"Couldn't find anything you own in \"{save.Name}\"."
                     : $"Couldn't find a ship to write to in \"{save.Name}\" (no owned ships and no current ship on record).",
                 $"Update {noun} in save", MessageBoxButton.OK, MessageBoxImage.Warning);
@@ -235,9 +232,9 @@ public sealed class UpdateDriver : ExportDriver
     /// the one the save-edit import puts in front of the same choice.</summary>
     private static bool ConfirmUnsupportedShip(Window? owner, SaveShipChoice c) =>
         Dlg.Confirm(owner, DlgKind.Danger, "This isn't your ship",
-            $"{c.Name} ({c.RegId}) is a station or another vessel, not one of your ships.\n\n" +
-            "Writing to something you don't own is not supported, and it can corrupt or break your save.\n\n" +
-            "Only continue if you understand that and have a backup.",
+            $"{c.Name} ({c.RegId}) is a station or another vessel, not one of your ships. Writing to it is " +
+            "unsupported and can break your save.\n\n" +
+            "Only continue if you have a backup.",
             "I understand, use it anyway");
 
     /// <summary>
@@ -251,13 +248,12 @@ public sealed class UpdateDriver : ExportDriver
         var noun = residence ? "apartment" : "ship";
         return Dlg.Confirm(owner, DlgKind.Warning, $"Replace {ship.Name}'s layout with this design?",
             $"{(residence ? "Apartment" : "Ship")} {ship.RegId} in save \"{save.Name}\".\n\n" +
-            $"This design didn't come from that {noun}, so nothing on it is recognised as already built: every part " +
-            $"currently on the {noun} is torn out and this design is built in its place.\n\n" +
-            $"The {noun} stays the same {noun}. Its crew, cargo, registration, identity and " +
-            (residence ? "its place at the station" : "world position") + " are kept, and " +
-            "cargo is carried over wherever the container it sits in survives the swap. Cargo in a container the " +
-            "design does not have is destroyed, and Review lists that before anything is written.\n\n" +
-            "The write goes to a copy of the save by default, leaving the original untouched.",
+            $"This design didn't come from that {noun}, so every part on it is torn out and this design built in " +
+            "its place.\n\n" +
+            "Its crew, cargo, registration, identity and " +
+            (residence ? "place at the station" : "position") + " are kept. Cargo in a container the design " +
+            "doesn't have is destroyed; Review lists it before anything is written.\n\n" +
+            "The write goes to a copy of the save by default.",
             $"Choose this {noun}");
     }
 
@@ -370,14 +366,13 @@ public sealed class UpdateDriver : ExportDriver
             new("Writes to", target),
         };
         if (_report.PowerFixed > 0)
-            facts.Add(new ReviewFact("Power", $"{_report.PowerFixed} device(s) rearmed after losing their power ticker"));
+            facts.Add(new ReviewFact("Power", $"fixes {_report.PowerFixed} powered device(s) that had lost power"));
         if (_report.BehaviourFixed > 0)
-            facts.Add(new ReviewFact("Repairs", $"{_report.BehaviourFixed} part(s) written by an older Ostraplan "
-                                                + "restored to something that can be damaged and repaired"));
+            facts.Add(new ReviewFact("Repairs", $"fixes {_report.BehaviourFixed} part(s) so the game can damage and repair them"));
         if (plan.Update.InPlace)
             facts.Add(new ReviewFact("Backup", plan.Update.Backup
                 ? "the original is copied to a separate save first"
-                : "none. This overwrites the original with nothing to roll back to"));
+                : "none, so there is nothing to roll back to"));
 
         var acks = new List<string>();
         if (_report.CargoDropped.Count > 0)
@@ -386,17 +381,16 @@ public sealed class UpdateDriver : ExportDriver
             var named = string.Join("; ", _report.CargoDropped.Take(4).Select(l =>
                 $"{l.ContainerName} ({string.Join(", ", l.Items.Take(4))}" +
                 (l.Items.Count > 4 ? $", plus {l.Items.Count - 4} more" : "") + ")"));
-            acks.Add($"You deleted {_report.CargoDropped.Count} container(s) still holding {total} cargo item(s). " +
-                     $"Writing this permanently deletes that cargo: {named}" +
+            acks.Add($"You deleted {_report.CargoDropped.Count} container(s) holding {total} cargo item(s). Writing " +
+                     $"this permanently deletes that cargo: {named}" +
                      (_report.CargoDropped.Count > 4 ? ", and more" : "") +
-                     ". To keep it, go back, empty those containers in game, then import and edit again.");
+                     ". To keep it, empty those containers in game, then import and edit again.");
         }
         if (Substitution.OutstandingDefs(session.Doc, ctx, session.Catalog) is { Count: > 0 } unresolved)
         {
             var items = unresolved.Sum(d => d.Count);
-            acks.Add($"{items} item(s) still use parts that aren't in your loaded data. Ostraplan works out the " +
-                     $"{session.Noun}'s rooms and grid as if they weren't there, so writing back now can leave it with " +
-                     "ghost rooms and shifted zones in game.");
+            acks.Add($"{items} item(s) use parts that aren't in your loaded data. Writing now can leave the " +
+                     $"{session.Noun} with ghost rooms and shifted zones in game.");
         }
 
         // A residence design going over a vessel, or a vessel design over an apartment. Neither corrupts the
@@ -407,10 +401,9 @@ public sealed class UpdateDriver : ExportDriver
         var targetIsResidence = SaveZip.IsSubStation(ctx.Source.RegId);
         if (session.Doc.IsResidence != targetIsResidence)
             warnings.Add(targetIsResidence
-                ? $"This design is a ship, but {ctx.Source.RegId} is a station residence. The apartment keeps its "
-                  + "registration, its place at the station and its transit route; only the layout is replaced."
-                : $"This design is a residence, but {ctx.Source.RegId} is a ship. The ship keeps its registration "
-                  + "and its position; only the layout is replaced, so it will be a vessel laid out as an apartment.");
+                ? $"This design is a ship, but {ctx.Source.RegId} is an apartment. Only its layout is replaced."
+                : $"This design is a residence, but {ctx.Source.RegId} is a ship. Only its layout is replaced, so "
+                  + "it will be a vessel laid out as an apartment.");
 
         return new BuildOutcome(facts, warnings, acks);
     }
@@ -461,16 +454,13 @@ public sealed class UpdateDriver : ExportDriver
             lines.Add($"Every installed part was worn to ~{_pinnedWear.TargetCondition * 100:0}% average condition " +
                       "(parts vary, none below 10%), replacing any existing damage.");
         if (report.PowerFixed > 0)
-            lines.Add($"Rearmed {report.PowerFixed} powered device(s) that had lost their power ticker.");
+            lines.Add($"Fixed {report.PowerFixed} powered device(s) that had lost power.");
         if (report.BehaviourFixed > 0)
-            lines.Add($"Repaired {report.BehaviourFixed} part(s) an older Ostraplan wrote into this save without "
-                      + "the properties that let the game damage and repair them.");
+            lines.Add($"Fixed {report.BehaviourFixed} part(s) so the game can damage and repair them.");
         lines.Add("The ship refills with breathable atmosphere when you load it.");
         lines.Add("");
-        lines.Add($"Written to the save {writtenName}.");
-        lines.Add("Open the in game Load menu and press Refresh first: Ostranauts won't list a just-written save " +
-                  "until you do.");
-        lines.Add($"Then load {writtenName} to see your edited ship, with crew and cargo intact.");
+        lines.Add($"Load this save to see it: {writtenName}");
+        lines.Add("In the game's Load menu, press Refresh first. A just-written save isn't listed until you do.");
         lines.Add("");
         lines.Add(InPlaceWrite.Outcome(plan.Update.InPlace, backupName, "edit"));
 

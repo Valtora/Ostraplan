@@ -100,7 +100,7 @@ public sealed class ShipGrid
             var resolved = resolver.Resolve(item.DefName);
             if (resolved is null)
             {
-                warnings?.Add($"{tmpl.Name}: item def '{item.DefName}' has no resolvable geometry — skipped.");
+                warnings?.Add($"{tmpl.Name}: item def '{item.DefName}' has no resolvable geometry, skipped.");
                 continue;
             }
 

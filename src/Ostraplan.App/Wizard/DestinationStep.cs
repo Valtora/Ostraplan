@@ -41,7 +41,7 @@ public sealed class DestinationStep : WizardStep
             Text = "Where should this design go?",
             Foreground = Ink, FontSize = 15, FontWeight = FontWeights.SemiBold,
         });
-        Note(body, "You can change this at any point. Nothing you have already typed is lost.");
+        Note(body, "You can change this later without losing what you've entered.");
 
         foreach (var driver in drivers)
         {

@@ -227,7 +227,7 @@ public class CheckFitTests
 
         var beyond = CheckFit.Check(doc, Floor, 2, -2, 0, includeEnvelope: true);
         Assert.False(beyond.Ok);
-        Assert.Equal("beyond the airlock's mating face", beyond.Reason);
+        Assert.Equal("beyond the airlock", beyond.Reason);
 
         Assert.True(CheckFit.Check(doc, Floor, 2, 5, 0, includeEnvelope: true).Ok);    // inside the hull
         Assert.True(CheckFit.Check(doc, Floor, 2, -2, 0, includeEnvelope: false).Ok);  // envelope off: geometry ignored

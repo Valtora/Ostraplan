@@ -74,7 +74,7 @@ public sealed class ReviewStep : WizardStep
 
     private void Render(BuildOutcome outcome)
     {
-        _status.Text = "This is what will be written. Nothing has been changed yet.";
+        _status.Text = "Nothing has been written yet.";
 
         foreach (var fact in outcome.Facts)
         {
@@ -97,7 +97,7 @@ public sealed class ReviewStep : WizardStep
         {
             _warnings.Children.Add(new TextBlock
             {
-                Text = $"{outcome.Warnings.Count} warning(s). It is still written, so load the save and check.",
+                Text = $"{outcome.Warnings.Count} warning(s). These don't stop the write, so check the result in game.",
                 Foreground = ThemeManager.Warn, FontSize = 12, FontWeight = FontWeights.SemiBold,
                 TextWrapping = TextWrapping.Wrap,
             });
@@ -133,7 +133,7 @@ public sealed class ReviewStep : WizardStep
     {
         if (!_built) return ShowProblem(_problem, "Nothing has been built yet.");
         return _ackBoxes.Any(b => b.IsChecked != true)
-            ? ShowProblem(_problem, "Tick the boxes above to confirm what this will overwrite or delete.")
+            ? ShowProblem(_problem, "Tick each box above to confirm what this overwrites or deletes.")
             : ShowProblem(_problem, null);
     }
 
@@ -157,7 +157,7 @@ public sealed class ReviewStep : WizardStep
     /// statement rather than a problem.</summary>
     public void ShowCancelled()
     {
-        _status.Text = "Nothing was written. This is what will happen when you're ready.";
+        _status.Text = "Nothing was written.";
         ShowProblem(_problem, null);
     }
 }

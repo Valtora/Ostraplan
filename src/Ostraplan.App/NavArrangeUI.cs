@@ -116,9 +116,8 @@ public sealed class NavArrangeWindow : Window
         var root = new StackPanel { Margin = new Thickness(18) };
         root.Children.Add(new TextBlock
         {
-            Text = "Drag a module to move it, onto the tray to take it off the screen, and out of the tray to put "
-                   + "it back. A module keeps its size; only its place changes. Red means it would not fit, and a "
-                   + "drop there snaps back.",
+            Text = "Drag a module to move it, onto the tray to remove it, or out of the tray to put it back. Red "
+                   + "means it won't fit there.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap,
             MaxWidth = BoardW + 260, Margin = new Thickness(0, 0, 0, 10),
         });
@@ -236,7 +235,7 @@ public sealed class NavArrangeWindow : Window
 
         var trayed = _mods.Count(m => !_placed.ContainsKey(m.Key));
         _status.Text = $"{_placed.Count} of {_mods.Count} module(s) on the screen"
-                       + (trayed > 0 ? $", {trayed} in the tray. A module in the tray is still aboard the ship: you can put it on the screen in game at any time." : ".");
+                       + (trayed > 0 ? $", {trayed} in the tray. Tray modules stay aboard and can be added to the screen in game." : ".");
     }
 
     /// <summary>One module drawn on the board. The board's y runs down and the game's anchors run up, so the top
@@ -317,7 +316,7 @@ public sealed class NavArrangeWindow : Window
             Background = FitFill, BorderBrush = PanelBorder, BorderThickness = new Thickness(1),
             CornerRadius = new CornerRadius(2), Padding = new Thickness(6, 4, 6, 4), Margin = new Thickness(0, 0, 0, 4),
             Cursor = Cursors.Hand,
-            ToolTip = mod.DefName + " — drag onto the screen, or double-click for the first free spot",
+            ToolTip = mod.DefName + ": drag onto the screen, or double-click for the first free spot",
             Child = row,
         };
         el.MouseLeftButtonDown += (_, e) =>
@@ -418,7 +417,7 @@ public sealed class NavArrangeWindow : Window
                 Render();
                 return;
             }
-        _status.Text = "No room on the screen for " + mod.Label + ". Move something out of the way first.";
+        _status.Text = "No room on the screen for " + mod.Label + ". Move something first.";
     }
 
     // ---- committing ----

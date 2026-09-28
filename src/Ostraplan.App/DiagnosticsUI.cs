@@ -82,9 +82,8 @@ public sealed class DiagnosticsWindow : ReportWindow
         });
         body.Children.Add(new TextBlock
         {
-            Text = "The game's own status page, from the nav console's Diagnostics module, read off the design. "
-                 + "Quantities are what the ship spawns holding, so this is the readout a freshly built or freshly "
-                 + "bought ship gives.",
+            Text = "The nav console's Diagnostics page for this design, as a newly built or bought ship would "
+                 + "show it.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10),
         });
 
@@ -136,17 +135,13 @@ public sealed class DiagnosticsWindow : ReportWindow
 
         body.Children.Add(new TextBlock
         {
-            Text = "Three rows read differently here than at a console, because a plan is not a running ship. "
-                 + "NAV STATION is a real presence test (the console can't report its own absence — it hardcodes "
-                 + "ONLINE). TRANSPONDER shows INSTALLED where the console shows the registration ID the game "
-                 + "assigns at spawn. REACTOR shows INSTALLED where the console shows OFFLINE until the reactor "
-                 + "is lit, which a planned one never is.",
+            Text = "Three rows differ from the console. NAV STATION checks the console is present. TRANSPONDER "
+                 + "shows INSTALLED instead of a registration ID. REACTOR shows INSTALLED instead of OFFLINE.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 14, 0, 0),
         });
         body.Children.Add(new TextBlock
         {
-            Text = "This is the game's checklist, not the whole law. Run Ship Rating for rooms, airtightness, "
-                 + "certification and the full propulsion figures.",
+            Text = "For rooms, airtightness, certification and propulsion, run Ship Rating.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 6, 0, 0),
         });
 

@@ -178,14 +178,12 @@ public static class ShipDiagnostics
         var xpdrOn = xpdrs.Count(p => !p.Part.Has(OffCond));
         if (xpdrs.Count == 0)
             Add(2, "NOT FOUND", DiagState.Bad,
-                "No transponder installed. Without one the ship broadcasts no identity, so ATC and other ships " +
-                "cannot hail it and it reads as a derelict. Add one from the SENS tab.");
+                "No transponder, so nobody can hail the ship and it reads as a derelict. Add one from the SENS tab.");
         else if (xpdrOn == 0)
             Add(2, "OFFLINE", DiagState.Bad,
                 $"{Count(xpdrs.Count, "transponder")} installed but switched off, so no registration is broadcast.");
         else
-            Add(2, "INSTALLED", DiagState.Good, "The console shows the ship's registration ID here; a design has " +
-                                                "none until the game assigns one at spawn.");
+            Add(2, "INSTALLED", DiagState.Good, "In game this shows the ship's registration, assigned at spawn.");
 
         // 3. TRANSPONDER ANTENNA — on/total. Good on ANY antenna switched on.
         var ants = Matching(grid, catalog, XpdrAntTrigger);
@@ -193,35 +191,31 @@ public static class ShipDiagnostics
         Add(3, $"{antsOn}/{ants.Count}", antsOn > 0 ? DiagState.Good : DiagState.Bad,
             antsOn > 0 ? null
             : ants.Count == 0
-                ? "No transponder antenna. The transponder needs one to radiate: without it the ship is silent " +
-                  "however many transponders it carries. Add one from the SENS tab."
+                ? "No transponder antenna, so the transponder can't broadcast. Add one from the SENS tab."
                 : $"{Count(ants.Count, "antenna", "antennae")} installed but switched off.");
 
         // 4. NAV STATION — a real presence test, not the game's hardcoded ONLINE (see the class note).
         var navs = Matching(grid, catalog, NavStationTrigger);
         Add(4, navs.Count > 0 ? "ONLINE" : "NOT FOUND", navs.Count > 0 ? DiagState.Good : DiagState.Bad,
             navs.Count > 0
-                ? "The console always reports itself online, because this page is read at it. Ostraplan tests for " +
-                  "one instead, since a design can have none."
-                : "No nav console. The ship cannot be flown, and this whole diagnostic page is unreachable in " +
-                  "game. Add one from the CTRL tab.");
+                ? "In game the console always reports itself online. Here it shows whether one is installed."
+                : "No nav console, so the ship can't be flown. Add one from the CTRL tab.");
 
         // 5. REACTOR — presence, not the game's lit/unlit test (see the class note).
         var cores = Matching(grid, catalog, ReactorTrigger).Where(p => p.Part.Has("IsInstalled")).ToList();
         Add(5, cores.Count > 0 ? "INSTALLED" : "NOT FOUND", cores.Count > 0 ? DiagState.Good : DiagState.Bad,
             cores.Count > 0
-                ? "The console reads OFFLINE until the reactor is lit, and a planned reactor is always installed " +
-                  "unlit. Run Ship Rating for whether its laser/feeder chain can actually fire."
-                : "No fusion reactor core. The ship has no torch drive and no generated power, so it runs on " +
-                  "battery alone. Deliberate on a small RCS-only hull; otherwise build one from the POWR tab.");
+                ? "In game this reads OFFLINE until the reactor is lit. Run Ship Rating to check it can start."
+                : "No fusion reactor core, so no torch drive and battery power only. Fine on a small RCS-only " +
+                  "hull; otherwise add one from the POWR tab.");
 
         // 6/7. REACTOR HE3 / D2O — the reactants, summed over the installed tanks the console counts.
         var he3 = SumCond(grid, catalog, He3TankTrigger, "StatSolidHe3");
         Add(6, Kg2(he3.Total), he3.Total > ShipDiagnosticsThresholds.He3Kg ? DiagState.Good : DiagState.Bad,
             he3.Total > ShipDiagnosticsThresholds.He3Kg ? null
             : he3.Count == 0
-                ? $"No helium-3 tank aboard; the console wants more than {ShipDiagnosticsThresholds.He3Kg:0} kg. " +
-                  "The torch burns He3 and deuterium together, so a tank of one without the other buys nothing."
+                ? $"No helium-3 tank aboard. The console wants more than {ShipDiagnosticsThresholds.He3Kg:0} kg. " +
+                  "The torch needs deuterium as well."
                 : $"{Count(he3.Count, "helium-3 tank")} aboard holding {Kg2(he3.Total)}, under the " +
                   $"{ShipDiagnosticsThresholds.He3Kg:0} kg the console wants.");
 
@@ -229,7 +223,7 @@ public static class ShipDiagnostics
         Add(7, Kg2(d2o.Total), d2o.Total > ShipDiagnosticsThresholds.D2OKg ? DiagState.Good : DiagState.Bad,
             d2o.Total > ShipDiagnosticsThresholds.D2OKg ? null
             : d2o.Count == 0
-                ? $"No deuterium tank aboard; the console wants more than {ShipDiagnosticsThresholds.D2OKg:0} kg."
+                ? $"No deuterium tank aboard. The console wants more than {ShipDiagnosticsThresholds.D2OKg:0} kg."
                 : $"{Count(d2o.Count, "deuterium tank")} aboard holding {Kg2(d2o.Total)}, under the " +
                   $"{ShipDiagnosticsThresholds.D2OKg:0} kg the console wants.");
 
@@ -241,11 +235,10 @@ public static class ShipDiagnostics
             clustersOn > ShipDiagnosticsThresholds.MinRcsClustersOn ? DiagState.Good : DiagState.Bad,
             clustersOn > ShipDiagnosticsThresholds.MinRcsClustersOn ? null
             : clusters.Count == 0
-                ? "No RCS thrusters. The ship cannot manoeuvre at all, and the Ship Rating's Maneuver slot reads O."
+                ? "No RCS thrusters, so the ship can't manoeuvre."
                 : clustersOn == 0
                     ? $"{Count(clusters.Count, "RCS cluster")} installed but switched off."
-                    : "Only one RCS cluster is on. The console wants more than one, because a single thruster can " +
-                      "push but not turn the ship.");
+                    : "Only one RCS cluster is on. The console wants more, as one can push but not turn the ship.");
 
         // 9. RCS DISTRIBUTOR — the game takes the first switched-on one it finds and stops.
         var distros = Matching(grid, catalog, RcsDistroTrigger);
@@ -254,8 +247,7 @@ public static class ShipDiagnostics
             distrosOn > 0 ? DiagState.Good : DiagState.Bad,
             distrosOn > 0 ? null
             : distros.Count == 0
-                ? "No RCS distributor. Nothing plumbs the tanks to the thrusters, so the ship has no reaction " +
-                  "mass however many tanks it carries."
+                ? "No RCS distributor, so no tank can feed the thrusters."
                 : $"{Count(distros.Count, "RCS distributor")} installed but switched off.");
 
         // 10. RCS REMASS — Ship.GetRCSRemain: gas in containers sitting ON a switched-on distributor's GasInput
@@ -265,7 +257,7 @@ public static class ShipDiagnostics
             remass >= ShipDiagnosticsThresholds.RcsRemassKg ? null
             : propulsion.RcsTankCount == 0
                 ? "No tank sits on a distributor's gas input, so there is no reaction mass. A canister in a rack " +
-                  "feeds nothing; it has to be on the input point itself."
+                  "doesn't count."
                 : $"{Kg2(remass)} plumbed in across {Count(propulsion.RcsTankCount, "feed position")}, under the " +
                   $"{ShipDiagnosticsThresholds.RcsRemassKg:0} kg the console wants.");
 
@@ -277,18 +269,17 @@ public static class ShipDiagnostics
             .ToHashSet();
         if (navs.Count == 0)
             Add(11, "NO CONSOLE", DiagState.Bad,
-                "Backup power is read at the nav console's own power inputs, and there is no console to read it at.");
+                "Backup power is measured at the nav console, and there isn't one.");
         else
         {
             var kWh = PowerNetwork.PowerConnectedTo(grid, catalog, navInputs);
             Add(11, Power(kWh), kWh >= ShipDiagnosticsThresholds.BackupPowerKWh ? DiagState.Good : DiagState.Bad,
                 kWh >= ShipDiagnosticsThresholds.BackupPowerKWh ? null
                 : navInputs.Count == 0
-                    ? "The nav console declares no power input point, so nothing can feed it."
+                    ? "The nav console has no power input, so nothing can feed it."
                     : $"Only {Power(kWh)} of charge reaches the console, under the " +
                       $"{ShipDiagnosticsThresholds.BackupPowerKWh:0} kWh the console wants. Run a POWR conduit " +
-                      "from a battery to the console: a battery the network never reaches counts for nothing. " +
-                      "Turn on PowerViz (P) to see which runs are live.");
+                      "from a battery to the console. PowerViz (P) shows which runs are live.");
         }
 
         // 12/13. LIFE SUPPORT O2 — the pumps, and the stores UNDER them. A hold full of O2 with no pump plumbed
@@ -297,23 +288,23 @@ public static class ShipDiagnostics
         Add(12, $"{fedPumps}/{pumps}", fedPumps > 0 ? DiagState.Good : DiagState.Bad,
             fedPumps > 0 ? null
             : pumps == 0
-                ? "No air pump installed, so nothing pressurises the ship. It also forfeits the ×3 O2 bonus on " +
-                  "the ship's broker value. Add one from the HVAC tab."
-                : $"{Count(pumps, "air pump")} installed but fed by nothing: an O2 RTA canister has to sit on the " +
-                  "pump's gas-input tile, and hold O2.");
+                ? "No air pump, so nothing pressurises the ship, and it loses the ×3 O2 bonus on its broker value. " +
+                  "Add one from the HVAC tab."
+                : $"{Count(pumps, "air pump")} installed but not fed. Put an O2 RTA canister holding O2 on the " +
+                  "pump's gas-input tile.");
 
         Add(13, Kg2(o2Mass), o2Mass > ShipDiagnosticsThresholds.O2StoresKg ? DiagState.Good : DiagState.Bad,
             o2Mass > ShipDiagnosticsThresholds.O2StoresKg ? null
             : fedPumps == 0
-                ? "Stores are measured in the canisters at the pumps' gas inputs, and no pump is fed — so this " +
-                  "reads zero however much O2 is stowed elsewhere aboard."
+                ? "Only canisters on a pump's gas input count, and no pump is fed. O2 stowed elsewhere aboard " +
+                  "doesn't count."
                 : $"{Kg2(o2Mass)} at the pumps, under the {ShipDiagnosticsThresholds.O2StoresKg:0} kg the console wants.");
 
         // 14/15. LIFE SUPPORT HEAT / COOL — first switched-on one wins, same shape as the distributor row.
         AddSwitchRow(14, HeaterTrigger, "heater",
-            "No heater. Nothing warms the ship, so the crew freeze once out of the sun. Add one from the HVAC tab.");
+            "No heater, so the crew freeze out of the sun. Add one from the HVAC tab.");
         AddSwitchRow(15, CoolerTrigger, "cooler",
-            "No cooler. Nothing sheds waste heat, so the ship cooks under load. Add one from the HVAC tab.");
+            "No cooler, so the ship overheats under load. Add one from the HVAC tab.");
 
         void AddSwitchRow(int i, string trigger, string noun, string missing)
         {

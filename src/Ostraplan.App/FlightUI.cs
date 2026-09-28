@@ -143,7 +143,7 @@ public sealed class FlightWindow : ReportWindow
         _helpToggle.Cursor = Cursors.Hand;
         _helpToggle.HorizontalAlignment = HorizontalAlignment.Left;
         _helpToggle.Margin = new Thickness(0, 6, 0, 0);
-        _helpToggle.ToolTip = "What these numbers mean and where they come from";
+        _helpToggle.ToolTip = "What these numbers mean";
         _helpToggle.MouseLeftButtonUp += (_, _) => { _settings.FlightShowHelp = !_settings.FlightShowHelp; ShowHelp(); };
         body.Children.Add(_helpToggle);
 
@@ -216,8 +216,8 @@ public sealed class FlightWindow : ReportWindow
         {
             // No body in the loaded data declares an atmosphere at all. Stock data has eight, so this means the
             // install's star_systems folder is missing or a mod replaced it with something without air.
-            _airLine.Text = "No body in your game data declares an atmosphere, so there is nowhere to fly. "
-                          + "Type gravity, pressure and density in by hand to use the report anyway.";
+            _airLine.Text = "No body in your game data has an atmosphere. "
+                          + "Type in gravity, pressure and density to use the report anyway.";
             return;
         }
 
@@ -322,7 +322,7 @@ public sealed class FlightWindow : ReportWindow
         _hover.Foreground = p.Gravity <= 0 ? Ink : p.Holds ? Good : Warn;
 
         _verdict.Text = p.Gravity <= 0
-            ? "No gravity here, so nothing to hold up against"
+            ? "No gravity here"
             : p.Holds
                 ? "Holds altitude"
                 : p.HoldsOnRcs
@@ -343,34 +343,31 @@ public sealed class FlightWindow : ReportWindow
         if (profile.HasRotors)
             lines.Add($"Rotors: {profile.RotorsActive} of {profile.RotorsPresent} on, {profile.RotorThrust:#,0} kN "
                 + $"rated, {p.RotorThrustNewtons / 1000:#,0} kN here at {p.RotorEfficiency:0.00}× "
-                + $"({p.PressureKPa:0.#} kPa / 100). Turbo, a console switch, gives "
+                + $"({p.PressureKPa:0.#} kPa / 100). Turbo gives "
                 + $"{p.RotorThrustTurboNewtons / 1000:#,0} kN ({Gs(p.RotorAccelTurbo)}).");
 
         // The RCS line is the whole reason RCS is out of the percentage, so it always says what the trade is.
         if (p.RcsAccel > 0)
             lines.Add(p.Holds
-                ? $"RCS would add {Gs(p.RcsAccel)} on top, for as long as the reaction mass holds out."
+                ? $"RCS would add {Gs(p.RcsAccel)} while reaction mass lasts."
                 : p.RcsHoverSeconds is { } seconds
-                    ? $"RCS adds {Gs(p.RcsAccel)}, enough to cover the remaining {p.Shortfall:0.##} m/s² for "
-                      + $"{Secs(seconds)} before the reaction mass runs dry."
+                    ? $"RCS adds {Gs(p.RcsAccel)}, covering the remaining {p.Shortfall:0.##} m/s² for "
+                      + $"{Secs(seconds)} before reaction mass runs out."
                     : $"RCS adds {Gs(p.RcsAccel)} and is still short of the {p.Gravity:0.##} m/s² needed.");
         else if (p.RcsThrustNewtons > 0)
-            lines.Add("RCS is not counted: no reaction mass reaches the thrusters, so a mixed burn has nothing "
-                + "to throw.");
+            lines.Add("RCS is not counted: no reaction mass reaches the thrusters.");
 
         if (p.LiftCapped)
-            lines.Add($"Lift is at the game's ceiling of ten local gravities; it would otherwise read "
-                + $"{Gs(p.LiftAccelRaw)}.");
+            lines.Add($"Lift is capped at ten local gravities (uncapped: {Gs(p.LiftAccelRaw)}).");
         if (p.DragCapped)
-            lines.Add("Drag is at the game's clamp of 2000 m/s². Past here the flight model, not the ship, is "
-                + "what is holding it together.");
+            lines.Add("Drag is at the game's limit of 2000 m/s².");
 
         if (p.HoverAirspeed is { } hover && p.InAtmosphere)
             lines.Add(hover <= _airspeed.Maximum
                 ? $"Wings alone carry it at {hover:#,0} m/s at this attitude."
-                : $"Wings alone would need {hover:#,0} m/s here, past anything it will reach.");
+                : $"Wings alone would need {hover:#,0} m/s here, beyond the airspeed range.");
         else if (p.InAtmosphere && profile.AeroCoefficient > 0)
-            lines.Add("At this attitude the lift term cancels, so wings carry nothing whatever the speed.");
+            lines.Add("At this attitude wings give no lift at any speed.");
 
         _detail.Text = string.Join(" ", lines);
 
@@ -446,19 +443,16 @@ public sealed class FlightWindow : ReportWindow
     /// <summary>Everything behind "what these numbers mean". It is all general: nothing here changes with the
     /// design or the flight point, which is why it can be built once and left shut.</summary>
     private const string HelpText =
-        "The game answers this only on a flying ship, and only for wherever that ship is. Here you pick the "
-        + "place: a body and an altitude fill in gravity, pressure and density from the game's own tables, and "
-        + "the design is flown through them at a speed and attitude you set.\n\n"
-        + "Wings and rotors cost nothing to hold, so the percentage counts only those. RCS is shown beside them "
-        + "because the game's mixed engine mode does fire it alongside the rotors, but it holds a ship up by "
-        + "throwing reaction mass overboard and stops when that runs out.\n\n"
-        + "Lift divides by mass twice in the game's own expression, so doubling a design's mass quarters its "
-        + "lift. That, and not wing area, is usually what decides whether a design flies.\n\n"
-        + "Gravity, pressure and density are what the maths actually uses, so you can overtype any of them and "
-        + "fly a place the game does not have. Pressure drives rotor efficiency, density drives lift and drag, "
-        + "and gravity is what both are measured against.\n\n"
-        + "Airspeed is measured against the air, which moves with the body. Angle of attack is the ship's facing "
-        + "against its own motion: 0 is nose-on, 90 is broadside, and lift dies at both 90 and straight up.";
+        "Pick a body and altitude to fill in gravity, pressure and density, then set a speed and attitude to fly "
+        + "the design through them.\n\n"
+        + "The percentage counts wings and rotors only. RCS is shown beside them because it also holds a ship up, "
+        + "but only until its reaction mass runs out.\n\n"
+        + "Doubling a design's mass quarters its lift. Mass, more than wing area, usually decides whether a "
+        + "design flies.\n\n"
+        + "You can overtype gravity, pressure or density to fly a place the game doesn't have. Pressure sets "
+        + "rotor efficiency, density sets lift and drag.\n\n"
+        + "Airspeed is relative to the air. Angle of attack: 0 is nose-on, 90 is broadside. Lift is zero at 90 "
+        + "and straight up.";
 
     private static double Parse(string text) =>
         double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out var v) && v > 0 ? v : 0;

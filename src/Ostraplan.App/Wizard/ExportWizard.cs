@@ -370,9 +370,8 @@ public sealed class ExportWizard : Window
         if (Committed) { DocumentEdited = true; return; }
 
         var choice = Dlg.Choose(this, DlgKind.Warning, "Keep the stand-in parts?",
-            "You put real parts in place of ones your loaded data doesn't have. That changed the design itself, " +
-            "not just this export, so it stays unless you say otherwise.\n\n" +
-            "Keeping them leaves the design complete and saveable. Discarding puts the unresolved items back.",
+            "The stand-in parts you picked changed the design itself, not just this export.\n\n" +
+            "Discarding them puts the unresolved items back.",
             "Keep them", "Discard them");
 
         if (choice == MessageDialog.Choice.Cancel) { e.Cancel = true; return; }

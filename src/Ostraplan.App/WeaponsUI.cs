@@ -71,9 +71,8 @@ public sealed class WeaponsWindow : Window
         var root = new StackPanel { Margin = new Thickness(18) };
         root.Children.Add(new TextBlock
         {
-            Text = "A weapon fires when its group's key is pressed at the nav console. Groups are numbered the way "
-                   + "the console numbers them, 1 to 9, and a weapon marked \"stock\" is at the group its own part "
-                   + "ships with. Tick weapons to set several at once.",
+            Text = "A weapon fires when its group's key (1 to 9) is pressed at the nav console. \"Stock\" marks "
+                   + "the part's default group. Tick weapons to set several at once.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10),
         });
 
@@ -368,7 +367,7 @@ public sealed class WeaponsWindow : Window
 
         _tally.Text = all.Count == 0
             ? "This design carries no weapons."
-            : $"{all.Count} weapon{(all.Count == 1 ? "" : "s")}. Groups in use — {string.Join(",  ", byGroup)}.";
+            : $"{all.Count} weapon{(all.Count == 1 ? "" : "s")}. Groups in use: {string.Join(",  ", byGroup)}.";
 
         var ticked = _checked.Count;
         _picked.Text = ticked == 0

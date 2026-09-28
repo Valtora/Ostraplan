@@ -73,7 +73,7 @@ public sealed class FillDialog : Window
         if (spec.HasGas)
         {
             body.Children.Add(Gauge());
-            body.Children.Add(SectionLabel("GAS", "One shared budget: every species draws on the same pressure."));
+            body.Children.Add(SectionLabel("GAS", "All gases share one pressure budget."));
             foreach (var line in spec.GasLines) body.Children.Add(BuildRow(line, start, "mol"));
         }
 
@@ -81,7 +81,7 @@ public sealed class FillDialog : Window
         {
             // The "no shared budget" half only says something next to a gas section, and a fuel tank has none.
             body.Children.Add(SectionLabel("LIQUIDS AND SOLIDS", spec.HasGas
-                ? "Capped on their own — no pressure, no shared budget."
+                ? "Each capped on its own, outside the gas budget."
                 : "Capped at what a full tank carries."));
             foreach (var line in spec.BulkLines) body.Children.Add(BuildRow(line, start, "kg"));
         }
@@ -124,10 +124,9 @@ public sealed class FillDialog : Window
     private static string Subtitle(PayloadSpec spec)
     {
         if (!spec.HasGas)
-            return "A fuel tank, built around what it carries. The reactor matches its tanks by name, so it takes "
-                   + "no gas: anything else in here would be weight the drive cannot use.";
+            return "A fuel tank. It holds only the fuel it's built for, so it takes no gas.";
         return $"{Num(spec.VolumeM3)} m³ at {Num(spec.TempK)} K, rated to {Num(spec.PressureMaxKPa)} kPa " +
-               $"— {Num(spec.MaxMols)} mol in total. Going past the rating makes a canister burst in game, so it is the ceiling here.";
+               $"({Num(spec.MaxMols)} mol in total). It bursts past its rating in game, so that's the limit here.";
     }
 
     private static TextBlock SectionLabel(string text, string hint) => new()

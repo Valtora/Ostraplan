@@ -3305,9 +3305,9 @@ public sealed class ShipCanvas : FrameworkElement
                 var modded = cursorPart.IsModded && !cursorForced;   // a mode refusal is not the law, and no override lifts it
                 // Force place is checked first because it covers modded parts too, so the modded wording below
                 // would otherwise tell the user to turn on a toggle that would change nothing.
-                if (ForcePlace && !cursorForced) RaiseGhostReason(why + " — forcing", willPlace: true);
+                if (ForcePlace && !cursorForced) RaiseGhostReason(why + " (forcing)", willPlace: true);
                 else if (modded && AllowModdedOverrides) RaiseGhostReason(why, willPlace: true);
-                else if (modded) RaiseGhostReason(why + " — modded; turn on \"Mod overrides\" to place it anyway");
+                else if (modded) RaiseGhostReason(why + ". Modded part: turn on \"Mod overrides\" to place it anyway");
                 else RaiseGhostReason(why);
             }
             else if (cursor is { Advisory: { } adv }) RaiseGhostReason(adv, advisory: true);   // legal, but a soft req is unmet
@@ -4295,10 +4295,10 @@ public sealed class ShipCanvas : FrameworkElement
         if (surface is null) return null;
         if (SurfacePaint.SwapTargetAt(Doc!, part, x, y) is not null)
             return PaintMode == SurfacePaintMode.Fill
-                ? new FitResult(false, [], "this tile already has one — switch to Replace to change it")
+                ? new FitResult(false, [], "this tile already has one. Switch to Replace to change it")
                 : FitResult.Legal;
         return PaintMode == SurfacePaintMode.Replace
-            ? new FitResult(false, [], "nothing to re-skin on this tile — switch to Fill to lay a new one")
+            ? new FitResult(false, [], "nothing to re-skin on this tile. Switch to Fill to lay a new one")
             : null;
     }
 

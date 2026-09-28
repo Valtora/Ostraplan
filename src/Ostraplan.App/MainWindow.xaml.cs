@@ -284,7 +284,7 @@ public partial class MainWindow : Window
         board.LooseContextMenuRequested += OnLooseContextMenuRequested;
         board.BandFilterRequested += OnBandFilterRequested;
         board.GhostReasonChanged += status => TxtGhost.Text =
-            status is { } s ? (s.Advisory ? "⚠ places, but " : s.WillPlace ? "⚠ placing against the rules — " : "⛔ can't place here — ") + s.Reason
+            status is { } s ? (s.Advisory ? "⚠ places, but " : s.WillPlace ? "⚠ placing against the rules: " : "⛔ can't place here: ") + s.Reason
             : board.AirSelection.Count > 0 ? AirHint(board.AirSelection.Count)
             : "";
         board.AirSelectionChanged += n => TxtGhost.Text = n > 0 ? AirHint(n) : "";
@@ -553,7 +553,7 @@ public partial class MainWindow : Window
                 _backupWarned = true;   // said once, then only logged, so a broken folder does not interrupt every tick
                 Dlg.Warn(this, "Backup failed",
                     "Ostraplan could not back up your unsaved changes:\n\n" + ex.Message + "\n\n" +
-                    "It keeps trying, but this won't be reported again this session. Save your work with Ctrl+S.");
+                    "It keeps trying but won't say so again this session. Save your work with Ctrl+S.");
             }
             return false;
         }
@@ -630,8 +630,8 @@ public partial class MainWindow : Window
                         // Unsaved work that would not load is still unsaved work. It stays named in the manifest, so
                         // nothing prunes it, and it is tried again next launch; deleting the file is how to let it go.
                         _unrestored.Add(tab);
-                        failed.Add((name, $"{ex.Message}\n      Its unsaved changes are kept at {item.LoadFrom}, and " +
-                            "Ostraplan will try them again next time. Delete that file to let them go."));
+                        failed.Add((name, $"{ex.Message}\n      Its unsaved changes are kept at {item.LoadFrom} and will be " +
+                            "tried again next time. Delete that file to discard them."));
                     }
                     else failed.Add((name, ex.Message));
                     continue;
@@ -674,11 +674,9 @@ public partial class MainWindow : Window
 
         if (recovered.Count > 0 && plan.ImproperExit)
             Dlg.Info(this, "Unsaved changes recovered",
-                "Ostraplan didn't close properly last time. These designs had unsaved changes, and they have been " +
-                "brought back from the backup:\n\n" +
+                "Ostraplan didn't close properly last time. These designs were restored from backup:\n\n" +
                 string.Join("\n", recovered.Select(r => "   • " + r)) +
-                "\n\nThey are open as unsaved changes. Nothing has been written to your files: save the ones you " +
-                "want to keep.");
+                "\n\nThey are open as unsaved changes. Save the ones you want to keep.");
 
         var lost = plan.Missing.Select(t => $"   • {t.Name ?? Path.GetFileName(t.Path)}: {t.Path} is no longer there")
             .Concat(failed.Select(f => $"   • {f.Name}: {f.Why}"))
@@ -779,10 +777,9 @@ public partial class MainWindow : Window
         {
             var choice = Dlg.Choose(this, DlgKind.Warning, "Ostranauts install required",
                 reason + "\n\n" +
-                "Ostraplan is a planner for Ostranauts. It reads every part, sprite and mod from your own copy of " +
-                "the game, so it cannot run without one.\n\n" +
+                "Ostraplan reads its parts and sprites from your copy of Ostranauts, so it can't run without one.\n\n" +
                 "• Install Ostranauts, then start Ostraplan again.\n" +
-                "• Or, if you already have it, point Ostraplan at the game folder.\n" +
+                "• Or point Ostraplan at the game folder.\n" +
                 "… The folder holding " + GameEnv.GameExeName + ", usually steamapps\\common\\Ostranauts.",
                 "Locate folder…", "Get the game…", "Close Ostraplan");
 
@@ -889,8 +886,8 @@ public partial class MainWindow : Window
             {
                 TxtLoading.Text = "Waiting for the Ostranauts install…";
                 if (!ShowInstallGate(
-                        $"'{env.GameRoot}' passes as an install, but none of the game's parts loaded from it.\n" +
-                        "That is what a damaged or half-downloaded copy of the game does.")) return;
+                        $"No game parts loaded from '{env.GameRoot}'.\n" +
+                        "The copy of the game may be damaged or only partly downloaded.")) return;
                 continue;
             }
 
@@ -1108,8 +1105,8 @@ public partial class MainWindow : Window
         _recentHeader = Header("RECENT");
         _quickEmpty = new TextBlock
         {
-            Text = "Nothing pinned yet.\n\nClick the ☆ on any part to pin it here for quick reuse. "
-                 + "Parts you place on the ship show up under Recent automatically.",
+            Text = "Nothing pinned yet.\n\nClick the ☆ on any part to pin it here. "
+                 + "Parts you place show up under Recent.",
             TextWrapping = TextWrapping.Wrap, Opacity = 0.6, FontSize = 12, Margin = new Thickness(2, 12, 6, 0),
         };
 
@@ -1817,8 +1814,7 @@ public partial class MainWindow : Window
         if (_catalog is null) return null;
 
         var kindDlg = new ShipSourceDialog("Retrofit from which ship?",
-            "The ship you'd be converting. Ostraplan reads its layout to count what it already carries; "
-            + "nothing is imported and your design is not touched.") { Owner = owner };
+            "The ship you'd be converting. Only its parts are counted. Your design is not touched.") { Owner = owner };
         if (kindDlg.ShowDialog() != true || kindDlg.Selected is not { } kind) return null;
 
         return kind switch
@@ -1848,8 +1844,8 @@ public partial class MainWindow : Window
             if (missing.Count > 0)
                 Dlg.Warn(owner, "That design is missing mods",
                     $"{missing.Count} part(s) in “{DesignName(file, dlg.FileName)}” aren't in your current game and "
-                    + "mods data, so they can't be counted.\n\n"
-                    + "The retrofit bill will over-state what you need to obtain by that much.");
+                    + "mods, so they can't be counted.\n\n"
+                    + "The retrofit bill will over-state what you need by that much.");
             return new RetrofitPick(DesignName(file, dlg.FileName), BillOfMaterials.ComputeAll(doc));
         }
         catch (Exception ex)
@@ -1903,7 +1899,7 @@ public partial class MainWindow : Window
         }
 
         var picker = new SavePickerDialog(saves, "Retrofit from a ship in which save?",
-            "Reads the ship's layout to count what it carries. Nothing is written and nothing is imported.",
+            "Counts the ship's parts. Nothing is written or imported.",
             "Choose save") { Owner = owner };
         if (picker.ShowDialog() != true || picker.Selected is not { } save) return null;
 
@@ -1964,7 +1960,7 @@ public partial class MainWindow : Window
             });
             ProblemsPanel.Children.Add(new TextBlock
             {
-                Text = "Placement legality is checked live. Run Ship Rating for the full room, airtightness and certification report.",
+                Text = "Placement is checked live. Run Ship Rating for rooms, airtightness and certification.",
                 Foreground = ThemeManager.Dim,
                 FontSize = 11,
                 TextWrapping = TextWrapping.Wrap,
@@ -2025,7 +2021,7 @@ public partial class MainWindow : Window
             // problem (already hazard-tinted) just pans/zooms into view.
             var isLeak = problem.DismissKey is not null;
             var btn = ActionButton(isLeak ? "Show" : "View",
-                isLeak ? "Highlight the leak points and bring them into view" : "Pan and zoom the view to this problem");
+                isLeak ? "Highlight the leak points and zoom to them" : "Zoom to this problem");
             btn.Click += (_, e) =>
             {
                 e.Handled = true;
@@ -2036,7 +2032,7 @@ public partial class MainWindow : Window
         }
         if (problem.DismissKey is { } key)
         {
-            var dismiss = ActionButton("Dismiss", "Hide this warning (restore it later with Restore Alerts).");
+            var dismiss = ActionButton("Dismiss", "Hide this warning. Restore Alerts brings it back.");
             dismiss.Click += (_, e) => { e.Handled = true; DismissAlert(key); };
             actions.Children.Add(dismiss);
         }
@@ -2096,7 +2092,7 @@ public partial class MainWindow : Window
         ReadOnlyBadge.Visibility = locked ? Visibility.Visible : Visibility.Collapsed;
         var name = _doc?.FilePath is { } f ? Path.GetFileNameWithoutExtension(f) : _meta.Name;
         var star = _stack.Dirty || _stateDirty ? " *" : "";
-        var incomplete = _unresolvedParts.Count > 0 ? "  ⚠ MISSING MODS — read-only" : "";
+        var incomplete = _unresolvedParts.Count > 0 ? "  ⚠ MISSING MODS (read-only)" : "";
         var readOnly = locked ? "  🔒 READ ONLY" : "";
         TxtDoc.Text = name + star + incomplete + readOnly;
         SetDocByline();
@@ -2267,16 +2263,15 @@ public partial class MainWindow : Window
 
         BtnRating.Content = residence ? "Residence Report" : "Ship Rating";
         BtnRating.ToolTip = residence
-            ? "Analyse rooms, airtightness and certification for this residence"
-            : "Analyse rooms, airtightness, certification and the Ship Rating for the current design";
+            ? "Analyse rooms, airtightness and certification"
+            : "Analyse rooms, airtightness, certification and Ship Rating";
 
         // Never re-enable mid-analysis: ShowRatingReport/ShowDiagnosticsReport own the button state while a run
         // is in flight, and this method is reached from OnDocChanged, which a completing run can race.
         if (!_analysing) BtnDiagnostics.IsEnabled = !residence;
         BtnDiagnostics.ToolTip = residence
-            ? "Not applicable to a residence: the checklist reads a nav console, a drive and a transponder, none "
-              + "of which a residence has"
-            : "The game's own nav-console checklist: transponder, antenna, reactor, thrusters, power and life support";
+            ? "Not available for a residence, which has no nav console, drive or transponder"
+            : "The game's nav-console checklist: transponder, antenna, reactor, thrusters, power and life support";
     }
 
     private bool ConfirmDiscardChanges()
@@ -2336,8 +2331,8 @@ public partial class MainWindow : Window
         // Two tabs on one file both write it (see DesignPath), so a design cannot be saved over one open elsewhere.
         if (SessionFor(dlg.FileName) is { } open && !ReferenceEquals(open, _active))
         {
-            Dlg.Warn(this, "Save As", $"{Path.GetFileName(dlg.FileName)} is open in another tab, so it can't be " +
-                "replaced from here. Pick another name, or close that tab first.");
+            Dlg.Warn(this, "Save As", $"{Path.GetFileName(dlg.FileName)} is open in another tab. " +
+                "Pick another name, or close that tab first.");
             return false;
         }
         _doc.FilePath = dlg.FileName;
@@ -2363,12 +2358,10 @@ public partial class MainWindow : Window
 
         var dropped = _unresolvedParts;
         if (!Dlg.Confirm(this, DlgKind.Danger, "Save without the missing-mod parts?",
-                $"{dropped.Count} part(s) in this design come from mods that aren't loaded, so they aren't on the canvas:\n\n" +
+                $"{dropped.Count} part(s) in this design come from mods that aren't loaded:\n\n" +
                 FormatMissingDefs(dropped) +
-                "\n\nSaving rewrites the design as it stands, which drops them for good.\n\n" +
-                "If you still want them, cancel — enable the mods (run Ostrasort to confirm they're subscribed and " +
-                "enabled) and reopen this design, and they'll come back.\n\n" +
-                "If you're done with those mods, dropping the parts is exactly what you want.",
+                "\n\nSaving now drops them for good.\n\n" +
+                "To keep them, cancel, enable the mods and reopen this design.",
                 "Save without them"))
             return false;
 
@@ -2423,8 +2416,7 @@ public partial class MainWindow : Window
             _autoSaveWarned = true;   // said once, then only logged — a broken folder must not interrupt every interval
             Dlg.Warn(this, "Auto-save failed",
                 "Ostraplan could not write an auto-save snapshot:\n\n" + ex.Message + "\n\n" +
-                "Auto-save stays on and keeps trying, but this won't be reported again this session. " +
-                "Save your work with Ctrl+S.");
+                "Auto-save keeps trying but won't say so again this session. Save your work with Ctrl+S.");
         }
     }
 
@@ -2568,14 +2560,14 @@ public partial class MainWindow : Window
 
         var onto = file.AutoSaveOf is { } path
             ? $"Saving writes it back to {Path.GetFileName(path)}."
-            : "This design had never been saved, so saving will ask where to put it.";
+            : "It has never been saved, so saving will ask where to put it.";
         var incomplete = missing.Count > 0
-            ? $"\n\nIt uses {missing.Count} part(s) from mods that aren't loaded, so it is held read-only until you " +
-              "enable them and reopen. See the warning in the title bar."
+            ? $"\n\nIt uses {missing.Count} part(s) from mods that aren't loaded, so it is read-only until you " +
+              "enable them and reopen."
             : "";
         Dlg.Info(this, "Recovered",
             $"Recovered \"{_meta.Name}\" as it stood at {entry.SavedAt:HH:mm} on {entry.SavedAt:ddd d MMM}.\n\n" +
-            $"It is loaded as unsaved changes — nothing has been written yet. {onto}{incomplete}");
+            $"It is open as unsaved changes. {onto}{incomplete}");
     }
 
     /// <summary>Open the auto-save folder in Explorer, so the snapshots can be inspected, copied or cleared out by
@@ -2621,7 +2613,7 @@ public partial class MainWindow : Window
     /// moved to the value that was refused and would otherwise go on showing it.</summary>
     private void OnEditRefused()
     {
-        TxtGhost.Text = "🔒 This design is read only. Unlock it with the padlock in the toolbar to edit it.";
+        TxtGhost.Text = "🔒 This design is read only. Click the padlock in the toolbar to unlock it.";
         Dispatcher.BeginInvoke(UpdateInspector, DispatcherPriority.Background);
     }
 
@@ -2660,8 +2652,8 @@ public partial class MainWindow : Window
         if (session.Dirty)
         {
             var choice = Dlg.Choose(this, DlgKind.Warning, "Lock with unsaved changes?",
-                $"“{session.DisplayName}” has unsaved changes. A locked design is exactly what is in its file, so save " +
-                "the changes or discard them first.\n\nDiscarding reloads the design from " +
+                $"“{session.DisplayName}” has unsaved changes. Save or discard them before locking.\n\n" +
+                "Discarding reloads the design from " +
                 $"{Path.GetFileName(doc.FilePath)}.",
                 "Save and lock", "Discard and lock");
             if (choice == MessageDialog.Choice.Cancel) return;
@@ -2669,8 +2661,8 @@ public partial class MainWindow : Window
             if (choice == MessageDialog.Choice.Secondary && !ReloadFromFile(session)) return;
         }
         else if (!Dlg.Confirm(this, DlgKind.Info, "Lock this design?",
-                     $"“{session.DisplayName}” will open to look at and nothing about it can be changed until you unlock " +
-                     "it. Saving offers to make an editable copy instead of writing the file.", "Lock"))
+                     $"“{session.DisplayName}” can't be changed until you unlock it. Saving offers an editable " +
+                     "copy instead.", "Lock"))
             return;
 
         session.ReadOnly = true;
@@ -2716,14 +2708,14 @@ public partial class MainWindow : Window
         // leave the locked original's own record of them alone: it is still the complete file.
         if (_active.UnresolvedParts.Count > 0
             && !Dlg.Confirm(this, DlgKind.Danger, "Copy without the missing-mod parts?",
-                $"{_active.UnresolvedParts.Count} part(s) in this design come from mods that aren't loaded, so they " +
-                "aren't on the canvas:\n\n" + FormatMissingDefs(_active.UnresolvedParts) +
-                "\n\nA copy saved now leaves them out. The locked design's own file keeps them either way.",
+                $"{_active.UnresolvedParts.Count} part(s) in this design come from mods that aren't loaded:\n\n" +
+                FormatMissingDefs(_active.UnresolvedParts) +
+                "\n\nThe copy leaves them out. The locked design's file keeps them.",
                 "Copy without them"))
             return false;
         if (!Dlg.Confirm(this, DlgKind.Info, "Save an editable copy?",
-                $"“{_active.DisplayName}” is locked, so saving won't write its file. You can save a copy instead, which " +
-                "opens in a new tab ready to edit, with the locked design left as it is.", "Save a copy…"))
+                $"“{_active.DisplayName}” is locked. Save a copy instead? It opens in a new tab, ready to edit.",
+                "Save a copy…"))
             return false;
 
         var dlg = new SaveFileDialog
@@ -2735,8 +2727,8 @@ public partial class MainWindow : Window
         if (dlg.ShowDialog(this) != true) return false;
         if (SessionFor(dlg.FileName) is { } open)
         {
-            Dlg.Warn(this, "Save a copy", $"{Path.GetFileName(dlg.FileName)} is open in another tab, so it can't be " +
-                "replaced from here. Pick another name, or close that tab first.");
+            Dlg.Warn(this, "Save a copy", $"{Path.GetFileName(dlg.FileName)} is open in another tab. " +
+                "Pick another name, or close that tab first.");
             return false;
         }
 
@@ -2837,9 +2829,9 @@ public partial class MainWindow : Window
                     ? $"“{otherWay[0].DisplayName}” is already open {(readOnly ? "to edit" : "read-only")} in a tab of its own."
                     : $"These are already open {(readOnly ? "to edit" : "read-only")}:\n\n" +
                       string.Join("\n", otherWay.Select(s => "   • " + s.DisplayName))) +
-                "\n\nA design can only be open one way at a time, so it wasn't opened again. " +
+                "\n\nA design can only be open one way at a time. " +
                 (readOnly
-                    ? "To look at it without being able to change it, lock that tab with the padlock in the toolbar."
+                    ? "To lock it, use the padlock in the toolbar on that tab."
                     : "To edit it, unlock that tab with the padlock in the toolbar."));
 
         if (failed.Count == 1)
@@ -2861,33 +2853,26 @@ public partial class MainWindow : Window
             WarnMissingMods(incomplete[0].Name, incomplete[0].File, incomplete[0].Missing);
         else if (incomplete.Count > 1)
             Dlg.Warn(this, "Some designs are missing mods",
-                $"{incomplete.Count} of the designs you opened use parts that aren't in your current game and mods " +
-                "data. Those parts were left out, so each of these is incomplete:\n\n" +
+                $"{incomplete.Count} of the designs you opened use parts from mods that aren't loaded. " +
+                "Those parts were left out:\n\n" +
                 string.Join("\n", incomplete.Select(i =>
                     $"   • {i.Name}: {i.Missing.Count} part(s)" +
                     (i.File.Mods.Count > 0
                         ? ", from " + string.Join(", ", i.File.Mods.Select(m => m.Name.Length > 0 ? m.Name : m.Entry))
                         : ""))) +
-                "\n\nTo get them back: install or subscribe to those mods and enable them, then reopen the designs.\n" +
-                "Run Ostrasort to confirm they're subscribed, enabled, and in a working load order.\n\n" +
-                "Until then each one is held read only, the same as when a single design is opened this way. " +
-                "Save one and confirm to drop its missing parts and make it editable as it stands.");
+                "\n\nEach is read only until you enable those mods and reopen it. " +
+                "To drop the missing parts instead, save it and confirm.");
     }
 
     /// <summary>The full missing-mods account for one design that has just been opened.</summary>
     private void WarnMissingMods(string name, OplanFile file, IReadOnlyList<OplanPart> missing) =>
         Dlg.Warn(this, "This design is missing mods",
-            $"{name} uses {missing.Count} part(s) that aren't in your current game and mods data.\n" +
-            "They were left out, so this design is incomplete.\n\n" +
+            $"{name} uses {missing.Count} part(s) from mods that aren't loaded, so they were left out:\n\n" +
             FormatMissingDefs(missing) +
-            "\n\nIt depends on these mods.\n\n" +
+            "\n\nIt depends on these mods:\n\n" +
             FormatModDeps(file.Mods) +
-            "\n\nTo get them back: install or subscribe to those mods and enable them, then reopen this design.\n" +
-            "Run Ostrasort to confirm they're subscribed, enabled, and in a working load order.\n\n" +
-            "Until then the design is held read only — saving would rewrite it without those parts, and building " +
-            "over the space where they belong (or moving parts into it) can produce a ship that's invalid in game.\n\n" +
-            "If you're done with those mods and want the parts gone, Save and confirm: it will drop them and the " +
-            "design becomes editable as it stands.");
+            "\n\nThe design is read only until you enable those mods and reopen it.\n\n" +
+            "To drop the missing parts instead, save and confirm.");
 
     /// <summary>
     /// Swap a loaded <c>.oplan</c> in as the active document — the shared tail of Open and auto-save recovery.
@@ -2977,7 +2962,7 @@ public partial class MainWindow : Window
     /// <summary>The design's recorded mod dependencies (friendly name, else the loading_order entry), bulleted.</summary>
     private static string FormatModDeps(IReadOnlyList<OplanMod> mods) =>
         mods.Count == 0
-            ? "   • (the design records no mod dependencies, so the part may be from a mod you since removed)"
+            ? "   • (none recorded, so it may be a mod you have since removed)"
             : string.Join("\n", mods.Select(m => "   • " + (m.Name.Length > 0 ? m.Name : m.Entry)));
 
     // ---- edits ----
@@ -3116,7 +3101,7 @@ public partial class MainWindow : Window
         _defaultHint ??= TxtHint.Text;
         TxtHint.Text =
             Board.WirePickArmed ? "WIRING · click the part to wire this to · click a connected one to disconnect · right-click/Esc to cancel"
-            : Board.SurfaceMode ? "SURFACES · drag to paint a wall/floor skin over the deck · Shift+drag boxes an area · Ctrl at release = outline only · double-click a tile to flood-select its run"
+            : Board.SurfaceMode ? "SURFACES · drag to paint · Shift+drag box · Ctrl at release = outline · double-click selects a run"
             : _defaultHint;
     }
 
@@ -3175,18 +3160,18 @@ public partial class MainWindow : Window
 
         if (!SurfacePaint.IsSurfaceBrush(_catalog, part))
         {
-            _surfaceNoteOnce = $"“{part.Friendly}” is not a wall or floor skin, so it went in hand instead of into B.";
+            _surfaceNoteOnce = $"“{part.Friendly}” is not a wall or floor, so it was armed instead of set as B.";
             return false;
         }
         if (Board.ArmedPart is not { } primary)
         {
-            _surfaceNoteOnce = "There was no brush in hand to pattern with, so this one went in hand instead of into B.";
+            _surfaceNoteOnce = "No brush A to pattern with, so this was armed as A.";
             return false;
         }
         if (_catalog.RenderLayer(primary) != _catalog.RenderLayer(part))
         {
-            _surfaceNoteOnce = $"B has to be another {LayerWord(primary)} to pattern with A, so "
-                             + $"“{part.Friendly}” went in hand instead.";
+            _surfaceNoteOnce = $"B must be another {LayerWord(primary)}, so "
+                             + $"“{part.Friendly}” was armed instead.";
             return false;
         }
 
@@ -3293,13 +3278,13 @@ public partial class MainWindow : Window
         // in (which is the one that explains a stroke doing nothing at all).
         TxtSurfaceNote.Text =
             _surfaceNoteOnce ?? (
-            a is null ? "Arm a wall or floor from the palette to paint with. Other parts still place as usual."
+            a is null ? "Arm a wall or floor from the palette to paint with."
             : _slotBArmed ? $"Now pick the second {LayerWord(a)} from the palette."
-            : !pairOk && b is not null ? "A and B are different layers — pick a matching pair to pattern with."
+            : !pairOk && b is not null ? "A and B are different layers. Pick a matching pair."
             : Board.PaintMode == SurfacePaintMode.Replace
-                ? $"Re-skinning {LayerWord(a)}s only — bare tiles are left alone. Switch to Both or Fill to lay new ones."
+                ? $"Re-skinning {LayerWord(a)}s only. Switch to Both or Fill to lay new ones."
             : Board.PaintMode == SurfacePaintMode.Fill
-                ? $"Laying new {LayerWord(a)}s on bare tiles only — what is already there is left alone."
+                ? $"Laying new {LayerWord(a)}s on bare tiles only."
             : $"Re-skinning {LayerWord(a)}s and laying new ones on bare tiles.");
     }
 
@@ -3914,19 +3899,16 @@ public partial class MainWindow : Window
         if (broken.Count == 0)
         {
             Dlg.Info(this, "Repair All",
-                "Nothing on this ship is broken — every part is already its working form.\n\n" +
-                "Wear that a part has accumulated is not part of the design. It lives in the save, and is cleared " +
-                "by choosing \"Repair everything\" when you write the design back with File ▸ Update Ship in Save.");
+                "Nothing on this ship is broken.\n\n" +
+                "To clear wear, choose \"Repair everything\" when you write back with File ▸ Update Ship in Save.");
             return;
         }
 
         var n = broken.Count;
         var distinct = broken.Select(b => b.Part.DefName).Distinct(StringComparer.Ordinal).Count();
         if (!Dlg.Confirm(this, DlgKind.Info, "Repair All",
-                $"Repair {n} broken part{(n == 1 ? "" : "s")} ({distinct} kind{(distinct == 1 ? "" : "s")}) into " +
-                "their working forms, the way the game's own repair jobs do.\n\n" +
-                "Repaired devices come back switched on. This is one undo step, and it does not touch wear a part " +
-                "has accumulated — that is the condition choice on the way into a save.",
+                $"Repair {n} broken part{(n == 1 ? "" : "s")} ({distinct} kind{(distinct == 1 ? "" : "s")})?\n\n" +
+                "Repaired devices come back switched on. Wear is not changed. This is one undo step.",
                 $"Repair {n}"))
             return;
 
@@ -3950,8 +3932,7 @@ public partial class MainWindow : Window
         {
             Dlg.Info(this, "Remove All Loose Items",
                 "There is nothing lying on this ship's decks.\n\n" +
-                "This clears items dropped on the floor. Cargo inside containers is not loose — it is the "
-                + "container's contents, and it travels with the container.");
+                "This clears items on the floor only. Cargo inside containers stays.");
             return;
         }
 
@@ -3961,7 +3942,7 @@ public partial class MainWindow : Window
         var stackNote = stacked > n ? $", {stacked} counting stacks" : "";
         if (!Dlg.Confirm(this, DlgKind.Warning, "Remove All Loose Items",
                 $"Remove {n} item{(n == 1 ? "" : "s")} lying on the decks ({kinds} kind{(kinds == 1 ? "" : "s")}{stackNote}).\n\n" +
-                "Cargo inside containers is untouched — only what is lying on the floor goes. This is one undo step.",
+                "Cargo inside containers stays. This is one undo step.",
                 $"Remove {n}"))
             return;
 
@@ -4192,8 +4173,8 @@ public partial class MainWindow : Window
     {
         if (skipped <= 0) return;
         TxtGhost.Text = skipped == 1
-            ? "⛔ 1 deck item left out — that tile already holds a loose item"
-            : $"⛔ {skipped} deck items left out — those tiles already hold loose items";
+            ? "⛔ 1 deck item left out: that tile already holds one"
+            : $"⛔ {skipped} deck items left out: those tiles already hold one";
     }
 
     private void OnContextMenuRequested((int X, int Y) cell)
@@ -4270,7 +4251,7 @@ public partial class MainWindow : Window
             // under a fixture has to be reachable from the same place as everything else. ` steps down the list.
             menu.Items.Add(new MenuItem
             {
-                Header = $"{drawn.Count} stacked here — click to select (`):",
+                Header = $"{drawn.Count} stacked here, click to select (`):",
                 IsEnabled = false,
                 FontWeight = FontWeights.SemiBold,
             });
@@ -4534,12 +4515,11 @@ public partial class MainWindow : Window
                 lines.Add($"{plan.Consumed.Count} spawner(s) rolled {plan.Rolled} item(s) and "
                           + $"{plan.Delivered} of them landed on the deck.");
             if (plan.Unfired.Count > 0)
-                lines.Add($"{plan.Unfired.Count} spawner(s) do not fire on this kind of ship and were left in "
-                          + "place. Their flags are on the SPAWNER panel.");
+                lines.Add($"{plan.Unfired.Count} spawner(s) don't fire on this kind of ship and were left in "
+                          + "place. See their flags on the SPAWNER panel.");
             if (plan.NoRoom > 0)
-                lines.Add($"{plan.NoRoom} item(s) had nowhere to go inside the scatter square and were lost. "
-                          + "The game loses these too: it refuses a tile another object already claims. Widen "
-                          + "\"Scatter\" on the spawner for more room.");
+                lines.Add($"{plan.NoRoom} item(s) found no free tile in the scatter square and were lost, as in game. "
+                          + "Widen \"Scatter\" on the spawner for more room.");
             if (plan.MissingTables.Count > 0)
                 lines.Add("Loot tables not in your loaded data, so they made nothing:\n   • "
                           + string.Join("\n   • ", plan.MissingTables.Take(8)));
@@ -4547,9 +4527,9 @@ public partial class MainWindow : Window
                 lines.Add("Items not in your loaded data, so they could not be laid:\n   • "
                           + string.Join("\n   • ", plan.MissingItems.Take(8)));
             if (plan.Truncated)
-                lines.Add("The roll was cut short. A loot table in your data refers back to itself.");
+                lines.Add("The roll was cut short because a loot table refers back to itself.");
             lines.Add($"Seed {plan.Seed.ToString(System.Globalization.CultureInfo.InvariantCulture)}. "
-                      + "Enter it next time to get this exact result back.");
+                      + "Enter it next time to get the same result.");
             return string.Join("\n\n", lines);
         }
     }
@@ -4668,8 +4648,7 @@ public partial class MainWindow : Window
         if (NavConsole.NeedsModules(p.Cargo))
         {
             Dlg.Info(this, "Arrange screen",
-                "This console has no modules in it, so there is nothing to arrange. Its screens are separate "
-                + "items held inside it: add some under \"View contents\".");
+                "This console has no modules to arrange. Add some under \"View contents\".");
             return;
         }
         // The design this was asked for, pinned before the await: the shims follow the active tab (CONVENTIONS).
@@ -4741,7 +4720,7 @@ public partial class MainWindow : Window
         var menu = new ContextMenu { PlacementTarget = Board };
         menu.Items.Add(new MenuItem
         {
-            Header = SelectionSummary(all.Count, allLoose.Count) + " selected — keep:",
+            Header = SelectionSummary(all.Count, allLoose.Count) + " selected. Keep:",
             IsEnabled = false,
             FontWeight = FontWeights.SemiBold,
         });
@@ -4793,7 +4772,7 @@ public partial class MainWindow : Window
 
     /// <summary>Status-bar hint shown while an enclosed air region is selected for a fill.</summary>
     private static string AirHint(int n) =>
-        $"🪣 {n}-tile compartment selected — arm a part and press Enter to fill (Esc to cancel)";
+        $"🪣 {n}-tile compartment selected. Arm a part and press Enter to fill (Esc to cancel).";
 
     private void OnPreviewKeyDown(object sender, KeyEventArgs e)
     {
@@ -5172,7 +5151,7 @@ public partial class MainWindow : Window
             InsSpawnerType.SelectedIndex = (int)settings.Type;
 
             BtnSpawnerTarget.Content = settings.Target;
-            BtnSpawnerTarget.ToolTip = $"{settings.Target} — click to choose what this spawns.";
+            BtnSpawnerTarget.ToolTip = $"{settings.Target}. Click to choose what this spawns.";
             InsSpawnerRange.Text = settings.Range.ToString(System.Globalization.CultureInfo.InvariantCulture);
             InsSpawnerCount.Text = settings.Count.ToString(System.Globalization.CultureInfo.InvariantCulture);
             InsSpawnerNew.IsChecked = settings.WhenNew;
@@ -5186,7 +5165,7 @@ public partial class MainWindow : Window
             InsSpawnerWarn.Text = settings.Target == SpawnerSettings.DefaultTarget
                 ? "Points at the game's empty table, so it spawns nothing."
                 : unresolved
-                    ? $"'{settings.Target}' is not in the loaded data. It will spawn nothing unless a mod supplies it."
+                    ? $"'{settings.Target}' isn't in your game or mods, so it spawns nothing."
                     : "";
             InsSpawnerWarn.Visibility = InsSpawnerWarn.Text.Length > 0 ? Visibility.Visible : Visibility.Collapsed;
 
@@ -5344,7 +5323,7 @@ public partial class MainWindow : Window
                 ? $"Follows {Rename.Display(driver, _doc.Part(driver))}."
                 : settings.Bus == DeviceBusMode.On
                     ? "No sensor. Forced on, so it runs regardless."
-                    : "No sensor — it will never run. Wire it to an alarm, or force it on below.";
+                    : "No sensor, so it never runs. Wire it to an alarm, or force it on below.";
             InsSensor.Opacity = driver is null && settings.Bus != DeviceBusMode.On ? 1.0 : 0.75;
 
             if (InsDeviceBus.Items.Count == 0)
@@ -5637,8 +5616,7 @@ public partial class MainWindow : Window
         if (!WeaponsWindow.HasWeapons(_doc, _catalog))
         {
             Dlg.Info(this, "Firing groups",
-                "This design carries no weapons, so there is nothing to group. Ship weapons are built from the "
-                + "APPS section of the palette.");
+                "This design has no weapons to group. Ship weapons are in the APPS section of the palette.");
             return;
         }
         if (RefuseIfReadOnly()) return;
@@ -5684,7 +5662,7 @@ public partial class MainWindow : Window
         InsFriendly.MaxLength = Rename.MaxLength;
         InsFriendly.Cursor = editable ? Cursors.IBeam : Cursors.Arrow;
         InsFriendly.ToolTip = editable
-            ? $"The name this {(target?.IsLoose == true ? "item" : "part")} goes by in game. Type over it, and clear it to go back to the stock name."
+            ? $"The name this {(target?.IsLoose == true ? "item" : "part")} goes by in game. Clear it to restore the stock name."
             : null;
     }
 
@@ -5935,8 +5913,7 @@ public partial class MainWindow : Window
         if (_active.ReadOnly)
         {
             Dlg.Info(this, "Export",
-                "This design is locked, and exporting can change it: the wizard records the name and identity you " +
-                "give the ship, and puts stand-in parts on the design for anything the game cannot take.\n\n" +
+                "This design is locked, and exporting can change it.\n\n" +
                 "Unlock it with the padlock in the toolbar, or save an editable copy (Ctrl+S) and export that.");
             return;
         }
@@ -6459,8 +6436,8 @@ public partial class MainWindow : Window
             new("A ship in a save", "A ship you own in one of your save games.", ShipSourceKind.Save),
         };
         var kindDlg = new ShipSourceDialog("Dock with which ship?",
-            "The ship your design would be docking with. Ostraplan reads its layout to test the fit; nothing is "
-            + "imported and your design is not touched.", rows) { Owner = owner };
+            "The ship your design would dock with. Only its layout is read. Your design is not touched.",
+            rows) { Owner = owner };
         if (kindDlg.ShowDialog() != true || kindDlg.Selected is not { } kind) return null;
 
         return kind switch
@@ -6508,7 +6485,7 @@ public partial class MainWindow : Window
         if (others.Count == 0)
         {
             Dlg.Info(owner, "Docking Compatibility",
-                "No other design is open. Open a second design in another tab to compare the two.");
+                "No other design is open. Open one in another tab first.");
             return null;
         }
 
@@ -6516,7 +6493,7 @@ public partial class MainWindow : Window
             .Select(s => s.Doc!.FilePath is { } f ? Path.GetFileNameWithoutExtension(f) : s.Meta.Name)
             .ToList();
         var dlg = new ListPickDialog("Dock with which open design?",
-            "Both designs are read as they stand right now, unsaved edits included.", names) { Owner = owner };
+            "Unsaved edits are included.", names) { Owner = owner };
         if (dlg.ShowDialog() != true || dlg.SelectedIndex is not { } i) return null;
 
         return DockShip.FromDocument(others[i].Doc!, _catalog!, DockDefs.For(_catalog!), names[i]);
@@ -6540,8 +6517,8 @@ public partial class MainWindow : Window
             if (missing.Count > 0)
                 Dlg.Warn(owner, "That design is missing mods",
                     $"{missing.Count} part(s) in “{DesignName(file, dlg.FileName)}” aren't in your current game and "
-                    + "mods data, so they leave gaps in its hull.\n\n"
-                    + "The check may report a dock that the game would refuse.");
+                    + "mods, so they leave gaps in its hull.\n\n"
+                    + "The check may pass a dock the game would refuse.");
             return DockShip.FromDocument(doc, _catalog!, DockDefs.For(_catalog!), DesignName(file, dlg.FileName));
         }
         catch (Exception ex)
@@ -6563,7 +6540,7 @@ public partial class MainWindow : Window
         }
 
         var picker = new SavePickerDialog(saves, "Dock with a ship in which save?",
-            "Reads the ship's layout to test the fit. Nothing is written and nothing is imported.",
+            "Reads the ship's layout to test the fit. Nothing is written or imported.",
             "Choose save") { Owner = owner };
         if (picker.ShowDialog() != true || picker.Selected is not { } save) return null;
 
@@ -6753,7 +6730,7 @@ public partial class MainWindow : Window
         }
 
         var picker = new SavePickerDialog(saves, "Import from a save game",
-            "Imports a ship or apartment you own as a pristine layout — crew, wear and damage are discarded.",
+            "Imports a ship or apartment you own as a clean layout. Crew, wear and damage are left out.",
             "Choose save") { Owner = this };
         if (picker.ShowDialog() != true || picker.Selected is not { } save) return;
 
@@ -6771,16 +6748,15 @@ public partial class MainWindow : Window
 
         var shipDlg = new ShipChoiceDialog(save.Name, ships, kind: null,
             title: "Import which ship or apartment?",
-            note: $"Everything you own in save “{save.Name}”. Only the layout is read: nothing is written to the "
-                + "save, now or later.") { Owner = this };
+            note: $"Everything you own in save “{save.Name}”. Only the layout is read. Nothing is written to the "
+                + "save.") { Owner = this };
         if (shipDlg.ShowDialog() != true || shipDlg.Selected is not { } chosen) return;
 
         var noun = chosen.IsResidence ? "apartment" : "ship";
         var who = save.PlayerName.Length > 0 ? $"{save.PlayerName}'s " : "";
         if (AskImportOptions($"Import “{chosen.Name}” for planning?",
-                $"{chosen.RegId} from {who}save “{save.Name}”. The design arrives as its own thing: wear and damage "
-                + $"are discarded, and it is never written back to that save. To redesign the live {noun} and put "
-                + $"the result in the game, use \"your {noun}, for editing\" instead.")
+                $"{chosen.RegId} from {who}save “{save.Name}”. Wear and damage are left out, and it is never "
+                + $"written back to that save. To redesign the live {noun}, use \"Your {noun}, for editing\" instead.")
             is not { } options)
             return;
 
@@ -6814,24 +6790,21 @@ public partial class MainWindow : Window
 
         var edit = await PickAndImportForEditing(
             $"Import your {noun} for editing",
-            $"Imports your live {noun} with its identity, crew, cargo and wear intact, so the redesign can be "
-            + "written back into the save it came from.",
+            $"Imports your live {noun} with its identity, crew, cargo and wear, so the redesign can be "
+            + "written back to the save.",
             "Choose save",
             (save, chosen) =>
             Dlg.Confirm(this, DlgKind.Info, $"Import \"{chosen.Name}\" for editing?",
                 $"{(residence ? "Apartment" : "Ship")} {chosen.RegId} from save \"{save.Name}\".\n\n" +
-                $"You'll redesign the {noun}'s structure out of game.\n" +
-                "When you choose the Update Ship in Save action, Ostraplan writes the result back into the save, either as a new copy (the default) or the original in place, keeping crew, cargo, world position, and ship identity.\n\n" +
+                $"File ▸ Update {(residence ? "Apartment" : "Ship")} in Save writes the result back, as a new copy of the save (the default) or " +
+                "in place, keeping crew, cargo, position and identity.\n\n" +
                 (residence
-                    ? "It keeps its registration, its place at the station and the transit route that reaches it: only the layout changes.\n\n"
+                    ? "Its registration and station stay the same. Only the layout changes.\n\n"
                     : "") +
-                "The .oplan you save is a design and nothing more. It records no save and no ship, so it opens, " +
-                "edits and exports whether or not this save still exists, and you can send it to someone who has " +
-                $"never seen it. Reopen it another day and the write-back asks which {noun} to write over, this " +
-                "one included.\n\n" +
+                $"The .oplan you save isn't tied to this save. The write-back asks which {noun} to write over.\n\n" +
                 (residence
-                    ? "There is no mod export for an apartment: the game sells one through a Real Estate broker, which a ship mod cannot stock."
-                    : "For a standalone, shareable ship instead, use Export, which makes a spawnable mod."),
+                    ? "Apartments can't be exported as a mod."
+                    : "To make a shareable ship mod instead, use Export."),
                 "Import for editing"),
             kind);
         if (edit is null) return;
@@ -6862,13 +6835,10 @@ public partial class MainWindow : Window
             Dlg.Confirm(this, DlgKind.Info, $"Transfer \"{chosen.Name}\" to another save?",
                 $"{(residence ? "Apartment" : "Ship")} {chosen.RegId} from save \"{save.Name}\".\n\n" +
                 (residence
-                    ? "Ostraplan reads the apartment in, then asks which save to add it to and which station in that save it belongs at. It arrives there as a residence you own, registered at that station, in a copy of that save. Both saves keep working: this copies the apartment rather than moving it, and neither original is modified.\n\n"
-                    : "Ostraplan reads the ship in, then asks which save to add it to. It arrives there as a brand-new ship you own, parked a few kilometres out, in a copy of that save. Both saves keep working: this copies the ship rather than moving it, and neither original is modified.\n\n") +
-                "Layout, cargo, loose items, zones and device wiring all make the trip, and each part keeps the condition it really has.\n\n" +
-                (residence
-                    ? "The station is chosen fresh in the destination save, so the apartment does not have to land at the same one it came from. You become a homeowner there.\n\n"
-                    : "") +
-                $"Crew do not come along. They belong to the save they are in, not to the {noun}.",
+                    ? "Next you pick the destination save and a station in it. The apartment arrives there as a residence you own, in a copy of that save.\n\n"
+                    : "Next you pick the destination save. The ship arrives there as a new ship you own, parked a few kilometres out, in a copy of that save.\n\n") +
+                $"This copies the {noun}. Neither original save is changed.\n\n" +
+                "Layout, cargo, loose items, zones, wiring and condition come along. Crew do not.",
                 $"Read the {noun} in"),
             kind);
         if (edit is null) return;
@@ -6915,9 +6885,8 @@ public partial class MainWindow : Window
             // could not read at all.
             Dlg.Show(this,
                 all.Count > 0 && residence
-                    ? $"No apartments in that save. Ostraplan found {all.Count} ship(s) there, so the save read "
-                      + "fine — you just don't own a residence in it yet. Buy one from a station's Real Estate "
-                      + "kiosk, or use \"From apartment template\" to design one from scratch."
+                    ? $"You don't own an apartment in that save ({all.Count} ship(s) found). Buy one from a "
+                      + "station's Real Estate kiosk, or use \"From apartment template\" to design one."
                     : SaveImport.WhyUnreadable(save.ZipPath)
                       ?? (residence
                           ? "Couldn't find anything you own in that save."
@@ -7030,8 +6999,8 @@ public partial class MainWindow : Window
     private bool ConfirmUnsupportedShip(SaveShipChoice c) =>
         Dlg.Confirm(this, DlgKind.Danger, "This isn't your ship",
             $"{c.Name} ({c.RegId}) is a station or another vessel, not one of your ships.\n\n" +
-            "Editing something you don't own is not supported, and it can corrupt or break your save.\n" +
-            "Ostraplan can't guarantee a valid result, and takes no responsibility for the outcome. You do.",
+            "Editing something you don't own is not supported and can break your save. " +
+            "Continue at your own risk.",
             "Edit it anyway");
 
     /// <summary>Browse core+mod ship templates and import the chosen one as a fresh design.</summary>
@@ -7054,11 +7023,10 @@ public partial class MainWindow : Window
 
         if (AskImportOptions($"Import the {noun} template “{entry.Name}”?",
                 residence
-                    ? "A template is one of the station residences a Real Estate broker sells. It arrives as a "
-                      + "pristine editable design with no in-game identity, wear or damage, and is not tied to any "
-                      + "station until you deliver it into a save."
-                    : "A template is a stock or modded ship. It arrives as a pristine editable design with no "
-                      + "in-game identity, wear or damage.") is not { } options)
+                    ? "A residence sold by a Real Estate broker. It arrives as a clean design with no identity, "
+                      + "wear or damage, and no station until you put it in a save."
+                    : "A stock or modded ship. It arrives as a clean design with no identity, wear or "
+                      + "damage.") is not { } options)
             return;
 
         var (catalog, path) = (_catalog, entry.Path);
@@ -7140,14 +7108,13 @@ public partial class MainWindow : Window
         var notes = new List<string>();
         if (result.ContainedKept > 0)
             notes.Add($"{result.ContainedKept} contained item(s) came in as container contents.\n" +
-                      "Right-click a container and choose \"View contents\" to see them. They aren't placed on the "
-                      + "grid as buildable structure."
-                      + (keptContents ? "" : "\nThey belong to the design now, and travel with it through Export."));
+                      "Right-click a container and choose \"View contents\" to see them."
+                      + (keptContents ? "" : " They are saved and exported with the design."));
         if (keptContents)
         {
             if (result.ContainedDropped > 0)
-                notes.Add($"{result.ContainedDropped} item(s) aren't shown as cargo — most are carried by crew.\n" +
-                          "They stay in the save untouched, and \"Update Ship in Save\" preserves them.");
+                notes.Add($"{result.ContainedDropped} item(s) aren't shown as cargo, mostly what crew carry.\n" +
+                          "They stay in the save, and \"Update Ship in Save\" keeps them.");
         }
         else
         {
@@ -7164,33 +7131,27 @@ public partial class MainWindow : Window
                 notes.Add($"{result.CrewDropped} item(s) carried by crew were left behind. Crew are never imported.");
         }
         if (result.LooseKept > 0)
-            notes.Add($"{result.LooseKept} item(s) lying on the deck came in as loose objects.\n" +
-                      "They render and travel with the ship, and take no part in the placement law.");
+            notes.Add($"{result.LooseKept} item(s) lying on the deck came in as loose items.");
         if (result.LooseDropped > 0)
             notes.Add($"{result.LooseDropped} item(s) lying on the deck were left behind.\n" +
                       "Turn on \"Items lying on the deck\" at import to bring them in.");
         if (result.SpawnersKept > 0)
             notes.Add($"{result.SpawnersKept} loot spawner(s) came in with their settings.\n" +
-                      "A spawner isn't structure: the game runs it to stock the ship when it loads. " +
-                      "Right-click one to change what it makes.");
+                      "Select one to change what it makes.");
         if (result.SpawnersDropped > 0)
             notes.Add($"{result.SpawnersDropped} loot spawner(s) were left behind.\n" +
                       (opts.Spawners
-                          ? "They carry no spawn settings to read, so they'd have stocked nothing."
+                          ? "They have no spawn settings, so they'd have made nothing."
                           : "Turn on \"Loot spawners\" at import to bring them in."));
         if (result.SystemDropped > 0)
-            notes.Add($"{result.SystemDropped} system object(s) were dropped.\nFire, explosions and the like are " +
-                      "runtime state, not buildable structure.");
+            notes.Add($"{result.SystemDropped} system object(s), such as fire, were dropped.");
         if (result.NavConsolesStocked > 0)
             notes.Add($"{result.NavConsolesStocked} nav console(s) came in empty and were fitted with the standard " +
                       $"module set ({result.NavModulesInstalled} module(s) in all).\n" +
-                      "A console is only a frame: its screens are separate modules held inside it, and a ship from "
-                      + "before 1.0 has none at all. Right-click the console and choose \"View contents\" to change "
-                      + "what it carries."
+                      "Right-click the console and choose \"View contents\" to change them."
                       + (result.NavModulesTrayed > 0
-                          ? $"\n{result.NavModulesTrayed} of them are aboard but not on the screen: the stock layout "
-                            + "leaves no room. In game, open the console's edit menu and drag one in when the trip "
-                            + "calls for it."
+                          ? $"\n{result.NavModulesTrayed} of them are aboard but don't fit on the screen. In game, "
+                            + "drag one in from the console's edit menu when you need it."
                           : ""));
         // skippedHandled: the save-edit path already ran the missing-mods stand-in prompt, which says all of this
         // and more — don't follow it with a second, weaker dialog about the same defs.
@@ -7199,8 +7160,8 @@ public partial class MainWindow : Window
         {
             var names = string.Join("\n", result.Skipped.Take(12).Select(s => s.Count > 1 ? $"   • {s.DefName} (x{s.Count})" : $"   • {s.DefName}"));
             var more = result.Skipped.Count > 12 ? $"\n   …and {result.Skipped.Count - 12} more" : "";
-            notes.Add($"{result.Skipped.Sum(s => s.Count)} tile(s) referenced {result.Skipped.Count} def(s) that aren't in your loaded data, and were skipped.\n\n{names}{more}\n\n" +
-                      "Enable the mods this ship needs, and import again for a complete layout.");
+            notes.Add($"{result.Skipped.Sum(s => s.Count)} tile(s) used {result.Skipped.Count} part(s) that aren't in your game or mods, and were skipped.\n\n{names}{more}\n\n" +
+                      "Enable the mods this ship needs and import again.");
         }
         if (notes.Count == 0) return;   // clean import, the ship now on the canvas is feedback enough
         var report = $"Imported {result.ShipName}, {result.PartCount} parts.\n\n" + string.Join("\n\n", notes);
@@ -7270,18 +7231,18 @@ public partial class MainWindow : Window
                 "# Ostraplan bug report\n\n" +
                 "## What were you trying to do?\n\n\n" +
                 "## What went wrong?\n\n\n" +
-                "## Exact steps to reproduce (so I can see it happen too)\n\n1. \n2. \n3. \n\n" +
+                "## Steps to reproduce\n\n1. \n2. \n3. \n\n" +
                 "**Screenshots**\nDrag any screenshots in here.\n\n" +
                 "---\n" +
-                "*Diagnostics (please keep these — they help me reproduce it):*\n" +
+                "*Diagnostics (please keep these):*\n" +
                 DiagnosticsHeader();
 
             var reportPath = WriteDiagnosticsFile();   // the complete, unabridged record for attachment
 
             var head = prompt;
             if (reportPath is not null)
-                head += $"\n> A full diagnostics file (`{Path.GetFileName(reportPath)}`) was generated — " +
-                        "please **drag it into this issue** to attach it.\n";
+                head += $"\n> Please **drag the diagnostics file** (`{Path.GetFileName(reportPath)}`) " +
+                        "into this issue to attach it.\n";
 
             OpenUrl(IssueUrl(head + InlineTrailWithinUrlBudget(head)));
 
@@ -7290,9 +7251,9 @@ public partial class MainWindow : Window
                 RevealInExplorer(reportPath);
                 AuditLog.Add($"Opened a pre-filled GitHub bug report; wrote diagnostics to {Path.GetFileName(reportPath)}.");
                 Dlg.Info(this, "Report a bug",
-                    "A GitHub issue has opened in your browser, and a diagnostics file was created and shown in Explorer.\n\n" +
-                    $"Please drag \"{Path.GetFileName(reportPath)}\" into the issue to attach it — it holds your full activity " +
-                    "trail and any recent errors (with your account name and paths scrubbed), which makes the bug far easier to trace.");
+                    "A GitHub issue has opened in your browser, and Explorer shows the diagnostics file.\n\n" +
+                    $"Please drag \"{Path.GetFileName(reportPath)}\" into the issue. It holds your activity trail " +
+                    "and recent errors, with your account name and paths removed.");
             }
             else
             {
@@ -7466,8 +7427,8 @@ public partial class MainWindow : Window
     private void ClearLogs()
     {
         if (!Dlg.Confirm(this, DlgKind.Warning, "Clear the activity log?",
-                "This empties Ostraplan's on-disk activity log (audit.log) and can't be undone.\n\n" +
-                "The log records your actions so a problem can be diagnosed later — keep it if you might report a bug.",
+                "This empties the activity log (audit.log) and can't be undone.\n\n" +
+                "Keep it if you might report a bug.",
                 "Clear log"))
             return;
         AuditLog.Clear();
@@ -7700,8 +7661,7 @@ public partial class MainWindow : Window
         {
             if (manual)
                 Dlg.Info(this, "Ostraplan",
-                    "Automatic updates are delivered to the installed and portable releases.\n\n" +
-                    "This copy isn't managed by the installer, so it won't update itself.\n" +
+                    "This copy wasn't installed by the installer, so it can't update itself.\n\n" +
                     "Download the latest release from GitHub to get the installer.");
             return;
         }
@@ -7725,8 +7685,8 @@ public partial class MainWindow : Window
                 AuditLog.Add($"Update check failed: {ex.Message}");
                 if (manual)
                     Dlg.Warn(this, "Ostraplan", "Couldn't check for updates.\n\n" + ex.Message +
-                        "\n\nYou may be offline, or GitHub may be rate limiting.\n" +
-                        "Its anonymous API allows about 60 checks an hour per network.");
+                        "\n\nYou may be offline, or GitHub may be limiting checks (about 60 an hour). " +
+                        "Try again later.");
                 return;
             }
 
@@ -7800,52 +7760,52 @@ public partial class MainWindow : Window
     {
         (string Func, string Keys, string Note)[] rows =
         [
-            ("Place / paint", "LMB", "With a part armed: place it; keep dragging to paint along the cursor."),
-            ("Box fill", "Shift + drag", "With a part armed: rubber-band a box and fill it with the part."),
-            ("Hollow box", "Ctrl + Shift + drag", "With a part armed: place only the outline — walls, in practice."),
-            ("Select", "LMB", "Select a part. Ctrl+click adds/removes; drag empty space to box-select."),
-            ("Filter box-select", "Shift + drag", "With nothing armed: box-select even when starting on a part, then filter chips let you keep only some layers (e.g. the walls without the floors)."),
-            ("Select loose items", "Box-select, then filter", "A box-select catches loose deck items along with the structure, and the filter it offers (right-click ▸ Select only, or the chips after a Shift+drag) has a Loose items row: keep only those to clear a deck without touching the ship, or drop them to leave the clutter where it is. Ctrl+click a loose item to add or remove it by hand. Design ▸ Remove All Loose Items… does the whole ship at once."),
-            ("Flood-select", "Double-click", "On a part: select every touching tile of the same type (bulk delete or re-skin). Ctrl+double-click adds the region."),
-            ("Fill a compartment", "Double-click empty space, then Enter", "Double-click enclosed (sealed) empty space to highlight the whole compartment, then arm a part and press Enter to fill it (Esc to cancel). Areas open to space can't be selected, so a fill never leaks."),
-            ("Use as brush", "Alt + click", "Eyedropper: arm the part under the cursor, at its own rotation, so you can keep painting it. Also on the right-click menu."),
-            ("Replace with…", "Ctrl+R", "Swap the selection for a compatible part (same layer + footprint) via a picker. Also on the right-click menu."),
-            ("Move", "Drag selection", "Move the selected parts, and any loose deck items caught with them."),
-            ("Step down a stack", "`", "Select the next thing down the pile under the cursor, wrapping at the bottom — the quick way to reach a part drawn underneath another without going through the right-click list. Loose items are in the pile too."),
-            ("Re-stack", "Ctrl+[ / Ctrl+]", "Move the selected part or loose item one step back / forward through the pile sharing its tile, when the automatic draw order isn't what you want. Reset order (right-click) hands that pile back to it. Both stay inside the render layer, so nothing lands under a deck plate or over a conduit run, and the choice is saved with the design."),
-            ("Context menu", "RMB", "Use as brush · Replace with… · Find and Replace All… · Make Loose Item / Install item · Repair · Move Back / Move Forward / Reset order · Build last · pick a buried layer on stacked tiles · Select only, including the loose items in the catch (after a box-select) · Close/Open door. Also cancels placement while armed."),
-            ("Rotate part", "R / Shift+R", "CW / CCW — the armed part, a selected part in place, or a whole selection about its centre (walls & floors auto-tile rather than turn). The brush keeps its angle when you arm another part; the ghost draws a needle towards its leading edge and the status bar reads out the angle."),
-            ("Flip selection", "H / Shift+H", "Mirror the selection about its centre — H horizontal (left↔right), Shift+H vertical (up↔down); each part reflects and snaps to a real rotation."),
-            ("Symmetry", "M", "Cycle Off → Vertical → Horizontal → Both; axes centre on the hovered tile when switching on. While on, it also drives editing: selecting a part grabs its mirror partner(s), and moving, rotating, or deleting the group keeps it symmetric (the far side tracks in the mirrored direction)."),
-            ("Mod overrides", "Settings", "Let modded parts place where the core-game rules say they don't fit (ghost turns amber, flagged as a warning — verify in-game). Core parts stay enforced."),
-            ("Force place", "Force", "Stop the placement law blocking anything, core parts included, for a build the checker can't find an order for. What you place is still reported as a build-order problem, so this lets the part down rather than declaring it legal. It is remembered between sessions and the status bar reads FORCE PLACE in red the whole time it is on. Try \"Build last\" on the right-click menu first: it fixes an ordering problem without breaking the rules."),
-            ("Build last", "RMB", "Send the selected part to the end of the build order, for the case the checker can't work out on its own — a rack that is only legal once the bin above it is already up. It moves the part to the end of its own class (docking, then floors, then walls, then fittings), which is the order the game builds in, and it changes nothing about where the part sits or what it is drawn over."),
-            ("Power overlay", "P", "Show/hide PowerViz: lit conduit runs flow from a live generator/battery, orphaned runs are dim red, and a wired device with no feed gets an amber marker. A powered part also shows its connector badges (blue IN, green OUT) while armed or selected."),
-            ("Rooms overlay", "C", "Show/hide RoomViz: every compartment the game would flood-fill, tinted in its own colour and labelled with what it certifies as, its size and its value. A room that certifies as nothing says why — what to add, and which item in it blocks the spec (a canister parked in a quarters, say). Unsealed compartments are red. The exterior isn't tinted, so a room open to space simply loses its tint."),
-            ("Light overlay", "L", "Show/hide Light Viz: interior lighting simulated from every fixture and lit device. Each light floods its compartment (bounded by walls) in its own colour, so dark corners and colour clashes show at a glance. The View menu's Light Viz sliders set the light brightness and how far unlit areas darken (from a glow over the full-bright ship up to the in-game dark look)."),
-            ("Walk overlay", "K", "Show/hide WalkViz: every tile crew can stand on, tinted by which connected zone it belongs to — two tiles sharing a colour are reachable from each other on foot, two colours mean no route. Fittings nobody can operate are ringed in red at the spot they'd have to stand, and a doorway with vacuum on one side is dashed amber (crossable, but only in a suit). Note a closed door only seals if it is unpowered, locked or damaged; a powered one crew simply open. The View menu can count spacewalks and choose whether Forbid zones apply."),
-            ("Access overlay", "J", "Point at a fitting and see the tiles a crew member would work it from, the way the game marks them on the deck. The plan alone cannot tell you an arcade cabinet is usable from one side only, or which side that is. Selecting a part pins its marks so you can look elsewhere; with nothing selected they follow the cursor. Amber instead of blue means it is reachable only from outside the hull, which is normal for hull-mounted equipment. It reads the same analysis as the Walk overlay, so the same View menu switches apply."),
-            ("Surfaces mode", "T", "Treat the deck as a canvas: everything outside the focused layer is ghosted and steps out of the way of clicks, so the floor under a bed is one click away, and a 1×1 wall/floor brush re-skins whatever is already on a tile instead of refusing to land on it. Paint, box-fill (Shift+drag), outline (Ctrl at release) and the compartment fill on a bare room all work as they always did — they just re-skin whatever they land on now. In the Surfaces bar: a second brush and a checkerboard or stripe pattern; SHOW picks the focused layer (Both / Floors / Walls — Floors ghosts the walls too, which is how you reach the floors under them); PAINT picks what a stroke may do (Replace only, the default, so a stroke never spills new deck past a room's edge; Both; or Fill only). View ▸ Surfaces sets how visible the ghosted layers stay. Light Viz switches off while it is on, because a lit composite has no layers left to ghost."),
-            ("Wire overlay", "Toolbar toggle", "Show the ship's signal wiring. Each wire draws from the driving device to the one it drives, with a dot at the driven end: GREEN for a sensor a device follows, VIOLET for a signal box switching one. It is a view like Power or Rooms and changes nothing about what a click does."),
-            ("Spawners view", "Toolbar toggle", "Show or hide the loot spawners. They are editor objects that decide what the ship arrives carrying and are invisible in play, so turning them off leaves you the ship itself to lay out. A spawner scatters what it makes over a SQUARE of (2 × Scatter + 1) tiles centred on its own tile, which the base game's editor shows by drawing the spawner at that size; the ▾ menu picks when the square is drawn (never, only around the selected spawner, or always) and whether it is a box over the tiles it reaches or the spawner's own icon blown up as the game draws it. Hiding a spawner changes nothing about the design: it still exports and it is still there when the toggle comes back on."),
-            ("Wiring things up", "Right-click ▸ Wiring…", "Wiring is started from the part itself: right-click any device that can be wired, choose Wiring…, then click its partner in the plan. Valid partners ring while you are picking, and clicking one that is already connected disconnects it instead. You are never asked which kind of wire you are drawing — a sensor or a signal box drives, a pump or a cooler is driven, and the app knows which. A sensor or a box stays armed so you can wire it to several devices (one thermostat commonly runs every heater and cooler on a deck); a device is done after one, since it follows a single sensor. Esc or right-click cancels. The same menu lists what a part is already wired to, so you can disconnect from either end. A SENSOR link is the one that matters most: a pump with no sensor never runs unless somebody forces it on by hand. Each device's own knob and modes are on the DEVICE panel in the inspector."),
+            ("Place / paint", "LMB", "With a part armed: place it, or drag to paint."),
+            ("Box fill", "Shift + drag", "With a part armed: fill a box with it."),
+            ("Hollow box", "Ctrl + Shift + drag", "With a part armed: place only the outline."),
+            ("Select", "LMB", "Select a part. Ctrl+click adds or removes; drag on empty space to box-select."),
+            ("Filter box-select", "Shift + drag", "With nothing armed: box-select even from a part, then use the chips to keep only some layers."),
+            ("Select loose items", "Box-select, then filter", "Keep or drop the Loose items row in the filter (right-click ▸ Select only, or the Shift+drag chips). Ctrl+click a loose item to add or remove it. Design ▸ Remove All Loose Items… clears the whole ship."),
+            ("Flood-select", "Double-click", "On a part: select every touching tile of the same type. Ctrl+double-click adds it."),
+            ("Fill a compartment", "Double-click empty space, then Enter", "Select a sealed compartment, arm a part, then press Enter to fill it (Esc to cancel)."),
+            ("Use as brush", "Alt + click", "Arm the part under the cursor at its rotation. Also on the right-click menu."),
+            ("Replace with…", "Ctrl+R", "Swap the selection for a part of the same layer and size. Also on the right-click menu."),
+            ("Move", "Drag selection", "Move the selection, with any loose items caught in it."),
+            ("Step down a stack", "`", "Select the next thing down the pile under the cursor, loose items included."),
+            ("Re-stack", "Ctrl+[ / Ctrl+]", "Move the selected part or loose item back or forward in its tile's draw order. Reset order (right-click) undoes it. Saved with the design."),
+            ("Context menu", "RMB", "Use as brush · Replace with… · Find and Replace All… · Make Loose Item / Install item · Repair · draw order · Build last · doors · Wiring… · pick a buried layer · Select only. Also cancels placement while armed."),
+            ("Rotate part", "R / Shift+R", "Rotate CW / CCW: the armed part, a selected part, or a whole selection about its centre. Walls and floors auto-tile instead."),
+            ("Flip selection", "H / Shift+H", "Mirror the selection left↔right (H) or up↔down (Shift+H)."),
+            ("Symmetry", "M", "Cycle Off → Vertical → Horizontal → Both. While on, selecting, moving, rotating or deleting a part does the same to its mirror."),
+            ("Mod overrides", "Settings", "Let modded parts place where the core rules say they don't fit. They show amber and are flagged; check them in game."),
+            ("Force place", "Force", "Stop the placement law blocking anything. Parts placed this way still show as build-order problems. Stays on between sessions, with FORCE PLACE in red in the status bar. Try Build last first."),
+            ("Build last", "RMB", "Move the selected part to the end of the build order, for a part that is only legal once its neighbours are built. Its position doesn't change."),
+            ("Power overlay", "P", "Show PowerViz: live conduit runs, orphaned runs (dim red), and unfed devices (amber)."),
+            ("Rooms overlay", "C", "Show RoomViz: each compartment with what it certifies as, its size and value, and what it's missing. Unsealed compartments are red."),
+            ("Light overlay", "L", "Show Light Viz: interior lighting from every fixture. The ▾ menu sets the exterior sun and its angle."),
+            ("Walk overlay", "K", "Show WalkViz: tiles crew can reach, coloured by connected area. Unusable fittings are ringed red; vacuum doorways are dashed amber (suit only). The ▾ menu sets EVA access and Forbid zones."),
+            ("Access overlay", "J", "Point at a fitting to see which tiles crew work it from. Select a part to pin its marks. Amber means reachable only from outside the hull."),
+            ("Surfaces mode", "T", "Ghost everything but walls and floors, and paint skins onto the deck. The Surfaces bar sets a second brush and pattern, which layer shows (SHOW), what a stroke may change (PAINT) and how faint the ghosted layers are (GHOST)."),
+            ("Wire overlay", "Toolbar toggle", "Show signal wiring: GREEN for a sensor a device follows, VIOLET for a signal box that switches it."),
+            ("Spawners view", "Toolbar toggle", "Show or hide loot spawners. They never appear in play. The ▾ menu sets when and how to draw each spawner's scatter square."),
+            ("Wiring things up", "Right-click ▸ Wiring…", "Right-click a device, choose Wiring…, then click its partner. Click a connected partner to disconnect. Esc cancels. A pump with no sensor never runs unless forced on."),
             ("Delete", "Del", "Delete the selection."),
             ("Select all", "Ctrl+A", "Select every part in the design."),
             ("Copy / paste / duplicate", "Ctrl+C / V / D", "Copy · paste at the cursor · duplicate the selection."),
             ("Cancel", "Esc", "Cancel placement, then clear the selection."),
-            ("Pan", "W A S D", "Pan the view (smooth while held). Hold Shift to pan roughly three times as fast, for crossing a station."),
+            ("Pan", "W A S D", "Pan the view. Hold Shift to pan faster."),
             ("Pan (mouse)", "MMB / Space + drag", "Pan the view by dragging."),
-            ("Rotate view", "Q / E", "Rotate the plan view CCW / CW, like the in-game camera."),
-            ("Zoom", "Mouse wheel / + −", "Wheel zooms at the cursor in fine 0.1× steps (hold Shift for 0.5×); + and − zoom at the view centre."),
+            ("Rotate view", "Q / E", "Rotate the view CCW / CW."),
+            ("Zoom", "Mouse wheel / + −", "Zoom at the cursor (hold Shift for bigger steps); + and − zoom at the centre."),
             ("Fit to ship", "F", "Fit the view to the whole ship."),
             ("Undo / redo", "Ctrl+Z / Ctrl+Y", "Undo · redo (Ctrl+Shift+Z also redoes)."),
-            ("New / open / save", "Ctrl+N / O / S", "New · open · save (Ctrl+Shift+S = Save As). New and Open each start their design in a tab of its own, so nothing you have open is closed to make room, and Open takes several designs at once."),
-            ("Open read-only", "Alt+Shift+O", "Open designs locked, to look at without changing them. The padlock in the toolbar locks or unlocks the design on screen, and saving a locked design offers an editable copy."),
-            ("Switch / close design", "Ctrl+Tab / Ctrl+W", "Step through the open designs (Ctrl+Shift+Tab goes back) · close the one on screen. The tab strip appears above the canvas as soon as a second design is open; copy and paste work between them."),
+            ("New / open / save", "Ctrl+N / O / S", "New · open · save (Ctrl+Shift+S = Save As). Each design opens in its own tab."),
+            ("Open read-only", "Alt+Shift+O", "Open designs locked. The padlock in the toolbar locks or unlocks the design on screen."),
+            ("Switch / close design", "Ctrl+Tab / Ctrl+W", "Next design (Ctrl+Shift+Tab goes back) · close the one on screen."),
             ("Export", "Ctrl+E", "Export the design as a spawnable local data mod."),
             ("Ship Info / Materials", "Ctrl+I / Ctrl+B", "Edit the in-game identity · open the bill of materials."),
-            ("Settings", "Ctrl+,", "Theme, UI scale (magnify the whole app for a high-resolution monitor), mod overrides, and the Ostranauts install and Saves folders."),
-            ("Diagnostics", "Toolbar", "The game's own ship checklist, from the nav console's Diagnostics module: transponder, antenna, nav station, reactor and its helium-3 and deuterium, RCS thrusters, distributor and reaction mass, backup power, and the four life-support rows — each green or red on the game's own thresholds, with what's missing spelled out under every red one. Backup power is measured at the console's power inputs and O2 stores at the pumps' gas inputs, exactly as the game measures them, so a battery your conduits never reach counts for nothing."),
+            ("Settings", "Ctrl+,", "Theme, UI scale, mod overrides, and the game and Saves folders."),
+            ("Diagnostics", "Toolbar", "The game's nav-console checklist: transponder, antenna, reactor, thrusters, backup power and life support, with what's missing under each red row."),
             ("Help", "F1", "Open this window."),
         ];
 
@@ -7896,13 +7856,10 @@ public partial class MainWindow : Window
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         var footer = new TextBlock
         {
-            Text = "The placement law is enforced: a part won't place where the game's own rules would refuse it. The ghost " +
-                   "glows green when it fits and red when it can't, with the reason (e.g. \"needs a floor beneath\") in the " +
-                   "status bar and the offending tiles tinted red. Moving or rotating a part into an illegal spot is allowed " +
-                   "but flagged — red-tinted tiles and the PROBLEMS list name what broke. Every ship owns exactly one Primary " +
-                   "Airlock, fixed at the 0,0 origin — the game neither sells nor removes it, so Ostraplan seeds it locked " +
-                   "(no move/rotate/delete). Red-striped areas are out of bounds: no construction beyond an airlock's mating " +
-                   "face. Wall and floor sprites connect automatically.",
+            Text = "A part won't place where the game would refuse it. The ghost is green when it fits and red when it " +
+                   "doesn't, with the reason in the status bar. Moving or rotating into an illegal spot is allowed but " +
+                   "listed under PROBLEMS. The Primary Exterior Airlock is fixed in place. Red-striped areas are out of " +
+                   "bounds: nothing can be built beyond the side the airlock docks from.",
             Foreground = ThemeManager.Dim,
             TextWrapping = TextWrapping.Wrap,
             MaxWidth = 720,

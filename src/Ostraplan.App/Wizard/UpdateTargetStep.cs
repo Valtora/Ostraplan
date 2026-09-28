@@ -56,8 +56,7 @@ public sealed class UpdateTargetStep : WizardStep
             Content = "The original save, in place", Foreground = Ink, Margin = new Thickness(0, 2, 0, 2),
         });
         Note(body,
-            "Editing in place modifies the original save. Return to the Main Menu in game before writing, or the " +
-            "game may overwrite your edit on its next autosave.", indent: 20);
+            "Go to the game's Main Menu before writing in place, or its next autosave may undo your edit.", indent: 20);
 
         _backup = Add(body, new CheckBox
         {
@@ -65,8 +64,7 @@ public sealed class UpdateTargetStep : WizardStep
             Margin = new Thickness(20, 4, 0, 2),
         });
         _backupHint = Note(body,
-            "A separate, loadable copy in your Saves folder (beside this save). Untick to skip it and avoid piling " +
-            "up backups as you iterate, but then a bad edit can't be rolled back.", indent: 38);
+            "Saved as a separate save beside this one. Without it, a bad edit can't be undone.", indent: 38);
 
         _copy.Checked += (_, _) => { SyncBackup(); OnChanged(); };
         _inPlace.Checked += (_, _) => { SyncBackup(); OnChanged(); };
@@ -79,15 +77,14 @@ public sealed class UpdateTargetStep : WizardStep
         _deduct.Checked += (_, _) => { Recost(); OnChanged(); };
         _deduct.Unchecked += (_, _) => { Recost(); OnChanged(); };
         _noBalance = Note(body,
-            "No player balance found in this save, so the cost can't be deducted.", indent: 24);
+            "This save has no player balance to deduct from.", indent: 24);
         _noBalance.Visibility = Visibility.Collapsed;
 
         (_newMultLabel, _newMult) = MultiplierSlider(body, EditCost.DefaultNewMultiplier);
         (_movedMultLabel, _movedMult) = MultiplierSlider(body, EditCost.DefaultMovedMultiplier);
         _multHint = Note(body,
-            "Added parts are conjured outside the game's build economy; moved parts you already own. Priced " +
-            "separately so a refit that rearranges a lot without adding much needn't cost like a rebuild. Set " +
-            "either to 0× to make that side free.", indent: 24);
+            "Added parts are new and moved parts are already yours, so each has its own rate. Set either to 0× to " +
+            "make it free.", indent: 24);
 
         _ledger = BuildLedger(body);
         _meter = BuildMeter(body);

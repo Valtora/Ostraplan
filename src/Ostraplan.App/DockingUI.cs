@@ -148,9 +148,8 @@ public sealed class DockingWindow : Window
         if (_design.Ports.Count == 0)
         {
             body.Children.Add(Label("No airlock", Accent, 26, FontWeights.Bold));
-            body.Children.Add(Note("This design carries no installed airlock, so it can never hard-dock. The "
-                + "game collects them through TIsDockSysInstalled (IsDockSys plus IsInstalled); without one, "
-                + "Ship.aDocksys stays empty."));
+            body.Children.Add(Note("This design has no installed airlock, so it can't hard-dock. Install one to check "
+                + "docking."));
         }
         else if (_mode == DockingMode.OneShip) BuildOneShip(body);
         else BuildEveryShip(body);
@@ -169,10 +168,8 @@ public sealed class DockingWindow : Window
                 Accent, 24, FontWeights.Bold));
             foreach (var p in _design.Ports) body.Children.Add(AirlockLine(p));
             body.Children.Add(Note(
-                "Docking is geometric rather than a matter of airlock type: the other ship is turned so its "
-                + "airlock faces yours, stepped one tile off, and refused if any part of either hull comes "
-                + "within a tile of the other. Primary and Secondary behave identically here. Pick a ship to "
-                + "compare against."));
+                "Docking fails if any part of either hull comes within a tile of the other. Primary and "
+                + "Secondary airlocks behave the same. Pick a ship to compare against."));
             return;
         }
 
@@ -245,7 +242,7 @@ public sealed class DockingWindow : Window
             IsEnabled = mate.Pose is not null,
             ToolTip = mate.Mates
                 ? "Draw the two ships docked at this pose."
-                : "Draw the two ships at this pose, and highlight the tiles of your design that are in the way.",
+                : "Draw the two ships at this pose and highlight your tiles that are in the way.",
         };
         button.Click += (_, _) => Select(mate);
         return button;
@@ -280,20 +277,17 @@ public sealed class DockingWindow : Window
             body.Children.Add(Label(
                 $"{_design.Ports.Count} airlock{Plural(_design.Ports.Count)} to check", Accent, 24, FontWeights.Bold));
             body.Children.Add(Note(
-                "A primary airlock is all but guaranteed to dock with another ship's primary, because the build "
-                + "rules keep the space ahead of it clear. A secondary has no such guarantee. This reads every "
-                + "ship template in your install, the ones your mods add included, and tries each of your "
-                + "airlocks against that ship's primary. Nothing is imported and your design is not touched."));
+                "Tries each of your airlocks against the primary airlock of every ship template in your install, "
+                + "modded ones included. A primary nearly always docks; a secondary may not. Your design is not "
+                + "changed."));
             return;
         }
 
         body.Children.Add(Label(
             $"{survey.Ships.Count} ship{Plural(survey.Ships.Count)} with a primary airlock", Accent, 22, FontWeights.Bold));
         body.Children.Add(Note(
-            "Your design is the incoming ship in every row. An airlock that takes every primary is as good as a "
-            + "primary of your own; one that takes only some is the case worth knowing about, and the ships that "
-            + "refuse it are listed under it."
-            + (survey.Skipped > 0 ? $" {survey.Skipped} ship(s) carry no primary airlock and were not measured." : "")));
+            "Your design is the incoming ship in every row. Ships that refuse an airlock are listed under it."
+            + (survey.Skipped > 0 ? $" {survey.Skipped} ship(s) have no primary airlock and were skipped." : "")));
 
         for (var i = 0; i < survey.Ports.Count; i++) body.Children.Add(AirlockSection(survey, i));
     }
@@ -315,8 +309,8 @@ public sealed class DockingWindow : Window
             return panel;
         }
 
-        panel.Children.Add(Note($"Refused by {refusals.Count}. Select one to highlight the tiles of your design "
-            + "that are in the way."));
+        panel.Children.Add(Note($"Refused by {refusals.Count}. Select one to highlight your tiles that are in "
+            + "the way."));
 
         var list = new ListBox
         {
@@ -484,7 +478,7 @@ public sealed class DockingWindow : Window
         bar.Children.Add(rerun);
         bar.Children.Add(new TextBlock
         {
-            Text = "The design has changed since this was measured. The ghosted ship is still at the old pose.",
+            Text = "The design has changed since this check. The ghosted ship shows the old pose.",
             Foreground = Warn, FontSize = 11, TextWrapping = TextWrapping.Wrap,
             Margin = new Thickness(10, 8, 4, 8), VerticalAlignment = VerticalAlignment.Center,
         });

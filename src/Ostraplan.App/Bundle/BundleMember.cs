@@ -48,7 +48,7 @@ internal sealed class BundleMember
     public string Detail =>
         Problem is { Length: > 0 } p ? p
         : OpenWithUnsavedEdits
-            ? $"{PartCount} parts. Open with unsaved changes: the saved file is what will be exported."
+            ? $"{PartCount} parts. Unsaved changes in the open tab won't be exported."
             : $"{PartCount} parts" + (Entry.Replaces is { Length: > 0 } r ? $", replacing \"{r}\"" : "");
 
     /// <summary>
@@ -73,11 +73,10 @@ internal sealed class BundleMember
 
             if (missing.Count > 0)
                 member.Problem =
-                    $"{missing.Count} part(s) in this design are not in your current game and mods data. A mod " +
-                    "export would leave them out, so this cannot go in a pack until they are loaded.";
+                    $"{missing.Count} part(s) are not in your current game and mods data. Load their mods to add " +
+                    "this design.";
             else if (doc.IsResidence)
-                member.Problem = "This is an apartment. An apartment reaches the game through a Real Estate " +
-                                 "broker, so it cannot be part of a ship mod.";
+                member.Problem = "This is an apartment, which can't be part of a ship mod.";
             else if (doc.Placements.Count == 0)
                 member.Problem = "This design has no parts in it.";
             else

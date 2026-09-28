@@ -1201,7 +1201,7 @@ public sealed class Catalog
             var part = Resolve(placedDef, inst.BuildType, origin, inst.Inputs, inst.Tools, warnMissingSprite: true);
             if (part is null)
             {
-                Warn(origin, $"Installable '{name}' places '{placedDef}' but no items def exists - skipped.");
+                Warn(origin, $"Installable '{name}' places '{placedDef}' but no items def exists, skipped.");
                 continue;
             }
             parts[placedDef] = part;

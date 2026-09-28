@@ -37,9 +37,8 @@ public sealed class ThemePickerDialog : Window
 
         var note = new TextBlock
         {
-            Text = "Re-skin every wall and floor on the ship to a chosen style. Only sprites and names change — "
-                 + "rooms, airtightness, certification and rating are unaffected. Select a wall style, a floor style, "
-                 + "or both; leave a column untouched to keep those parts as they are.",
+            Text = "Re-skins every wall and floor on the ship. Rooms, airtightness and rating don't change. Pick a "
+                 + "wall style, a floor style or both; a column left alone keeps its parts as they are.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 10),
         };
         DockPanel.SetDock(note, Dock.Top);

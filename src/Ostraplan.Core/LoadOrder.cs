@@ -73,12 +73,12 @@ public sealed class LoadOrder
             }
             else
             {
-                Warn("not a top-level JSON array - falling back to core only.");
+                Warn("not a JSON array, so only core data is loaded.");
             }
         }
         catch (JsonException e)
         {
-            Warn($"unreadable ({e.Message}) - falling back to core only.");
+            Warn($"unreadable ({e.Message}), so only core data is loaded.");
         }
 
         if (!order.Contains("core")) order.Insert(0, "core");

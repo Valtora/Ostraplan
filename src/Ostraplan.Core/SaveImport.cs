@@ -242,8 +242,8 @@ public static class SaveImport
         }
 
         why = candidates == 0
-            ? "This save's zip holds no top-level record at all (no *.json beside the ships folder), so there is "
-              + "nothing to read the player's ship from. The save may be incomplete or truncated."
+            ? "This save has no top-level record, so there is no player's ship to read. "
+              + "The save may be incomplete."
             : string.Join("\n\n", rejected);
         return null;
     }

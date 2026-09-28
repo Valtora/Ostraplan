@@ -108,25 +108,22 @@ public static class BundleExport
         {
             var label = ship.Name is { Length: > 0 } n ? $"\"{n}\"" : "A design";
             if (string.IsNullOrWhiteSpace(ship.Name))
-                problems.Add("A design in this mod has no name. Every ship needs one: it is what the game keys the "
-                             + "ship, its art and its kiosk listing on.");
+                problems.Add("A design in this mod has no name. Give it one.");
             if (ship.Doc.Placements.Count == 0)
                 problems.Add($"{label} has no parts in it.");
             if (ship.Doc.IsResidence)
-                problems.Add($"{label} is an apartment, and an apartment can't be a ship mod. Every route a mod "
-                             + "offers puts the design in front of a ship broker. Use \"Into a save game\" for it.");
+                problems.Add($"{label} is an apartment, which can't be a ship mod. Use \"Into a save game\" for it.");
         }
 
         foreach (var clash in opts.Ships.GroupBy(s => s.StrName, StringComparer.OrdinalIgnoreCase).Where(g => g.Count() > 1))
-            problems.Add($"Two or more ships in this mod are called \"{clash.Key}\". A ship's name is what the game "
-                         + "keys its data and its pictures on, so they would overwrite each other. Rename one.");
+            problems.Add($"Two or more ships in this mod are called \"{clash.Key}\", so they would overwrite each "
+                         + "other. Rename one.");
 
         foreach (var clash in opts.Ships
                      .Where(s => s.ReplaceTarget is { Length: > 0 })
                      .GroupBy(s => s.ReplaceTarget!.Trim(), StringComparer.OrdinalIgnoreCase)
                      .Where(g => g.Count() > 1))
-            problems.Add($"Two ships in this mod both replace \"{clash.Key}\". Only one design can take over an "
-                         + "existing ship's identity.");
+            problems.Add($"Two ships in this mod both replace \"{clash.Key}\". Only one can.");
 
         // A Special Offer pool is a single pinned ship at weight 1 (GAME-INTERNALS §19), so unlike a kiosk's
         // weighted stock there is no merge to make: a second claimant simply overwrites the first.
@@ -134,9 +131,8 @@ public static class BundleExport
                      .SelectMany(s => s.Routes.SpecialOfferPools.Select(p => (Pool: p, Ship: s.StrName)))
                      .GroupBy(x => x.Pool, StringComparer.Ordinal)
                      .Where(g => g.Count() > 1))
-            problems.Add($"{string.Join(" and ", clash.Select(x => $"\"{x.Ship}\""))} are both set as the Special "
-                         + $"Offer at {clash.Key}. That slot holds one ship. Pick one, or put the others in a "
-                         + "broker kiosk instead.");
+            problems.Add($"{string.Join(" and ", clash.Select(x => $"\"{x.Ship}\""))} are both the Special "
+                         + $"Offer at {clash.Key}, which holds one ship. Pick one, or put the others in a broker kiosk.");
 
         return problems;
     }
@@ -247,7 +243,7 @@ public static class BundleExport
         {
             // Nothing is swept here on purpose: with no data to rebuild the pools from, the previous export's
             // files are a better state to leave behind than none at all.
-            warnings.Add("Delivery options were set but no game data was available to resolve loot pools; skipped.");
+            warnings.Add("Delivery options skipped: no game data was loaded.");
             return false;
         }
 
@@ -341,9 +337,8 @@ public static class BundleExport
         // is reported instead: the ship still exports, it simply carries no picture.
         if (ship.StrName != ShipExport.SanitizeName(ship.StrName))
         {
-            warnings.Add($"No preview art was written for \"{ship.StrName}\": that name cannot be a folder name, " +
-                         "and the game looks for a ship's art under its name exactly. Rename it to give it a " +
-                         "picture in game.");
+            warnings.Add($"No preview art for \"{ship.StrName}\": the name can't be a folder name. Rename it to " +
+                         "give it a picture in game.");
             return 0;
         }
 
@@ -360,8 +355,7 @@ public static class BundleExport
             if (room.Png.Length == 0) continue;
             if (string.Equals(room.Name, ship.StrName, StringComparison.OrdinalIgnoreCase))
             {
-                warnings.Add($"Skipped the \"{room.Name}\" room thumbnail: its name collides with the ship's own " +
-                             "preview image.");
+                warnings.Add($"Skipped the \"{room.Name}\" room thumbnail: it has the same name as the ship.");
                 continue;
             }
             files.Bytes(Path.Combine(dir, room.Name + ".png"), room.Png);

@@ -22,8 +22,8 @@ public static class OstrasortRegistration
         if (exe is null)
         {
             if (!Dlg.Confirm(owner, DlgKind.Info, "Locate Ostrasort",
-                    "Ostraplan couldn't find Ostrasort.exe. Point it at your Ostrasort.exe to register the mod " +
-                    "(or cancel and register it yourself later).", "Locate…"))
+                    "Ostraplan couldn't find Ostrasort.exe. Locate it to register the mod, or cancel and " +
+                    "register it yourself later.", "Locate…"))
                 return NotRegistered;
             exe = OstrasortLauncher.Prompt(owner);
             if (exe is null) return NotRegistered;

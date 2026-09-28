@@ -44,5 +44,5 @@ public static class LooseTransform
     /// <summary>The status-bar reason a transform was refused, for the window to show. One string, because it makes
     /// no difference to the reader which of the two ways it collided.</summary>
     public const string Blocked =
-        "Deck items stayed put — one of them would land on a tile another loose item already holds";
+        "Deck items stayed put: one of them would land on another deck item";
 }
