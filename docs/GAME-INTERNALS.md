@@ -719,6 +719,18 @@ item order. In core data the only *installed* non-TypeB ports are
 makes an *internal docking bay* (a Secondary facing into the hull) legal in game. A
 design with *only* Secondaries has one at `aDocksys[0]`, and it then does bound.
 
+**Two Primaries are legal, and the last one registered bounds.** Docking does not
+read `aDocksys[0]`: it goes by `Ship.PrimaryDockingPortID`, which defaults to the first
+non-`MP|` entry of `aDockingPorts` and which the player cycles through every port from
+the Comms MFD (`Ship.CyclePrimaryDockingPort`, `MFDComms`). So a second
+`ItmDockSys02*` changes only which face bounds construction: `Insert(0, …)` puts the
+one registered *last* at the head. Core data ships two cases. `IbexMother` and
+`MonoCarrier` carry a "Primary Airlock" at (-9, 19.5) and an "Auxiliary Airlock" at
+(5, -15.5), both `ItmDockSys02Closed`, and the Auxiliary is listed second, so it
+bounds (the files' own `aDockingPorts` list it first). It faces up into the gap
+between the two towers, which puts most of the ship past its face. Verified against
+the decompile for 1.0.1.5; not yet confirmed in game.
+
 Do **not** confuse `TileUtils.GetAirlockBounds` with the construction rule. It runs
 the same face math but over **all** `aDocksys`, and the game only ever calls it from
 `Ship.SpawnMeat` / `Meat.cs` — it decides where a **meat blob** may spawn and

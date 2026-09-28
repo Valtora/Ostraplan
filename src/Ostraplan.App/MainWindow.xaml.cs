@@ -3020,13 +3020,17 @@ public partial class MainWindow : Window
     /// clutter lying on it, and Delete is what the whole loose-item filter exists to reach: narrow the catch to
     /// "Loose items" and this clears a deck without touching a wall.
     ///
-    /// <para>Locked structure (the primary airlock) is skipped, as ever. Nothing loose is ever locked: it is cargo
-    /// on the floor, not part of the ship.</para>
+    /// <para>Locked structure (the primary airlock) is skipped, except that a ship with more than one may lose all
+    /// but the last. Nothing loose is ever locked: it is cargo on the floor, not part of the ship.</para>
     /// </summary>
     private void DeleteSelection()
     {
         if (_doc is null || RefuseIfReadOnly()) return;
         var selected = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
+        // A primary port may go while another stays: the stray an older Ostraplan seeded at (0,0) has to be
+        // deletable, and the ship keeps the one it docks by. The last one standing stays locked.
+        var primaries = _doc.Placements.Count(_doc.IsLocked);
+        selected.AddRange(Board.SelectedPlacements().Where(_doc.IsLocked).Take(Math.Max(0, primaries - 1)));
         var loose = Board.SelectedLooseObjects();
         if (selected.Count == 0 && loose.Count == 0) return;
 
@@ -3713,6 +3717,10 @@ public partial class MainWindow : Window
     {
         if (_doc is null || RefuseIfReadOnly()) return;
         var selected = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
+        // A primary port may go while another stays: the stray an older Ostraplan seeded at (0,0) has to be
+        // deletable, and the ship keeps the one it docks by. The last one standing stays locked.
+        var primaries = _doc.Placements.Count(_doc.IsLocked);
+        selected.AddRange(Board.SelectedPlacements().Where(_doc.IsLocked).Take(Math.Max(0, primaries - 1)));
         var loose = Board.SelectedLooseObjects();
         if (selected.Count == 0 && loose.Count == 0) return;
         // A duplicate is a paste at a one-tile offset, so it carries exactly what a paste carries: contents, name,

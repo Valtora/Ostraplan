@@ -16,6 +16,17 @@ each release was verified against is recorded in
   printed every entry in full, which made a catch-up across a few releases a wall of text. Each entry now
   shows only its summary line, and clicking it expands the details.
 
+### Fixed
+- **A ship with two primary airlocks is no longer reported as broken.** The IbexMother and MonoCarrier
+  come with a Primary and an Auxiliary airlock that are the same part, and Ostraplan flagged that as a
+  blocking problem, said a ship can only have one, and told you to delete a port it would not let you
+  delete. The game allows it: either airlock can dock, chosen on the Comms screen. What it does change is
+  where you can build. The game limits new construction by the primary airlock loaded last, which on
+  these two ships is the Auxiliary, facing up into the gap between the towers, so nothing new can be built
+  across most of the ship. That is the red area on import. The problem is now a warning that names the
+  airlock doing it, and it can be dismissed. A spare primary airlock can now be deleted while another
+  remains, which is what clears the stray one an older Ostraplan added at (0,0). Thanks to HandyBoy.
+
 ## [1.23.2] 2026-09-16, a toolbar that holds still
 
 ### Fixed

@@ -459,25 +459,38 @@ public class ProblemScanTests
     }
 
     [Fact]
-    public void Two_primary_ports_are_reported_and_the_stray_is_named()
+    public void Two_primary_ports_are_a_dismissible_warning_naming_the_bounding_port()
     {
         // What an already-damaged design looks like: the real airlock plus the one an older Ostraplan seeded at
-        // the origin. The game files both at the head of aDocksys, so the extra one takes over as the port a
-        // station collar mates to.
+        // the origin. The game files both at the head of aDocksys, so the one registered last bounds construction.
         var cat = CatWithOpen();
         var real = new Placement { DefName = "DockOpen", X = 10, Y = 3 };
         var stray = new Placement { DefName = "Dock", X = 0, Y = 0 };
         var problems = ProblemScan.Scan(Doc(cat, real, stray), cat);
 
         var dup = Assert.Single(problems, p => p.Title.Contains("primary docking ports"));
-        Assert.Equal(ProblemSeverity.Blocking, dup.Severity);
+        // the game docks by either (Ship.CyclePrimaryDockingPort), so this never blocks an export
+        Assert.Equal(ProblemSeverity.Warning, dup.Severity);
+        Assert.Equal(ProblemScan.MultiplePrimaryPortsAlertKey, dup.DismissKey);
         Assert.Equal("2 primary docking ports", dup.Title);
-        Assert.Contains("(0,0)", dup.Detail);      // both are named; the user knows which is theirs
-        Assert.Contains("(10,3)", dup.Detail);
         Assert.Contains((0, 0), dup.Cells!);
         Assert.Contains((10, 3), dup.Cells!);
-        // and the diagnosis that matters: the stray, registered last, is the one the game would dock by
-        Assert.Contains("would dock by Dock at (0,0)", dup.Detail);
+        Assert.Contains("Only Dock at (0,0) limits where you can build", dup.Detail);
+        Assert.Contains("older Ostraplan", dup.Detail);
+    }
+
+    [Fact]
+    public void Two_primary_ports_away_from_the_origin_carry_no_stray_advice()
+    {
+        // IbexMother and MonoCarrier ship like this: a Primary and an Auxiliary airlock, both ItmDockSys02.
+        var cat = CatWithOpen();
+        var problems = ProblemScan.Scan(Doc(cat,
+            new Placement { DefName = "Dock", X = 4, Y = 1 },
+            new Placement { DefName = "Dock", X = 20, Y = 30 }), cat);
+
+        var dup = Assert.Single(problems, p => p.Title.Contains("primary docking ports"));
+        Assert.Contains("Only Dock at (20,30) limits where you can build", dup.Detail);
+        Assert.DoesNotContain("older Ostraplan", dup.Detail);
     }
 
     [Fact]
