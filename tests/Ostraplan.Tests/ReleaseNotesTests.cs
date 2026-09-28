@@ -128,15 +128,18 @@ public class ReleaseNotesTests
     {
         // The markdown renderer is the only thing between a released changelog entry and the user, and it runs
         // exactly once per update, so a throw in it would surface as a crash on the first launch after updating.
-        // Render the newest shipped entry offscreen and leave the PNG next to the binaries for eyeballing.
+        // Render the three newest shipped entries offscreen, as an update that crossed them would, and leave the
+        // PNG next to the binaries for eyeballing.
         var text = WhatsNewUI.Changelog()!;
-        var newest = text.Replace("\r", "").Split('\n')
-            .First(l => l.StartsWith("## [", StringComparison.Ordinal) && !l.StartsWith("## [Unreleased]", StringComparison.Ordinal));
-        var entry = ReleaseNotes.For(text, newest[4..newest.IndexOf(']')])!;
+        var shipped = text.Replace("\r", "").Split('\n')
+            .Where(l => l.StartsWith("## [", StringComparison.Ordinal) && !l.StartsWith("## [Unreleased]", StringComparison.Ordinal))
+            .Take(3)
+            .Select(l => ReleaseNotes.For(text, l[4..l.IndexOf(']')])!)
+            .ToList();
 
         RunSta(() =>
         {
-            var content = WhatsNewUI.BuildContent([entry], updated: true, _ => { }, () => { });
+            var content = WhatsNewUI.BuildContent(shipped, updated: true, _ => { }, () => { });
             content.Measure(new Size(720, double.PositiveInfinity));
             content.Arrange(new Rect(0, 0, 720, Math.Min(content.DesiredSize.Height, 2000)));
             content.UpdateLayout();

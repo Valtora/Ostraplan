@@ -55,7 +55,7 @@ public static class WhatsNewUI
         var content = BuildContent(entries, updated, openUrl, () => window?.Close());
         window = new Window
         {
-            Title = $"Ostraplan v{entries[0].Version} — what's new",
+            Title = $"What's new in Ostraplan v{entries[0].Version}",
             Owner = owner,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
             SizeToContent = SizeToContent.WidthAndHeight,
@@ -81,7 +81,7 @@ public static class WhatsNewUI
         if (updated && entries.Count > 1)
             body.Children.Add(new TextBlock
             {
-                Text = $"You were on v{entries[^1].Version}'s predecessor, so this covers {entries.Count} releases.",
+                Text = $"{entries.Count} releases since you last ran Ostraplan. Click an entry for the details.",
                 Foreground = ThemeManager.Dim, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0),
             });
 
@@ -126,24 +126,39 @@ public static class WhatsNewUI
     /// nesting, and <c>**bold**</c>. Anything unrecognised falls through as a paragraph, so an entry written in
     /// some shape this doesn't know about still reads rather than vanishing.
     ///
+    /// <para>Each entry shows only its bold lead, the one-line summary of what changed, and folds the rest under
+    /// it. The changelog is written for the repository and runs to a paragraph or more per entry, so showing it
+    /// all made the window a wall of text. Nested notes and indented follow-on paragraphs belong to the entry
+    /// above them and fold with it.</para>
+    ///
     /// <para>The file is hard-wrapped, so an entry spans several source lines and only the first carries the
-    /// dash. Continuation lines are joined back onto it before anything is measured or emphasised — rendering
-    /// them separately breaks each entry into a bullet plus loose paragraphs, and splits a <c>**bold**</c> run
-    /// that happens to straddle the wrap so its markers show up as text.</para>
+    /// dash. Continuation lines are joined back onto it before anything is measured or emphasised, since a
+    /// <c>**bold**</c> run can straddle the wrap.</para>
     /// </summary>
     private static IEnumerable<UIElement> Render(string markdown)
     {
         var blocks = new List<UIElement>();
+        Entry? entry = null;                        // the bullet whose details are still being collected
         var text = new System.Text.StringBuilder();
-        var depth = 0;        // 0 = paragraph, 1 = entry, 2 = a note under one
-        var pending = false;
+        var kind = Kind.None;
+        var indented = false;
+
+        void CloseEntry()
+        {
+            if (entry is null) return;
+            blocks.Add(EntryRow(entry));
+            entry = null;
+        }
 
         void Flush()
         {
-            if (!pending) return;
-            blocks.Add(Paragraph(text.ToString(), depth));
+            if (kind == Kind.None) return;
+            var t = text.ToString();
             text.Clear();
-            pending = false;
+            if (kind == Kind.Entry) entry = new Entry(t);
+            else if (entry is not null && (kind == Kind.Note || indented)) entry.Details.Add((t, kind == Kind.Note));
+            else { CloseEntry(); blocks.Add(Paragraph(t)); }
+            kind = Kind.None;
         }
 
         foreach (var raw in markdown.Replace("\r", "").Split('\n'))
@@ -151,10 +166,12 @@ public static class WhatsNewUI
             var line = raw.TrimEnd();
             var trimmed = line.TrimStart();
             if (trimmed.Length == 0) { Flush(); continue; }
+            var indent = line.Length - trimmed.Length;
 
             if (trimmed.StartsWith("### ", StringComparison.Ordinal))
             {
                 Flush();
+                CloseEntry();
                 blocks.Add(new TextBlock
                 {
                     Text = trimmed[4..].Trim(), Foreground = ThemeManager.KeyAccent, FontWeight = FontWeights.SemiBold,
@@ -166,43 +183,101 @@ public static class WhatsNewUI
             if (trimmed.StartsWith("- ", StringComparison.Ordinal))
             {
                 Flush();
-                depth = line.Length - trimmed.Length >= 2 ? 2 : 1;   // an indented dash is a note under the entry above
+                if (indent >= 2 && entry is not null) kind = Kind.Note;
+                else { CloseEntry(); kind = Kind.Entry; }
                 text.Append(trimmed[2..]);
-                pending = true;
                 continue;
             }
 
-            if (pending) text.Append(' ').Append(trimmed);   // the rest of a hard-wrapped entry
-            else { depth = 0; text.Append(trimmed); pending = true; }
+            if (kind != Kind.None) text.Append(' ').Append(trimmed);   // the rest of a hard-wrapped line
+            else { kind = Kind.Paragraph; indented = indent >= 2; text.Append(trimmed); }
         }
         Flush();
+        CloseEntry();
         return blocks;
     }
 
-    /// <summary>One rendered entry. A bullet gets a hanging indent — the glyph in its own column, so a wrapped
-    /// entry lines up under its first word rather than under the bullet, which is what makes a list of long
-    /// entries scannable.</summary>
-    private static UIElement Paragraph(string text, int depth)
+    private enum Kind { None, Entry, Note, Paragraph }
+
+    /// <summary>One changelog bullet: its full text, and the notes and paragraphs written under it.</summary>
+    private sealed class Entry(string text)
+    {
+        public string Text { get; } = text;
+        public List<(string Text, bool Bullet)> Details { get; } = [];
+    }
+
+    /// <summary>
+    /// An entry as its lead line, with everything else behind a toggle. The lead is the leading <c>**bold**</c>
+    /// run when the entry opens with one, and the whole entry when it does not, in which case there is nothing
+    /// left to fold. The lead drops its bold: once it is the only thing on the line, weight adds nothing.
+    /// </summary>
+    private static UIElement EntryRow(Entry entry)
+    {
+        var (lead, rest) = SplitLead(entry.Text);
+        var leadBlock = new TextBlock { Foreground = ThemeManager.Ink, TextWrapping = TextWrapping.Wrap, LineHeight = 20 };
+        foreach (var run in Inlines(lead)) { run.FontWeight = FontWeights.Normal; leadBlock.Inlines.Add(run); }
+
+        if (rest.Length == 0 && entry.Details.Count == 0)
+        {
+            var row = new DockPanel { Margin = new Thickness(4, 6, 0, 0) };
+            var glyph = new TextBlock
+            {
+                Text = "•", Foreground = ThemeManager.Ink, Width = 20, LineHeight = 20, TextAlignment = TextAlignment.Center,
+            };
+            DockPanel.SetDock(glyph, Dock.Left);
+            row.Children.Add(glyph);
+            row.Children.Add(leadBlock);
+            return row;
+        }
+
+        var details = new StackPanel { Margin = new Thickness(0, 2, 0, 6) };
+        if (rest.Length > 0) details.Children.Add(Detail(rest, bullet: false));
+        foreach (var (text, bullet) in entry.Details) details.Children.Add(Detail(text, bullet));
+        return new Expander
+        {
+            Header = leadBlock, Content = details, Foreground = ThemeManager.Ink, Margin = new Thickness(0, 4, 0, 0),
+        };
+    }
+
+    /// <summary>Split an entry at the end of its opening <c>**bold**</c> run: (lead, body). An entry that does
+    /// not open with one is all lead.</summary>
+    internal static (string Lead, string Body) SplitLead(string text)
+    {
+        if (!text.StartsWith("**", StringComparison.Ordinal)) return (text, "");
+        var end = text.IndexOf("**", 2, StringComparison.Ordinal);
+        return end < 0 ? (text, "") : (text[..(end + 2)], text[(end + 2)..].Trim());
+    }
+
+    /// <summary>A folded line under an entry: dimmer, and bulleted when it was a nested note.</summary>
+    private static UIElement Detail(string text, bool bullet)
     {
         var block = new TextBlock
         {
-            Foreground = depth == 2 ? ThemeManager.Dim : ThemeManager.Ink,
-            TextWrapping = TextWrapping.Wrap,
-            LineHeight = 20,
+            Foreground = ThemeManager.Dim, TextWrapping = TextWrapping.Wrap, LineHeight = 20, Margin = new Thickness(0, 4, 0, 0),
         };
         foreach (var run in Inlines(text)) block.Inlines.Add(run);
-        if (depth == 0)
-        {
-            block.Margin = new Thickness(0, 10, 0, 0);
-            return block;
-        }
+        if (!bullet) return block;
 
-        var row = new DockPanel { Margin = new Thickness(depth == 2 ? 30 : 14, 7, 0, 0) };
-        var glyph = new TextBlock { Text = "•", Foreground = block.Foreground, Width = 14, LineHeight = 20 };
+        var row = new DockPanel { Margin = new Thickness(12, 0, 0, 0) };
+        var glyph = new TextBlock
+        {
+            Text = "•", Foreground = ThemeManager.Dim, Width = 14, LineHeight = 20, Margin = new Thickness(0, 4, 0, 0),
+        };
         DockPanel.SetDock(glyph, Dock.Left);
         row.Children.Add(glyph);
         row.Children.Add(block);
         return row;
+    }
+
+    /// <summary>A paragraph that belongs to no entry: an intro line under a version heading.</summary>
+    private static UIElement Paragraph(string text)
+    {
+        var block = new TextBlock
+        {
+            Foreground = ThemeManager.Ink, TextWrapping = TextWrapping.Wrap, LineHeight = 20, Margin = new Thickness(0, 10, 0, 0),
+        };
+        foreach (var run in Inlines(text)) block.Inlines.Add(run);
+        return block;
     }
 
     /// <summary>
