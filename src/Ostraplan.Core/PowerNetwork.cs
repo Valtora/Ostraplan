@@ -53,8 +53,8 @@ public sealed record PowerOverlay(
 /// never reaches are orphaned (unpowered) runs. A wired device is hooked up when one of its input-point tiles is
 /// powered — its own footprint carries <c>IsPowerPath</c>, so being on the live set is exactly "connected".
 ///
-/// This is connectivity visualisation, not the game's per-tick power-draw simulation (a non-goal); no amounts,
-/// tickers or override toggles are modelled beyond the source's static <c>IsOverrideOff</c> state.
+/// This is connectivity only. What the devices draw and how long the batteries last is <see cref="PowerBudget"/>,
+/// which groups the same floods into networks.
 /// </summary>
 public static class PowerNetwork
 {
@@ -152,9 +152,15 @@ public static class PowerNetwork
         return total;
     }
 
+    /// <summary>Every installed source with the tiles its own flood reaches — what <c>GetPoweredTiles</c> files
+    /// the source on, so a device with an input point on any of those tiles can draw from it.</summary>
+    internal static IReadOnlyList<(PlacedPart Part, PartDef Def, int Seed, HashSet<int> Tiles)> SourceFloods(
+        ShipGrid grid, Catalog catalog) =>
+        Sources(grid, catalog).Select(s => (s.Part, s.Def, s.Seed, FloodFrom(grid, s.Seed, null))).ToList();
+
     /// <summary>The installed power sources that can feed the network, with the tile their <c>PowerOutput</c>
     /// point lands on — the seeds <c>TileUtils.GetPoweredTiles</c> floods from.</summary>
-    private static IEnumerable<(PartDef Def, int Seed)> Sources(ShipGrid grid, Catalog catalog)
+    private static IEnumerable<(PlacedPart Part, PartDef Def, int Seed)> Sources(ShipGrid grid, Catalog catalog)
     {
         foreach (var part in grid.Parts)
         {
@@ -165,7 +171,7 @@ public static class PowerNetwork
             if (!SourceConds.Any(def.StartingConds.Contains)) continue;
 
             var seed = grid.MapPointTile(part, outPt);
-            if (seed >= 0) yield return (def, seed);
+            if (seed >= 0) yield return (part, def, seed);
         }
     }
 

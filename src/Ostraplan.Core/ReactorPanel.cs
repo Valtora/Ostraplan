@@ -13,7 +13,8 @@ public enum ReactorPowerBus
     Off = 0,
 
     /// <summary>BATT — draw starter power off the batteries. What ignition needs, since the capacitors charge
-    /// from the bus.</summary>
+    /// from the bus. Once the core runs it charges the batteries all the same: <c>FusionIC.Run</c> sets
+    /// <c>IsReadyRecharge</c> from the MHD switch alone every 0.27 s, overriding the knob (confirmed in game).</summary>
     Batt = 1,
 
     /// <summary>CHRG — charge the batteries off the MHD. What a ship spawning with its reactor already running

@@ -121,7 +121,8 @@ public sealed class Fixtures
         string[]? interactions = null, IReadOnlyList<(string Instance, string Template)>? gpm = null,
         int apron = 0, double zScale = 1.0,
         string[]? slotsWeHave = null, string[]? slotKeys = null, string? defaultLoot = null,
-        IReadOnlyDictionary<string, (double X, double Y)>? slotLayout = null)
+        IReadOnlyDictionary<string, (double X, double Y)>? slotLayout = null,
+        PowerInfoDef? powerInfo = null, string[]? tickers = null)
     {
         var body = "Blank";
         if (tileConds is { Length: > 0 })
@@ -162,6 +163,10 @@ public sealed class Fixtures
             StackLimit = stackLimit,
             PowerInputPoints = powerInputs ?? [],
             PowerOutputPoint = powerOutput,
+            // A fixture hides no nubs, so it draws from exactly the points it shows.
+            PowerDrawPoints = powerInputs ?? [],
+            PowerInfo = powerInfo,
+            TickerNames = tickers ?? [],
             InteractionNames = interactions ?? [],
             Gpm = gpm ?? [],
             SlotsWeHave = slotsWeHave ?? [],

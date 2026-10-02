@@ -374,20 +374,7 @@ public static class Propulsion
         var core = grid.Parts.FirstOrDefault(p => Fires(ReactorTrigger, p, catalog));
         if (core is null) return new TorchScan(false, null, 0, 0, 0, 0, 0, 0, 0, d2o, he3, 0, 0, 0);
 
-        var byTile = FootprintIndex(grid);
-        var modules = new List<PlacedPart>();
-        var points = 0;
-        // FusionIC.Init walks Module01..Module32, stopping at the first name the core does not declare.
-        for (var i = 1; i < 33; i++)
-        {
-            if (!core.Part.MapPoints.TryGetValue($"Module{(i < 10 ? "0" : "")}{i}", out var px)) break;
-            points++;
-            var tile = grid.MapPointTile(core, px);
-            if (tile < 0 || !byTile.TryGetValue(tile, out var here)) continue;
-            foreach (var m in here)
-                if (!ReferenceEquals(m, core) && Fires(FusionModuleTrigger, m, catalog) && !modules.Contains(m))
-                    modules.Add(m);
-        }
+        var (modules, points) = CoreModules(grid, core, catalog);
 
         // FusionIC classifies each module by the first IsFusion* cond it carries, in this order, and skips a
         // module that is switched off — except capacitors, which it counts by list length whatever their state.
@@ -411,6 +398,32 @@ public static class Propulsion
         return new TorchScan(true, core.Part.DefName, IgnitedVe(core.Part, catalog), pelletMax,
             lasers, capacitors, feeders, regulators, points, d2o, he3,
             lasersOff, feedersOff, regulatorsOff);
+    }
+
+    /// <summary>
+    /// The modules sitting on a fusion core's <c>Module01..NN</c> map points, and how many points it declares —
+    /// the list <c>FusionIC.Run</c> rebuilds whenever <c>Ship.bCheckFusion</c> is raised. A module qualifies by
+    /// <c>TIsFusionModule</c> (installed, undamaged, not structure); <c>FusionIC</c> then sorts it by the first
+    /// <c>IsFusion*</c> cond it carries. Shared by the torch figures and <see cref="PowerBudget"/>, which bills the
+    /// network for the same modules.
+    /// </summary>
+    internal static (List<PlacedPart> Modules, int Points) CoreModules(ShipGrid grid, PlacedPart core, Catalog catalog)
+    {
+        var byTile = FootprintIndex(grid);
+        var modules = new List<PlacedPart>();
+        var points = 0;
+        // FusionIC.Init walks Module01..Module32, stopping at the first name the core does not declare.
+        for (var i = 1; i < 33; i++)
+        {
+            if (!core.Part.MapPoints.TryGetValue($"Module{(i < 10 ? "0" : "")}{i}", out var px)) break;
+            points++;
+            var tile = grid.MapPointTile(core, px);
+            if (tile < 0 || !byTile.TryGetValue(tile, out var here)) continue;
+            foreach (var m in here)
+                if (!ReferenceEquals(m, core) && Fires(FusionModuleTrigger, m, catalog) && !modules.Contains(m))
+                    modules.Add(m);
+        }
+        return (modules, points);
     }
 
     /// <summary>

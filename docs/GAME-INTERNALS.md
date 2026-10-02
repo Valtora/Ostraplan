@@ -1291,8 +1291,11 @@ Two further properties of the repair map, both verified on stock 1.0.0.9:
 
 ## 13. The power network
 
-`TileUtils.GetPoweredTiles` is a connectivity graph (no draw/generation balance — the
-game authors no per-device draw, so a budget is not derivable).
+`TileUtils.GetPoweredTiles` is a connectivity graph: it decides which sources a device can
+reach. What then flows over it is `Powered`, which charges every device an authored rate
+([What a device draws](#what-a-device-draws-poweredrun) below). This section used to say the
+game authors no per-device draw. It does, on every power-info, and the budget it makes
+possible is what the Power Budget report reads.
 
 - **Sources** = installed COs firing `IsPowerGen` **or** `IsPowerStorage` **or**
   `IsRechargingContainer` (all with `IsInstalled`, not `IsOverrideOff`) that carry a
@@ -1348,6 +1351,136 @@ needs the whole ship to answer. The `use` point needs only the def and its rotat
 > `GridMath.MapPoint`), drawn by `ShipCanvas.DrawUsePoint` on the armed ghost, on a
 > selected part and, for every part at once, under the Access overlay. The reachability
 > answer stays with `WalkNetwork`.
+
+### What a device draws (`Powered.Run`)
+
+*Verified against game `1.0.1.5`, and the behaviour below confirmed in game.*
+
+Charge is kept in **kWh** (`StatPower`, `StatPowerMax`) and a power-info's **`fAmount`** is
+**kWh per game second**. `Powered.Update` calls `Run` once at least a second of game time has
+passed since the last one, and `Run` charges `fAmount × (now − last run)` through `UsePower`.
+The game's own load readout multiplies by 3600 to show kW. Some stock rates:
+
+| Device | `fAmount` | Draw |
+|---|---|---|
+| Heater / CO2 scrubber | 0.0011 | 3.96 kW |
+| `ItmAntenna02` (hardened transponder antenna) | 0.00448 | 16.1 kW |
+| `ItmAntenna01` | 0.00248 | 8.93 kW |
+| Air pump, cooler, each ship weapon at rest | 7.6e-5 | 274 W |
+| Powered door | 5e-6 | 18 W |
+| Fusion core in Battery Mode | 0.14 | 504 kW |
+
+- **What arms the draw.** `Powered.SetData` sets `bUsesPower` only when `fAmount > 0` **and**
+  `strUsePowerCT` is not null. Batteries, chargers and a running core name no use-power trigger.
+- **What fires it.** Stock devices name `TIsReadyUsePower`: `IsReadyUsePower` and not
+  `IsOverrideOff`. `IsReadyUsePower` is granted by the **`Power` ticker** (`CONDTickPower`,
+  `fPeriod` 0.000278 h, one game second), which 218 of the 238 condowners naming a power-info
+  carry. A device without it never draws.
+- **What stops it.** `Run` checks `IsOverrideOff` and `IsSignalOff` first and shuts the
+  device down instead of drawing. `IsOverrideOff` comes from a sensor panel's `nKnobBus` at 0
+  (`GasPump.UpdateRemote`, `Heater.UpdateRemote`), the generic on/off knob (`GUIOnOff`), or an
+  `Electrical` panel whose `override` is false. `IsSignalOff` comes from an `Electrical`
+  `status` of false, or a breaker input that is not `On` (§14a).
+- **What does not.** A sensor. `GasPump` and `Heater` read their `strInput01` only to decide
+  whether gas or heat moves, so an idle pump on Auto costs exactly what a running one does.
+  The on or off **form** does not matter either:
+- **An Off form switches itself on.** It ticks `Power` and draws like the on form, and the
+  first tick the network covers in full queues its `strIntPowerOn` (`MSHeater01OnAllow`,
+  tested on `TIsOff`), which mode-switches it to the on form. A device the designer wants off
+  needs one of the two conditions above, not its Off form.
+- **Where it draws from.** `UsePower` gathers, in order: every source on the tiles at its
+  `aInputPts` (only if `bAllowExtPower`), the ship's reactor for an `IsFusionCoreModule` within
+  five tiles of it, power sources it contains (`strPowerSourceCT`, default `TIsPowerStorage`),
+  and finally its own `StatPower`. `GatherPower` takes from generators first, then from
+  storage fullest first, so batteries on one network drain together. The points are
+  `aInputPts` whatever `IsPowerInputIgnore` says; that cond hides the build-cursor nubs and
+  nothing else.
+- **`bAllowExtPower` defaults to false.** The fusion modules leave it false, so their own
+  `fAmount` (39.6 kW on the coils and the laser array) never reaches the network.
+- **Draws that are not `Run`.** `UserPowerExt` charges a one-off amount: a weapon's shot, a
+  lift rotor at five times its rate while manoeuvring and ten on turbo (`Rotor`), and
+  `FusionIC`'s module billing (below).
+- **Capacity.** `PowerStoredMax` is `StatPowerMax × GetDamageState()`, where the damage state
+  is `1 − StatDamage / StatDamageMax`, and `ResetCurrentToMaxPower` clamps a worn battery's
+  charge down to it. `ItmBattery02` holds 80.96 kWh, `02b` 40.48 and `02c` 20.24. The "Used"
+  battery skin spawns at about a quarter charge.
+- **The game's own readout.** `PowerUsageRecorder` averages each source's recorded changes
+  over the last ten seconds into `PowerCurrentLoad` and `PowerRemainingTime`, which the
+  battery panel (`GUIBattery`) and the tooltip status bar show. That is a per-battery figure
+  on a ship already running; the design-time version is stored charge over steady draw.
+
+### The fusion core's power (`FusionIC`)
+
+*Verified against game `1.0.1.5`, and the behaviour below confirmed in game.*
+
+A core moves through three condowner forms, each step a `CondOwner.ModeSwitch`:
+
+| Form | Conds | Power-info |
+|---|---|---|
+| `…Off` | `IsOff` | `fAmount` 0.14, `strIntPowerOn` → Batt |
+| `…Batt` (Battery Mode) | `IsPowerConduit` | `fAmount` 0.14, on → Ignition, off → Off |
+| `…Ignition` (Running) | `IsPowerGen`, `IsReadyFusion` | `fAmount` 3.4e7, no use-power trigger, `strRechargeCT` `TIsReadyRecharge`, `bAllowExtPower` false |
+
+- **Bus at OFF.** `FusionIC.Run` sets `IsOverrideOff` on the core on every run, so it draws
+  nothing. `GUIReactor.SetPowerBus` clears it when the knob moves.
+- **Battery Mode.** With the bus on, the Off form draws its 504 kW and switches to Batt on the
+  first fully covered tick. Batt draws the same 504 kW for as long as it sits there, and a
+  tick the batteries cannot cover sends it back to Off through its `strIntPowerOff`.
+- **Module billing.** Every 0.27 s, while the bus is on, `FusionIC.Run` adds up a cost for the
+  modules whose switches are on and charges it with `UserPowerExt`:
+  - capacitors charging: `0.339 × rate × n²` kWh per second, where the rate is
+    `clamp((1 − StatICCapA) / 10, 0.04, 0.1)`. The capacitors share one `StatICCapA` that climbs
+    to 0.996 in about 19 s, so the charge costs about 0.34 kWh × n² and peaks at 122 kW × n².
+    The square looks like a bug (the count is applied twice) and is how the game bills it.
+  - core pumps, cryo pumps, pellet feeders, fuel regulators and the laser alignment: 7.6e-5 kWh
+    per second, 274 W, each.
+  - field coils: `5700 × dt / 3600` kWh, 5.7 MW, per coil, doubled with both coils on. One
+    Battery02 lasts under a minute against it.
+  Before ignition the core's own power-info allows external power, so the batteries pay.
+  Once it runs, the Ignition form's does not, and the bill comes out of the core's own charge.
+- **Ignition.** With the ignition switch on, capacitors above 0.95, `StatICPressureA` below
+  0.15, laser alignment and pellet feed on, `FusionIC` adds `IsReadyFusionIgnition` and zeroes
+  `IsPowered`, and the next fully covered tick queues the switch to the Ignition form. The
+  switch on before those hold calls `ShutDown`, which resets the whole panel.
+- **Running.** `Fusion()` writes the core's `StatPower` back to 3.4e7 kWh every 0.27 s. The
+  Ignition form is `IsPowerGen` with a `PowerOutput`, `GatherPower` drains generators first,
+  so every device on its network runs off the reactor and the batteries stop draining.
+  **This does not need an MHD.**
+- **Staying lit.** `Fusion()` shuts the core down on a zero pellet rate, a reactant tank that
+  cannot cover the tick, or a core temperature at zero. The pellet rate is zero unless the bus
+  is on, the pellet feed and fuel regulator switches are on, and there is a laser with a
+  capacitor and a feeder with a regulator. Shutdown goes all the way to Off: the panel resets
+  to the template, the knob included, and every module gets `IsOverrideOff`.
+- **Recharging needs the MHD.** `FusionIC.Run` sets `IsReadyRecharge` on the core while the
+  bus is on, `chkMHDOn` is set and an MHD sits on a module point (in any form), and clears it
+  otherwise. The Ignition form's `TIsReadyRecharge` then runs `Powered.Recharge` on each power
+  tick: every `IsPowerStorage` source filed on the tiles at the core's `aInputPts` and its
+  `PowerOutput` gains `0.001 × (PowerStoredMax − StatPower)`. That fraction is per run, not per
+  second, so a battery reaches 90% in `1000 × ln 10` s (38 min) and 99% in 77 min at normal
+  speed, whatever its size. At high time compression a run spans more game time and the
+  batteries charge more slowly. Only a run spanning over 1800 s scales it (by 973).
+- **BATT charges too.** `SetPowerBus` clears `IsReadyRecharge` on BATT and sets it on CHRG,
+  but `FusionIC.Run` writes it from the MHD switch alone every 0.27 s, so a running core on
+  BATT with its MHD on recharges exactly as on CHRG. The thrust ratio does not change
+  charging either; `StatICPwrMHD` only feeds the panel's meter.
+
+### Station generators
+
+`ItmReactorIC02Ignition` and `ItmReactorIC02IgnitionMini` ("Power Uplink: Station") carry
+`IsReactorIC02`, not `IsReactorIC`, so no `FusionIC` is attached. They are `IsPowerGen` with
+`IsReadyRecharge` and 500 kWh from the start, and their `PowerFusionICStation` ticker adds
+1 kWh every 0.000278 h, a sustained 3.6 MW. The one stock `ItmReactorIC02Off` is a trap: it
+ticks `Power`, draws 504 kW and switches itself to Batt, and with no `FusionIC` nothing ever
+lights it.
+
+> **Ported in Ostraplan:** `PowerBudget` (the steady draw, capacity, networks, the core's
+> states, Battery Mode, billing and recharge), shown by `PowerWindow` (Design ▸ Power
+> Budget). It sums and divides and stops there: nothing is stepped forward in time.
+> `PowerInfoDef` carries the fields, `Catalog.TicksReadyToUsePower` and
+> `Catalog.TickerPowerSupplyKw` resolve the tickers.
+> **Re-verify per patch:** the stock `fAmount`s, the `FusionIC` billing constants and the
+> stays-lit conditions, the recharge fraction, and whether `FusionIC.Run` still overrides the
+> BATT position. `PowerBudgetTests` pins the rates and sweeps the stock fleet's lit cores.
 
 ---
 
@@ -4412,6 +4545,7 @@ sets), giving a 220-ship rooms **and** certification gate. Only **Babak / Babak 
 | Per-body atmospheres and gravity (`BodyOrbit.GetAtmosphereAtDistance`, `GetGravAccelScalar`, `GasContainer.GetGasDensity`) | ported | `Atmosphere` |
 | Orbits, orbital mechanics, station-keeping | excluded (a simulation, not a plan) | never ported |
 | Power connectivity (`GetPoweredTiles`, `Powered.PowerConnected`) | ported | `PowerNetwork` |
+| Power budget (`Powered.Run` draw, `PowerStoredMax`, `FusionIC` billing, stays-lit and recharge) | ported (the steady state at load; nothing stepped forward, §13) | `PowerBudget` |
 | Ship diagnostic (`ShipStatus.PrintStatus` / `NavModDiagnostics`) | ported (4 rows diverge — a plan is not a running ship, §22) | `ShipDiagnostics` |
 | Crew walkability + JPS adjacency (`Tile.IsWalkable`, `JumpPointSearch`) | ported (fire and the EVA-gravity gate excluded; door pressure approximated by room Void) | `WalkNetwork` |
 | Interaction reach (`Interaction.Triggered` range + LOS) | ported | `WalkNetwork`, `LineOfSight` |

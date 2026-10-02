@@ -463,6 +463,9 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
     hundred points buy nothing and broadside drag is never reduced.
   - **Rotors need air.** A heavy lift rotor gives its rated thrust at 100 kPa, nothing in
     vacuum, and half as much again in Venus's deep cloud layer.
+- **Power Budget…** (Design): what everything switched on draws, what the batteries hold,
+  and how long they last. In game you only get this one battery at a time, on its own
+  panel, once the ship is flying. See [The power budget](#the-power-budget) below.
 - **Ship Re-skin…** (Design): swap every wall and/or floor to a different cooverlay
   skin, ship-wide, in one undo step. Sprites and names only — rooms, airtightness
   and rating are untouched. (Named "Re-skin" so it isn't confused with the app's
@@ -759,8 +762,8 @@ Residence", and the tab says "Asteroid Residence". Hover a tab for the full name
 file it is in.
 
 Each tab is a design in full: its own undo history, its own view (zoom, pan,
-orientation and overlays), its own zones and its own **Ship Rating**, **Diagnostics**
-and **Flight Dynamics** reports, which close with it. An unsaved tab wears the same
+orientation and overlays), its own zones and its own **Ship Rating**, **Diagnostics**,
+**Flight Dynamics** and **Power Budget** reports, which close with it. An unsaved tab wears the same
 **\*** in the strip as the title bar, and closing the window asks about each one in
 turn, showing you the design it means.
 
@@ -1546,7 +1549,7 @@ half-empty ship is priced and flown as a half-empty ship.
 
 ## Power
 
-Two aids for wiring a ship's electrics, both driven by the game's own power model.
+Three aids for a ship's electrics, all driven by the game's own power model.
 
 - **Connector badges.** A powered part shows labelled connector badges while you're
   placing it (and when it's selected): a lightning glyph plus **IN** (blue, where it
@@ -1560,9 +1563,44 @@ Two aids for wiring a ship's electrics, both driven by the game's own power mode
   marker** on its plug. Turn it on to confirm at a glance that everything is hooked
   up; the toolbar tooltip says how many device plugs aren't connected.
 
-This shows *connectivity* — what's wired to a live source — not a power budget:
-Ostranauts doesn't publish per-device draw, so a generation-vs-load balance isn't
-something Ostraplan can honestly compute.
+PowerViz shows *connectivity*: what is wired to a live source. What that source has to
+carry is the third aid, the power budget.
+
+### The power budget
+
+**Design ▸ Power Budget…** adds up what every switched-on device draws, at the rate the
+game charges it, and sets it against what the batteries hold. The headline is how long
+until something goes dark; below it is one card per **network**, meaning every battery and
+generator joined by conduit, with the devices that draw from it.
+
+- **Load, Stored, and On batteries alone** for each network, then its devices grouped and
+  sorted by draw, so you can see that the hardened antenna is a third of the bill.
+- **What counts as on.** A device draws whenever it is installed, connected, and nothing
+  holds it off. A pump waiting on its sensor costs as much as a running one: the sensor
+  decides whether gas moves, not whether it draws. A device the plan has **switched off**
+  still counts if nothing keeps it off, because the game switches it straight back on once
+  power reaches it. The report flags it: set its bus knob to **Off**, or wire it to a signal
+  box.
+- **Several networks.** A spare battery on a run of its own helps nobody, and gets a
+  one-line card saying nothing draws from it. The headline is the network that runs out
+  first.
+- **Not connected** lists devices that would draw but reach no battery or generator.
+- **The reactor card** says how the fusion core spawns (cold, in Battery Mode, running, or
+  set running but missing what it needs to stay lit, with the reason). It also says what
+  starting it costs: about 504 kW in Battery Mode, how long the batteries at its power
+  input hold that, the capacitors' one-off charge, and the warning that field coils
+  switched on before ignition draw 5.7 MW each. Then it covers what it does once it runs.
+  A running core powers its network with no practical limit, with or without an MHD.
+  Recharging the batteries is what needs the MHD, fitted and switched on, and takes them to
+  90% in 38 minutes and 99% in 77, from empty.
+- **Station generators** (a residence's power uplink) supply about 3.6 MW and cover any
+  ordinary load.
+- **Times are game time** at normal speed. Battery capacity follows painted condition.
+
+It is a budget, not a run. Each figure is the game's own rate summed once, and endurance is
+one division. A battery that empties early does not switch anything off here. Per-use
+draws are not counted: a weapon's shot, or a lift rotor while manoeuvring. Neither are
+batteries sitting in a charging locker.
 
 ### Wiring devices together
 

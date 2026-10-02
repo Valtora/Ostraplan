@@ -103,4 +103,32 @@ public class DefsParsingTests
         var t = CondTriggerDef.Parse(El("""{ "strName":"TY", "aReqs":["IsA"] }"""));
         Assert.True(t.BAnd);
     }
+
+    [Fact]
+    public void PowerInfoDef_reads_the_draw_and_what_arms_it()
+    {
+        // AirPump02 as the game ships it.
+        var pi = PowerInfoDef.Parse(El("""
+            { "strName":"AirPump02", "aInputPts":["PowerA"], "fAmount":7.6e-05, "strIntPowerOn":"MSAirPump02OnAllow",
+              "strUsePowerCT":"TIsReadyUsePower", "strRechargeCT":null, "bAllowExtPower":true,
+              "strOverrideCond":"IsTurboOn", "fOverrideAmount":0.00015 }
+            """));
+        Assert.Equal(["PowerA"], pi.InputPointNames);
+        Assert.Equal(7.6e-05, pi.Amount);
+        Assert.Equal("TIsReadyUsePower", pi.UsePowerCT);
+        Assert.Null(pi.RechargeCT);
+        Assert.True(pi.AllowExtPower);
+        Assert.Equal("IsTurboOn", pi.OverrideCond);
+        Assert.Equal(0.00015, pi.OverrideAmount);
+        Assert.True(pi.Draws);
+    }
+
+    [Fact]
+    public void PowerInfoDef_forbids_external_power_unless_it_says_otherwise()
+    {
+        // JsonPowerInfo.bAllowExtPower is a plain bool, so the five batteries that leave it out read false.
+        var pi = PowerInfoDef.Parse(El("""{ "strName":"Battery03", "aInputPts":["PowerSource"], "fAmount":1.0 }"""));
+        Assert.False(pi.AllowExtPower);
+        Assert.False(pi.Draws);   // no strUsePowerCT, so Powered.SetData never arms a draw
+    }
 }

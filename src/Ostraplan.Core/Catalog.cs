@@ -208,6 +208,15 @@ public sealed record PartDef(
     /// input point or an output point) — i.e. it should show connector nubs and take part in PowerViz.</summary>
     public bool IsPowered => PowerInputPoints.Count > 0 || PowerOutputPoint is not null;
 
+    /// <summary>The power-info this part's condowner names through <c>jsonPI</c>, or null when it names none (or
+    /// one this install does not define). What <see cref="PowerBudget"/> reads the draw from.</summary>
+    public PowerInfoDef? PowerInfo { get; init; }
+
+    /// <summary>Where this part actually draws from: every one of its power-info's <c>aInputPts</c>, resolved.
+    /// The same as <see cref="PowerInputPoints"/> except on a part carrying <c>IsPowerInputIgnore</c>, which hides
+    /// the nubs and nothing else: <c>Powered.UsePower</c> walks <c>aInputPts</c> whatever the cond says.</summary>
+    public IReadOnlyList<(double X, double Y)> PowerDrawPoints { get; init; } = [];
+
     /// <summary>The interactions this part offers (its condowner's <c>aInteractions</c>, after any cooverlay
     /// substitutions), as names into <c>data/interactions</c>. Resolved to <see cref="InteractionDef"/>s per part by
     /// <see cref="Catalog.InteractionsFor"/>, which is what decides whether crew can reach and operate it (see
@@ -621,6 +630,45 @@ public sealed class Catalog
             if (TickerTemplates.TryGetValue(name, out var tmpl))
                 result.Add((name, tmpl));
         return result;
+    }
+
+    /// <summary>The stock ticker that keeps a powered device drawing. Only consulted by name in a synthetic catalog,
+    /// which carries no ticker templates to resolve.</summary>
+    public const string PowerTicker = "Power";
+
+    private readonly ConcurrentDictionary<string, bool> _ticksReadyUsePower = new(StringComparer.Ordinal);
+
+    /// <summary>
+    /// True when one of the def's tickers grants <c>IsReadyUsePower</c>, the condition <c>TIsReadyUsePower</c>
+    /// wants before <c>Powered.Run</c> draws anything. In stock that is the <see cref="PowerTicker"/>, whose
+    /// <c>CONDTickPower</c> loot grants it every game second, on 218 of the 238 condowners that name a power-info.
+    /// Resolved through the ticker and loot data rather than by name, so a mod's own ticker counts.
+    /// </summary>
+    public bool TicksReadyToUsePower(PartDef part) => _ticksReadyUsePower.GetOrAdd(part.DefName, _ =>
+        part.TickerNames.Any(name =>
+            TickerTemplates.TryGetValue(name, out var tmpl)
+                ? Json.Str(tmpl, "strCondLoot") is { } loot && LootConds(loot).Contains("IsReadyUsePower")
+                : name == PowerTicker));
+
+    /// <summary>
+    /// The kW the def's own tickers add to its <c>StatPower</c>: each ticker's cond-loot <c>StatPower</c> grant
+    /// divided by its <c>fPeriod</c>, which the game keeps in hours. This is how a station generator supplies
+    /// power without a reactor behind it: <c>ItmReactorIC02Ignition</c> ticks <c>PowerFusionICStation</c>, which
+    /// adds 1 kWh every 0.000278 h, so 3.6 MW. Zero for anything that is not refilled this way.
+    /// </summary>
+    public double TickerPowerSupplyKw(PartDef part)
+    {
+        double kw = 0;
+        foreach (var (_, tmpl) in TickersFor(part))
+        {
+            var period = Json.Dbl(tmpl, "fPeriod");
+            if (period <= 0 || Json.Str(tmpl, "strCondLoot") is not { } lootName
+                || !Loots.TryGetValue(lootName, out var loot)) continue;
+            foreach (var group in loot.CoUnits)
+                if (group.Count > 0 && group[0] is { Name: "StatPower", Positive: true } unit)
+                    kw += unit.Min / period;
+        }
+        return kw;
     }
 
     private readonly ConcurrentDictionary<string, PartDef?> _placed = new(StringComparer.Ordinal);
@@ -1467,11 +1515,16 @@ public sealed class Catalog
         // nubs on a part carrying IsPowerInputIgnore (Powered draw path). A source (generator/battery) instead
         // carries a PowerOutput map point — the flood's start tile. Resolve names → (x, y) offsets now.
         var powerInputs = new List<(double X, double Y)>();
+        var powerDraw = new List<(double X, double Y)>();
+        PowerInfoDef? powerInfo = null;
         if (co is not null && !string.IsNullOrEmpty(co.Jpi)
-            && !startNames.Contains("IsPowerInputIgnore")
             && index.Type("powerinfos").TryGetValue(co.Jpi, out var rawPi))
-            foreach (var ptName in PowerInfoDef.Parse(rawPi.El).InputPointNames)
-                if (co.MapPoints.TryGetValue(ptName, out var pt)) powerInputs.Add(pt);
+        {
+            powerInfo = PowerInfoDef.Parse(rawPi.El);
+            foreach (var ptName in powerInfo.InputPointNames)
+                if (co.MapPoints.TryGetValue(ptName, out var pt)) powerDraw.Add(pt);
+            if (!startNames.Contains("IsPowerInputIgnore")) powerInputs.AddRange(powerDraw);
+        }
         (double X, double Y)? powerOutput =
             co is not null && co.MapPoints.TryGetValue("PowerOutput", out var po) ? po : null;
 
@@ -1508,6 +1561,8 @@ public sealed class Catalog
             SlotKeys = co?.SlotKeys ?? [],
             PowerInputPoints = powerInputs,
             PowerOutputPoint = powerOutput,
+            PowerInfo = powerInfo,
+            PowerDrawPoints = powerDraw,
             InteractionNames = interactions,
         };
     }

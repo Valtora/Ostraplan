@@ -9,6 +9,21 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
+## [Unreleased]
+
+### Added
+- **A power budget: how long your batteries last.** Design ▸ Power Budget adds up what every
+  switched-on device draws, at the rate the game charges it, and sets it against what the
+  batteries hold. The headline is how long until something goes dark. Below it, each conduit
+  network gets its own card with its load, stored charge and time on batteries, and its devices
+  sorted by draw. A device the plan has switched off but the game would turn back on is flagged
+  with how to keep it off. The fusion core gets a card of its own. It says how the core spawns
+  and what starting it costs (504 kW in Battery Mode, and how long your batteries hold that).
+  It warns that field coils switched on before ignition draw 5.7 MW each. And it says whether
+  the running core recharges the batteries: that needs an MHD, fitted and switched on, while
+  powering the ship does not. Per-use draws such as weapon shots aren't counted, and the window
+  says so. Thanks to Thanatha.
+
 ## [1.23.3] 2026-09-28, shorter text and a quieter dock check
 
 ### Changed

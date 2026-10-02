@@ -1371,6 +1371,7 @@ public partial class MainWindow : Window
         // so rather than going on showing figures for a ship that no longer exists (see ReportWindow).
         session.RatingReport?.MarkStale();
         session.DiagnosticsReport?.MarkStale();
+        session.PowerReport?.MarkStale();
         // The docking check goes stale the same way, and its ghosted ship stays put on purpose: editing to clear
         // a blockage is what it is for, and a pose that moved with every edit would be the target shifting under
         // you. Re-run is what re-measures it (see DockingWindow.MarkStale).
@@ -1397,6 +1398,7 @@ public partial class MainWindow : Window
         session.RatingReport?.Close();
         session.DiagnosticsReport?.Close();
         session.FlightReport?.Close();   // read-only, but a flight profile for a design that is no longer open is noise
+        session.PowerReport?.Close();    // the same, for a power budget
         session.Manifest?.Close();
     }
 
@@ -1746,6 +1748,64 @@ public partial class MainWindow : Window
                 rcs.RcsThrustNewtons, rcs.RcsDeltaV,
                 designName);
         });
+
+    // ---- Power budget ----
+
+    private async void OnPowerClick(object sender, RoutedEventArgs e) => await ShowPowerReport();
+
+    /// <summary>
+    /// Measure the design's power budget and show it, or refresh the one already open. One walk of the parts plus
+    /// the conduit floods PowerViz already runs, so no progress dialog, but off-thread and behind the document freeze
+    /// like every other engine read.
+    /// </summary>
+    private async Task ShowPowerReport()
+    {
+        if (_analysing || _doc is null || _catalog is null) return;
+        if (_doc.Placements.Count == 0)
+        {
+            Dlg.Show(this, "Place some parts before running the power budget.", "Power Budget",
+                MessageBoxButton.OK, MessageBoxImage.Information);
+            return;
+        }
+
+        _analysing = true;
+        var (doc, catalog, designName) = (_doc, _catalog, _meta.Name);
+        var session = _active;   // see ShowRatingReport: the window outlives this method, the shim does not
+        PowerBudgetReport report;
+        Mouse.OverrideCursor = Cursors.Wait;
+        using (FreezeDoc())
+        {
+            try
+            {
+                report = await MeasurePower(doc, catalog);
+            }
+            finally
+            {
+                Mouse.OverrideCursor = null;
+                _analysing = false;
+            }
+        }
+
+        if (session.PowerReport is null)
+        {
+            var window = new PowerWindow { Owner = this };
+            window.RerunRequested += async () => await ShowPowerReport();
+            window.Closed += (_, _) => session.PowerReport = null;
+            session.PowerReport = window;
+            window.SetReport(report, designName);
+            window.Show();
+        }
+        else
+        {
+            session.PowerReport.SetReport(report, designName);
+            session.PowerReport.Activate();
+        }
+    }
+
+    /// <summary>The off-thread half of <see cref="ShowPowerReport"/>, static for the reason
+    /// <see cref="MeasureFlight"/> gives.</summary>
+    private static Task<PowerBudgetReport> MeasurePower(ShipDocument doc, Catalog catalog) =>
+        Ui.OffThread(() => PowerBudget.Measure(doc, ShipGrid.FromDocument(doc, catalog), catalog));
 
     // ---- Bill of materials ----
 
@@ -6363,6 +6423,8 @@ public partial class MainWindow : Window
         // Atmospheric flight on a design with no drive and no rotors is not a report, it is a column of zeroes.
         m.Items.Add(MenuAction("Flight Dynamics…", () => OnFlightClick(this, e),
             enabled: _doc is not null && !_doc.IsResidence));
+        // Not gated on a residence: an apartment has lights, pumps and a station uplink too.
+        m.Items.Add(MenuAction("Power Budget…", () => OnPowerClick(this, e), enabled: _doc is not null));
         m.Items.Add(new Separator());
         // One entry: both readings ("will these two mate" and "will this airlock mate with anything") are the
         // same feature asked at two ranges, and splitting them made the tool look like two (issue #47).

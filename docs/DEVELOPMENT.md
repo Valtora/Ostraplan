@@ -66,6 +66,7 @@ The app takes a few developer flags, each of which renders something and exits:
 | `--dlgsmoke <dir>` | The standard dialogs, light and dark, as PNGs. |
 | `--invsmoke <dir>` | The inventory viewer: a synthesized backpack, an editable one, rotation, the first real save container, and an item's info panel. Needs the install. |
 | `--mansmoke <dir>` | The item manifest off a real save's ship, collapsed and expanded, so the table's columns can be held against each other. Needs the install. |
+| `--powersmoke <dir>` | The Power Budget for four stock ships that between them show every card (a running core feeding one network and recharging another, a cold core, a station generator with spare batteries, a small ship on batteries alone), light and dark. Needs the install. |
 | `--palsmoke <dir>` | The palette's category strip, dark and light, at three different selections, for checking that a category keeps its position and that the toggle style still chains to Fluent. |
 | `--navsmoke <dir>` | The nav console arrange board, at rest and mid-drag, with the modules drawn from the game's own prefabs, so the screen layout and the art can be eyeballed against the game's. Writes `navsmoke-art.txt` instead of art when the read fails. Needs the install. |
 | `--svgsmoke <dir>` | A real ship's room map to SVG, validated as XML. Needs the install. |

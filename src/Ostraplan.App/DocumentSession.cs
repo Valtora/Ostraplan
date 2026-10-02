@@ -130,6 +130,7 @@ internal sealed class DocumentSession
     public RatingReportWindow? RatingReport { get; set; }
     public DiagnosticsWindow? DiagnosticsReport { get; set; }
     public FlightWindow? FlightReport { get; set; }
+    public PowerWindow? PowerReport { get; set; }
 
     /// <summary>The item manifest held open beside the editor, on the same terms as the reports above. It is an
     /// edit route as well as a list — its rows rename and delete — so it belongs to one design as firmly as they

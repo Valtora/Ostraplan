@@ -101,6 +101,29 @@ has held up and some of it has not.
 The line that remains is the same one as before. **A strike is measured, a condition is
 authored.** Simulate still stores nothing, and still cannot.
 
+### Power budget
+
+A design can say what its switched-on devices draw, what its batteries hold, how long they
+last, and what the fusion core costs to start and gives back once it runs. This reverses the
+line drawn under **Simulating the ship** below, and the reversal is worth recording because
+the original reasoning rested on a fact that was wrong.
+
+The decline said the game authors no per-device rates, so a budget would need a full network
+sim. It does author them. Every record in `data/powerinfos` carries an `fAmount`, the kWh a
+device draws per game second, and `Powered.Run` charges exactly that once a second. A
+battery's capacity is its `StatPowerMax`. The game even shows the result: each battery's own
+panel prints its load and the time it has left. The claim was repeated in GAME-INTERNALS §13
+and in two code comments, and nobody checked it against the data until a player asked for the
+feature on Discord.
+
+With the rates authored, a budget is a measurement of the same kind as a peak acceleration:
+the game's own constants, summed at the state the ship loads in, and one division for the
+endurance. That is in scope. What stays out is the same thing as before, stepping it forward
+in time: a battery that runs out partway and drops its devices, a sensor that cycles a pump,
+fuel burning down, recharge at a time compression the player picks. **One division is a
+measurement; running it is a simulation.** The report says so on screen, and says what it
+leaves out.
+
 ### Often the honest answer is "that's a mod"
 
 A request that wants a station fitting *buildable*, as against placeable, is still asking
@@ -119,8 +142,9 @@ tool nothing.
 - **Reading a starting point in**: a core or modded ship template, a residence template,
   or your own ship or apartment out of a save.
 - **Answering questions the layout can answer**: rooms, rating, propulsion figures,
-  atmospheric flight characteristics, bill of materials, power connectivity, crew reach,
-  and what a single impact would break.
+  atmospheric flight characteristics, bill of materials, power connectivity and the power
+  budget (see [Power budget](#power-budget)), crew reach, and what a single impact would
+  break.
 - **Costing the work**: what a design takes to build from scratch, and what it takes to
   retrofit a ship you already have into it.
 - **Writing a design into the game**: as a spawnable local mod, as a new ship added
@@ -147,9 +171,11 @@ Each of these is a deliberate no, not a backlog item.
   designed. An apartment is in scope precisely because a design is the input; buying one
   is not.
 - **Simulating the ship.** No power, gas, thermal, crew behaviour, or orbital
-  simulation. The game authors no per-device rates, so a budget would need a full network
-  sim and a dishonest one is worse than none. PowerViz and WalkViz answer *connectivity*
-  and *reach* from the layout, which is static data, and neither runs a sim behind it.
+  simulation. PowerViz and WalkViz answer *connectivity* and *reach* from the layout, which
+  is static data, and neither runs a sim behind it. The **power budget** is on the measuring
+  side of this line: the game authors every device's draw, so a steady load against stored
+  charge is one division (see [Power budget](#power-budget)). Batteries emptying one at a
+  time, sensors cycling and fuel burning down are the simulation, and stay out.
   Propulsion and Flight Dynamics evaluate the game's own expressions at a point you
   choose — the same thing a peak-acceleration figure is — rather than flying anything.
   **A single impact is on the same footing.** Given a strike you specify, the game's own

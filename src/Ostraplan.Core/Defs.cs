@@ -607,16 +607,63 @@ public sealed record CondOwnerDef(
 
 /// <summary>
 /// A power-info template (<c>data/powerinfos</c>, the game's <c>JsonPowerInfo</c> / <c>dictPowerInfo</c>): the
-/// electrical profile a powered device references by name through its condowner's <c>jsonPI</c> field. Only the
-/// fields Ostraplan needs to visualise connectivity are kept — <see cref="InputPointNames"/> (<c>aInputPts</c>),
-/// the map-point names where the device plugs into the conduit network. The runtime draw/recharge fields
-/// (<c>fAmount</c>, <c>strUsePowerCT</c>, …) drive the in-game power <i>simulation</i>, a non-goal here.
+/// electrical profile a powered device references by name through its condowner's <c>jsonPI</c> field.
+/// <see cref="InputPointNames"/> (<c>aInputPts</c>) are the map-point names where the device plugs into the conduit
+/// network; the rest is what <c>Powered</c> reads to decide whether and how fast the device draws, which is what
+/// <see cref="PowerBudget"/> sums.
 /// </summary>
 public sealed record PowerInfoDef(string Name, string[] InputPointNames)
 {
+    /// <summary><c>fAmount</c>: kWh per game second. <c>Powered.Run</c> draws <c>fAmount × (now − last run)</c>
+    /// about once a second while <see cref="UsePowerCT"/> fires. On a battery the number is never read as a draw,
+    /// and on a running fusion core it is the <c>StatPower</c> <c>FusionIC.Fusion</c> writes back every 0.27 s,
+    /// which is what makes a lit reactor an unlimited supply.</summary>
+    public double Amount { get; init; }
+
+    /// <summary><c>strUsePowerCT</c>: the trigger that must fire for the device to draw. Null on a part that never
+    /// draws on its own account (batteries, chargers, a running core). Stock devices name <c>TIsReadyUsePower</c>,
+    /// which wants the <c>IsReadyUsePower</c> the per-second <c>Power</c> ticker grants and forbids
+    /// <c>IsOverrideOff</c>.</summary>
+    public string? UsePowerCT { get; init; }
+
+    /// <summary><c>strRechargeCT</c>: the trigger under which the part pushes charge into the batteries at its
+    /// power points (<c>Powered.Recharge</c>). Only the running reactor forms name one (<c>TIsReadyRecharge</c>).</summary>
+    public string? RechargeCT { get; init; }
+
+    /// <summary><c>bAllowExtPower</c>: whether the device may draw from the conduit network at all. The JSON default
+    /// is false, and the fusion core's modules leave it false: they run on the <c>StatPower</c> <c>FusionIC</c>
+    /// writes into them directly, and the core bills the network for them itself.</summary>
+    public bool AllowExtPower { get; init; }
+
+    /// <summary><c>strOverrideCond</c>: a condition that swaps the draw for <see cref="OverrideAmount"/> while it is
+    /// set. Stock uses it once, <c>IsTurboOn</c> on <c>AirPump02</c>.</summary>
+    public string? OverrideCond { get; init; }
+
+    /// <summary><c>fOverrideAmount</c>: the draw while <see cref="OverrideCond"/> is set, in kWh per game second.
+    /// <c>Powered.SetData</c> ignores it unless it is positive.</summary>
+    public double OverrideAmount { get; init; }
+
+    /// <summary><c>strIntPowerOn</c>: the interaction a device queues on itself once a tick has been fully supplied
+    /// and it is not yet <c>IsPowered</c>. On an Off form this is the switch to the on form, which is how a device
+    /// installed off comes on by itself the moment the network can carry it.</summary>
+    public string? PowerOnInteraction { get; init; }
+
+    /// <summary>True when <c>Powered.SetData</c> arms the draw: a positive <c>fAmount</c> and a use-power trigger.
+    /// Whether the trigger then fires is the device's own state, which <see cref="PowerBudget"/> works out.</summary>
+    public bool Draws => Amount > 0 && UsePowerCT is not null;
+
     public static PowerInfoDef Parse(JsonElement e) => new(
         Json.Str(e, "strName") ?? "",
-        Json.StrArray(e, "aInputPts"));
+        Json.StrArray(e, "aInputPts"))
+    {
+        Amount = Json.Dbl(e, "fAmount"),
+        UsePowerCT = Json.Str(e, "strUsePowerCT"),
+        RechargeCT = Json.Str(e, "strRechargeCT"),
+        AllowExtPower = Json.Bool(e, "bAllowExtPower"),
+        OverrideCond = Json.Str(e, "strOverrideCond"),
+        OverrideAmount = Json.Dbl(e, "fOverrideAmount"),
+        PowerOnInteraction = Json.Str(e, "strIntPowerOn"),
+    };
 }
 
 /// <summary>

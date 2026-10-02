@@ -53,6 +53,18 @@ public partial class App : Application
             return;
         }
 
+        // preview render: the Power Budget for a handful of stock ships covering each reactor state, light and dark.
+        // Needs the install.
+        if (e.Args.Contains("--powersmoke"))
+        {
+            var dir = e.Args.SkipWhile(a => a != "--powersmoke").Skip(1).FirstOrDefault() ?? AppContext.BaseDirectory;
+            Directory.CreateDirectory(dir);
+            try { RenderPowerBudgets(dir); }
+            catch (Exception ex) { File.WriteAllText(Path.Combine(dir, "powersmoke-error.txt"), ex.ToString()); }
+            Shutdown(0);
+            return;
+        }
+
         // preview render: draw representative dialogs to PNGs (for eyeballing the modal styling), then exit.
         if (e.Args.Contains("--dlgsmoke"))
         {
@@ -830,6 +842,43 @@ public partial class App : Application
             review.RenderSample();
             Shot((FrameworkElement)review.Content, review.Width, review.Height,
                 Path.Combine(dir, $"bundle-review-{mode}.png"));
+        }
+    }
+
+    /// <summary>
+    /// <c>--powersmoke</c>: the Power Budget for stock ships that between them show every card the window has. A
+    /// running core feeding one network and recharging another (Edelweiss), a cold core (Halberd Off), a station
+    /// generator with spare batteries on runs of their own (ATC 01), and a small ship on batteries alone
+    /// (AI Training).
+    /// </summary>
+    private static void RenderPowerBudgets(string dir)
+    {
+        var env = GameEnv.Locate(null);
+        var index = DataIndex.Load(env);
+        var catalog = Catalog.Build(index);
+        var files = TemplateImport.ListShipFiles(index);
+
+        foreach (var name in new[] { "Edelweiss", "Halberd Off", "ATC 01", "AI Training" })
+        {
+            if (files.FirstOrDefault(f => f.Name == name) is not { } file) continue;
+            var doc = TemplateImport.LoadFile(file.Path, catalog).Doc;
+            var report = PowerBudget.Measure(doc, ShipGrid.FromDocument(doc, catalog), catalog);
+            foreach (var mode in new[] { "dark", "light" })
+            {
+                ThemeManager.Apply(mode);
+                var body = new PowerWindow().Preview(report, name);
+                const double width = 600;
+                body.Measure(new Size(width, double.PositiveInfinity));
+                body.Arrange(new Rect(0, 0, width, body.DesiredSize.Height));
+                body.UpdateLayout();
+                var bmp = new RenderTargetBitmap((int)width, Math.Max(1, (int)Math.Ceiling(body.DesiredSize.Height)),
+                    96, 96, PixelFormats.Pbgra32);
+                bmp.Render(body);
+                var enc = new PngBitmapEncoder();
+                enc.Frames.Add(BitmapFrame.Create(bmp));
+                using var fs = File.Create(Path.Combine(dir, $"power-{name.Replace(' ', '-')}-{mode}.png"));
+                enc.Save(fs);
+            }
         }
     }
 
