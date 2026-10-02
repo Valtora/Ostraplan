@@ -9,7 +9,7 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
-## [Unreleased]
+## [1.24.0] 2026-10-02, a power budget
 
 ### Added
 - **A power budget: how long your batteries last.** Design ▸ Power Budget adds up what every
