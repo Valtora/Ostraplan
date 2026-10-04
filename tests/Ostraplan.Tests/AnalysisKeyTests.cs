@@ -169,6 +169,41 @@ public class AnalysisKeyTests
         Assert.Equal(before, doc.AnalysisKey());
     }
 
+    // ---- the settings the no-power warning reads ----
+
+    [Fact]
+    public void Turning_a_bus_knob_moves_it()
+    {
+        var doc = Ship(Cat());
+        var before = doc.AnalysisKey();
+        doc.Placements[4].Device = new DeviceSettings { Bus = DeviceBusMode.Off };
+        Assert.NotEqual(before, doc.AnalysisKey());
+    }
+
+    [Fact]
+    public void Setting_a_reactor_panel_moves_it()
+    {
+        var doc = Ship(Cat());
+        var before = doc.AnalysisKey();
+        doc.Placements[4].Reactor = new ReactorSettings { Bus = ReactorPowerBus.Chrg };
+        Assert.NotEqual(before, doc.AnalysisKey());
+    }
+
+    [Fact]
+    public void Filling_a_reactant_tank_moves_it_and_any_other_fill_leaves_it()
+    {
+        var cat = new Fixtures().Floor("Floor").Part(Propulsion.He3TankDef).Part("Canister").Build();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Floor", 0, 0), Fixtures.P(Propulsion.He3TankDef, 1, 0),
+            Fixtures.P("Canister", 2, 0));
+
+        var before = doc.AnalysisKey();
+        doc.Placements[2].Fill = new Dictionary<string, double> { ["StatGasMolO2"] = 10 };
+        Assert.Equal(before, doc.AnalysisKey());
+
+        doc.Placements[1].Fill = new Dictionary<string, double> { ["StatSolidHe3"] = 0 };
+        Assert.NotEqual(before, doc.AnalysisKey());
+    }
+
     /// <summary>A snapshot is what the analysis actually reads, so it must key the same as the design it came
     /// from — otherwise the skip would be comparing against something the scan never saw.</summary>
     [Fact]
@@ -176,6 +211,8 @@ public class AnalysisKeyTests
     {
         var doc = Ship(Cat());
         new CreateZoneCommand(Zone(ShipZone.CondForbid)).Do(doc);   // the zones have to come across too
+        doc.Placements[3].Device = new DeviceSettings { Bus = DeviceBusMode.Off };   // and the settings it reads
+        doc.Placements[4].Reactor = new ReactorSettings { Bus = ReactorPowerBus.Batt };
         Assert.Equal(doc.AnalysisKey(), doc.Snapshot().AnalysisKey());
     }
 }

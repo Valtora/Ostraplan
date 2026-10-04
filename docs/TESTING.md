@@ -90,7 +90,7 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 | Canister/tank fill (capacity, shared budget, write-out) | `ContainerFillTests` | `ContainerFillTests` (the capacity against real defs, and which gases the data declares) |
 | Repair (broken def → working def; clearing `StatDamage`) | `RepairTests` | `RepairTests` (the repair/undamage job split, and themed walls) |
 | Data parsers (`Defs`, `CondAmount`) | `DefsParsingTests`, `CondAmountTests` | — |
-| Power budget (draw, off-switches, networks, the core's states and recharge) | `PowerBudgetTests` | `PowerBudgetTests` (the stock rates, two Halberds of known state, a station generator, every lit core in the fleet) |
+| Power budget (draw, off-switches, networks, the core's states and recharge, the no-power warning) | `PowerBudgetTests` | `PowerBudgetTests` (the stock rates, two Halberds of known state, a station generator, every lit core in the fleet) |
 | Activity log / path scrubbing | `AuditLogTests` | — |
 | Import (template / save) | `TemplateLoaderTests`* | `ShipImportTests`, `ShipSaveImportTests` |
 | Deck items (footprint occupancy, the loose socket law) | `LoosePlacementTests` | `LooseObjectTests` |

@@ -1585,6 +1585,10 @@ generator joined by conduit, with the devices that draw from it.
   one-line card saying nothing draws from it. The headline is the network that runs out
   first.
 - **Not connected** lists devices that would draw but reach no battery or generator.
+  You don't need the report open to find them: **Problems** carries a warning naming
+  them, and its **Show** button highlights them on the plan and zooms to them. A device the plan has switched off is
+  left out of that warning, because with no power it stays off, which is what the plan
+  says.
 - **The reactor card** says how the fusion core spawns (cold, in Battery Mode, running, or
   set running but missing what it needs to stay lit, with the reason). It also says what
   starting it costs: about 504 kW in Battery Mode, how long the batteries at its power

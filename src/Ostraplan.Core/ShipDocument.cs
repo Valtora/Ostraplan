@@ -662,11 +662,15 @@ public sealed class ShipDocument
     public ShipDocument Snapshot()
     {
         var copy = new ShipDocument(Catalog);
+        // Device, Reactor and Fill come across for the no-power warning (ProblemScan.AddUnpoweredWarning): a bus knob
+        // at Off holds a device off, and a lit core is a power source only while its panel and its fuel keep it lit.
+        // All three are replaced rather than mutated when they change, so sharing the references is safe.
         foreach (var p in _placements)
             copy.AddUnconditioned(new Placement
             {
                 DefName = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot, IsGiven = p.IsGiven,
                 OriginStrID = p.OriginStrID, SwappedFromStrID = p.SwappedFromStrID, SwappedFromDef = p.SwappedFromDef,
+                Device = p.Device, Reactor = p.Reactor, Fill = p.Fill,
             });
         copy.Conds.CopyFrom(Conds);
         // The zones, because the walk analysis reads the Forbid ones (WalkNetwork.ForbiddenTiles) and this is what
@@ -697,6 +701,11 @@ public sealed class ShipDocument
     /// <para>64-bit and content-derived rather than a mutation counter, so no future mutator can be forgotten:
     /// a mutation that does not alter what the analysis reads is one this should ignore, and one that does is one
     /// it cannot miss.</para>
+    ///
+    /// <para><b>Three authored settings are in it</b>, because the no-power warning reads them through
+    /// <see cref="PowerBudget"/>: a device's bus knob, a reactor's panel, and the fill of the two reactant tanks
+    /// (a lit core with no fuel aboard goes out, and what it fed loses power). A fill on anything else is left
+    /// out, so filling a canister still costs no re-scan.</para>
     /// </summary>
     public long AnalysisKey()
     {
@@ -710,6 +719,21 @@ public sealed class ShipDocument
                 h = Fnv(h, p.Y);
                 h = Fnv(h, p.Rot);
                 h = Fnv(h, p.IsGiven ? 1 : 0);
+                h = Fnv(h, p.Device is { } d ? (int)d.Bus + 1 : 0);
+                if (p.Reactor is { } r)
+                    foreach (var (key, value) in r.ToPanelPairs())
+                    {
+                        foreach (var c in key) h = Fnv(h, c);
+                        foreach (var c in value) h = Fnv(h, c);
+                    }
+                if (p.Fill is { } fill && p.DefName is Propulsion.D2OTankDef or Propulsion.He3TankDef)
+                    foreach (var (cond, amount) in fill.OrderBy(kv => kv.Key, StringComparer.Ordinal))
+                    {
+                        foreach (var c in cond) h = Fnv(h, c);
+                        var bits = BitConverter.DoubleToInt64Bits(amount);
+                        h = Fnv(h, (int)bits);
+                        h = Fnv(h, (int)(bits >> 32));
+                    }
             }
             foreach (var z in _zones)
             {

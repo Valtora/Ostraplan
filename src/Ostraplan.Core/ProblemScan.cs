@@ -81,10 +81,61 @@ public static class ProblemScan
 
         AddBlockedPortWarnings(doc, catalog, ports, problems);
         AddLegalityProblems(doc, problems);
-        AddWalkabilityWarnings(doc, catalog, problems);
+        // One analysis grid for the checks below that walk the built ship, since building it is most of their cost.
+        var grid = ShipGrid.FromDocument(doc, catalog);
+        AddWalkabilityWarnings(doc, catalog, grid, problems);
+        AddUnpoweredWarning(doc, catalog, grid, problems);
         AddMultipleReactorWarning(doc, catalog, problems);
 
         return problems;
+    }
+
+    /// <summary>The dismiss key for the devices-with-no-power warning.</summary>
+    public const string UnpoweredAlertKey = "unpowered-devices";
+
+    /// <summary>
+    /// Devices that would draw power but whose power input no battery or generator reaches, so they never run: the
+    /// <see cref="PowerBudgetReport.Unconnected"/> list the Power Budget shows, raised here so a missing conduit can be
+    /// found without opening the report. Its cells are the devices' footprints, so Show puts them on screen.
+    ///
+    /// <para>A device the plan has in its Off form is left out. With no power it stays off, which is what the plan
+    /// says, and counting it would flag 71 of the 220 stock ships for lights left switched off on a run that was never
+    /// wired. Without them it fires on none. A fusion core is left out too: one that cannot reach batteries is a
+    /// reactor problem, and the Power Budget's reactor card says so.</para>
+    ///
+    /// <para>The live scan reads a <see cref="ShipDocument.Snapshot"/>, which carries the bus knobs, the reactor
+    /// panels and the tank fills for this check, and <see cref="ShipDocument.AnalysisKey"/> moves with them.</para>
+    /// </summary>
+    private static void AddUnpoweredWarning(ShipDocument doc, Catalog catalog, ShipGrid grid, List<Problem> problems)
+    {
+        if (grid.TileCount <= 1) return;
+        var unpowered = PowerBudget.Measure(doc, grid, catalog).Unconnected
+            .Where(l => !l.OffInPlan && !l.IsReactor)
+            .ToList();
+        if (unpowered.Count == 0) return;
+
+        // Grouped by what the part is rather than what it is called: "Heater ×4" says more than four names, and a
+        // rename is not in the analysis key, so a custom name here could go stale.
+        var kinds = unpowered
+            .GroupBy(l => doc.Part(l.Placement)?.Friendly ?? l.Name)
+            .OrderByDescending(g => g.Count())
+            .Select(g => g.Count() > 1 ? $"{g.Key} ×{g.Count()}" : g.Key)
+            .ToList();
+        var listed = string.Join(", ", kinds.Take(6)) + (kinds.Count > 6 ? ", …" : "");
+        problems.Add(new Problem(ProblemSeverity.Warning,
+            $"{unpowered.Count} device{(unpowered.Count == 1 ? " has" : "s have")} no power",
+            $"No battery or generator reaches {listed}. Use Show to highlight them, or Dismiss to hide this alert.",
+            [.. unpowered.SelectMany(l => FootprintTiles(doc, l.Placement)).Distinct()],
+            DismissKey: UnpoweredAlertKey));
+    }
+
+    /// <summary>Every document tile a placement's rotated footprint covers.</summary>
+    private static IEnumerable<(int X, int Y)> FootprintTiles(ShipDocument doc, Placement p)
+    {
+        var (w, h) = doc.FootprintOf(p);
+        for (var r = 0; r < h; r++)
+            for (var c = 0; c < w; c++)
+                yield return (p.X + c, p.Y + r);
     }
 
     /// <summary>The dismiss key for the more-than-one-reactor warning.</summary>
@@ -266,9 +317,8 @@ public static class ProblemScan
     /// (interior only, Forbid zones respected); the View-menu switches change only the overlay, so the report does
     /// not quietly re-interpret the ship behind the user.</para>
     /// </summary>
-    private static void AddWalkabilityWarnings(ShipDocument doc, Catalog catalog, List<Problem> problems)
+    private static void AddWalkabilityWarnings(ShipDocument doc, Catalog catalog, ShipGrid grid, List<Problem> problems)
     {
-        var grid = ShipGrid.FromDocument(doc, catalog);
         if (grid.TileCount <= 1) return;
         var walk = WalkNetwork.Build(grid, catalog, WalkOptions.Default, WalkNetwork.ForbiddenTiles(doc, grid));
 

@@ -9,6 +9,15 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
+## [Unreleased]
+
+### Added
+- **Problems names devices that have no power.** A device that needs power but that no battery or
+  generator reaches gets a warning listing it, and Show highlights it on the plan, so a missing
+  conduit can be found without opening the Power Budget. A device the plan has switched off is left out,
+  since with no power it stays off anyway. The warning can be dismissed like the others. Thanks to
+  Thanatha.
+
 ## [1.24.0] 2026-10-02, a power budget
 
 ### Added

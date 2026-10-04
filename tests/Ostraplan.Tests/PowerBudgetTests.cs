@@ -216,13 +216,65 @@ public class PowerBudgetTests
         Assert.Equal(HeaterRate * 3600, Assert.Single(r.Unconnected).Kw, 9);
     }
 
+    // ---- the PROBLEMS warning for devices with no power
+
+    /// <summary>The base catalog plus a docking port, since the scan stops at "No docking port" without one.</summary>
+    private static Catalog ScanCatalog() => Base()
+        .Part("Dock", w: 7, h: 2, startingConds: ["IsDockSys", "IsInstalled"], category: "HULL",
+            mapPoints: new Dictionary<string, (double, double)> { ["DockA"] = (0, 8), ["DockB"] = (0, 24) })
+        .Trig(ProblemScan.DocksysTrigger, reqs: ["IsDockSys", "IsInstalled"])
+        .Build();
+
+    private static Problem? Unpowered(Catalog cat, ShipDocument doc) =>
+        ProblemScan.Scan(doc, cat).SingleOrDefault(p => p.DismissKey == ProblemScan.UnpoweredAlertKey);
+
+    [Fact]
+    public void A_device_no_battery_reaches_is_a_warning_that_shows_it()
+    {
+        var cat = ScanCatalog();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Dock", 0, 10),
+            Fixtures.P("Batt", 0, 0), Fixtures.P("Heater", 5, 0), Fixtures.P("Heater", 6, 0));
+
+        var problem = Unpowered(cat, doc);
+
+        Assert.NotNull(problem);
+        Assert.Equal(ProblemSeverity.Warning, problem.Severity);
+        Assert.Equal("2 devices have no power", problem.Title);
+        Assert.Contains("Heater ×2", problem.Detail);
+        Assert.Equal([(5, 0), (6, 0)], problem.Cells!.Order());
+    }
+
+    [Fact]
+    public void A_connected_device_raises_no_warning()
+    {
+        var cat = ScanCatalog();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Dock", 0, 10),
+            Fixtures.P("Batt", 0, 0), Fixtures.P("Cond", 1, 0), Fixtures.P("Heater", 2, 0));
+
+        Assert.Null(Unpowered(cat, doc));
+    }
+
+    [Fact]
+    public void A_device_switched_off_in_the_plan_raises_no_warning()
+    {
+        // With no power it stays off, which is what the plan says. The Power Budget still lists it.
+        var cat = ScanCatalog();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Dock", 0, 10),
+            Fixtures.P("Batt", 0, 0), Fixtures.P("HeaterOff", 5, 0));
+
+        Assert.Null(Unpowered(cat, doc));
+        Assert.Single(Measure(cat, doc).Unconnected);
+    }
+
     // ---- the fusion core
 
     private const double CoreRate = 0.14;   // FusionReactorCore01Batt: 504 kW
 
-    /// <summary>A 1×1 core with five module points in a row to its right, wired at its own tile, plus the
+    private static Catalog ReactorCatalog() => ReactorFixtures().Build();
+
+    /// <summary>A 1×1 core with six module points in a row to its right, wired at its own tile, plus the
     /// modules and the two reactant tanks matched by name.</summary>
-    private static Catalog ReactorCatalog()
+    private static Fixtures ReactorFixtures()
     {
         var f = Base();
         var points = new Dictionary<string, (double, double)>
@@ -248,7 +300,7 @@ public class PowerBudgetTests
             condValues: new Dictionary<string, double> { ["StatLiqD2O"] = 1000 });
         f.Part(Propulsion.He3TankDef, startingConds: ["IsInstalled"],
             condValues: new Dictionary<string, double> { ["StatSolidHe3"] = 1000 });
-        return f.Build();
+        return f;
     }
 
     private static ShipDocument Reactor(Catalog cat, string coreForm, bool mhd = true) => Fixtures.Doc(cat,
@@ -361,6 +413,38 @@ public class PowerBudgetTests
         Assert.Equal(HeaterRate * 3600, net.LoadKw, 9);
     }
 
+    /// <summary>The live scan reads a snapshot, so the snapshot has to carry the reactor's panel. Without it a lit
+    /// core reads as bus-off, stops being a source, and everything it feeds is reported as having no power.</summary>
+    [Fact]
+    public void Devices_a_running_core_feeds_have_power_in_the_live_scan()
+    {
+        var cat = ReactorFixtures()
+            .Part("Dock", w: 7, h: 2, startingConds: ["IsDockSys", "IsInstalled"], category: "HULL",
+                mapPoints: new Dictionary<string, (double, double)> { ["DockA"] = (0, 8), ["DockB"] = (0, 24) })
+            .Trig(ProblemScan.DocksysTrigger, reqs: ["IsDockSys", "IsInstalled"])
+            .Build();
+        var doc = Fixtures.Doc(cat,
+            Fixtures.P("Dock", 0, 10),
+            Fixtures.P("CoreIgnition", 0, 0), Fixtures.P("Heater", 0, 1),   // no battery: the core is the only source
+            Fixtures.P("LaserArray", 1, 0), Fixtures.P("Capacitor", 2, 0), Fixtures.P("PelletFeeder", 3, 0),
+            Fixtures.P("FuelRegulator", 4, 0),
+            Fixtures.P(Propulsion.D2OTankDef, 0, 4), Fixtures.P(Propulsion.He3TankDef, 1, 4));
+        var core = doc.Placements.Single(p => p.DefName == "CoreIgnition");
+        core.Reactor = Lit;
+
+        Assert.Null(Unpowered(cat, doc.Snapshot()));
+
+        // Turn the bus off and the core goes out on load, so the heater really has no power.
+        core.Reactor = Lit with { Bus = ReactorPowerBus.Off };
+        Assert.NotNull(Unpowered(cat, doc.Snapshot()));
+
+        // And emptying the helium-3 tank does the same.
+        core.Reactor = Lit;
+        doc.Placements.Single(p => p.DefName == Propulsion.He3TankDef).Fill =
+            new Dictionary<string, double> { ["StatSolidHe3"] = 0 };
+        Assert.NotNull(Unpowered(cat, doc.Snapshot()));
+    }
+
     [Fact]
     public void A_lit_core_with_no_fuel_aboard_will_not_stay_lit()
     {
@@ -422,6 +506,32 @@ public class PowerBudgetTests
         Assert.True(fed.Sustained);
         Assert.False(fed.Unlimited);
         Assert.True(fed.LoadKw > 0);
+    }
+
+    /// <summary>
+    /// The no-power warning, through the snapshot the editor's scan reads, across the stock fleet. The Edelweiss is
+    /// the case a thin snapshot gets wrong: its running core is the only source on the network its devices use, so
+    /// losing the panel on the way to the scan would report all of them unpowered. The fleet bound holds the noise
+    /// down: leaving out devices switched off in the plan is what takes this from 71 stock ships to none.
+    /// </summary>
+    [SkippableFact]
+    public void Stock_ships_raise_the_no_power_warning_only_where_a_device_is_cut_off()
+    {
+        var g = TestData.RequireGame();
+
+        var edelweiss = TestData.Template(g, "Edelweiss");
+        Assert.DoesNotContain(ProblemScan.Scan(edelweiss.Snapshot(), g.Catalog),
+            p => p.DismissKey == ProblemScan.UnpoweredAlertKey);
+
+        var flagged = new List<string>();
+        foreach (var file in TemplateImport.ListShipFiles(g.Index))
+        {
+            var doc = TemplateImport.LoadFile(file.Path, g.Catalog).Doc;
+            if (ProblemScan.Scan(doc.Snapshot(), g.Catalog).Any(p => p.DismissKey == ProblemScan.UnpoweredAlertKey))
+                flagged.Add(file.Name);
+        }
+        _out.WriteLine($"{flagged.Count} stock ships flagged: {string.Join(", ", flagged)}");
+        Assert.True(flagged.Count <= 3, $"{flagged.Count} stock ships raise the no-power warning");
     }
 
     /// <summary>Every core template budgets without throwing, and the lit cores the stock ships author nearly all

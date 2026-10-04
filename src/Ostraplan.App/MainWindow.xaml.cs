@@ -2080,8 +2080,9 @@ public partial class MainWindow : Window
             // A leak/airtightness warning (dismissible) highlights its leak points AND focuses; a plain illegal
             // problem (already hazard-tinted) just pans/zooms into view.
             var isLeak = problem.DismissKey is not null;
+            // Every dismissible warning shares Show: leaks, unreachable devices, devices with no power, and the rest.
             var btn = ActionButton(isLeak ? "Show" : "View",
-                isLeak ? "Highlight the leak points and zoom to them" : "Zoom to this problem");
+                isLeak ? "Highlight them on the plan and zoom to them" : "Zoom to this problem");
             btn.Click += (_, e) =>
             {
                 e.Handled = true;
