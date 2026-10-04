@@ -125,6 +125,11 @@ Every bump gets a `CHANGELOG.md` entry describing the change for users, written 
 `[Unreleased]`: the dated `## [X.Y.Z] — YYYY-MM-DD` heading is written only when a
 release is actually cut.
 
+The What's New window shows these entries in the app, so write them for a player skimming a list. Each is a
+bold line saying what is now true, and nothing else when that line is enough. When it is not, add at most
+three short nested bullets (`  - `), one sentence each. Leave out what an older version did and how the change
+works: that goes in the commit body. A reporter's credit ends the entry, as "Thanks to X."
+
 ## Publishing the artifacts
 
 ```powershell

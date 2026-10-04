@@ -7170,9 +7170,8 @@ public partial class MainWindow : Window
         var opts = options ?? ImportOptions.Everything;
         var notes = new List<string>();
         if (result.ContainedKept > 0)
-            notes.Add($"{result.ContainedKept} contained item(s) came in as container contents.\n" +
-                      "Right-click a container and choose \"View contents\" to see them."
-                      + (keptContents ? "" : " They are saved and exported with the design."));
+            notes.Add($"{result.ContainedKept} item(s) came in inside their containers.\n" +
+                      "Right-click a container ▸ View contents to see them.");
         if (keptContents)
         {
             if (result.ContainedDropped > 0)
@@ -7193,14 +7192,9 @@ public partial class MainWindow : Window
             if (result.CrewDropped > 0)
                 notes.Add($"{result.CrewDropped} item(s) carried by crew were left behind. Crew are never imported.");
         }
-        if (result.LooseKept > 0)
-            notes.Add($"{result.LooseKept} item(s) lying on the deck came in as loose items.");
         if (result.LooseDropped > 0)
             notes.Add($"{result.LooseDropped} item(s) lying on the deck were left behind.\n" +
                       "Turn on \"Items lying on the deck\" at import to bring them in.");
-        if (result.SpawnersKept > 0)
-            notes.Add($"{result.SpawnersKept} loot spawner(s) came in with their settings.\n" +
-                      "Select one to change what it makes.");
         if (result.SpawnersDropped > 0)
             notes.Add($"{result.SpawnersDropped} loot spawner(s) were left behind.\n" +
                       (opts.Spawners
@@ -7209,12 +7203,10 @@ public partial class MainWindow : Window
         if (result.SystemDropped > 0)
             notes.Add($"{result.SystemDropped} system object(s), such as fire, were dropped.");
         if (result.NavConsolesStocked > 0)
-            notes.Add($"{result.NavConsolesStocked} nav console(s) came in empty and were fitted with the standard " +
-                      $"module set ({result.NavModulesInstalled} module(s) in all).\n" +
-                      "Right-click the console and choose \"View contents\" to change them."
+            notes.Add($"{result.NavConsolesStocked} empty nav console(s) were fitted with the standard modules.\n" +
+                      "Right-click the console ▸ View contents to change them."
                       + (result.NavModulesTrayed > 0
-                          ? $"\n{result.NavModulesTrayed} of them are aboard but don't fit on the screen. In game, "
-                            + "drag one in from the console's edit menu when you need it."
+                          ? $" {result.NavModulesTrayed} module(s) don't fit on the screen; in game, drag them in from the console's edit menu."
                           : ""));
         // skippedHandled: the save-edit path already ran the missing-mods stand-in prompt, which says all of this
         // and more — don't follow it with a second, weaker dialog about the same defs.
@@ -7828,30 +7820,30 @@ public partial class MainWindow : Window
             ("Hollow box", "Ctrl + Shift + drag", "With a part armed: place only the outline."),
             ("Select", "LMB", "Select a part. Ctrl+click adds or removes; drag on empty space to box-select."),
             ("Filter box-select", "Shift + drag", "With nothing armed: box-select even from a part, then use the chips to keep only some layers."),
-            ("Select loose items", "Box-select, then filter", "Keep or drop the Loose items row in the filter (right-click ▸ Select only, or the Shift+drag chips). Ctrl+click a loose item to add or remove it. Design ▸ Remove All Loose Items… clears the whole ship."),
+            ("Select loose items", "Box-select, then filter", "Keep or drop the Loose items row in the filter. Ctrl+click a loose item to add or remove it."),
             ("Flood-select", "Double-click", "On a part: select every touching tile of the same type. Ctrl+double-click adds it."),
             ("Fill a compartment", "Double-click empty space, then Enter", "Select a sealed compartment, arm a part, then press Enter to fill it (Esc to cancel)."),
             ("Use as brush", "Alt + click", "Arm the part under the cursor at its rotation. Also on the right-click menu."),
             ("Replace with…", "Ctrl+R", "Swap the selection for a part of the same layer and size. Also on the right-click menu."),
             ("Move", "Drag selection", "Move the selection, with any loose items caught in it."),
             ("Step down a stack", "`", "Select the next thing down the pile under the cursor, loose items included."),
-            ("Re-stack", "Ctrl+[ / Ctrl+]", "Move the selected part or loose item back or forward in its tile's draw order. Reset order (right-click) undoes it. Saved with the design."),
-            ("Context menu", "RMB", "Use as brush · Replace with… · Find and Replace All… · Make Loose Item / Install item · Repair · draw order · Build last · doors · Wiring… · pick a buried layer · Select only. Also cancels placement while armed."),
+            ("Re-stack", "Ctrl+[ / Ctrl+]", "Move the selected part or loose item back or forward in its tile's draw order. Right-click ▸ Reset order undoes it."),
+            ("Context menu", "RMB", "Actions for the part under the cursor. Cancels placement while a part is armed."),
             ("Rotate part", "R / Shift+R", "Rotate CW / CCW: the armed part, a selected part, or a whole selection about its centre. Walls and floors auto-tile instead."),
             ("Flip selection", "H / Shift+H", "Mirror the selection left↔right (H) or up↔down (Shift+H)."),
             ("Symmetry", "M", "Cycle Off → Vertical → Horizontal → Both. While on, selecting, moving, rotating or deleting a part does the same to its mirror."),
             ("Mod overrides", "Settings", "Let modded parts place where the core rules say they don't fit. They show amber and are flagged; check them in game."),
-            ("Force place", "Force", "Stop the placement law blocking anything. Parts placed this way still show as build-order problems. Stays on between sessions, with FORCE PLACE in red in the status bar. Try Build last first."),
-            ("Build last", "RMB", "Move the selected part to the end of the build order, for a part that is only legal once its neighbours are built. Its position doesn't change."),
+            ("Force place", "Force", "Place parts the placement law would block. They still show as problems. Stays on until turned off, with FORCE PLACE in the status bar."),
+            ("Build last", "RMB", "Build the selected part after everything else, for a part that needs its neighbours in place first."),
             ("Power overlay", "P", "Show PowerViz: live conduit runs, orphaned runs (dim red), and unfed devices (amber)."),
             ("Rooms overlay", "C", "Show RoomViz: each compartment with what it certifies as, its size and value, and what it's missing. Unsealed compartments are red."),
             ("Light overlay", "L", "Show Light Viz: interior lighting from every fixture. The ▾ menu sets the exterior sun and its angle."),
-            ("Walk overlay", "K", "Show WalkViz: tiles crew can reach, coloured by connected area. Unusable fittings are ringed red; vacuum doorways are dashed amber (suit only). The ▾ menu sets EVA access and Forbid zones."),
+            ("Walk overlay", "K", "Show WalkViz: tiles crew can reach, coloured by connected area, with unusable fittings ringed red. The ▾ menu sets EVA access and Forbid zones."),
             ("Access overlay", "J", "Point at a fitting to see which tiles crew work it from. Select a part to pin its marks. Amber means reachable only from outside the hull."),
-            ("Surfaces mode", "T", "Ghost everything but walls and floors, and paint skins onto the deck. The Surfaces bar sets a second brush and pattern, which layer shows (SHOW), what a stroke may change (PAINT) and how faint the ghosted layers are (GHOST)."),
+            ("Surfaces mode", "T", "Ghost everything but walls and floors, and paint skins onto the deck. The Surfaces bar sets the brush, pattern and layers."),
             ("Wire overlay", "Toolbar toggle", "Show signal wiring: GREEN for a sensor a device follows, VIOLET for a signal box that switches it."),
             ("Spawners view", "Toolbar toggle", "Show or hide loot spawners. They never appear in play. The ▾ menu sets when and how to draw each spawner's scatter square."),
-            ("Wiring things up", "Right-click ▸ Wiring…", "Right-click a device, choose Wiring…, then click its partner. Click a connected partner to disconnect. Esc cancels. A pump with no sensor never runs unless forced on."),
+            ("Wiring things up", "Right-click ▸ Wiring…", "Right-click a device, choose Wiring…, then click its partner, or a connected one to disconnect. A pump with no sensor never runs unless forced on."),
             ("Delete", "Del", "Delete the selection."),
             ("Select all", "Ctrl+A", "Select every part in the design."),
             ("Copy / paste / duplicate", "Ctrl+C / V / D", "Copy · paste at the cursor · duplicate the selection."),
@@ -7868,7 +7860,7 @@ public partial class MainWindow : Window
             ("Export", "Ctrl+E", "Export the design as a spawnable local data mod."),
             ("Ship Info / Materials", "Ctrl+I / Ctrl+B", "Edit the in-game identity · open the bill of materials."),
             ("Settings", "Ctrl+,", "Theme, UI scale, mod overrides, and the game and Saves folders."),
-            ("Diagnostics", "Toolbar", "The game's nav-console checklist: transponder, antenna, reactor, thrusters, backup power and life support, with what's missing under each red row."),
+            ("Diagnostics", "Toolbar", "The game's nav-console checklist, with what's missing under each red row."),
             ("Help", "F1", "Open this window."),
         ];
 
@@ -7919,10 +7911,8 @@ public partial class MainWindow : Window
         grid.RowDefinitions.Add(new RowDefinition { Height = GridLength.Auto });
         var footer = new TextBlock
         {
-            Text = "A part won't place where the game would refuse it. The ghost is green when it fits and red when it " +
-                   "doesn't, with the reason in the status bar. Moving or rotating into an illegal spot is allowed but " +
-                   "listed under PROBLEMS. The Primary Exterior Airlock is fixed in place. Red-striped areas are out of " +
-                   "bounds: nothing can be built beyond the side the airlock docks from.",
+            Text = "A part won't place where the game would refuse it: the ghost turns red and the status bar says why. " +
+                   "Nothing can be built in the red-striped area beyond the primary airlock.",
             Foreground = ThemeManager.Dim,
             TextWrapping = TextWrapping.Wrap,
             MaxWidth = 720,

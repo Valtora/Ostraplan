@@ -339,15 +339,13 @@ public sealed class RatingReportWindow : ReportWindow
         body.Children.Add(slots);
         var rating = report.Rating;
         var maneuverDetail = rating.RcsThrust > 0
-            ? $"Maneuver is mass ÷ RCS thrust: {rating.Mass:#,0} kg ÷ {rating.RcsThrust:#,0.#} = " +
-              $"{rating.Mass / rating.RcsThrust:#,0.#} (lower is better: <300 A, <500 B, <750 C, <1500 D, else E). " +
-              $"Thrust-to-mass ratio: {rating.RcsThrust / rating.Mass:0.####} per kg " +
-              $"({rating.RcsThrust * 1000 / rating.Mass:#,0.##} per tonne)."
+            ? $"Maneuver is mass ÷ RCS thrust = {rating.Mass / rating.RcsThrust:#,0.#} " +
+              "(A under 300, B 500, C 750, D 1,500)."
             : "Maneuver is O: no RCS thrusters installed.";   // mass has its own slot above
         body.Children.Add(new TextBlock
         {
-            Text = "Condition assumes a new build (A). Rooms counts certified compartments. " +
-                   "Mass excludes cargo, so a loaded ship reads heavier in game. " + maneuverDetail,
+            Text = "Condition assumes a new build (A). Mass excludes cargo, so a loaded ship reads heavier in game. " +
+                   maneuverDetail,
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 12),
         });
 
@@ -393,8 +391,7 @@ public sealed class RatingReportWindow : ReportWindow
         body.Children.Add(slots);
         body.Children.Add(new TextBlock
         {
-            Text = "Rooms counts certified compartments. Ship Rating, propulsion and kiosk prices don't apply to "
-                 + "a residence: a Real Estate broker prices it instead.",
+            Text = "Ship Rating, propulsion and kiosk prices don't apply to a residence. A Real Estate broker prices it.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 12),
         });
     }
@@ -479,9 +476,8 @@ public sealed class RatingReportWindow : ReportWindow
         body.Children.Add(haul);
         body.Children.Add(new TextBlock
         {
-            Text = "Extra mass such as a ship under tow or a hold of salvage. It is not fuel, so raising it only "
-                 + "lowers the figures above. Container cargo weighs nothing in game, so add it here to count it. "
-                 + "Saved with the design.",
+            Text = "A ship under tow or a hold of salvage. Container cargo weighs nothing in game, so add it here "
+                 + "to count it.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 8),
         });
 
@@ -518,17 +514,14 @@ public sealed class RatingReportWindow : ReportWindow
                 var thrusters = $"RCS: {p.RcsClustersPresent} cluster{(p.RcsClustersPresent == 1 ? "" : "s")} "
                     + $"giving {p.RcsThrustNewtons / 1000:#,0.#} kN.";
                 if (p.RcsReactionMass > 0)
-                    thrusters += $" Reaction mass {p.RcsReactionMass:#,0.#} kg of {p.RcsReactionMassMax:#,0.#} kg"
-                        + $" across {p.RcsTankCount} feed position{(p.RcsTankCount == 1 ? "" : "s")}"
-                        + $"; brim-full that is {Speed(p.RcsDeltaVFull)}.";
+                    thrusters += $" Reaction mass {p.RcsReactionMass:#,0.#} of {p.RcsReactionMassMax:#,0.#} kg;"
+                        + $" brim-full that is {Speed(p.RcsDeltaVFull)}.";
                 lines.Add(thrusters);
                 lines.Add("More thrusters add acceleration, not delta-v.");
             }
             if (p.HasTorchFigures)
-                lines.Add($"Torch: pellet max {p.PelletMax:0.#} from {p.Lasers} laser array{(p.Lasers == 1 ? "" : "s")} / "
-                    + $"{p.Capacitors} capacitor{(p.Capacitors == 1 ? "" : "s")} / {p.Feeders} feeder{(p.Feeders == 1 ? "" : "s")} / "
-                    + $"{p.Regulators} regulator{(p.Regulators == 1 ? "" : "s")}, giving {p.TorchThrustNewtons / 1000:#,0} kN at full cycle."
-                    + (p.ReactantSeconds > 0 ? $" {p.LimitingReactant} runs out first, at full flow." : ""));
+                lines.Add($"Torch: {p.TorchThrustNewtons / 1000:#,0} kN at full cycle."
+                    + (p.ReactantSeconds > 0 ? $" {p.LimitingReactant} runs out first." : ""));
             else if (p.HasReactor)
                 lines.Add("Torch figures assume the reactor lit at full cycle and ideal core temperature.");
             detail.Text = string.Join(" ", lines);

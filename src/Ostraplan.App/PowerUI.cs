@@ -144,7 +144,7 @@ public sealed class PowerWindow : ReportWindow
         card.Children.Add(slots);
 
         if (net.Unlimited)
-            card.Children.Add(Note("The running reactor feeds this network, so the batteries do not drain while it runs.", new Thickness(0, 0, 0, 4), Good));
+            card.Children.Add(Note("Fed by the running reactor, so the batteries don't drain.", new Thickness(0, 0, 0, 4), Good));
         else if (net.Generators.Count > 0)
             card.Children.Add(Note(
                 $"{string.Join(", ", net.Generators.Select(g => g.Name))} supplies {Kw(net.GeneratorKw)}"
@@ -216,10 +216,10 @@ public sealed class PowerWindow : ReportWindow
     }
 
     private static string? LoadNote(PowerLoad l) =>
-        l.IsReactor ? "The reactor sits in Battery Mode on load and draws this until it is lit."
+        l.IsReactor ? "Draws this in Battery Mode until it is lit."
         : l.OffInPlan ? l.HasKnob
-            ? "Switched off in the plan, but the game turns it back on. Set its bus knob to Off to keep it off."
-            : "Switched off in the plan, but the game turns it back on. Wire it to a breaker box to keep it off."
+            ? "The game turns this back on. Set its bus knob to Off to keep it off."
+            : "The game turns this back on. Wire it to a breaker box to keep it off."
         : null;
 
     private sealed record LoadGroup(string Name, int Count, double Kw, PowerLoad Sample);
@@ -245,7 +245,7 @@ public sealed class PowerWindow : ReportWindow
         var (state, stateBrush) = core.State switch
         {
             ReactorState.Running => ("Spawns running.", Good),
-            ReactorState.BatteryMode => ("Spawns in Battery Mode, drawing from the batteries until someone lights it.", Warn),
+            ReactorState.BatteryMode => ("Spawns in Battery Mode, drawing from the batteries until lit.", Warn),
             ReactorState.WillNotStayLit => ($"Set to spawn running, but it shuts down on load: {core.Reason}.", Warn),
             _ => (core.Reason is { } why ? $"Spawns cold: {why}." : "Spawns cold.", Ink),
         };
@@ -254,29 +254,28 @@ public sealed class PowerWindow : ReportWindow
         // Starting it.
         if (!core.CanStart)
             card.Children.Add(Note(core.InputNetwork is null
-                ? "It can't be started: its power input isn't connected to a network with batteries."
-                : $"It can't be started: Network {core.InputNetwork} has no charged battery.", new Thickness(0, 0, 0, 4), Warn));
+                ? "Can't start: its power input reaches no batteries."
+                : $"Can't start: Network {core.InputNetwork} has no charged battery.", new Thickness(0, 0, 0, 4), Warn));
         else
             card.Children.Add(Note(
-                $"Starting it takes {Kw(core.StartingKw)} in Battery Mode. Network {core.InputNetwork} holds that for "
-                + $"{Duration(core.StartingHours!.Value)}, alongside everything else drawing there.",
+                $"Starting draws {Kw(core.StartingKw)}. Network {core.InputNetwork} holds that for "
+                + $"{Duration(core.StartingHours!.Value)}.",
                 new Thickness(0, 0, 0, 4), core.StartingHours < 0.25 ? Warn : Ink));
         if (core.Capacitors > 0)
             card.Children.Add(Note(
-                $"Charging the {Plural(core.Capacitors, "capacitor")} adds {Kwh(core.CapacitorKwh)} over about 20 seconds, "
-                + $"peaking at {Kw(core.CapacitorPeakKw)}.", new Thickness(0, 0, 0, 4)));
+                $"Charging the {Plural(core.Capacitors, "capacitor")} adds {Kwh(core.CapacitorKwh)}, peaking at "
+                + $"{Kw(core.CapacitorPeakKw)}.", new Thickness(0, 0, 0, 4)));
         if (core.FieldCoils > 0)
             card.Children.Add(Note(
-                $"Switching the field coils on before ignition draws {Kw(PowerBudget.FieldCoilKw)} per coil"
+                $"Leave the field coils off until it is lit. Each draws {Kw(PowerBudget.FieldCoilKw)} before ignition"
                 + (core.StartingHoursWithCoils is { } coils
-                    ? $" and empties Network {core.InputNetwork} in {Duration(coils)}."
-                    : ".")
-                + " Leave them off until it is lit.", new Thickness(0, 0, 0, 4), Warn));
+                    ? $", emptying Network {core.InputNetwork} in {Duration(coils)}."
+                    : "."), new Thickness(0, 0, 0, 4), Warn));
 
         // Running it.
         card.Children.Add(Note(core.OutputNetwork is { } output
-            ? $"Running, it powers Network {output} with no practical limit."
-            : "Its power output isn't connected to anything, so running it powers nothing.",
+            ? $"Running, it powers Network {output} without limit."
+            : "Its power output isn't connected, so it powers nothing.",
             new Thickness(0, 4, 0, 4), core.OutputNetwork is null ? Warn : Ink));
         if (!core.CanRecharge)
             card.Children.Add(Note("No MHD generator is fitted, so it never recharges the batteries.", new Thickness(0, 0, 0, 4), Warn));
@@ -285,12 +284,11 @@ public sealed class PowerWindow : ReportWindow
         else
         {
             card.Children.Add(Note(
-                $"With the MHD switched on, it recharges the batteries on {NetworkList(core.RechargeNetworks)}: "
-                + $"90% in {Duration(PowerBudget.RechargeSeconds90 / PowerBudget.SecondsPerHour)}, "
-                + $"99% in {Duration(PowerBudget.RechargeSeconds99 / PowerBudget.SecondsPerHour)}, from empty.",
+                $"With the MHD on, it recharges {NetworkList(core.RechargeNetworks)} from empty to 90% in "
+                + $"{Duration(PowerBudget.RechargeSeconds90 / PowerBudget.SecondsPerHour)}.",
                 new Thickness(0, 0, 0, 4)));
             if (core.State == ReactorState.Running && !core.MhdSwitchOn)
-                card.Children.Add(Note("Its MHD switch is off on the panel, so it spawns not charging.", new Thickness(0, 0, 0, 4), Warn));
+                card.Children.Add(Note("Its MHD switch is off, so it doesn't recharge until switched on.", new Thickness(0, 0, 0, 4), Warn));
         }
         return card;
     }
@@ -300,7 +298,7 @@ public sealed class PowerWindow : ReportWindow
         var card = new StackPanel();
         card.Children.Add(Header("NOT CONNECTED"));
         card.Children.Add(Note(
-            "These would draw power, but nothing reaches their power input. They stay off.",
+            "No battery or generator reaches these, so they stay off.",
             new Thickness(0, 0, 0, 4)));
         card.Children.Add(LoadTable(loads, notes: false));
         return card;
@@ -308,13 +306,9 @@ public sealed class PowerWindow : ReportWindow
 
     private static IEnumerable<string> Caveats(PowerBudgetReport r)
     {
-        yield return "Only the steady draw. Weapon shots, and lift rotors while manoeuvring, draw more on top.";
-        yield return "One division, not a run: a battery that empties early does not switch anything off here.";
+        yield return "Steady draw only. Weapon shots and manoeuvring rotors draw more.";
         if (r.ChargingContainers > 0)
-            yield return "Batteries inside charging lockers are not counted.";
-        if (r.Reactors.Any(c => c.CanRecharge))
-            yield return "Recharge times are at normal speed. At high time compression the batteries charge more slowly.";
-        yield return "Battery capacity follows painted condition. The export's wear setting lowers it further.";
+            yield return "Batteries inside charging lockers aren't counted.";
     }
 
     // ---- clipboard

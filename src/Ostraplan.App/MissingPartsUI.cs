@@ -26,6 +26,12 @@ public sealed class MissingPartsPanel : StackPanel
 {
     private static Brush Ink => ThemeManager.Ink;
 
+    /// <summary>What to do about the missing parts, said once for both places that ask.</summary>
+    public const string Advice =
+        "Writing back without these parts can corrupt rooms and zones.\n\n" +
+        "Best fix: cancel, enable their mods, and import again. Otherwise pick a stand-in of the same size for each. " +
+        "It replaces the item in the save you write.";
+
     private readonly IReadOnlyList<MissingDefVM> _defs;
 
     /// <summary>The chosen stand-ins by def name; empty when the user leaves everything in place.</summary>
@@ -57,7 +63,7 @@ public sealed class MissingPartsPanel : StackPanel
                     palette, def.DefName,
                     title: $"Stand in for {def.DefName}",
                     noteText: $"Pick a part to replace {def.DefName} (×{def.Count}) in the save you write back. "
-                              + "The modded part is not kept. Pick one the same size, or rooms and the grid will shift.")
+                              + "Pick one the same size, or rooms and the grid will shift.")
                 { Owner = Window.GetWindow(this) };
                 if (dlg.ShowDialog() != true || dlg.Selected is not { } part) return;
                 def.StandIn = part;
@@ -132,10 +138,7 @@ public sealed class MissingPartsDialog : Window
 
         var note = new TextBlock
         {
-            Text = "Writing back to your save without them can corrupt rooms and zones.\n\n"
-                   + "Best fix: cancel, enable the mods these parts come from, and import again.\n\n"
-                   + "Or pick a stand-in for each. A stand-in replaces the item in the save you write, and the "
-                   + "modded part is not kept, so pick something the same size.",
+            Text = MissingPartsPanel.Advice,
             Foreground = Dim, FontSize = 12, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 0, 0, 12),
         };
         DockPanel.SetDock(note, Dock.Top);

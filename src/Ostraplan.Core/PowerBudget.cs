@@ -199,9 +199,6 @@ public static class PowerBudget
     /// size: <c>1000 × ln 10</c>.</summary>
     public static readonly double RechargeSeconds90 = 1000 * Math.Log(10);
 
-    /// <summary>Seconds to 99%, past which the battery panel reads "Trickle Charge": <c>1000 × ln 100</c>.</summary>
-    public static readonly double RechargeSeconds99 = 1000 * Math.Log(100);
-
     private const string ReactorCond = "IsReactorIC";
 
     public static PowerBudgetReport Measure(ShipDocument doc, ShipGrid grid, Catalog catalog)

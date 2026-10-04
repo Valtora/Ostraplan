@@ -211,8 +211,7 @@ public sealed class BundleReviewDialog : Window
         var modDir = ModDir();
 
         if (Directory.Exists(modDir) && Directory.EnumerateFileSystemEntries(modDir).Any())
-            acks.Add($"A folder named \"{Path.GetFileName(modDir)}\" already exists here. Its ship data will be " +
-                     "replaced, and data for routes you removed will be deleted. Other files are left alone.");
+            acks.Add(ModDriver.FolderExistsAck(Path.GetFileName(modDir)));
 
         if (BundleExport.OrphanedArt(modDir, _options.PreviouslyWritten ?? [], _options.Ships.Select(s => s.StrName))
             is { Count: > 0 } orphans)
@@ -348,8 +347,7 @@ public sealed class BundleReviewDialog : Window
         AddFact("Registering", "by Ostrasort, right after the write");
         AddLine(_warnings, "Harrier: No docking port. Nothing can dock with this design, and it cannot dock " +
                            "anywhere itself.", ThemeManager.Warn);
-        AddAck("A folder named \"Working Hulls\" already exists here. Its ship data will be replaced, and data for " +
-               "routes you removed will be deleted. Other files are left alone.");
+        AddAck(ModDriver.FolderExistsAck("Working Hulls"));
         AddAck("Preview art for ships no longer in the mod will be deleted: Barge.");
     }
 

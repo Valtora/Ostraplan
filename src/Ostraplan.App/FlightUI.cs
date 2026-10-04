@@ -335,16 +335,14 @@ public sealed class FlightWindow : ReportWindow
         var lines = new List<string>
         {
             $"{profile.Mass:#,0} kg · aero {profile.AeroCoefficient:#,0} from "
-            + $"{profile.AeroParts} part{S(profile.AeroParts)} · {profile.NCols}×{profile.NRows} grid "
-            + $"({profile.SizeMetres:0.#} m), so {profile.DragAreaFront:0.#} m² nose-on and "
+            + $"{profile.AeroParts} part{S(profile.AeroParts)} · drag area {profile.DragAreaFront:0.#} m² nose-on, "
             + $"{profile.DragAreaSide:0.#} m² broadside.",
         };
 
         if (profile.HasRotors)
-            lines.Add($"Rotors: {profile.RotorsActive} of {profile.RotorsPresent} on, {profile.RotorThrust:#,0} kN "
-                + $"rated, {p.RotorThrustNewtons / 1000:#,0} kN here at {p.RotorEfficiency:0.00}× "
-                + $"({p.PressureKPa:0.#} kPa / 100). Turbo gives "
-                + $"{p.RotorThrustTurboNewtons / 1000:#,0} kN ({Gs(p.RotorAccelTurbo)}).");
+            lines.Add($"Rotors: {profile.RotorsActive} of {profile.RotorsPresent} on, giving "
+                + $"{p.RotorThrustNewtons / 1000:#,0} kN here of {profile.RotorThrust:#,0} kN rated, "
+                + $"{p.RotorThrustTurboNewtons / 1000:#,0} kN on turbo.");
 
         // The RCS line is the whole reason RCS is out of the percentage, so it always says what the trade is.
         if (p.RcsAccel > 0)
@@ -443,16 +441,10 @@ public sealed class FlightWindow : ReportWindow
     /// <summary>Everything behind "what these numbers mean". It is all general: nothing here changes with the
     /// design or the flight point, which is why it can be built once and left shut.</summary>
     private const string HelpText =
-        "Pick a body and altitude to fill in gravity, pressure and density, then set a speed and attitude to fly "
-        + "the design through them.\n\n"
-        + "The percentage counts wings and rotors only. RCS is shown beside them because it also holds a ship up, "
-        + "but only until its reaction mass runs out.\n\n"
-        + "Doubling a design's mass quarters its lift. Mass, more than wing area, usually decides whether a "
-        + "design flies.\n\n"
-        + "You can overtype gravity, pressure or density to fly a place the game doesn't have. Pressure sets "
-        + "rotor efficiency, density sets lift and drag.\n\n"
-        + "Airspeed is relative to the air. Angle of attack: 0 is nose-on, 90 is broadside. Lift is zero at 90 "
-        + "and straight up.";
+        "The percentage counts wings and rotors only. RCS also holds a ship up, but only until its reaction mass "
+        + "runs out.\n\n"
+        + "Mass, more than wing area, usually decides whether a design flies. Angle of attack 0 is nose-on, 90 is "
+        + "broadside.";
 
     private static double Parse(string text) =>
         double.TryParse(text, NumberStyles.Float, CultureInfo.CurrentCulture, out var v) && v > 0 ? v : 0;

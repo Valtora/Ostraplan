@@ -12,26 +12,23 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
-- **Problems names devices that have no power.** A device that needs power but that no battery or
-  generator reaches gets a warning listing it, and Show highlights it on the plan, so a missing
-  conduit can be found without opening the Power Budget. A device the plan has switched off is left out,
-  since with no power it stays off anyway. The warning can be dismissed like the others. Thanks to
-  Thanatha.
+- **Problems lists devices that no battery or generator reaches.** Show highlights them on the plan.
+  Thanks to Thanatha.
+
+### Changed
+- **Less to read in several windows.**
+  - The Power Budget, Flight Dynamics, Ship Rating, the controls sheet (F1) and the import report say less.
+  - Problems no longer explains its own Show and Dismiss buttons.
+  - Entries in What's New are a line or two.
 
 ## [1.24.0] 2026-10-02, a power budget
 
 ### Added
-- **A power budget: how long your batteries last.** Design ▸ Power Budget adds up what every
-  switched-on device draws, at the rate the game charges it, and sets it against what the
-  batteries hold. The headline is how long until something goes dark. Below it, each conduit
-  network gets its own card with its load, stored charge and time on batteries, and its devices
-  sorted by draw. A device the plan has switched off but the game would turn back on is flagged
-  with how to keep it off. The fusion core gets a card of its own. It says how the core spawns
-  and what starting it costs (504 kW in Battery Mode, and how long your batteries hold that).
-  It warns that field coils switched on before ignition draw 5.7 MW each. And it says whether
-  the running core recharges the batteries: that needs an MHD, fitted and switched on, while
-  powering the ship does not. Per-use draws such as weapon shots aren't counted, and the window
-  says so. Thanks to Thanatha.
+- **A power budget: how long your batteries last.**
+  - Design ▸ Power Budget shows how long each conduit network runs on batteries, and what draws the most.
+  - It flags devices the plan has off that the game would turn back on.
+  - A fusion core card says what starting it costs and whether it recharges the batteries (only with an
+    MHD). Thanks to Thanatha.
 
 ## [1.23.3] 2026-09-28, shorter text and a quieter dock check
 

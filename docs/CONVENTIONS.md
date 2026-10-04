@@ -374,5 +374,7 @@ usually already legible and the why lives in a decompile the reader does not hav
 
 Text on screen is short. A tooltip says what the control does in a sentence; a problem or dialog says what
 is wrong and what to do, in two or three. Game internals (`Ship.aDocksys`, condition and def names), how
-Ostraplan works it out, and what an older version did belong in comments, GAME-INTERNALS.md and the
-CHANGELOG, never in the UI. Name game things by their in-game friendly name.
+Ostraplan works it out, and what an older version did belong in comments, commit bodies and GAME-INTERNALS.md,
+never in the UI. The CHANGELOG counts as UI, because the What's New window shows it; see
+[DEVELOPMENT.md](DEVELOPMENT.md#versioning) for the entry format. Name game things by their in-game friendly
+name.

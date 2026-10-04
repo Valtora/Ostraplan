@@ -93,11 +93,15 @@ public sealed class ModDriver : ExportDriver
 
         var acks = new List<string>();
         if (Directory.Exists(_modDir) && Directory.EnumerateFileSystemEntries(_modDir).Any())
-            acks.Add($"A folder named \"{Path.GetFileName(_modDir)}\" already exists here. Its ship data and preview " +
-                     "art will be replaced, and data for routes you removed will be deleted. Other files are left alone.");
+            acks.Add(FolderExistsAck(Path.GetFileName(_modDir)));
 
         return new BuildOutcome(facts, warnings, acks);
     }
+
+    /// <summary>The acknowledgement for exporting over a mod folder that already has files in it. The ship pack
+    /// asks the same thing.</summary>
+    internal static string FolderExistsAck(string folder) =>
+        $"\"{folder}\" already exists. Its ships will be replaced and removed routes deleted. Other files are kept.";
 
     /// <summary>Every parameter is plain data, so the lambda's closure holds nothing UI-owned and the capture guard
     /// has nothing to reject. See <see cref="ExportDriver"/>.</summary>

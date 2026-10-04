@@ -74,9 +74,8 @@ public static class ProblemScan
 
             if (blocked > 0)
                 problems.Add(new Problem(ProblemSeverity.Blocking, "Construction beyond the airlock",
-                    $"{blocked} tile(s) are past \"{part.Friendly}\" at ({port.X},{port.Y}) on the side it docks from, " +
-                    $"first at ({sample!.Value.X},{sample.Value.Y}). The game won't build past the primary airlock, " +
-                    "so move them inboard."));
+                    $"{blocked} tile(s) are past \"{part.Friendly}\" on the side it docks from, first at " +
+                    $"({sample!.Value.X},{sample.Value.Y}). The game won't build there, so move them inboard."));
         }
 
         AddBlockedPortWarnings(doc, catalog, ports, problems);
@@ -124,7 +123,7 @@ public static class ProblemScan
         var listed = string.Join(", ", kinds.Take(6)) + (kinds.Count > 6 ? ", …" : "");
         problems.Add(new Problem(ProblemSeverity.Warning,
             $"{unpowered.Count} device{(unpowered.Count == 1 ? " has" : "s have")} no power",
-            $"No battery or generator reaches {listed}. Use Show to highlight them, or Dismiss to hide this alert.",
+            $"No battery or generator reaches {listed}.",
             [.. unpowered.SelectMany(l => FootprintTiles(doc, l.Placement)).Distinct()],
             DismissKey: UnpoweredAlertKey));
     }
@@ -340,8 +339,7 @@ public static class ProblemScan
                 : "";
             problems.Add(new Problem(ProblemSeverity.Warning,
                 $"{unreachable.Count} device{(unreachable.Count == 1 ? "" : "s")} cannot be reached",
-                $"No crew member can reach: {listed}.{why} " +
-                "Clear a walkable tile within range of each, or Dismiss to hide this alert.",
+                $"No crew member can reach: {listed}.{why} Clear a walkable tile within range of each.",
                 [.. unreachable.SelectMany(d => d.BodyTiles).Distinct().Select(grid.GridToDoc)],
                 DismissKey: UnreachableAlertKey));
         }
@@ -356,9 +354,8 @@ public static class ProblemScan
         var cut = isolated.Sum(z => z.TileCount);
         problems.Add(new Problem(ProblemSeverity.Warning,
             $"{isolated.Count} sealed-off compartment{(isolated.Count == 1 ? "" : "s")}",
-            $"{cut} walkable tile(s) in {isolated.Count} area(s) have no route to the rest of the ship, so crew " +
-            "would have to EVA. A closed door that is unpowered, locked or damaged counts as a wall. " +
-            "Use Show to highlight them, or Dismiss to hide this alert.",
+            $"{cut} walkable tile(s) in {isolated.Count} area(s) have no route to the rest of the ship. A closed " +
+            "door that is unpowered, locked or damaged counts as a wall.",
             [.. isolated.SelectMany(z => z.Tiles).Select(grid.GridToDoc)],
             DismissKey: IsolatedAlertKey));
     }
@@ -528,7 +525,7 @@ public static class ProblemScan
         var leakCells = breaches.SelectMany(b => b.Tiles).Distinct().ToList();
         problems.Add(new Problem(ProblemSeverity.Warning,
             $"{breaches.Count} unsealed compartment{(breaches.Count == 1 ? "" : "s")}",
-            $"{string.Join(", ", kinds)}. Use Show to highlight the leaks, or Dismiss to hide this alert.",
+            $"{string.Join(", ", kinds)}.",
             leakCells, DismissKey: UnsealedAlertKey));
     }
 

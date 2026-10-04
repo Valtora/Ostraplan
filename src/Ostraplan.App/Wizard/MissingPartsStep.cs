@@ -43,11 +43,7 @@ public sealed class MissingPartsStep : WizardStep
             Foreground = ThemeManager.Warn, FontSize = 15, FontWeight = FontWeights.SemiBold,
             TextWrapping = TextWrapping.Wrap,
         });
-        Note(_body,
-            "Ostraplan can't see these parts, so writing back now can corrupt the ship's rooms and zones.\n\n" +
-            "Best fix: cancel, enable the mods they come from, and import again.\n\n" +
-            "Otherwise pick a stand-in for each, the same size where you can. It REPLACES the item in the save you " +
-            "write. You can also leave them, and Review will flag it.");
+        Note(_body, MissingPartsPanel.Advice + " Or leave them, and Review will flag it.");
 
         _rowHost = Add(_body, new StackPanel { Margin = new Thickness(0, 14, 0, 0) });
         Content = _body;
