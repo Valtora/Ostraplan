@@ -9,7 +9,7 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
-## [Unreleased]
+## [1.25.0] 2026-10-04, unpowered devices and less to read
 
 ### Added
 - **Problems lists devices that no battery or generator reaches.** Show highlights them on the plan.
