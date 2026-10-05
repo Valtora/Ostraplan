@@ -88,13 +88,17 @@ public class AuditLogTests
         Assert.Equal("Edit: SetPoses", AuditLog.Label(CommandAction.Do, new SetPosesCommand([(P("A"), 0, 0, 0)])));
     }
 
-    // ---- detailed command descriptions (IAuditDescribable), the "what @where" a bug report needs ----
+    // ---- detailed command descriptions (IAuditDescribable): what and where, in words a player reads (#76) ----
 
     // A stand-in catalog resolver: known defs get a friendly name, unknown defs fall back to the raw def.
     private static readonly Func<string, string?> Friendly = def => def switch
     {
         "ItmStationNav" => "Nav Station",
         "ItmWall" => "Wall",
+        "ItmBreaker" => "Breaker Box",
+        "ItmPump" => "Air Pump",
+        "ItmAlarmO2" => "O2 Alarm",
+        "ItmThermostat" => "Thermostat",
         _ => null,
     };
 
@@ -103,24 +107,24 @@ public class AuditLogTests
     [Fact]
     public void Describe_place_records_friendly_name_tile_and_rotation()
     {
-        Assert.Equal("Edit: Place Nav Station @(12,7) r90",
+        Assert.Equal("Edit: placed Nav Station at 12, 7, turned 90°",
             AuditLog.Label(CommandAction.Do, new PlaceCommand(Part("ItmStationNav", 12, 7, 90)), Friendly));
     }
 
     [Fact]
     public void Describe_omits_rot_zero_and_shows_the_raw_name_for_an_unknown_def()
     {
-        Assert.Equal("Edit: Place ItmMystery @(0,0)",
+        Assert.Equal("Edit: placed ItmMystery at 0, 0",
             AuditLog.Label(CommandAction.Do, new PlaceCommand(Part("ItmMystery", 0, 0)), Friendly));
     }
 
     [Fact]
     public void Describe_remove_handles_a_single_part_and_summarises_a_batch()
     {
-        Assert.Equal("Edit: Remove Wall @(1,2)",
+        Assert.Equal("Edit: removed Wall at 1, 2",
             AuditLog.Label(CommandAction.Do, new RemoveCommand([Part("ItmWall", 1, 2)]), Friendly));
 
-        Assert.Equal("Edit: Remove ×3 (Wall, Nav Station)",
+        Assert.Equal("Edit: removed 3 parts (Wall, Nav Station)",
             AuditLog.Label(CommandAction.Do,
                 new RemoveCommand([Part("ItmWall", 0, 0), Part("ItmWall", 1, 0), Part("ItmStationNav", 2, 0)]), Friendly));
     }
@@ -128,7 +132,7 @@ public class AuditLogTests
     [Fact]
     public void Describe_move_reports_a_signed_delta()
     {
-        Assert.Equal("Edit: Move Wall by (+3,-2)",
+        Assert.Equal("Edit: moved Wall by +3, -2",
             AuditLog.Label(CommandAction.Do, new MoveCommand([Part("ItmWall", 0, 0)], 3, -2), Friendly));
     }
 
@@ -139,8 +143,15 @@ public class AuditLogTests
             new RemoveCommand([Part("ItmStationNav", 4, 5)]),
             new PlaceCommand(Part("ItmStationNavLoose", 4, 5)),
         ]);
-        Assert.Equal("Edit: Remove Nav Station @(4,5) + Place ItmStationNavLoose @(4,5)",
+        Assert.Equal("Edit: removed Nav Station at 4, 5 and placed ItmStationNavLoose at 4, 5",
             AuditLog.Label(CommandAction.Do, swap, Friendly));
+    }
+
+    [Fact]
+    public void Describe_composite_of_placements_reads_as_one_stroke()
+    {
+        var stroke = new CompositeCommand([.. Enumerable.Range(0, 40).Select(i => (IDocCommand)new PlaceCommand(Part("ItmWall", i, 0)))]);
+        Assert.Equal("Placed 40 parts (Wall)", AuditLog.Describe(stroke, Friendly));
     }
 
     [Fact]
@@ -148,6 +159,48 @@ public class AuditLogTests
     {
         Assert.StartsWith("Undo: ", AuditLog.Label(CommandAction.Undo, new PlaceCommand(Part("ItmWall", 0, 0)), Friendly));
         Assert.StartsWith("Redo: ", AuditLog.Label(CommandAction.Redo, new PlaceCommand(Part("ItmWall", 0, 0)), Friendly));
+    }
+
+    [Fact]
+    public void Wiring_names_both_ends_once_it_has_run()
+    {
+        var cat = new Fixtures().Part("ItmBreaker").Part("ItmPump").Part("ItmAlarmO2").Part("ItmThermostat").Build();
+        var doc = new ShipDocument(cat);
+        var box = Fixtures.Place(doc, "ItmBreaker", 0, 0);
+        var pump = Fixtures.Place(doc, "ItmPump", 1, 0);
+        var alarm = Fixtures.Place(doc, "ItmAlarmO2", 2, 0);
+        var thermostat = Fixtures.Place(doc, "ItmThermostat", 3, 0);
+
+        var connect = new AddLinkCommand(new DeviceLink(box.Id, pump.Id));
+        connect.Do(doc);
+        Assert.Equal("Undo: connected Breaker Box to Air Pump", AuditLog.Label(CommandAction.Undo, connect, Friendly));
+
+        var cut = new RemoveLinkCommand(new DeviceLink(box.Id, pump.Id));
+        cut.Do(doc);
+        Assert.Equal("Disconnected Breaker Box from Air Pump", AuditLog.Describe(cut, Friendly));
+
+        var follow = new AddSensorLinkCommand(new SensorLink(thermostat.Id, pump.Id), null);
+        follow.Do(doc);
+        var repoint = new AddSensorLinkCommand(new SensorLink(alarm.Id, pump.Id), new SensorLink(thermostat.Id, pump.Id));
+        repoint.Do(doc);
+        Assert.Equal("Set Air Pump to follow O2 Alarm instead of Thermostat", AuditLog.Describe(repoint, Friendly));
+
+        var stop = new RemoveSensorLinkCommand(new SensorLink(alarm.Id, pump.Id));
+        stop.Do(doc);
+        Assert.Equal("Stopped Air Pump following O2 Alarm", AuditLog.Describe(stop, Friendly));
+    }
+
+    [Fact]
+    public void Recap_names_the_step_or_the_furthest_one_of_a_jump()
+    {
+        var place = new PlaceCommand(Part("ItmWall", 3, 4));
+        var move = new MoveCommand([Part("ItmStationNav", 0, 0)], 1, 0);
+
+        Assert.Equal("Undid: placed Wall at 3, 4", AuditLog.Recap(CommandAction.Undo, [place], Friendly));
+        Assert.Equal("Redid: placed Wall at 3, 4", AuditLog.Recap(CommandAction.Redo, [place], Friendly));
+        Assert.Equal("Undid 2 edits, as far back as placed Wall at 3, 4",
+            AuditLog.Recap(CommandAction.Undo, [move, place], Friendly));
+        Assert.Equal("", AuditLog.Recap(CommandAction.Undo, [], Friendly));
     }
 
     // ---- LogTail: reading + scrubbing the tail of a log file for the diagnostics attachment ----

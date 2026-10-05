@@ -131,7 +131,7 @@ public class ZOrderTests
         var stack = new CommandStack();
         var changes = ZOrder.Nudge(doc, new RenderItem(panel, null), 1, 0, forward: true);
         Assert.NotEmpty(changes);
-        stack.Push(doc, new SetZOrderCommand(changes, "Move forward"));
+        stack.Push(doc, new SetZOrderCommand(new RenderItem(panel, null), changes, ZOrderStep.Forward));
         Assert.Equal(["Rig", "Panel"], Order(doc));
 
         stack.Undo(doc);
@@ -178,11 +178,13 @@ public class ZOrderTests
         var panel = Fixtures.Place(doc, "Panel", 1, 0);
 
         var stack = new CommandStack();
-        stack.Push(doc, new SetZOrderCommand(ZOrder.Nudge(doc, new RenderItem(panel, null), 1, 0, forward: true), "f"));
+        stack.Push(doc, new SetZOrderCommand(new RenderItem(panel, null),
+            ZOrder.Nudge(doc, new RenderItem(panel, null), 1, 0, forward: true), ZOrderStep.Forward));
         Assert.Equal(["Rig", "Panel"], Order(doc));
         Assert.True(rig.ZBias != 0 || panel.ZBias != 0);
 
-        stack.Push(doc, new SetZOrderCommand(ZOrder.Reset(doc, new RenderItem(panel, null), 1, 0), "r"));
+        stack.Push(doc, new SetZOrderCommand(new RenderItem(panel, null),
+            ZOrder.Reset(doc, new RenderItem(panel, null), 1, 0), ZOrderStep.Reset));
         Assert.Equal(0, rig.ZBias);
         Assert.Equal(0, panel.ZBias);
         Assert.Equal(["Panel", "Rig"], Order(doc));   // back under the automatic rule
@@ -200,7 +202,7 @@ public class ZOrderTests
         {
             var forward = i % 2 == 0;
             var changes = ZOrder.Nudge(doc, new RenderItem(panel, null), 1, 0, forward);
-            new SetZOrderCommand(changes, "n").Do(doc);
+            new SetZOrderCommand(new RenderItem(panel, null), changes, forward ? ZOrderStep.Forward : ZOrderStep.Back).Do(doc);
         }
         // renumbering from the pile's own floor keeps a shuffled pile in {0, 1} rather than walking off
         Assert.InRange(panel.ZBias, 0, 1);

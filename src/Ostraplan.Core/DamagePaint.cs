@@ -114,6 +114,7 @@ public sealed class SetConditionCommand(Placement placement, double? before, dou
 {
     public void Do(ShipDocument doc) => doc.SetCondition(placement, after);
     public void Undo(ShipDocument doc) => doc.SetCondition(placement, before);
+    public void Touch(ChangeSet into) => into.Add(placement);
     public string Describe(Func<string, string?> f) =>
         after is null
             ? $"Cleared the painted condition on {AuditFmt.Name(f, placement.DefName)} {AuditFmt.At(placement.X, placement.Y)}"
@@ -126,6 +127,7 @@ public sealed class SetLooseConditionCommand(LooseObject obj, double? before, do
 {
     public void Do(ShipDocument doc) => doc.SetCondition(obj, after);
     public void Undo(ShipDocument doc) => doc.SetCondition(obj, before);
+    public void Touch(ChangeSet into) => into.Add(obj);
     public string Describe(Func<string, string?> f) =>
         after is null
             ? $"Cleared the painted condition on the loose {AuditFmt.Name(f, obj.DefName)}"

@@ -42,28 +42,48 @@ public static class AuditLog
 
     /// <summary>Log a command edit (place/move/delete/paint/…) as a Do, Undo or Redo. The optional
     /// <paramref name="friendlyOf"/> resolver turns a def name into its friendly name so a describable command
-    /// records what/where (e.g. "Place Nav Station @(12,7)") rather than a context-free "Place".</summary>
+    /// records what/where (e.g. "placed Nav Station at 12, 7") rather than a context-free "Place".</summary>
     public static void Command(CommandAction action, IDocCommand cmd, Func<string, string?>? friendlyOf = null) =>
         Add(Label(action, cmd, friendlyOf));
 
-    /// <summary>The audit line for a command: its detailed self-description when it is <see cref="IAuditDescribable"/>
-    /// and a resolver is supplied, otherwise the terse type name (minus the "Command" suffix).</summary>
+    /// <summary>
+    /// What a command did, in one sentence: its own description when it is <see cref="IAuditDescribable"/> and a
+    /// resolver is supplied, otherwise the terse type name (minus the "Command" suffix). The activity log, the status
+    /// bar after an undo and the Undo button's history list all read this, so the three never disagree (#76).
+    /// </summary>
+    public static string Describe(IDocCommand cmd, Func<string, string?>? friendlyOf = null)
+    {
+        if (cmd is IAuditDescribable d && friendlyOf is not null) return d.Describe(friendlyOf);
+        var name = cmd.GetType().Name;
+        return name.EndsWith("Command", StringComparison.Ordinal) ? name[..^"Command".Length] : name;
+    }
+
+    /// <summary>The audit line for a command: <see cref="Describe"/> behind an Edit, Undo or Redo prefix.</summary>
     public static string Label(CommandAction action, IDocCommand cmd, Func<string, string?>? friendlyOf = null)
     {
-        string name;
-        if (cmd is IAuditDescribable d && friendlyOf is not null)
-            name = d.Describe(friendlyOf);
-        else
-        {
-            name = cmd.GetType().Name;
-            if (name.EndsWith("Command", StringComparison.Ordinal)) name = name[..^"Command".Length];
-        }
+        var what = Describe(cmd, friendlyOf);
+        if (cmd is IAuditDescribable && friendlyOf is not null) what = AuditFmt.Uncap(what);
         return action switch
         {
-            CommandAction.Undo => $"Undo: {name}",
-            CommandAction.Redo => $"Redo: {name}",
-            _ => $"Edit: {name}",
+            CommandAction.Undo => $"Undo: {what}",
+            CommandAction.Redo => $"Redo: {what}",
+            _ => $"Edit: {what}",
         };
+    }
+
+    /// <summary>
+    /// The status-bar line after an undo or redo (#76): "Undid: placed Nav Station at 12, 7". A jump down the
+    /// history list takes several <paramref name="steps"/> in the order they ran, and names the last of them, which
+    /// is the entry that was picked.
+    /// </summary>
+    public static string Recap(CommandAction action, IReadOnlyList<IDocCommand> steps, Func<string, string?>? friendlyOf = null)
+    {
+        if (steps.Count == 0) return "";
+        var verb = action == CommandAction.Redo ? "Redid" : "Undid";
+        var last = AuditFmt.Uncap(Describe(steps[^1], friendlyOf));
+        return steps.Count == 1
+            ? $"{verb}: {last}"
+            : $"{verb} {steps.Count} edits, {(action == CommandAction.Redo ? "as far as" : "as far back as")} {last}";
     }
 
     /// <summary>Log a tool/brush selection, collapsing consecutive identical picks so re-arming the

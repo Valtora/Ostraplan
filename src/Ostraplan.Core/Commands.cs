@@ -4,14 +4,23 @@ public interface IDocCommand
 {
     void Do(ShipDocument doc);
     void Undo(ShipDocument doc);
+
+    /// <summary>
+    /// Add what this command changes to <paramref name="into"/>, so an undo or redo of it can be shown on the plan
+    /// (#76). One answer serves both directions: what an undo takes off the plan is what the redo puts back, so this
+    /// reports everything the command handles and <see cref="ChangeSet.Resolve"/> sorts out what is there afterwards.
+    ///
+    /// <para>Part of the interface rather than an opt-in like <see cref="IAuditDescribable"/>, so an edit added later
+    /// cannot leave an undo with nothing to point at.</para>
+    /// </summary>
+    void Touch(ChangeSet into);
 }
 
 /// <summary>
-/// A command that can render itself as a detailed one-line activity-log entry — the affected part's friendly
-/// name, its tile and rotation, and batch counts — instead of the bare type name. <see cref="AuditLog"/> uses
-/// this (given a def→friendly-name resolver) so the trail reads "Place Nav Station @(12,7)" rather than a
-/// context-free "Place", which is what makes a filed bug report traceable. Commands that carry no useful detail
-/// (device links, which hold only ids) simply don't implement it and fall back to the terse type name.
+/// A command that can say what it did in one sentence: the part's friendly name, its tile and rotation, and batch
+/// counts, rather than the bare type name. The same sentence goes to the activity log (so a filed bug report can be
+/// traced) and to the status bar after an undo or redo (#76), so it is written for the person using the app: past
+/// tense, friendly names, no game internals. <see cref="AuditLog.Describe"/> is the way to ask for it.
 /// </summary>
 public interface IAuditDescribable
 {
@@ -19,23 +28,33 @@ public interface IAuditDescribable
     string Describe(Func<string, string?> friendlyOf);
 }
 
-/// <summary>Shared formatting helpers for <see cref="IAuditDescribable"/> log lines, so every command renders
-/// tiles, rotations and batches the same way.</summary>
+/// <summary>Shared wording for <see cref="IAuditDescribable"/>, so every command renders tiles, rotations and
+/// batches the same way.</summary>
 internal static class AuditFmt
 {
     public static string Name(Func<string, string?> f, string def) => f(def) is { Length: > 0 } n ? n : def;
-    public static string At(int x, int y) => $"@({x},{y})";
-    public static string Rot(int rot) => rot == 0 ? "" : $" r{rot}";
-    public static string By(int dx, int dy) => $"({dx:+0;-0;+0},{dy:+0;-0;+0})";
+    public static string At(int x, int y) => $"at {x}, {y}";
 
-    /// <summary>A compact "×N (Name, Name, …)" summary of a batch of defs, distinct friendly names capped at 3.</summary>
-    public static string Batch(IEnumerable<string> defs, Func<string, string?> f)
+    /// <summary>", turned 90°" for a part placed at an angle, nothing when it sits square.</summary>
+    public static string Turned(int rot) => rot == 0 ? "" : $", turned {rot}°";
+
+    public static string By(int dx, int dy) => $"by {dx:+0;-0;0}, {dy:+0;-0;0}";
+
+    /// <summary>"1 item" or "3 items".</summary>
+    public static string Count(int n, string one, string many) => n == 1 ? $"1 {one}" : $"{n} {many}";
+
+    /// <summary>"3 parts (Wall, Nav Station)": a batch of defs by count and name, at most three names shown.</summary>
+    public static string Batch(IEnumerable<string> defs, Func<string, string?> f, string one = "part", string many = "parts")
     {
         var names = defs.Select(d => Name(f, d)).ToList();
         var distinct = names.Distinct(StringComparer.Ordinal).ToList();
-        var shown = string.Join(", ", distinct.Take(3)) + (distinct.Count > 3 ? ", …" : "");
-        return $"×{names.Count} ({shown})";
+        var shown = string.Join(", ", distinct.Take(3)) + (distinct.Count > 3 ? " and others" : "");
+        return $"{Count(names.Count, one, many)} ({shown})";
     }
+
+    /// <summary>A description lower-cased at the front, for use after a prefix ("Undid: placed …"). Every
+    /// description opens on its verb, so the first letter is never part of a name.</summary>
+    public static string Uncap(string s) => s.Length == 0 ? s : char.ToLowerInvariant(s[0]) + s[1..];
 }
 
 /// <summary>How a command reached the stack — a fresh edit, an undo, or a redo. Drives the audit line.</summary>
@@ -91,26 +110,42 @@ public sealed class CommandStack
         Applied?.Invoke(cmd, CommandAction.Do);
     }
 
-    public void Undo(ShipDocument doc)
-    {
-        if (_undo.Count == 0) return;
-        if (ReadOnly) { Refused?.Invoke(); return; }
-        var cmd = _undo.Pop();
-        cmd.Undo(doc);
-        _redo.Push(cmd);
-        StateChanged?.Invoke();
-        Applied?.Invoke(cmd, CommandAction.Undo);
-    }
+    /// <summary>What an undo would take back, the next one first: the Undo button's history list (#76).</summary>
+    public IReadOnlyList<IDocCommand> UndoSteps => _undo.ToArray();
 
-    public void Redo(ShipDocument doc)
+    /// <summary>What a redo would put back, the next one first.</summary>
+    public IReadOnlyList<IDocCommand> RedoSteps => _redo.ToArray();
+
+    /// <summary>
+    /// Take back the last <paramref name="steps"/> edits, newest first, and hand back what was undone in that order
+    /// so the caller can show it. Empty when there was nothing to undo, or when the stack is <see cref="ReadOnly"/>.
+    /// More than one step is a jump down the history list, and the document repaints and re-scans once for it.
+    /// </summary>
+    public IReadOnlyList<IDocCommand> Undo(ShipDocument doc, int steps = 1) =>
+        Step(doc, _undo, _redo, steps, CommandAction.Undo);
+
+    /// <summary>Put back the next <paramref name="steps"/> undone edits; the mirror of <see cref="Undo"/>.</summary>
+    public IReadOnlyList<IDocCommand> Redo(ShipDocument doc, int steps = 1) =>
+        Step(doc, _redo, _undo, steps, CommandAction.Redo);
+
+    private IReadOnlyList<IDocCommand> Step(
+        ShipDocument doc, Stack<IDocCommand> from, Stack<IDocCommand> to, int steps, CommandAction action)
     {
-        if (_redo.Count == 0) return;
-        if (ReadOnly) { Refused?.Invoke(); return; }
-        var cmd = _redo.Pop();
-        cmd.Do(doc);
-        _undo.Push(cmd);
+        if (from.Count == 0 || steps < 1) return [];
+        if (ReadOnly) { Refused?.Invoke(); return []; }
+        var done = new List<IDocCommand>(Math.Min(steps, from.Count));
+        using (doc.SuspendChanged())
+            while (done.Count < steps && from.Count > 0)
+            {
+                var cmd = from.Pop();
+                if (action == CommandAction.Undo) cmd.Undo(doc);
+                else cmd.Do(doc);
+                to.Push(cmd);
+                done.Add(cmd);
+            }
         StateChanged?.Invoke();
-        Applied?.Invoke(cmd, CommandAction.Redo);
+        foreach (var cmd in done) Applied?.Invoke(cmd, action);
+        return done;
     }
 
     public void MarkSaved()
@@ -143,13 +178,32 @@ public sealed class CompositeCommand(IReadOnlyList<IDocCommand> commands) : IDoc
         for (var i = commands.Count - 1; i >= 0; i--) commands[i].Undo(doc);
     }
 
-    // Spell out a small batch (a form swap is Remove + Place, worth seeing in full); summarise a large one.
+    public void Touch(ChangeSet into)
+    {
+        foreach (var cmd in commands) cmd.Touch(into);
+    }
+
+    /// <summary>
+    /// A batch of one kind reads as one sentence: a paint stroke is forty <see cref="PlaceCommand"/>s, and "Placed 40
+    /// parts (Wall)" says what it did where forty tiles would not. A small mixed batch is spelled out in full, since a
+    /// form swap is a remove and a place and both halves are worth seeing; a large one names its first step.
+    /// </summary>
     public string Describe(Func<string, string?> friendlyOf)
     {
+        if (commands.Count > 1 && commands.All(c => c is PlaceCommand))
+            return $"Placed {AuditFmt.Batch(commands.Cast<PlaceCommand>().Select(c => c.Placement.DefName), friendlyOf)}";
+        if (commands.Count > 1 && commands.All(c => c is PlaceLooseCommand))
+            return $"Dropped {AuditFmt.Batch(commands.Cast<PlaceLooseCommand>().Select(c => c.Obj.DefName), friendlyOf, "loose item", "loose items")}";
+        if (commands.Count > 1 && commands.All(c => c is RemoveLooseCommand))
+            return $"Removed {AuditFmt.Batch(commands.Cast<RemoveLooseCommand>().Select(c => c.Obj.DefName), friendlyOf, "loose item", "loose items")}";
+
         var parts = commands.OfType<IAuditDescribable>().Select(c => c.Describe(friendlyOf)).ToList();
-        if (parts.Count == 0) return $"{commands.Count} edits";
-        if (parts.Count <= 3) return string.Join(" + ", parts);
-        return $"{parts.Count} edits: {parts[0]}, …";
+        if (parts.Count == 0) return $"Made {AuditFmt.Count(commands.Count, "edit", "edits")}";
+        if (parts.Count == 1) return parts[0];
+        if (parts.Count <= 3)
+            return string.Join(", ", parts.SkipLast(1).Select((p, i) => i == 0 ? p : AuditFmt.Uncap(p)))
+                   + " and " + AuditFmt.Uncap(parts[^1]);
+        return $"{parts[0]}, and {parts.Count - 1} more edits";
     }
 }
 
@@ -158,8 +212,9 @@ public sealed class PlaceCommand(Placement placement) : IDocCommand, IAuditDescr
     public Placement Placement => placement;
     public void Do(ShipDocument doc) => doc.Add(placement);
     public void Undo(ShipDocument doc) => doc.Remove(placement);
+    public void Touch(ChangeSet into) => into.Add(placement);
     public string Describe(Func<string, string?> f) =>
-        $"Place {AuditFmt.Name(f, placement.DefName)} {AuditFmt.At(placement.X, placement.Y)}{AuditFmt.Rot(placement.Rot)}";
+        $"Placed {AuditFmt.Name(f, placement.DefName)} {AuditFmt.At(placement.X, placement.Y)}{AuditFmt.Turned(placement.Rot)}";
 }
 
 /// <summary>
@@ -171,8 +226,10 @@ public sealed class SetCargoCommand(Placement placement, IReadOnlyList<CargoItem
 {
     public void Do(ShipDocument doc) => doc.SetCargo(placement, after);
     public void Undo(ShipDocument doc) => doc.SetCargo(placement, before);
+    public void Touch(ChangeSet into) => into.Add(placement);
     public string Describe(Func<string, string?> f) =>
-        $"Edit contents of {AuditFmt.Name(f, placement.DefName)} ({before.Count} → {after.Count} items)";
+        $"Changed the contents of {AuditFmt.Name(f, placement.DefName)} {AuditFmt.At(placement.X, placement.Y)} " +
+        $"from {AuditFmt.Count(before.Count, "item", "items")} to {after.Count}";
 }
 
 /// <summary>
@@ -186,11 +243,12 @@ public sealed class SetNavLayoutCommand(
 {
     public void Do(ShipDocument doc) => doc.SetNavLayout(placement, after);
     public void Undo(ShipDocument doc) => doc.SetNavLayout(placement, before);
+    public void Touch(ChangeSet into) => into.Add(placement);
     public string Describe(Func<string, string?> f) =>
         after is null
-            ? $"Reset the screen arrangement of {AuditFmt.Name(f, placement.DefName)}"
-            : $"Arrange the screen of {AuditFmt.Name(f, placement.DefName)} " +
-              $"({after.Count(e => e.Value.Length > 0)} of {after.Count} module(s) on screen)";
+            ? $"Reset the screen layout of {AuditFmt.Name(f, placement.DefName)}"
+            : $"Arranged the screen of {AuditFmt.Name(f, placement.DefName)} " +
+              $"({after.Count(e => e.Value.Length > 0)} of {AuditFmt.Count(after.Count, "module", "modules")} on screen)";
 }
 
 /// <summary>
@@ -203,11 +261,11 @@ public sealed class SetFillCommand(
 {
     public void Do(ShipDocument doc) => doc.SetFill(placement, after);
     public void Undo(ShipDocument doc) => doc.SetFill(placement, before);
+    public void Touch(ChangeSet into) => into.Add(placement);
     public string Describe(Func<string, string?> f) =>
         after is null
-            ? $"Reset the contents of {AuditFmt.Name(f, placement.DefName)} to stock"
-            : $"Fill {AuditFmt.Name(f, placement.DefName)} " +
-              $"({ContainerFill.TotalMols(after):#,##0.##} mol of gas)";
+            ? $"Reset the fill of {AuditFmt.Name(f, placement.DefName)} to stock"
+            : $"Filled {AuditFmt.Name(f, placement.DefName)} with {ContainerFill.TotalMols(after):#,##0.##} mol of gas";
 }
 
 /// <summary>
@@ -236,10 +294,12 @@ public sealed class RemoveCommand(IReadOnlyList<Placement> placements) : IDocCom
             doc.Restore(placements[i], _slots[i].Index, _slots[i].Seq);
     }
 
+    public void Touch(ChangeSet into) => into.Add(placements);
+
     public string Describe(Func<string, string?> f) =>
         placements.Count == 1
-            ? $"Remove {AuditFmt.Name(f, placements[0].DefName)} {AuditFmt.At(placements[0].X, placements[0].Y)}"
-            : $"Remove {AuditFmt.Batch(placements.Select(p => p.DefName), f)}";
+            ? $"Removed {AuditFmt.Name(f, placements[0].DefName)} {AuditFmt.At(placements[0].X, placements[0].Y)}"
+            : $"Removed {AuditFmt.Batch(placements.Select(p => p.DefName), f)}";
 }
 
 /// <summary>
@@ -279,10 +339,12 @@ public sealed class BuildLastCommand(IReadOnlyList<Placement> placements) : IDoc
     private IEnumerable<int> Ascending() =>
         Enumerable.Range(0, placements.Count).OrderBy(i => _before[i]);
 
+    public void Touch(ChangeSet into) => into.Add(placements);
+
     public string Describe(Func<string, string?> f) =>
         placements.Count == 1
-            ? $"Build {AuditFmt.Name(f, placements[0].DefName)} {AuditFmt.At(placements[0].X, placements[0].Y)} last"
-            : $"Build {AuditFmt.Batch(placements.Select(p => p.DefName), f)} last";
+            ? $"Set {AuditFmt.Name(f, placements[0].DefName)} {AuditFmt.At(placements[0].X, placements[0].Y)} to build last"
+            : $"Set {AuditFmt.Batch(placements.Select(p => p.DefName), f)} to build last";
 }
 
 /// <summary>
@@ -308,10 +370,12 @@ public sealed class MoveCommand(IReadOnlyList<Placement> placements, int dx, int
             doc.MoveTo(placements[i], placements[i].X - dx, placements[i].Y - dy, _given[i]);
     }
 
+    public void Touch(ChangeSet into) => into.Add(placements);
+
     public string Describe(Func<string, string?> f) =>
         placements.Count == 1
-            ? $"Move {AuditFmt.Name(f, placements[0].DefName)} by {AuditFmt.By(dx, dy)}"
-            : $"Move {AuditFmt.Batch(placements.Select(p => p.DefName), f)} by {AuditFmt.By(dx, dy)}";
+            ? $"Moved {AuditFmt.Name(f, placements[0].DefName)} {AuditFmt.By(dx, dy)}"
+            : $"Moved {AuditFmt.Batch(placements.Select(p => p.DefName), f)} {AuditFmt.By(dx, dy)}";
 }
 
 /// <summary>
@@ -328,8 +392,10 @@ public sealed class SetPosesCommand : IDocCommand, IAuditDescribable
 
     public string Describe(Func<string, string?> f) =>
         _parts.Length == 1
-            ? $"Move/rotate {AuditFmt.Name(f, _parts[0].DefName)} {AuditFmt.At(_after[0].X, _after[0].Y)} → r{_after[0].Rot}"
-            : $"Transform {AuditFmt.Batch(_parts.Select(p => p.DefName), f)}";
+            ? $"Moved {AuditFmt.Name(f, _parts[0].DefName)} to {_after[0].X}, {_after[0].Y}{AuditFmt.Turned(GridMath.Norm(_after[0].Rot))}"
+            : $"Moved and turned {AuditFmt.Batch(_parts.Select(p => p.DefName), f)}";
+
+    public void Touch(ChangeSet into) => into.Add(_parts);
 
     public SetPosesCommand(IReadOnlyList<(Placement Part, int X, int Y, int Rot)> poses)
     {
@@ -368,7 +434,9 @@ public sealed class RotateCommand : IDocCommand, IAuditDescribable
     private readonly bool _given;   // given-ness before the turn, restored on undo (see MoveCommand)
 
     public string Describe(Func<string, string?> f) =>
-        $"Rotate {AuditFmt.Name(f, _p.DefName)} {AuditFmt.At(_after.X, _after.Y)} → r{_after.Rot}";
+        $"Rotated {AuditFmt.Name(f, _p.DefName)} {AuditFmt.At(_after.X, _after.Y)} to {_after.Rot}°";
+
+    public void Touch(ChangeSet into) => into.Add(_p);
 
     public RotateCommand(ShipDocument doc, Placement p, int delta)
     {
@@ -394,7 +462,8 @@ public sealed class CreateZoneCommand(ShipZone zone) : IDocCommand, IAuditDescri
     public ShipZone Zone => zone;
     public void Do(ShipDocument doc) => doc.AddZone(zone);
     public void Undo(ShipDocument doc) => doc.RemoveZone(zone);
-    public string Describe(Func<string, string?> f) => $"Create zone “{zone.Name}”";
+    public void Touch(ChangeSet into) => into.AddTiles(zone.Tiles);
+    public string Describe(Func<string, string?> f) => $"Created zone “{zone.Name}”";
 }
 
 /// <summary>Delete a zone, remembering its list position so undo restores order exactly.</summary>
@@ -405,7 +474,8 @@ public sealed class DeleteZoneCommand : IDocCommand, IAuditDescribable
     public DeleteZoneCommand(ShipDocument doc, ShipZone zone) { _zone = zone; _index = doc.IndexOfZone(zone); }
     public void Do(ShipDocument doc) => doc.RemoveZone(_zone);
     public void Undo(ShipDocument doc) => doc.InsertZone(_index < 0 ? doc.Zones.Count : _index, _zone);
-    public string Describe(Func<string, string?> f) => $"Delete zone “{_zone.Name}”";
+    public void Touch(ChangeSet into) => into.AddTiles(_zone.Tiles);
+    public string Describe(Func<string, string?> f) => $"Deleted zone “{_zone.Name}”";
 }
 
 /// <summary>Replace a zone's covered tiles — one paint/erase/box/room-fill stroke, committed as a single step.
@@ -414,8 +484,18 @@ public sealed class SetZoneTilesCommand(ShipZone zone, IReadOnlyCollection<(int 
 {
     public void Do(ShipDocument doc) => doc.SetZoneTiles(zone, after);
     public void Undo(ShipDocument doc) => doc.SetZoneTiles(zone, before);
+
+    // The tiles the stroke changed hands, not the whole zone: an undone stroke at one end of a long corridor zone
+    // should point at that end.
+    public void Touch(ChangeSet into)
+    {
+        var changed = new HashSet<(int X, int Y)>(before);
+        changed.SymmetricExceptWith(after);
+        into.AddTiles(changed);
+    }
+
     public string Describe(Func<string, string?> f) =>
-        $"Paint zone “{zone.Name}” ({before.Count} → {after.Count} tiles)";
+        $"Painted zone “{zone.Name}” from {AuditFmt.Count(before.Count, "tile", "tiles")} to {after.Count}";
 }
 
 /// <summary>Replace a zone's editable non-tile fields (rename / recolour / type / role / advanced) as one step.</summary>
@@ -423,25 +503,73 @@ public sealed class SetZoneMetaCommand(ShipZone zone, ZoneMeta before, ZoneMeta 
 {
     public void Do(ShipDocument doc) => doc.SetZoneMeta(zone, after);
     public void Undo(ShipDocument doc) => doc.SetZoneMeta(zone, before);
+    public void Touch(ChangeSet into) => into.AddTiles(zone.Tiles);
     public string Describe(Func<string, string?> f) =>
-        before.Name != after.Name ? $"Rename zone “{before.Name}” → “{after.Name}”"
-                                   : $"Edit zone “{after.Name}”";
+        before.Name != after.Name ? $"Renamed zone “{before.Name}” to “{after.Name}”"
+                                   : $"Changed zone “{after.Name}”";
 }
 
 // ---- device-link commands (signal connections — see DeviceLink) ----
 
-/// <summary>Add a signal connection between two devices.</summary>
-public sealed class AddLinkCommand(DeviceLink link) : IDocCommand
+/// <summary>
+/// The parts at the two ends of a wire, looked up when the command first runs. A link holds only ids, so without
+/// this a wiring step could neither name its parts in the log nor point at them after an undo. Looked up in Do
+/// rather than at construction, as <see cref="RemoveCommand"/> captures its slots; a wire is only ever made or cut
+/// between two parts on the plan, so both are there at that moment.
+/// </summary>
+internal sealed class LinkEnds(Guid source, Guid target)
 {
-    public void Do(ShipDocument doc) => doc.AddLink(link);
+    private Placement? _source;
+    private Placement? _target;
+
+    public void Resolve(ShipDocument doc)
+    {
+        _source ??= doc.ById(source);
+        _target ??= doc.ById(target);
+    }
+
+    public void Touch(ChangeSet into)
+    {
+        if (_source is { } s) into.Add(s);
+        if (_target is { } t) into.Add(t);
+    }
+
+    public string Source(Func<string, string?> f) => Name(_source, f);
+    public string Target(Func<string, string?> f) => Name(_target, f);
+
+    private static string Name(Placement? p, Func<string, string?> f) => p is null ? "a part" : AuditFmt.Name(f, p.DefName);
+}
+
+/// <summary>Add a signal connection between two devices.</summary>
+public sealed class AddLinkCommand(DeviceLink link) : IDocCommand, IAuditDescribable
+{
+    private readonly LinkEnds _ends = new(link.Source, link.Target);
+
+    public void Do(ShipDocument doc)
+    {
+        _ends.Resolve(doc);
+        doc.AddLink(link);
+    }
+
     public void Undo(ShipDocument doc) => doc.RemoveLink(link);
+    public void Touch(ChangeSet into) => _ends.Touch(into);
+    public string Describe(Func<string, string?> f) => $"Connected {_ends.Source(f)} to {_ends.Target(f)}";
 }
 
 /// <summary>Remove a signal connection.</summary>
-public sealed class RemoveLinkCommand(DeviceLink link) : IDocCommand
+public sealed class RemoveLinkCommand(DeviceLink link) : IDocCommand, IAuditDescribable
 {
-    public void Do(ShipDocument doc) => doc.RemoveLink(link);
+    private readonly LinkEnds _ends = new(link.Source, link.Target);
+
+    public void Do(ShipDocument doc)
+    {
+        _ends.Resolve(doc);
+        doc.RemoveLink(link);
+    }
+
     public void Undo(ShipDocument doc) => doc.AddLink(link);
+    public void Touch(ChangeSet into) => _ends.Touch(into);
+    public string Describe(Func<string, string?> f) => $"Disconnected {_ends.Source(f)} from {_ends.Target(f)}";
 }
 
 // ---- sensor-link commands (a sensor driving a device — see SensorLink) ----
@@ -451,14 +579,21 @@ public sealed class RemoveLinkCommand(DeviceLink link) : IDocCommand
 /// whatever sensor it followed before; both halves are one undo step, or undoing a re-point would leave the device
 /// following nothing rather than following what it used to.
 /// </summary>
-public sealed class AddSensorLinkCommand(SensorLink link, SensorLink? displaced) : IDocCommand
+public sealed class AddSensorLinkCommand(SensorLink link, SensorLink? displaced) : IDocCommand, IAuditDescribable
 {
+    private readonly LinkEnds _ends = new(link.Source, link.Target);
+
+    // The sensor the device stops following. Only its source end matters: the target is this link's target.
+    private readonly LinkEnds? _was = displaced is { } d ? new(d.Source, d.Target) : null;
+
     /// <summary>The link this one pushed off the target, or null when the device was unwired. Resolved by the
     /// caller through <see cref="SensorLinks.Replacing"/> before the command is pushed.</summary>
     public SensorLink? Displaced => displaced;
 
     public void Do(ShipDocument doc)
     {
+        _ends.Resolve(doc);
+        _was?.Resolve(doc);
         if (displaced is { } old) doc.RemoveSensorLink(old);
         doc.AddSensorLink(link);
     }
@@ -468,13 +603,31 @@ public sealed class AddSensorLinkCommand(SensorLink link, SensorLink? displaced)
         doc.RemoveSensorLink(link);
         if (displaced is { } old) doc.AddSensorLink(old);
     }
+
+    public void Touch(ChangeSet into)
+    {
+        _ends.Touch(into);
+        _was?.Touch(into);   // the old sensor changed too: it no longer drives anything here
+    }
+
+    public string Describe(Func<string, string?> f) =>
+        $"Set {_ends.Target(f)} to follow {_ends.Source(f)}" + (_was is { } was ? $" instead of {was.Source(f)}" : "");
 }
 
 /// <summary>Stop a device following its sensor.</summary>
-public sealed class RemoveSensorLinkCommand(SensorLink link) : IDocCommand
+public sealed class RemoveSensorLinkCommand(SensorLink link) : IDocCommand, IAuditDescribable
 {
-    public void Do(ShipDocument doc) => doc.RemoveSensorLink(link);
+    private readonly LinkEnds _ends = new(link.Source, link.Target);
+
+    public void Do(ShipDocument doc)
+    {
+        _ends.Resolve(doc);
+        doc.RemoveSensorLink(link);
+    }
+
     public void Undo(ShipDocument doc) => doc.AddSensorLink(link);
+    public void Touch(ChangeSet into) => _ends.Touch(into);
+    public string Describe(Func<string, string?> f) => $"Stopped {_ends.Target(f)} following {_ends.Source(f)}";
 }
 
 /// <summary>Set a device's own panel settings — bus knob and modes (see <see cref="DeviceSettings"/>).</summary>
@@ -483,8 +636,17 @@ public sealed class SetDeviceSettingsCommand(Placement part, DeviceSettings? bef
 {
     public void Do(ShipDocument doc) => doc.SetDeviceSettings(part, after);
     public void Undo(ShipDocument doc) => doc.SetDeviceSettings(part, before);
-    public string Describe(Func<string, string?> f) =>
-        $"Set {AuditFmt.Name(f, part.DefName)} bus {(after ?? DeviceSettings.Default).Bus} {AuditFmt.At(part.X, part.Y)}";
+    public void Touch(ChangeSet into) => into.Add(part);
+
+    // The bus reads as the panel's own Off / Auto / On, which is what the enum is named.
+    public string Describe(Func<string, string?> f)
+    {
+        var s = after ?? DeviceSettings.Default;
+        var modes = new[] { (s.Turbo, "turbo"), (s.Reverse, "reverse"), (s.Slow, "slow mode") }
+            .Where(m => m.Item1).Select(m => m.Item2).ToList();
+        return $"Set {AuditFmt.Name(f, part.DefName)} {AuditFmt.At(part.X, part.Y)} to {s.Bus}" +
+               (modes.Count > 0 ? $" with {string.Join(" and ", modes)}" : "");
+    }
 }
 
 /// <summary>Set a reactor's own control panel — knobs, switches and sliders (see <see cref="ReactorSettings"/>).</summary>
@@ -493,11 +655,14 @@ public sealed class SetReactorSettingsCommand(Placement part, ReactorSettings? b
 {
     public void Do(ShipDocument doc) => doc.SetReactorSettings(part, after);
     public void Undo(ShipDocument doc) => doc.SetReactorSettings(part, before);
+    public void Touch(ChangeSet into) => into.Add(part);
+
+    // The bus in capitals because the game's knob is labelled that way (OFF, BATT, CHRG), as the panel shows it.
     public string Describe(Func<string, string?> f)
     {
         var s = after ?? ReactorSettings.Default;
-        return $"Set {AuditFmt.Name(f, part.DefName)} bus {s.Bus}, ignition {(s.Ignition ? "on" : "off")} " +
-               AuditFmt.At(part.X, part.Y);
+        return $"Changed the panel of {AuditFmt.Name(f, part.DefName)} {AuditFmt.At(part.X, part.Y)} " +
+               $"(bus {s.Bus.ToString().ToUpperInvariant()}, ignition {(s.Ignition ? "on" : "off")})";
     }
 }
 
@@ -508,12 +673,13 @@ public sealed class SetWeaponSettingsCommand(Placement part, WeaponSettings? bef
 {
     public void Do(ShipDocument doc) => doc.SetWeaponSettings(part, after);
     public void Undo(ShipDocument doc) => doc.SetWeaponSettings(part, before);
+    public void Touch(ChangeSet into) => into.Add(part);
     public string Describe(Func<string, string?> f)
     {
         var group = after?.Group is { } g
             ? $"firing group {WeaponPanel.ToDisplay(g)}"
             : "its stock firing group";
-        return $"Set {AuditFmt.Name(f, part.DefName)} to {group} {AuditFmt.At(part.X, part.Y)}";
+        return $"Set {AuditFmt.Name(f, part.DefName)} {AuditFmt.At(part.X, part.Y)} to {group}";
     }
 }
 
@@ -525,8 +691,9 @@ public sealed class PlaceLooseCommand(LooseObject obj) : IDocCommand, IAuditDesc
     public LooseObject Obj => obj;
     public void Do(ShipDocument doc) => doc.AddLoose(obj);
     public void Undo(ShipDocument doc) => doc.RemoveLoose(obj);
+    public void Touch(ChangeSet into) => into.Add(obj);
     public string Describe(Func<string, string?> f) =>
-        $"Drop {AuditFmt.Name(f, obj.DefName)}{(obj.Quantity > 1 ? $" ×{obj.Quantity}" : "")} {AuditFmt.At(obj.X, obj.Y)}";
+        $"Dropped {AuditFmt.Name(f, obj.DefName)}{(obj.Quantity > 1 ? $" ×{obj.Quantity}" : "")} {AuditFmt.At(obj.X, obj.Y)}";
 }
 
 /// <summary>Retune a loot spawner's control panel (#55).</summary>
@@ -535,11 +702,11 @@ public sealed class SetSpawnerCommand(LooseObject obj, SpawnerSettings? before, 
 {
     public void Do(ShipDocument doc) => doc.SetSpawner(obj, after);
     public void Undo(ShipDocument doc) => doc.SetSpawner(obj, before);
-    public string Describe(Func<string, string?> f)
-    {
-        var s = after ?? SpawnerSettings.Default;
-        return $"Set spawner {SpawnerSettings.Wire(s.Type)} '{s.Target}' {AuditFmt.At(obj.X, obj.Y)}";
-    }
+    public void Touch(ChangeSet into) => into.Add(obj);
+
+    // The target by its name, which is what the spawner panel and its picker show.
+    public string Describe(Func<string, string?> f) =>
+        $"Changed {AuditFmt.Name(f, obj.DefName)} {AuditFmt.At(obj.X, obj.Y)} to spawn {(after ?? SpawnerSettings.Default).Target}";
 }
 
 /// <summary>Remove a loose item from its tile. Undo puts it back at its own index, for the reason
@@ -549,6 +716,8 @@ public sealed class RemoveLooseCommand(LooseObject obj) : IDocCommand, IAuditDes
     private int _index = -1;
     private long _seq;
 
+    public LooseObject Obj => obj;
+
     public void Do(ShipDocument doc)
     {
         _index = doc.IndexOfLoose(obj);
@@ -557,8 +726,9 @@ public sealed class RemoveLooseCommand(LooseObject obj) : IDocCommand, IAuditDes
     }
 
     public void Undo(ShipDocument doc) => doc.RestoreLoose(obj, _index, _seq);
+    public void Touch(ChangeSet into) => into.Add(obj);
     public string Describe(Func<string, string?> f) =>
-        $"Remove loose {AuditFmt.Name(f, obj.DefName)} {AuditFmt.At(obj.X, obj.Y)}";
+        $"Removed loose {AuditFmt.Name(f, obj.DefName)} {AuditFmt.At(obj.X, obj.Y)}";
 }
 
 /// <summary>
@@ -578,8 +748,13 @@ public sealed class SetLoosePosesCommand : IDocCommand, IAuditDescribable
 
     public string Describe(Func<string, string?> f) =>
         _objs.Length == 1
-            ? $"Move loose {AuditFmt.Name(f, _objs[0].DefName)} {AuditFmt.At(_after[0].X, _after[0].Y)} → r{_after[0].Rot}"
-            : $"Transform loose {AuditFmt.Batch(_objs.Select(o => o.DefName), f)}";
+            ? $"Moved loose {AuditFmt.Name(f, _objs[0].DefName)} to {_after[0].X}, {_after[0].Y}{AuditFmt.Turned(GridMath.Norm(_after[0].Rot))}"
+            : $"Moved and turned {AuditFmt.Batch(_objs.Select(o => o.DefName), f, "loose item", "loose items")}";
+
+    public void Touch(ChangeSet into)
+    {
+        foreach (var o in _objs) into.Add(o);
+    }
 
     public SetLoosePosesCommand(IReadOnlyList<(LooseObject Obj, int X, int Y, int Rot)> poses)
     {
@@ -617,24 +792,35 @@ public sealed class SetLooseCargoCommand(LooseObject obj, IReadOnlyList<CargoIte
 {
     public void Do(ShipDocument doc) => doc.SetLooseCargo(obj, after);
     public void Undo(ShipDocument doc) => doc.SetLooseCargo(obj, before);
+    public void Touch(ChangeSet into) => into.Add(obj);
     public string Describe(Func<string, string?> f) =>
-        $"Edit contents of {AuditFmt.Name(f, obj.DefName)} on the deck ({before.Count} → {after.Count} items)";
+        $"Changed the contents of loose {AuditFmt.Name(f, obj.DefName)} {AuditFmt.At(obj.X, obj.Y)} " +
+        $"from {AuditFmt.Count(before.Count, "item", "items")} to {after.Count}";
 }
 
 public sealed class SetLooseQuantityCommand(LooseObject obj, int before, int after) : IDocCommand, IAuditDescribable
 {
     public void Do(ShipDocument doc) => doc.SetLooseQuantity(obj, after);
     public void Undo(ShipDocument doc) => doc.SetLooseQuantity(obj, before);
+    public void Touch(ChangeSet into) => into.Add(obj);
     public string Describe(Func<string, string?> f) =>
-        $"Set {AuditFmt.Name(f, obj.DefName)} quantity {before} → {after}";
+        $"Changed the quantity of {AuditFmt.Name(f, obj.DefName)} {AuditFmt.At(obj.X, obj.Y)} from {before} to {after}";
 }
+
+/// <summary>Which of the draw-order menu items a <see cref="SetZOrderCommand"/> came from.</summary>
+public enum ZOrderStep { Forward, Back, Reset }
 
 /// <summary>
 /// Re-stack what shares a tile: the bias changes a Move Back / Move Forward / Reset order produced (see
 /// <see cref="ZOrder"/>), applied as one undo step because a nudge writes an explicit order across the whole pile,
 /// not just the part you nudged. Purely cosmetic — no geometry moves, so nothing is re-analysed.
+///
+/// <para><paramref name="item"/> is the one the menu was opened on. It is named separately because it need not be
+/// among the changes at all: a nudge rewrites the biases of whatever in the pile is out of sequence, which can be
+/// everything but the item itself.</para>
 /// </summary>
-public sealed class SetZOrderCommand(IReadOnlyList<ZOrder.BiasChange> changes, string verb) : IDocCommand, IAuditDescribable
+public sealed class SetZOrderCommand(RenderItem item, IReadOnlyList<ZOrder.BiasChange> changes, ZOrderStep step)
+    : IDocCommand, IAuditDescribable
 {
     public void Do(ShipDocument doc) => Apply(doc, redo: true);
     public void Undo(ShipDocument doc) => Apply(doc, redo: false);
@@ -650,9 +836,19 @@ public sealed class SetZOrderCommand(IReadOnlyList<ZOrder.BiasChange> changes, s
         }
     }
 
-    public string Describe(Func<string, string?> f) =>
-        changes.Count == 0 ? verb
-        : $"{verb} {AuditFmt.Name(f, changes[0].Item.DefName)} {AuditFmt.At(changes[0].Item.X, changes[0].Item.Y)}";
+    // The item rather than the pile: the rest of the pile only moved to make room.
+    public void Touch(ChangeSet into) => into.Add(item);
+
+    public string Describe(Func<string, string?> f)
+    {
+        var what = $"{AuditFmt.Name(f, item.DefName)} {AuditFmt.At(item.X, item.Y)}";
+        return step switch
+        {
+            ZOrderStep.Forward => $"Moved {what} forward",
+            ZOrderStep.Back => $"Moved {what} back",
+            _ => $"Reset the draw order of {what}",
+        };
+    }
 }
 
 /// <summary>Give a placed part a name of its own, or clear it back to the stock one (see
@@ -661,10 +857,11 @@ public sealed class SetCustomNameCommand(Placement placement, string? before, st
 {
     public void Do(ShipDocument doc) => doc.SetCustomName(placement, after);
     public void Undo(ShipDocument doc) => doc.SetCustomName(placement, before);
+    public void Touch(ChangeSet into) => into.Add(placement);
     public string Describe(Func<string, string?> f) =>
         after is null
-            ? $"Cleared the name on {AuditFmt.Name(f, placement.DefName)}"
-            : $"Named {AuditFmt.Name(f, placement.DefName)} \"{after}\"";
+            ? $"Cleared the name on {AuditFmt.Name(f, placement.DefName)} {AuditFmt.At(placement.X, placement.Y)}"
+            : $"Named {AuditFmt.Name(f, placement.DefName)} {AuditFmt.At(placement.X, placement.Y)} \"{after}\"";
 }
 
 /// <summary>Give a loose deck item a name of its own, or clear it back to the stock one — the loose twin of
@@ -674,6 +871,7 @@ public sealed class SetLooseCustomNameCommand(LooseObject obj, string? before, s
 {
     public void Do(ShipDocument doc) => doc.SetCustomName(obj, after);
     public void Undo(ShipDocument doc) => doc.SetCustomName(obj, before);
+    public void Touch(ChangeSet into) => into.Add(obj);
     public string Describe(Func<string, string?> f) =>
         after is null
             ? $"Cleared the name on the loose {AuditFmt.Name(f, obj.DefName)}"

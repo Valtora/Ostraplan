@@ -192,10 +192,15 @@
                     <Border Style="{StaticResource ToolSep}"/>
 
                     <!-- Edit (frequent — kept as direct buttons) -->
+                    <!-- Hold either one, or right-click it, for the list of edits it would step through (#76). -->
                     <Button x:Name="BtnUndo" Content="Undo" Padding="10,3" Margin="0,0,3,0" Click="OnUndoClick"
-                            ToolTip="Undo the last edit. (Ctrl+Z)"/>
+                            PreviewMouseLeftButtonDown="OnHistoryButtonDown" PreviewMouseLeftButtonUp="OnHistoryButtonUp"
+                            MouseRightButtonUp="OnHistoryButtonRightClick"
+                            ToolTip="Undo the last edit. Hold or right-click for the list. (Ctrl+Z)"/>
                     <Button x:Name="BtnRedo" Content="Redo" Padding="10,3" Margin="0,0,3,0" Click="OnRedoClick"
-                            ToolTip="Redo the last undone edit. (Ctrl+Y)"/>
+                            PreviewMouseLeftButtonDown="OnHistoryButtonDown" PreviewMouseLeftButtonUp="OnHistoryButtonUp"
+                            MouseRightButtonUp="OnHistoryButtonRightClick"
+                            ToolTip="Redo the last undone edit. Hold or right-click for the list. (Ctrl+Y)"/>
                     <!-- The tab's lock (#74). Only there while the design has a file behind it, since locking is
                          about not overwriting that file by accident. A ToggleButton for the Fluent checked accent,
                          with IsChecked driven from the session by RefreshChrome and Click as the only way in. -->
@@ -332,6 +337,12 @@
             <Separator/>
             <StatusBarItem><TextBlock x:Name="TxtParts" Text=""/></StatusBarItem>
             <Separator/>
+            <!-- What the last undo or redo did (#76), for a few seconds before it fades. Trimmed rather than wrapped:
+                 the description is built from part names, and the full line is in the tooltip. -->
+            <StatusBarItem x:Name="HistoryNote" Visibility="Collapsed" Margin="0,0,8,0">
+                <TextBlock x:Name="TxtHistory" FontWeight="SemiBold" Foreground="{DynamicResource Ink}"
+                           MaxWidth="560" TextTrimming="CharacterEllipsis"/>
+            </StatusBarItem>
             <StatusBarItem><TextBlock x:Name="TxtGhost" Text="" FontWeight="SemiBold" Foreground="{DynamicResource Bad}"/></StatusBarItem>
             <!-- Force place is remembered between sessions, so this is what stops it being on without you knowing.
                  Collapsed the rest of the time, which is why it takes no width when off. -->

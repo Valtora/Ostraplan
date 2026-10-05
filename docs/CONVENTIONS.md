@@ -378,3 +378,8 @@ Ostraplan works it out, and what an older version did belong in comments, commit
 never in the UI. The CHANGELOG counts as UI, because the What's New window shows it; see
 [DEVELOPMENT.md](DEVELOPMENT.md#versioning) for the entry format. Name game things by their in-game friendly
 name.
+
+A command's `Describe` counts as UI too. The status bar shows it after an undo or redo and the Undo button's
+history list is made of it (#76), so it is one past-tense sentence a player reads ("Placed Nav Station at 12, 7"),
+even though the activity log records the same sentence. Write it for the screen, and the log line will still say what
+a bug report needs.

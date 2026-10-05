@@ -100,7 +100,8 @@ public class ShipDocumentOrderTests
         var doc = Ship(Cat());
         _ = doc.RenderOrder();
         var bench = doc.Placements.Single(p => p.DefName == "Bench");
-        new SetZOrderCommand([new ZOrder.BiasChange(new RenderItem(bench, null), 0, 5)], "raise").Do(doc);
+        var raised = new RenderItem(bench, null);
+        new SetZOrderCommand(raised, [new ZOrder.BiasChange(raised, 0, 5)], ZOrderStep.Forward).Do(doc);
         AssertOrderIntact(doc);
     }
 
@@ -109,7 +110,7 @@ public class ShipDocumentOrderTests
     {
         var doc = Ship(Cat());
         var loose = doc.RenderOrder().First(i => i.IsLoose);
-        new SetZOrderCommand([new ZOrder.BiasChange(loose, 0, -3)], "lower").Do(doc);
+        new SetZOrderCommand(loose, [new ZOrder.BiasChange(loose, 0, -3)], ZOrderStep.Back).Do(doc);
         AssertOrderIntact(doc);
     }
 
@@ -232,9 +233,8 @@ public class ShipDocumentOrderTests
                     new MoveCommand([parts[rng.Next(parts.Count)]], rng.Next(-2, 3), rng.Next(-2, 3)).Do(doc);
                     break;
                 case 3 when parts.Count > 0:
-                    new SetZOrderCommand(
-                        [new ZOrder.BiasChange(new RenderItem(parts[rng.Next(parts.Count)], null), 0, rng.Next(-4, 5))],
-                        "nudge").Do(doc);
+                    var nudged = new RenderItem(parts[rng.Next(parts.Count)], null);
+                    new SetZOrderCommand(nudged, [new ZOrder.BiasChange(nudged, 0, rng.Next(-4, 5))], ZOrderStep.Forward).Do(doc);
                     break;
                 default:
                     new PlaceLooseCommand(new LooseObject { DefName = "Widget", X = rng.Next(8), Y = rng.Next(6) }).Do(doc);

@@ -91,7 +91,8 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 | Repair (broken def → working def; clearing `StatDamage`) | `RepairTests` | `RepairTests` (the repair/undamage job split, and themed walls) |
 | Data parsers (`Defs`, `CondAmount`) | `DefsParsingTests`, `CondAmountTests` | — |
 | Power budget (draw, off-switches, networks, the core's states and recharge, the no-power warning) | `PowerBudgetTests` | `PowerBudgetTests` (the stock rates, two Halberds of known state, a station generator, every lit core in the fleet) |
-| Activity log / path scrubbing | `AuditLogTests` | — |
+| Activity log / path scrubbing, command descriptions | `AuditLogTests` | — |
+| What an undo or redo points at, multi-step undo | `UndoRevealTests` | — |
 | Import (template / save) | `TemplateLoaderTests`* | `ShipImportTests`, `ShipSaveImportTests` |
 | Deck items (footprint occupancy, the loose socket law) | `LoosePlacementTests` | `LooseObjectTests` |
 | Rendering | — | `RenderSmokeTests` |

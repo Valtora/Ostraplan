@@ -9,6 +9,7 @@ using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
 using System.Windows.Threading;
 using Microsoft.Win32;
@@ -348,6 +349,7 @@ public partial class MainWindow : Window
         _active = session;
         session.Board.Visibility = Visibility.Visible;
         TxtCell.Text = "—";   // the tile readout belonged to the canvas the cursor was over, which is no longer this one
+        HideHistoryNote();    // and the undo line to the design that was on screen
 
         SyncViewToggles();
         UpdateSurfaceBar();
@@ -3398,40 +3400,29 @@ public partial class MainWindow : Window
     /// <para>A device follows at most one sensor, so pointing it at a new one <b>displaces</b> the old in the same
     /// undo step — otherwise undoing a re-point would leave the device following nothing rather than following
     /// what it did before.</para>
+    ///
+    /// <para>Nothing is logged here. The four link commands name their parts themselves, so the stack's own line
+    /// for the edit says it, and says it again on an undo, which a line written from here never did.</para>
     /// </summary>
     private void OnLinkToggleRequested(Placement source, Placement target)
     {
         if (_doc is null) return;
-        string Name(Placement p) => _doc.Part(p)?.Friendly ?? p.DefName;
 
         var sensorLink = new SensorLink(source.Id, target.Id);
         if (_doc.SensorLinks.Contains(sensorLink))
         {
             _stack.Push(_doc, new RemoveSensorLinkCommand(sensorLink));
-            AuditLog.Add($"{Name(target)} no longer follows {Name(source)}.");
             return;
         }
         if (SensorLinks.CanDrive(_doc, source, target))
         {
-            var displaced = SensorLinks.Replacing(_doc, sensorLink);
-            _stack.Push(_doc, new AddSensorLinkCommand(sensorLink, displaced));
-            AuditLog.Add(displaced is { } old && _doc.ById(old.Source) is { } prev
-                ? $"{Name(target)} now follows {Name(source)} (was {Name(prev)})."
-                : $"{Name(target)} now follows {Name(source)}.");
+            _stack.Push(_doc, new AddSensorLinkCommand(sensorLink, SensorLinks.Replacing(_doc, sensorLink)));
             return;
         }
 
         var link = new DeviceLink(source.Id, target.Id);
-        if (_doc.Links.Contains(link))
-        {
-            _stack.Push(_doc, new RemoveLinkCommand(link));
-            AuditLog.Add($"Disconnected {Name(source)} → {Name(target)}.");
-        }
-        else if (DeviceLinks.CanConnect(_doc, source, target))
-        {
-            _stack.Push(_doc, new AddLinkCommand(link));
-            AuditLog.Add($"Connected {Name(source)} → {Name(target)}.");
-        }
+        if (_doc.Links.Contains(link)) _stack.Push(_doc, new RemoveLinkCommand(link));
+        else if (DeviceLinks.CanConnect(_doc, source, target)) _stack.Push(_doc, new AddLinkCommand(link));
     }
 
     /// <summary>
@@ -3825,7 +3816,7 @@ public partial class MainWindow : Window
         if (_doc is null || Board.RestackTarget(cell) is not { } t) return;
         var changes = ZOrder.Nudge(_doc, t.Item, t.X, t.Y, forward);
         if (changes.Count == 0) return;
-        _stack.Push(_doc, new SetZOrderCommand(changes, forward ? "Move forward" : "Move back"));
+        _stack.Push(_doc, new SetZOrderCommand(t.Item, changes, forward ? ZOrderStep.Forward : ZOrderStep.Back));
         Board.InvalidateVisual();
     }
 
@@ -3836,7 +3827,7 @@ public partial class MainWindow : Window
         if (_doc is null || Board.RestackTarget(cell) is not { } t) return;
         var changes = ZOrder.Reset(_doc, t.Item, t.X, t.Y);
         if (changes.Count == 0) return;
-        _stack.Push(_doc, new SetZOrderCommand(changes, "Reset draw order"));
+        _stack.Push(_doc, new SetZOrderCommand(t.Item, changes, ZOrderStep.Reset));
         Board.InvalidateVisual();
     }
 
@@ -7224,26 +7215,185 @@ public partial class MainWindow : Window
         else Dlg.Info(this, "Import", report);
     }
 
-    private void OnUndoClick(object sender, RoutedEventArgs e) => Undo();
+    private void OnUndoClick(object sender, RoutedEventArgs e)
+    {
+        if (TakeHistoryListClick()) return;
+        Undo();
+    }
 
-    private void OnRedoClick(object sender, RoutedEventArgs e) => Redo();
+    private void OnRedoClick(object sender, RoutedEventArgs e)
+    {
+        if (TakeHistoryListClick()) return;
+        Redo();
+    }
 
-    /// <summary>Step the active design's history, and re-read the inspector from what is left. The panel shows the
-    /// selected part's name, and that name is editable in place, so a rename that has just been undone has to stop
-    /// being displayed as the part's name — an undo the panel does not follow is a name the user could type back in
-    /// by accident.</summary>
-    private void Undo()
+    private void Undo(int steps = 1) => StepHistory(CommandAction.Undo, steps);
+
+    private void Redo(int steps = 1) => StepHistory(CommandAction.Redo, steps);
+
+    /// <summary>Step the active design's history, show what the step changed, and re-read the inspector from what is
+    /// left. The panel shows the selected part's name, and that name is editable in place, so a rename that has just
+    /// been undone has to stop being displayed as the part's name — an undo the panel does not follow is a name the
+    /// user could type back in by accident.</summary>
+    private void StepHistory(CommandAction action, int steps)
     {
         if (_doc is null) return;
-        _stack.Undo(_doc);
+        var done = action == CommandAction.Undo ? _stack.Undo(_doc, steps) : _stack.Redo(_doc, steps);
+        ShowHistoryStep(action, done);
         UpdateInspector();
     }
 
-    private void Redo()
+    /// <summary>
+    /// Point at what an undo or redo just changed (#76). What is still on the plan becomes the selection, where the
+    /// rest was is washed blue for a moment, the view is framed on all of it, and the status bar says what the step
+    /// did. Each covers a case the others cannot: a part the step took away cannot be selected, and a container's
+    /// contents or a device's panel change nothing that shows on the plan, so only the words say what happened.
+    ///
+    /// <para>The selection is replaced even when nothing survives the step. Leaving the old one would leave a
+    /// selection that has nothing to do with the edit just undone, ready for the next Delete.</para>
+    /// </summary>
+    private void ShowHistoryStep(CommandAction action, IReadOnlyList<IDocCommand> done)
     {
-        if (_doc is null) return;
-        _stack.Redo(_doc);
-        UpdateInspector();
+        if (done.Count == 0 || _doc is null) return;
+        var view = ChangeSet.Of(done).Resolve(_doc);
+        Board.SetSelection(view.Parts, view.Loose);
+        Board.FocusTiles(view.Covered);
+        Board.MarkTiles(view.Marked);
+        FlashHistoryNote(AuditLog.Recap(action, done, DefFriendlyName));
+    }
+
+    // ---- the undo/redo line in the status bar (#76) ----
+
+    private DispatcherTimer? _historyNoteTimer;
+    private int _historyNoteShown;   // which flash is up, so a fade from an older one does not hide a newer one
+
+    /// <summary>How long the line stays before it fades: long enough to read a part name after the view jumps.</summary>
+    private static readonly TimeSpan HistoryNoteHold = TimeSpan.FromSeconds(4);
+
+    /// <summary>Show <paramref name="text"/> in the status bar, then fade it out. Each step replaces the line and
+    /// restarts the clock, so holding Ctrl+Z reads as one line that keeps up rather than a queue of them.</summary>
+    private void FlashHistoryNote(string text)
+    {
+        _historyNoteShown++;
+        TxtHistory.BeginAnimation(OpacityProperty, null);
+        TxtHistory.Opacity = 1;
+        TxtHistory.Text = text;
+        TxtHistory.ToolTip = text;
+        HistoryNote.Visibility = Visibility.Visible;
+
+        if (_historyNoteTimer is null)
+        {
+            _historyNoteTimer = new DispatcherTimer { Interval = HistoryNoteHold };
+            _historyNoteTimer.Tick += (_, _) =>
+            {
+                _historyNoteTimer.Stop();
+                var fadeOf = _historyNoteShown;
+                var fade = new DoubleAnimation(0, TimeSpan.FromMilliseconds(800));
+                fade.Completed += (_, _) => { if (fadeOf == _historyNoteShown) HideHistoryNote(); };
+                TxtHistory.BeginAnimation(OpacityProperty, fade);
+            };
+        }
+        _historyNoteTimer.Stop();
+        _historyNoteTimer.Start();
+    }
+
+    /// <summary>Take the line down now. Switching tabs does this: the line was about the design that was on screen.</summary>
+    private void HideHistoryNote()
+    {
+        _historyNoteTimer?.Stop();
+        _historyNoteShown++;
+        TxtHistory.BeginAnimation(OpacityProperty, null);
+        HistoryNote.Visibility = Visibility.Collapsed;
+    }
+
+    // ---- the history list (#76) ----
+
+    /// <summary>How long a press on Undo or Redo has to last to open the list rather than take one step.</summary>
+    private static readonly TimeSpan HistoryHoldDelay = TimeSpan.FromMilliseconds(450);
+
+    /// <summary>The most edits the list shows. Anything older is still on the stack, reached a step at a time or from
+    /// the bottom of a shorter list.</summary>
+    private const int HistoryListMax = 30;
+
+    private DispatcherTimer? _historyHold;
+    private Button? _historyHeldOn;
+    private bool _historyListFromHold;   // the press that opened the list must not also take a step on release
+
+    private void OnHistoryButtonDown(object sender, MouseButtonEventArgs e)
+    {
+        _historyHeldOn = (Button)sender;
+        _historyListFromHold = false;
+        if (_historyHold is null)
+        {
+            _historyHold = new DispatcherTimer { Interval = HistoryHoldDelay };
+            _historyHold.Tick += (_, _) =>
+            {
+                _historyHold.Stop();
+                if (_historyHeldOn is not { IsPressed: true } held) return;
+                _historyListFromHold = true;
+                ShowHistoryList(held);
+            };
+        }
+        _historyHold.Stop();
+        _historyHold.Start();
+    }
+
+    private void OnHistoryButtonUp(object sender, MouseButtonEventArgs e) => _historyHold?.Stop();
+
+    private void OnHistoryButtonRightClick(object sender, MouseButtonEventArgs e)
+    {
+        e.Handled = true;
+        ShowHistoryList((Button)sender);
+    }
+
+    /// <summary>True, once, when a Click arrives from the press that held the list open. The list takes the mouse
+    /// capture as it opens, so normally the button never sees its own release; this is the guard for when it does.</summary>
+    private bool TakeHistoryListClick()
+    {
+        if (!_historyListFromHold) return false;
+        _historyListFromHold = false;
+        return true;
+    }
+
+    /// <summary>
+    /// The edits Undo (or Redo) would step through, the next one first, like a browser's Back list. Picking one steps
+    /// through it and everything above it in one go, and the change is shown as a whole: the selection, the mark and
+    /// the frame cover every step taken, not just the last.
+    /// </summary>
+    private void ShowHistoryList(Button button)
+    {
+        if (_doc is null || !button.IsEnabled) return;
+        var undo = ReferenceEquals(button, BtnUndo);
+        var steps = undo ? _stack.UndoSteps : _stack.RedoSteps;
+        if (steps.Count == 0) return;
+
+        var session = _active;   // the clicks land later, and must land on the design the list was read from
+        var menu = new ContextMenu { PlacementTarget = button, Placement = PlacementMode.Bottom };
+        menu.Closed += (_, _) => _historyListFromHold = false;
+        for (var i = 0; i < Math.Min(steps.Count, HistoryListMax); i++)
+        {
+            var count = i + 1;
+            // A TextBlock rather than a string header, so an underscore in a part or zone name is not read as an
+            // access key and dropped.
+            var item = new MenuItem { Header = new TextBlock { Text = AuditLog.Describe(steps[i], DefFriendlyName) } };
+            item.Click += (_, _) =>
+            {
+                if (!ReferenceEquals(session, _active)) return;
+                if (undo) Undo(count);
+                else Redo(count);
+            };
+            menu.Items.Add(item);
+        }
+        if (steps.Count > HistoryListMax)
+        {
+            var rest = steps.Count - HistoryListMax;
+            menu.Items.Add(new MenuItem
+            {
+                Header = new TextBlock { Text = undo ? $"and {rest} earlier" : $"and {rest} more" },
+                IsEnabled = false,
+            });
+        }
+        menu.IsOpen = true;
     }
 
     /// <summary>The Help ▾ dropdown: controls/keybinds, report a bug, and the on-disk activity log.</summary>
@@ -7853,7 +8003,7 @@ public partial class MainWindow : Window
             ("Rotate view", "Q / E", "Rotate the view CCW / CW."),
             ("Zoom", "Mouse wheel / + −", "Zoom at the cursor (hold Shift for bigger steps); + and − zoom at the centre."),
             ("Fit to ship", "F", "Fit the view to the whole ship."),
-            ("Undo / redo", "Ctrl+Z / Ctrl+Y", "Undo · redo (Ctrl+Shift+Z also redoes)."),
+            ("Undo / redo", "Ctrl+Z / Ctrl+Y", "Undo · redo (Ctrl+Shift+Z also redoes). Shows what changed. Hold or right-click either button for the list."),
             ("New / open / save", "Ctrl+N / O / S", "New · open · save (Ctrl+Shift+S = Save As). Each design opens in its own tab."),
             ("Open read-only", "Alt+Shift+O", "Open designs locked. The padlock in the toolbar locks or unlocks the design on screen."),
             ("Switch / close design", "Ctrl+Tab / Ctrl+W", "Next design (Ctrl+Shift+Tab goes back) · close the one on screen."),

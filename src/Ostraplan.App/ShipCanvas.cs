@@ -701,6 +701,7 @@ public sealed class ShipCanvas : FrameworkElement
         LooseSelectionChanged?.Invoke();
         ActiveZoneId = null;   // a zone id from the previous document is stale
         _zoneWorking = null;
+        StopMark();            // an undo mark points at tiles of the previous design
         ClearWirePick();       // and so is a wiring pick anchored to a part of the previous design
         _staticShip = null;
         InvalidateWear();      // a different design has a different grid anchor, so every world position moves
@@ -1706,8 +1707,8 @@ public sealed class ShipCanvas : FrameworkElement
 
     /// <summary>Pan and zoom so <paramref name="tiles"/> are centred and comfortably framed (a few tiles of
     /// context, capped at a legible zoom so a single-tile issue isn't slammed to max) — the Problems list's
-    /// "View" jump-to-issue.</summary>
-    public void FocusTiles(IReadOnlyList<(int X, int Y)> tiles)
+    /// "View" jump-to-issue, the manifest's reveal, and every undo and redo (#76).</summary>
+    public void FocusTiles(IReadOnlyCollection<(int X, int Y)> tiles)
     {
         if (tiles.Count == 0 || RenderSize.Width < 1) return;
         int minX = int.MaxValue, minY = int.MaxValue, maxX = int.MinValue, maxY = int.MinValue;
@@ -1718,6 +1719,8 @@ public sealed class ShipCanvas : FrameworkElement
         }
         var tilesW = maxX - minX + 6.0;   // keep a few tiles of context around the region
         var tilesH = maxY - minY + 6.0;
+        // A quarter-turned view lays the plan's height across the screen, so a tall region has to fit the width.
+        if (ViewRot is 90 or 270) (tilesW, tilesH) = (tilesH, tilesW);
         var fit = Math.Min(RenderSize.Width / tilesW, RenderSize.Height / tilesH);
         Zoom = SnapZoomDown(Math.Min(fit, 64.0));
         var centerX = (minX + maxX + 1) / 2.0;
@@ -3267,6 +3270,7 @@ public sealed class ShipCanvas : FrameworkElement
                 if (!ShowAccess) DrawUsePoint(dc, sel, p.X + offset.X, p.Y + offset.Y, p.Rot);
             }
         }
+        DrawMark(dc);   // over the overlays: it is about what the last undo did, and lasts about a second
 
         if (ArmedPart is not null && _armedLoose && _hoverCell is { } looseHover)
         {
@@ -3376,6 +3380,103 @@ public sealed class ShipCanvas : FrameworkElement
     {
         foreach (var (x, y) in _airSelection)
             dc.DrawRectangle(AirFill, AirPen, CellRect(x, y, 1, 1));
+    }
+
+    // ---- the undo/redo mark (#76) ----
+
+    // How long the mark stays at full strength, and then how long it takes to fade. Long enough to find on a big
+    // plan after the view has jumped, short enough to be gone before the next Ctrl+Z.
+    private const double MarkHoldSeconds = 0.6;
+    private const double MarkFadeSeconds = 0.9;
+
+    private static readonly Brush MarkFill = Frozen(new SolidColorBrush(Color.FromArgb(0x60, 0x4E, 0xA6, 0xFF)));
+    private static readonly Brush MarkEdge = Frozen(new SolidColorBrush(Color.FromRgb(0x4E, 0xA6, 0xFF)));
+
+    private Geometry? _markFill;   // the marked tiles, in tile units
+    private Geometry? _markEdge;   // their outline, in tile units
+    private long _markStart;
+
+    /// <summary>
+    /// Wash <paramref name="tiles"/> in the selection blue and fade it out: where an undo or a redo changed something
+    /// that cannot be selected, a part it took off the plan or a zone's paint. The selection blue because it says the
+    /// same thing as the outline on whatever the step left on the plan: this is what changed.
+    ///
+    /// <para>The geometry is built once in tile units and drawn under the view transform each frame, so a fade over
+    /// an undone room-sized paint stroke does not rebuild thousands of rectangles sixty times a second.</para>
+    /// </summary>
+    public void MarkTiles(IReadOnlyCollection<(int X, int Y)> tiles)
+    {
+        StopMark();
+        if (tiles.Count == 0) return;
+        _markFill = MarkGeometry(tiles, edges: false);
+        _markEdge = MarkGeometry(tiles, edges: true);
+        _markStart = System.Diagnostics.Stopwatch.GetTimestamp();
+        CompositionTarget.Rendering += OnMarkFrame;
+        InvalidateVisual();
+    }
+
+    private void StopMark()
+    {
+        if (_markFill is null) return;
+        _markFill = _markEdge = null;
+        CompositionTarget.Rendering -= OnMarkFrame;
+    }
+
+    private double MarkStrength()
+    {
+        var t = (System.Diagnostics.Stopwatch.GetTimestamp() - _markStart) / (double)System.Diagnostics.Stopwatch.Frequency;
+        return t < MarkHoldSeconds ? 1 : Math.Max(0, 1 - (t - MarkHoldSeconds) / MarkFadeSeconds);
+    }
+
+    private void OnMarkFrame(object? sender, EventArgs e)
+    {
+        if (MarkStrength() <= 0) StopMark();
+        InvalidateVisual();
+    }
+
+    private void DrawMark(DrawingContext dc)
+    {
+        if (_markFill is null || _markEdge is null) return;
+        var strength = MarkStrength();
+        if (strength <= 0) return;
+        dc.PushOpacity(strength);
+        dc.PushTransform(new MatrixTransform(Zoom, 0, 0, Zoom, _pan.X, _pan.Y));   // tile units to CellRect's space
+        dc.DrawGeometry(MarkFill, null, _markFill);
+        dc.DrawGeometry(null, new Pen(MarkEdge, 2 / Zoom), _markEdge);   // 2 px whatever the zoom
+        dc.Pop();
+        dc.Pop();
+    }
+
+    /// <summary>The tiles as one filled shape, or the outline of that shape: each tile side with no marked tile
+    /// beyond it. One geometry for the fill rather than a square per tile, so neighbouring tiles show no seam.</summary>
+    private static Geometry MarkGeometry(IReadOnlyCollection<(int X, int Y)> tiles, bool edges)
+    {
+        var set = tiles as IReadOnlySet<(int X, int Y)> ?? tiles.ToHashSet();
+        var g = new StreamGeometry { FillRule = FillRule.Nonzero };
+        using (var ctx = g.Open())
+        {
+            void Segment(double x0, double y0, double x1, double y1)
+            {
+                ctx.BeginFigure(new Point(x0, y0), isFilled: false, isClosed: false);
+                ctx.LineTo(new Point(x1, y1), isStroked: true, isSmoothJoin: false);
+            }
+
+            foreach (var (x, y) in set)
+            {
+                if (!edges)
+                {
+                    ctx.BeginFigure(new Point(x, y), isFilled: true, isClosed: true);
+                    ctx.PolyLineTo([new Point(x + 1, y), new Point(x + 1, y + 1), new Point(x, y + 1)], isStroked: false, isSmoothJoin: false);
+                    continue;
+                }
+                if (!set.Contains((x, y - 1))) Segment(x, y, x + 1, y);
+                if (!set.Contains((x + 1, y))) Segment(x + 1, y, x + 1, y + 1);
+                if (!set.Contains((x, y + 1))) Segment(x, y + 1, x + 1, y + 1);
+                if (!set.Contains((x - 1, y))) Segment(x, y, x, y + 1);
+            }
+        }
+        g.Freeze();
+        return g;
     }
 
     /// <summary>The bounding port's mating face in DOCUMENT coordinates: the axis it bounds, which way is out, and

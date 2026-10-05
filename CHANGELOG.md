@@ -9,6 +9,15 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
+## [Unreleased]
+
+### Added
+- **Undo and redo show what changed.**
+  - The view jumps to the change and selects it. Anything the step removed flashes where it was.
+  - The status bar says what the step did, such as "Undid: placed Nav Station at 12, 7".
+  - Hold or right-click Undo or Redo for a list of steps, and pick one to jump back to it. Thanks to
+    nighoggDatatype.
+
 ## [1.25.0] 2026-10-04, unpowered devices and less to read
 
 ### Added

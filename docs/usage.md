@@ -227,7 +227,15 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   **Move Back** / **Move Forward** (**Ctrl+[** / **Ctrl+]**) change which of them draws
   on top. See [what draws on top of what](#what-draws-on-top-of-what).
 - **Undo / redo:** **Ctrl+Z** / **Ctrl+Y**, unbounded. Paint strokes and fills
-  are single steps.
+  are single steps. Each undo and redo shows what it changed:
+  - The view jumps to the change and frames it, and whatever it touched that is still on
+    the plan becomes the selection. Anything it took off the plan, and any zone paint, flashes
+    blue where it was.
+  - The status bar says what the step did, such as *Undid: placed Nav Station at 12, 7*.
+    That covers the edits nothing on the plan shows, like a container's contents or a
+    device's panel.
+  - **Hold** the Undo or Redo button, or **right-click** it, for the list of edits it would
+    step through. Pick one to undo (or redo) back to it in one go.
 
 ### Navigating
 
@@ -2187,5 +2195,6 @@ turn it on.
   your whole session's activity trail, any recent crash traces, and load warnings,
   all with your Windows account name and file paths scrubbed out.
 - The **activity log** is an on-disk record of your actions (**View** / **Open folder**
-  / **Clear**). Each entry now names *what* and *where* — e.g. `Edit: Place Nav Station
-  @(12,7)` — so a problem can be pinned down after it happens.
+  / **Clear**). Each entry names *what* and *where*, e.g. `Edit: placed Nav Station
+  at 12, 7`, in the same words the status bar uses after an undo, so a problem can be
+  pinned down after it happens.

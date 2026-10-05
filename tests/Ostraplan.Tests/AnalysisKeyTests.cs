@@ -115,7 +115,8 @@ public class AnalysisKeyTests
     {
         var doc = Ship(Cat());
         var before = doc.AnalysisKey();
-        new SetZOrderCommand([new ZOrder.BiasChange(new RenderItem(doc.Placements[4], null), 0, 1)], "raise").Do(doc);
+        var raised = new RenderItem(doc.Placements[4], null);
+        new SetZOrderCommand(raised, [new ZOrder.BiasChange(raised, 0, 1)], ZOrderStep.Forward).Do(doc);
         Assert.Equal(before, doc.AnalysisKey());
     }
 
