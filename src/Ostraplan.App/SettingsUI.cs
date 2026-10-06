@@ -24,6 +24,11 @@ namespace Ostraplan.App;
 /// <param name="SessionBackup">Whether unsaved changes are backed up.</param>
 /// <param name="BackupSeconds">Seconds between backups, already clamped by the dialog.</param>
 /// <param name="CloseMode">What closing does with unsaved changes.</param>
+/// <param name="TipsOn">Whether tips show at all.</param>
+/// <param name="TipsAtStartup">When a tip appears by itself.</param>
+/// <param name="TipsHours">Hours between startup tips, already clamped by the dialog.</param>
+/// <param name="TipsBulb">Whether the bulb sits in the toolbar.</param>
+/// <param name="OpenTips">Open the Tip Hub over the given window.</param>
 public sealed record SettingsHooks(
     Action<string> Theme,
     Action<double> Scale,
@@ -36,11 +41,16 @@ public sealed record SettingsHooks(
     Action<bool> RestoreTabs,
     Action<bool> SessionBackup,
     Action<int> BackupSeconds,
-    Action<SessionCloseMode> CloseMode);
+    Action<SessionCloseMode> CloseMode,
+    Action<bool> TipsOn,
+    Action<TipStartup> TipsAtStartup,
+    Action<int> TipsHours,
+    Action<bool> TipsBulb,
+    Action<Window> OpenTips);
 
 /// <summary>
 /// Ostraplan's own preferences: appearance (theme and UI scale), the one editing rule that is a preference rather
-/// than a view, and the two folders it reads. Everything here is app-wide and persisted in
+/// than a view, when tips appear, and the two folders it reads. Everything here is app-wide and persisted in
 /// <c>%APPDATA%\Ostraplan\settings.json</c>; nothing here belongs to a design.
 ///
 /// <para>Changes apply as they are made rather than on OK, which is how every other setting in the app already
@@ -100,6 +110,13 @@ public sealed class SettingsDialog : Window
 
         Section(body, "EDITING");
         body.Children.Add(ModOverrideRow());
+
+        Section(body, "TIPS");
+        body.Children.Add(TipsOnRow());
+        body.Children.Add(TipStartupRow());
+        body.Children.Add(TipBulbRow());
+        body.Children.Add(TipHubRow());
+        SyncTipRows();
 
         Section(body, "GAME FOLDERS");
         _gameRootText = PathValue();
@@ -634,6 +651,111 @@ public sealed class SettingsDialog : Window
         return Row("Mod overrides", box,
             "Lets you place a modded part where the core-game rules say it doesn't fit, with a warning to check it "
             + "in game. Core parts are always enforced.");
+    }
+
+    // ---- tips (#39) ----
+
+    // When and whether tips appear. Which tips appear is the Tip Hub's job, so this section links to it rather than
+    // repeating a checkbox per topic.
+    private ComboBox? _tipStartup;
+    private Slider? _tipHours;
+    private CheckBox? _tipBulb;
+
+    private UIElement TipsOnRow()
+    {
+        var box = new CheckBox
+        {
+            Content = "Show tips",
+            IsChecked = _settings.Tips.Enabled,
+            Foreground = Ink,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        box.Checked += (_, _) => { if (!_init) { _hooks.TipsOn(true); SyncTipRows(); } };
+        box.Unchecked += (_, _) => { if (!_init) { _hooks.TipsOn(false); SyncTipRows(); } };
+        return Row("Tips", box,
+            "Short notes on features you might not have found. Off means no tip at startup and no bulb in the "
+            + "toolbar. Help ▸ Tips lists every one either way.");
+    }
+
+    private UIElement TipStartupRow()
+    {
+        // In TipStartup's own order, so the index is the value.
+        var combo = new ComboBox { Width = 200, VerticalAlignment = VerticalAlignment.Center };
+        _tipStartup = combo;
+        combo.Items.Add("At most once every");
+        combo.Items.Add("Every launch");
+        combo.Items.Add("Never");
+        combo.SelectedIndex = (int)_settings.Tips.StartupMode;
+        combo.SelectionChanged += (_, _) =>
+        {
+            if (_init || combo.SelectedIndex < 0) return;
+            _hooks.TipsAtStartup((TipStartup)combo.SelectedIndex);
+            SyncTipRows();
+        };
+
+        var slider = new Slider
+        {
+            Minimum = TipSettings.MinIntervalHours, Maximum = TipSettings.MaxIntervalHours,
+            Value = _settings.Tips.Hours, TickFrequency = 1, IsSnapToTickEnabled = true,
+            Width = 150, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(12, 0, 0, 0),
+        };
+        _tipHours = slider;
+        var readout = new TextBlock
+        {
+            Text = Hours(_settings.Tips.Hours), Foreground = Ink, Width = 64, TextAlignment = TextAlignment.Right,
+            VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(8, 0, 0, 0),
+        };
+        slider.ValueChanged += (_, e) =>
+        {
+            var hours = TipSettings.ClampHours((int)Math.Round(e.NewValue));
+            readout.Text = Hours(hours);
+            if (!_init) _hooks.TipsHours(hours);
+        };
+
+        var row = new StackPanel { Orientation = Orientation.Horizontal };
+        row.Children.Add(combo);
+        row.Children.Add(slider);
+        row.Children.Add(readout);
+        return Row("At startup", row,
+            "A tip waits until the game data has loaded, and never appears on the launch that shows What's New. "
+            + $"Default: at most once every {TipSettings.DefaultIntervalHours} hours.");
+
+        static string Hours(int h) => h == 1 ? "1 hour" : $"{h} hours";
+    }
+
+    private UIElement TipBulbRow()
+    {
+        var box = new CheckBox
+        {
+            Content = "Show the 💡 button in the toolbar",
+            IsChecked = _settings.Tips.ShowBulb,
+            Foreground = Ink,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        _tipBulb = box;
+        box.Checked += (_, _) => { if (!_init) _hooks.TipsBulb(true); };
+        box.Unchecked += (_, _) => { if (!_init) _hooks.TipsBulb(false); };
+        return Row("Toolbar", box, "Click it for the next tip whenever you like.");
+    }
+
+    private UIElement TipHubRow()
+    {
+        var button = new Button
+        {
+            Content = "Choose topics and tips…", Padding = new Thickness(12, 3, 12, 3),
+            HorizontalAlignment = HorizontalAlignment.Left,
+        };
+        button.Click += (_, _) => _hooks.OpenTips(this);
+        return Row("Which tips", button, "Turn off a whole topic, such as Shortcuts, or single tips.");
+    }
+
+    /// <summary>Grey out what the master switch makes meaningless, and the hours unless they are what decides.</summary>
+    private void SyncTipRows()
+    {
+        var on = _settings.Tips.Enabled;
+        if (_tipStartup is { } combo) combo.IsEnabled = on;
+        if (_tipBulb is { } bulb) bulb.IsEnabled = on;
+        if (_tipHours is { } hours) hours.IsEnabled = on && _settings.Tips.StartupMode == TipStartup.Interval;
     }
 
     // ---- game folders ----

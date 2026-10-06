@@ -259,6 +259,18 @@ public sealed class AppSettings
     /// folder of yours. Separate from <see cref="LastExport"/> because a pack and a single design are two habits.</summary>
     [JsonPropertyName("bundleExport")] public LastBundleExport? BundleExport { get; set; }
 
+    private TipSettings _tips = new();
+
+    /// <summary>Tips (#39): whether and when they show, which the user turned off, and which they have seen. Never
+    /// null: a settings file written before tips existed, or one with the key nulled by hand, reads as the defaults,
+    /// which is tips on.</summary>
+    [JsonPropertyName("tips")]
+    public TipSettings Tips
+    {
+        get => _tips;
+        set => _tips = value ?? new TipSettings();
+    }
+
     [JsonExtensionData] public Dictionary<string, JsonElement>? Extra { get; set; }
 
     /// <summary>How many parts the Recent list keeps (the issue asked for "the last 5 or so").</summary>

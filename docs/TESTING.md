@@ -103,6 +103,7 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 | Opening a design that is already open | `DesignPathTests` | — |
 | The tab lock (the stack's backstop, canvas and stack locked together) | `CommandStackReadOnlyTests`, `MainWindowTabsTests`† | — |
 | UI scale (clamp, popup layer) | `SettingsTests`, `UiScalePopupTests`† | — |
+| Tips (the list's rules, the next tip, when one is due, the settings) | `TipsTests` (the card and the hub†) | — |
 
 `RenderSmokeTests` is mostly smoke — it writes PNGs for eyeballing and asserts only that they are not blank.
 `Every_label_on_the_plan_reads_upright_at_any_view_rotation` is the exception and is a real assertion: it renders

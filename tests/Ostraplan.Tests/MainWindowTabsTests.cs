@@ -42,6 +42,21 @@ public class MainWindowTabsTests
     }
 
     [Fact]
+    public void The_window_carries_a_tip_card_that_starts_closed()
+    {
+        // Here rather than in TipsTests because closing the window writes the real settings file, and this class is
+        // the one whose tests that is safe in (they run one at a time).
+        RunSta(() =>
+        {
+            var w = new MainWindow();
+            var card = Assert.IsType<TipCard>(w.FindName("TipCard"));
+            Assert.False(card.IsOpen);
+            Assert.Equal(Visibility.Collapsed, card.Visibility);
+            w.Close();
+        });
+    }
+
+    [Fact]
     public void Opening_more_designs_shows_the_strip_and_leaves_one_canvas_visible()
     {
         RunSta(() =>

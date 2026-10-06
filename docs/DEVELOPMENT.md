@@ -67,6 +67,7 @@ The app takes a few developer flags, each of which renders something and exits:
 | `--invsmoke <dir>` | The inventory viewer: a synthesized backpack, an editable one, rotation, the first real save container, and an item's info panel. Needs the install. |
 | `--mansmoke <dir>` | The item manifest off a real save's ship, collapsed and expanded, so the table's columns can be held against each other. Needs the install. |
 | `--powersmoke <dir>` | The Power Budget for four stock ships that between them show every card (a running core feeding one network and recharging another, a cold core, a station generator with spare batteries, a small ship on batteries alone), light and dark. Needs the install. |
+| `--tipsmoke <dir>` | The tip card with the longest tip and the shortest, and the Tip Hub with a topic and a tip turned off and some tips seen, light and dark. Game-free. |
 | `--palsmoke <dir>` | The palette's category strip, dark and light, at three different selections, for checking that a category keeps its position and that the toggle style still chains to Fluent. |
 | `--navsmoke <dir>` | The nav console arrange board, at rest and mid-drag, with the modules drawn from the game's own prefabs, so the screen layout and the art can be eyeballed against the game's. Writes `navsmoke-art.txt` instead of art when the read fails. Needs the install. |
 | `--svgsmoke <dir>` | A real ship's room map to SVG, validated as XML. Needs the install. |
@@ -129,6 +130,23 @@ The What's New window shows these entries in the app, so write them for a player
 bold line saying what is now true, and nothing else when that line is enough. When it is not, add at most
 three short nested bullets (`  - `), one sentence each. Leave out what an older version did and how the change
 works: that goes in the commit body. A reporter's credit ends the entry, as "Thanks to X."
+
+## Tips
+
+A feature a player could miss gets a tip in the same commit, the same as its CHANGELOG entry. The list is
+`Tips.All` in `src/Ostraplan.Core/Tips.cs`, and a change to a feature that a tip describes updates the tip too: a
+tip naming a key or a menu path that has moved is worse than none.
+
+- **Put a new tip where it belongs in the order**, not at the end. The order runs from the basics outwards, and
+  an existing user still gets it at their next startup wherever it sits, because the next tip is the first one
+  they have not seen.
+- **Give it a new id, and never reuse one.** Settings remember tips by id, so a reused id inherits whatever the
+  user chose about the old tip, including hiding it.
+- **One or two sentences**, under `Tips.MaxLength`, written like the rest of the UI (CONVENTIONS). Tag it
+  `Shortcuts` only when the key is the point of the tip.
+
+`TipsTests` holds every tip to the length, the punctuation and the id rules, and checks that every topic still
+has a tip in it.
 
 ## Publishing the artifacts
 

@@ -6,7 +6,8 @@ A practical walkthrough. For the whole feature set on one page see
 [GAME-INTERNALS.md](GAME-INTERNALS.md); for what shipped when see
 [CHANGELOG.md](../CHANGELOG.md).
 
-Press **F1** in-app at any time for the full keybinding table.
+Press **F1** in-app at any time for the full keybinding table, and **Help ▾ ▸ Tips…** for a
+short tour of the features people tend to miss.
 
 ## Getting started
 
@@ -46,7 +47,7 @@ right, but treat a mismatch as "double-check in-game".
 | **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**, an **ITEMS** tab for loose floor cargo, a **SPECIAL** tab for the structure the game places but never lets you build, and a **FAV/REC** tab at the front for the parts you pinned and the ones you just placed. Search by friendly or internal name. Modded parts show a small origin badge. |
 | **Canvas** (centre) | The tile grid. Place, paint, select, pan and zoom here. A **tab strip** appears above it as soon as a second design is open, and disappears again when you are back to one. |
 | **Inspector** (right) | The selected part's details, ship stats, the **Problems** list, and the **Law report**. |
-| **Toolbar** (top) | The actions, grouped **File · Edit · Design · Analyse**, with **⚙ Settings** and the **Help ▾** menu on the right. Then two groups, divided by what a button does. **Edit modes** change what a click does: **Symmetry** (click to cycle the axes), **Surfaces**, and **Force**, which stops the placement law refusing anything (see [Force place](#the-law--live-validation)) and puts a red **FORCE PLACE** marker in the status bar for as long as it is on. **Overlays** only change what you see and never affect editing: **Zones · Rooms · Power · Light · Walk · Access · Wire · Spawners**. Each highlights in the accent colour while active, and **Light**, **Walk** and **Spawners** carry a **▾** for their own options. **Spawners** is the one that hides rather than adds: it takes the loot spawners off the plan, and its ▾ decides how much of a spawner's scatter square is drawn (see [Loot spawners](#loot-spawners--what-a-ship-arrives-carrying)). **Fit** frames the design. Narrow the window past the point where all of that fits on one line and the two groups drop to a second row of their own, returning beside the actions when there is room again. The design's name sits in the middle, with its make, model and designation underneath once you have set them in **Ship Info**. When a newer release exists it is downloaded in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
+| **Toolbar** (top) | The actions, grouped **File · Edit · Design · Analyse**, with the **💡** tip button (see [Tips](#tips)), **⚙ Settings** and the **Help ▾** menu on the right. Then two groups, divided by what a button does. **Edit modes** change what a click does: **Symmetry** (click to cycle the axes), **Surfaces**, and **Force**, which stops the placement law refusing anything (see [Force place](#the-law--live-validation)) and puts a red **FORCE PLACE** marker in the status bar for as long as it is on. **Overlays** only change what you see and never affect editing: **Zones · Rooms · Power · Light · Walk · Access · Wire · Spawners**. Each highlights in the accent colour while active, and **Light**, **Walk** and **Spawners** carry a **▾** for their own options. **Spawners** is the one that hides rather than adds: it takes the loot spawners off the plan, and its ▾ decides how much of a spawner's scatter square is drawn (see [Loot spawners](#loot-spawners--what-a-ship-arrives-carrying)). **Fit** frames the design. Narrow the window past the point where all of that fits on one line and the two groups drop to a second row of their own, returning beside the actions when there is room again. The design's name sits in the middle, with its make, model and designation underneath once you have set them in **Ship Info**. When a newer release exists it is downloaded in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
 
 ### Settings
 
@@ -63,6 +64,7 @@ than part of a design. Changes apply as you make them.
 | **UI scale** | 80% to 200%, scaling everything Ostraplan draws, right-click menus, dropdowns and tooltips included. Above 100% for a high-resolution monitor run at 100% Windows scaling, where the app's text would otherwise be tiny; below it to fit more into the window you have, on a laptop panel or beside a second copy of the app. It is a layout scale, not a magnifying glass, so text and vectors stay sharp. Dialogs and reports resize with it; the main window keeps the size you gave it, and below 100% spends the space it saves on the canvas. |
 | **Open as** | Ostraplan remembers where its window was and how big it was, and reopens like that, maximised if you closed it maximised. Set this to **Maximised** to have it fill the screen every launch whatever you closed it at; un-maximising still gives back the window you had. A remembered position is checked against your monitors as they are at launch, so unplugging the screen it was on opens it centred rather than off the edge. Read at launch, so a change takes effect next time Ostraplan starts. |
 | **Mod overrides** | Let a modded part be placed where the core-game rules say it doesn't fit (see [The Law](#the-law--live-validation)). |
+| **Tips** | Whether tips appear, how often at startup, and whether the 💡 sits in the toolbar. **Choose topics and tips…** opens the list of them. See [Tips](#tips). |
 | **Ostranauts install** | Where the game's data and sprites are read from. Found through Steam automatically. Read once at launch, so a change takes effect next time you start Ostraplan. |
 | **Saves** | Where your save games are. Ostraplan follows the game's own save-location setting, so set this only if your saves are somewhere neither the game nor Ostraplan knows about. Applies immediately. |
 
@@ -2181,11 +2183,36 @@ ship's origin, so you can see how big a hull is getting without counting tiles. 
 one-tile grid stays underneath, so you can still count when you want to. Off unless you
 turn it on.
 
+## Tips
+
+Ostraplan does more than anyone finds by looking, so it shows a tip now and then: one
+sentence or two about a feature you might not have come across, in a card over the
+bottom-right corner of the plan. The card does not block anything, so you can keep working
+with it open.
+
+- **When they appear.** A tip appears at startup once the game data has loaded, at most
+  once every 8 hours by default, and never on the launch that shows what an update brought.
+  The **💡** button in the toolbar shows the next one whenever you want it.
+- **The card.** **‹** and **›** step back and forward through the tips in order, so a tip
+  you dismissed too quickly is one click away. **Hide this tip** stops that one appearing,
+  and **✕** or **Esc** closes the card.
+- **Which tips you see.** **Help ▾ ▸ Tips…** (or **All tips…** on the card) lists every tip
+  in order, with a checkbox for each topic and for each tip. Turn off **Shortcuts** if you
+  already know the keys, or **Apartments** if you never build one. **Start over** marks
+  every tip unseen.
+- **New tips arrive with updates.** Once you have seen every tip, nothing appears at
+  startup until an update adds one about something new. The bulb still steps through them
+  all.
+
+**⚙ Settings ▸ Tips** turns tips off altogether, sets how often they appear at startup
+(at most every 1 to 48 hours, every launch, or never), and takes the bulb out of the
+toolbar.
+
 ## Help & reporting a bug
 
 - **F1** — the full keybinding table.
-- **Help ▾** (top-right) — that reference, plus **View Changelog**, **Check for updates**
-  (in the Controls & keybinds window), **Report a Bug** and the **activity log**.
+- **Help ▾** (top-right) — that reference, plus **Tips…**, **View Changelog**, **Check for
+  updates** (in the Controls & keybinds window), **Report a Bug** and the **activity log**.
 - **View Changelog** shows this version's release notes, read from the changelog built
   into the copy you are running, so they describe your build rather than whatever is
   newest. **All releases on GitHub** in that window opens the published release.

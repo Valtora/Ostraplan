@@ -317,11 +317,16 @@
                             Visibility="Collapsed" Click="OnUpdateClick"
                             Background="{DynamicResource AccentBg}" Foreground="{DynamicResource AccentText}"
                             ToolTip="A newer release is available. Click to open the download page."/>
+                    <!-- Tips (#39). Hidden while tips are off or the user has taken the bulb away; SyncTipChrome
+                         decides. -->
+                    <Button x:Name="BtnTip" Content="💡" Padding="8,3" Margin="6,0,0,0"
+                            Click="OnTipClick"
+                            ToolTip="Show a tip about something you might not have found yet."/>
                     <Button x:Name="BtnSettings" Content="⚙ Settings" Padding="10,3" Margin="6,0,0,0"
                             Click="OnSettingsClick"
-                            ToolTip="Theme, UI scale, mod overrides, and the game folders. (Ctrl+,)"/>
+                            ToolTip="Theme, UI scale, tips, mod overrides, and the game folders. (Ctrl+,)"/>
                     <Button x:Name="BtnHelp" Content="Help ▾" Padding="10,3" Margin="6,0,0,0"
-                            Click="OnHelpMenuClick" ToolTip="Controls and keybinds, report a bug, and the activity log. (F1)"/>
+                            Click="OnHelpMenuClick" ToolTip="Controls and keybinds, tips, report a bug, and the activity log. (F1)"/>
                 </StackPanel>
             </Grid>
         </Border>
@@ -517,6 +522,10 @@
                                HorizontalAlignment="Center" VerticalAlignment="Center" Margin="9,0"/>
                 </Border>
             </StackPanel>
+            <!-- A tip (#39), over the plan's bottom-right corner, where nothing else on the canvas is anchored. -->
+            <local:TipCard x:Name="TipCard" Grid.Row="1" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+                           Margin="0,0,14,14"/>
+
             <!-- Over the tab strip as well as the canvas: while game data is loading there is nothing to switch to. -->
             <Border x:Name="LoadingOverlay" Grid.Row="0" Grid.RowSpan="2" Background="#DD1A1C20">
                 <TextBlock x:Name="TxtLoading" Text="Locating Ostranauts…" Foreground="#FFD8DDE4"

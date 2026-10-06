@@ -140,6 +140,7 @@ public partial class MainWindow : Window
         // Its document arrives with the game data (LoadDataAsync); the session has to exist before that, because
         // every piece of per-document state below is read through it. ActivateSession seeds the toolbar highlights.
         ActivateSession(CreateSession());
+        WireTipCard();
 
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewKeyUp += OnPreviewKeyUp;
@@ -942,7 +943,9 @@ public partial class MainWindow : Window
         UpdateZoomText();
         LoadingOverlay.Visibility = Visibility.Collapsed;
 
-        ShowWhatsNewAfterUpdate();   // an update landed last restart: say what it brought, once
+        // An update landed last restart: say what it brought, once. A tip waits for the next launch rather than
+        // stacking a second thing on top of that (#39).
+        if (!ShowWhatsNewAfterUpdate()) ShowStartupTip();
         _ = CheckForUpdateAsync();   // quiet check against the latest GitHub release
     }
 
@@ -954,8 +957,10 @@ public partial class MainWindow : Window
     /// build whose entry is still under <c>Unreleased</c> costs the next release its "what's new" rather than
     /// showing it late. A fresh install has nothing to compare against and shows nothing (see
     /// <see cref="ReleaseNotes.IsUpgrade"/>).</para>
+    ///
+    /// <para>Returns true when the window was shown, which is what holds the startup tip back.</para>
     /// </summary>
-    private void ShowWhatsNewAfterUpdate()
+    private bool ShowWhatsNewAfterUpdate()
     {
         var from = _settings.LastRunVersion;
         if (from != AppVersion)
@@ -963,12 +968,14 @@ public partial class MainWindow : Window
             _settings.LastRunVersion = AppVersion;
             _settings.Save();
         }
-        if (!ReleaseNotes.IsUpgrade(from, AppVersion)) return;
+        if (!ReleaseNotes.IsUpgrade(from, AppVersion)) return false;
 
         AuditLog.Add($"Updated to v{AppVersion} (from v{from}).");
         // every version the update crossed, not just the newest: releases here batch several bumps, so a user who
         // has been away a while is arriving at more than one
-        WhatsNewUI.Show(this, ReleaseNotes.Since(WhatsNewUI.Changelog(), from, AppVersion), updated: true, OpenUrl);
+        var entries = ReleaseNotes.Since(WhatsNewUI.Changelog(), from, AppVersion);
+        WhatsNewUI.Show(this, entries, updated: true, OpenUrl);
+        return entries.Count > 0;
     }
 
     /// <summary>Help ▸ View Changelog: this build's own notes when the changelog has them, else straight to the
@@ -4934,6 +4941,12 @@ public partial class MainWindow : Window
                     Board.SetArmed(null);
                     ClearPaletteSelection();
                 }
+                else if (TipCard.IsOpen)
+                {
+                    // After the brush, so a tip on screen at startup never costs anyone the part they armed, and
+                    // before the selection, which is more work to get back than a tip is.
+                    TipCard.Close();
+                }
                 else
                 {
                     Board.SelectedIds.Clear();
@@ -7396,7 +7409,7 @@ public partial class MainWindow : Window
         menu.IsOpen = true;
     }
 
-    /// <summary>The Help ▾ dropdown: controls/keybinds, report a bug, and the on-disk activity log.</summary>
+    /// <summary>The Help ▾ dropdown: controls/keybinds, tips, report a bug, and the on-disk activity log.</summary>
     private void OnHelpMenuClick(object sender, RoutedEventArgs e)
     {
         var menu = new ContextMenu { PlacementTarget = BtnHelp, Placement = PlacementMode.Bottom };
@@ -7407,6 +7420,7 @@ public partial class MainWindow : Window
             menu.Items.Add(item);
         }
         Add("Controls & keybinds (F1)", ShowHelp);
+        Add("Tips…", () => OpenTipHub(this));   // there even with tips off, so turning them off never loses them
         Add("View Changelog", ViewChangelog);
         menu.Items.Add(new Separator());
         Add("Report a Bug…", ReportBug);
@@ -7650,7 +7664,8 @@ public partial class MainWindow : Window
 
         var dlg = new SettingsDialog(_settings, _catalog, _env, new SettingsHooks(
             SetTheme, SetUiScale, SetWindowOpenAs, SetBackdrop, SetModOverrides, SetNavModuleArt, SetGameRoot,
-            SetSavesDir, SetRestoreTabs, SetSessionBackup, SetSessionBackupSeconds, SetCloseWithUnsaved))
+            SetSavesDir, SetRestoreTabs, SetSessionBackup, SetSessionBackupSeconds, SetCloseWithUnsaved,
+            SetTipsOn, SetTipsAtStartup, SetTipsHours, SetTipsBulb, OpenTipHub))
         {
             Owner = this,
         };
@@ -7755,6 +7770,138 @@ public partial class MainWindow : Window
         _settings.Save();
         AuditLog.Setting("When closing with unsaved changes",
             mode == SessionCloseMode.KeepInBackup ? "keep them for next time" : "ask");
+    }
+
+    // ---- tips (#39) ----
+    //
+    // The card shows a tip, the bulb asks for the next one, and the Tip Hub (Help ▸ Tips) chooses which may appear.
+    // Every decision about which tip comes next is TipPicker's; this region only puts the answer on screen and saves
+    // what it changed. Tips are app-wide, like the theme, so none of this belongs to a session.
+
+    private void WireTipCard()
+    {
+        TipCard.PreviousRequested += () => StepTip(-1);
+        TipCard.NextRequested += () => StepTip(+1);
+        TipCard.HideRequested += HideCurrentTip;
+        TipCard.AllRequested += () => OpenTipHub(this);
+        TipCard.CloseRequested += TipCard.Close;
+        SyncTipChrome();
+    }
+
+    /// <summary>The bulb follows the settings, and turning tips off takes a card that is showing away with it.</summary>
+    private void SyncTipChrome()
+    {
+        var tips = _settings.Tips;
+        BtnTip.Visibility = tips.Enabled && tips.ShowBulb ? Visibility.Visible : Visibility.Collapsed;
+        if (!tips.Enabled) TipCard.Close();
+        else RefreshTipCard();
+    }
+
+    /// <summary>Put a tip on the card and remember it was shown, which is what moves the next one along.</summary>
+    private void ShowTip(Tip tip)
+    {
+        TipPicker.MarkShown(_settings.Tips, tip, DateTime.UtcNow);
+        _settings.Save();
+        var (position, count) = TipPicker.PositionOf(Tips.All, _settings.Tips, tip);
+        TipCard.Show(tip, position, count);
+    }
+
+    /// <summary>The launch's tip, if one is due. Called once the game data has loaded, and not on a launch that has
+    /// just shown What's New.</summary>
+    private void ShowStartupTip()
+    {
+        if (TipPicker.DueAtStartup(Tips.All, _settings.Tips, DateTime.UtcNow)
+            && TipPicker.NextUnseen(Tips.All, _settings.Tips) is { } tip)
+            ShowTip(tip);
+    }
+
+    private void OnTipClick(object sender, RoutedEventArgs e)
+    {
+        if (TipPicker.ForBulb(Tips.All, _settings.Tips) is { } tip) ShowTip(tip);
+        else OpenTipHub(this);   // every tip is turned off, and the hub is where they come back from
+    }
+
+    private void StepTip(int direction)
+    {
+        if (TipCard.Current is { } current && TipPicker.Step(Tips.All, _settings.Tips, current, direction) is { } tip)
+            ShowTip(tip);
+    }
+
+    private void HideCurrentTip()
+    {
+        if (TipCard.Current is not { } current) return;
+        _settings.Tips.SetTipHidden(current.Id, true);
+        _settings.Save();
+        AuditLog.Add($"Hid the tip '{current.Id}'.");
+        if (TipPicker.Step(Tips.All, _settings.Tips, current, +1) is { } next) ShowTip(next);
+        else TipCard.Close();
+    }
+
+    /// <summary>After a change to which tips may appear: a card showing one that may not moves on to the next, and
+    /// otherwise its count catches up.</summary>
+    private void RefreshTipCard()
+    {
+        if (TipCard.Current is not { } current) return;
+        if (TipPicker.IsShown(current, _settings.Tips))
+        {
+            var (position, count) = TipPicker.PositionOf(Tips.All, _settings.Tips, current);
+            TipCard.Show(current, position, count);
+        }
+        else if (TipPicker.Step(Tips.All, _settings.Tips, current, +1) is { } next) ShowTip(next);
+        else TipCard.Close();
+    }
+
+    /// <summary>Help ▸ Tips, the card's All tips… and Settings ▸ Tips all open this, over whichever window asked.</summary>
+    private void OpenTipHub(Window owner)
+    {
+        new TipHubWindow(Tips.All, _settings.Tips, () =>
+        {
+            _settings.Save();
+            RefreshTipCard();
+        })
+        {
+            Owner = owner,
+        }.ShowDialog();
+    }
+
+    /// <summary>Settings ▸ Tips: the whole feature.</summary>
+    private void SetTipsOn(bool on)
+    {
+        _settings.Tips.Enabled = on;
+        _settings.Save();
+        AuditLog.Setting("Tips", on ? "on" : "off");
+        SyncTipChrome();
+    }
+
+    /// <summary>Settings ▸ Tips: when a tip appears by itself. Read at the next launch.</summary>
+    private void SetTipsAtStartup(TipStartup mode)
+    {
+        _settings.Tips.AtStartup = mode.ToString();
+        _settings.Save();
+        AuditLog.Setting("Tips at startup", mode switch
+        {
+            TipStartup.EveryLaunch => "every launch",
+            TipStartup.Never => "never",
+            _ => $"at most every {_settings.Tips.Hours} h",
+        });
+    }
+
+    /// <summary>Settings ▸ Tips: hours between startup tips. Logged with the mode, not on every slider step.</summary>
+    private void SetTipsHours(int hours)
+    {
+        var value = TipSettings.ClampHours(hours);
+        if (value == _settings.Tips.IntervalHours) return;
+        _settings.Tips.IntervalHours = value;
+        _settings.Save();
+    }
+
+    /// <summary>Settings ▸ Tips: the bulb in the toolbar.</summary>
+    private void SetTipsBulb(bool on)
+    {
+        _settings.Tips.ShowBulb = on;
+        _settings.Save();
+        AuditLog.Setting("Tips bulb", on ? "shown" : "hidden");
+        SyncTipChrome();
     }
 
     /// <summary>Whether modded parts may be placed where Ostraplan's core-game placement law says they don't fit
@@ -8011,6 +8158,7 @@ public partial class MainWindow : Window
             ("Ship Info / Materials", "Ctrl+I / Ctrl+B", "Edit the in-game identity · open the bill of materials."),
             ("Settings", "Ctrl+,", "Theme, UI scale, mod overrides, and the game and Saves folders."),
             ("Diagnostics", "Toolbar", "The game's nav-console checklist, with what's missing under each red row."),
+            ("Tips", "💡 / Help ▾ Tips…", "Show a tip about a feature you might not have found. Settings ▸ Tips sets when they appear."),
             ("Help", "F1", "Open this window."),
         ];
 

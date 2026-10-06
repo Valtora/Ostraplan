@@ -547,6 +547,17 @@ public partial class App : Application
             return;
         }
 
+        // preview render: the tip card and the Tip Hub (#39), light and dark. Game-free.
+        if (e.Args.Contains("--tipsmoke"))
+        {
+            var dir = e.Args.SkipWhile(a => a != "--tipsmoke").Skip(1).FirstOrDefault() ?? AppContext.BaseDirectory;
+            Directory.CreateDirectory(dir);
+            try { RenderTips(dir); }
+            catch (Exception ex) { File.WriteAllText(Path.Combine(dir, "tipsmoke-error.txt"), ex.ToString()); }
+            Shutdown(0);
+            return;
+        }
+
         // preview render: draw a page of backdrops (#43) so the composited locale art can be eyeballed without
         // clicking through Settings for each of the thirty-odd of them. Needs the game install.
         if (e.Args.Contains("--bgsmoke"))
@@ -879,6 +890,44 @@ public partial class App : Application
                 using var fs = File.Create(Path.Combine(dir, $"power-{name.Replace(' ', '-')}-{mode}.png"));
                 enc.Save(fs);
             }
+        }
+    }
+
+    /// <summary>
+    /// <c>--tipsmoke</c>: the tip card with the longest tip on it and with a short one, and the Tip Hub with a topic
+    /// and a tip turned off and some tips seen, so every state a row can be in is in the picture. Light and dark.
+    /// </summary>
+    private static void RenderTips(string dir)
+    {
+        var longest = Tips.All.MaxBy(t => t.Text.Length)!;
+        var shortest = Tips.All.MinBy(t => t.Text.Length)!;
+        var settings = new TipSettings();
+        settings.SetTagHidden(TipTag.Shortcuts, true);
+        settings.SetTipHidden("red-ghost", true);
+        foreach (var tip in Tips.All.Take(10)) settings.Seen.Add(tip.Id);
+
+        foreach (var mode in new[] { "dark", "light" })
+        {
+            ThemeManager.Apply(mode);
+            foreach (var (tip, name) in new[] { (longest, "long"), (shortest, "short") })
+            {
+                var card = new TipCard();
+                card.Show(tip, Tips.All.ToList().IndexOf(tip) + 1, Tips.All.Count);
+                // The card draws its own shadow past its edges, so it sits on a margin of the plan's ground colour.
+                var host = new System.Windows.Controls.Border
+                {
+                    Background = new SolidColorBrush(Color.FromRgb(0x14, 0x16, 0x1A)), Padding = new Thickness(20), Child = card,
+                };
+                host.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                Shot(host, host.DesiredSize.Width, host.DesiredSize.Height, Path.Combine(dir, $"tip-card-{name}-{mode}.png"));
+            }
+
+            // The window's background is the window's, so the content goes onto a panel of the same colour to be drawn.
+            var hub = new TipHubWindow(Tips.All, settings, () => { });
+            var content = (UIElement)hub.Content;
+            hub.Content = null;
+            var page = new System.Windows.Controls.Border { Background = ThemeManager.WindowBg, Child = content };
+            Shot(page, hub.Width, hub.Height, Path.Combine(dir, $"tip-hub-{mode}.png"));
         }
     }
 
