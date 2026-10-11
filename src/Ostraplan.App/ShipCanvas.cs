@@ -163,7 +163,7 @@ public sealed class ShipCanvas : FrameworkElement
     // the sub-floor reservation a part projects under walkable floor (the tanks' 7x7 ring vs their 3x3 body)
     private static readonly Brush SubfloorFill = Frozen(new SolidColorBrush(Color.FromArgb(0x33, 0x6A, 0x8E, 0xB8)));
     private static readonly Brush LeakFill = Frozen(new SolidColorBrush(Color.FromArgb(0x77, 0x3F, 0xC8, 0xE0)));
-    private static readonly Pen LeakPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xC8, 0x5F, 0xE0, 0xF0)), 1));
+    private static readonly Pen LeakPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xE0, 0x5F, 0xE0, 0xF0)), 2));
     private static readonly Brush AirFill = Frozen(new SolidColorBrush(Color.FromArgb(0x40, 0x5A, 0xD0, 0x9A)));   // fill-region highlight (double-click enclosed air)
     private static readonly Pen AirPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0x90, 0x6A, 0xE0, 0xB0)), 1));
     private static readonly Pen SubfloorPen = MakeSubfloorPen();
@@ -3368,11 +3368,26 @@ public sealed class ShipCanvas : FrameworkElement
             dc.DrawRectangle(HazardFill, null, CellRect(x, y, 1, 1));
     }
 
-    /// <summary>Tint the unsealed tiles of a compartment the Ship Rating report flagged as leaking to space.</summary>
+    /// <summary>
+    /// The tile highlight: the leak points the Ship Rating report flagged, a docking refusal's blocking tiles, or
+    /// the places a problem applies (Problems ▸ Show, #78). Filled per tile and outlined once round each connected
+    /// region rather than once per tile, so a compartment reads as one shape and a run of conduit as one line
+    /// instead of a lattice of boxes.
+    /// </summary>
     private void DrawLeakCells(DrawingContext dc)
     {
-        foreach (var (x, y) in _leakCells)
-            dc.DrawRectangle(LeakFill, LeakPen, CellRect(x, y, 1, 1));
+        if (_leakCells.Count == 0) return;
+        var set = new HashSet<(int X, int Y)>(_leakCells);
+        foreach (var (x, y) in set)
+        {
+            var r = CellRect(x, y, 1, 1);
+            dc.DrawRectangle(LeakFill, null, r);
+            // an edge is part of the outline when the tile across it is not highlighted
+            if (!set.Contains((x, y - 1))) dc.DrawLine(LeakPen, r.TopLeft, r.TopRight);
+            if (!set.Contains((x, y + 1))) dc.DrawLine(LeakPen, r.BottomLeft, r.BottomRight);
+            if (!set.Contains((x - 1, y))) dc.DrawLine(LeakPen, r.TopLeft, r.BottomLeft);
+            if (!set.Contains((x + 1, y))) dc.DrawLine(LeakPen, r.TopRight, r.BottomRight);
+        }
     }
 
     /// <summary>Highlight the enclosed air region selected for a fill (double-click empty space; arm + Enter to fill).</summary>

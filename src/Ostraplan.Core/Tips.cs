@@ -86,7 +86,7 @@ public static class Tips
             TipTag.Basics),
         T("special-tab", "The SPECIAL tab holds structure the game places but never lets you build, such as asteroid cores, signs, station kiosks and transit lifts.",
             TipTag.Basics),
-        T("problems", "The Problems list in the inspector holds everything wrong with the design. View on an entry takes the plan straight to it.",
+        T("problems", "The Problems list in the inspector holds everything wrong with the design. Show on an entry highlights every place it applies, and Next steps through them one at a time.",
             TipTag.Basics),
         T("undo-history", "Hold or right-click Undo or Redo for the list of edits, and pick one to go back to it in one step.",
             TipTag.Editing),

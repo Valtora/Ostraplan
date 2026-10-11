@@ -1375,7 +1375,10 @@ public partial class MainWindow : Window
     private void DocumentChanged(DocumentSession session)
     {
         session.Revision++;   // the backup has not seen this yet (RunSessionBackup)
-        session.Board.SetLeakCells([]);   // any Ship Rating leak highlight is stale once the design changes
+        // A Ship Rating or docking highlight is stale once the design changes. A problem's is not dropped here: the
+        // scan this edit schedules redraws it from fresh cells (UpdateProblems), and clearing it for the beat in
+        // between would make it blink on every stroke of a paint.
+        if (session.ProblemFocus is null) session.Board.SetLeakCells([]);
         // An open report measured the design as it was a moment ago, so an edit is what makes it out of date. It says
         // so rather than going on showing figures for a ship that no longer exists (see ReportWindow).
         session.RatingReport?.MarkStale();
@@ -1591,7 +1594,7 @@ public partial class MainWindow : Window
         {
             // The callbacks are bound to the document that produced the report, which is why CloseReports drops the
             // window on a document swap rather than letting a stale one write into the new design.
-            var window = new RatingReportWindow(cells => session.Board.SetLeakCells(cells), kg => SetExtraMass(doc, kg),
+            var window = new RatingReportWindow(cells => ShowReportCells(session, cells), kg => SetExtraMass(doc, kg),
                 residence: doc.IsResidence)
             {
                 Owner = this,
@@ -2012,6 +2015,25 @@ public partial class MainWindow : Window
         // points — those are a dismissible warning with their own on-demand "Show" highlight, not a red tint).
         Board.SetIllegalCells([.. shown.Where(p => p.Cells is not null && p.DismissKey is null).SelectMany(p => p.Cells!).Distinct()]);
 
+        // Put back whatever the user had on the plan, from the NEW scan's cells: the highlight follows the problem
+        // through the edit that re-ran the scan, and goes when the problem does. A place the user was stepping
+        // through that no longer exists (they fixed the last one) falls back to the last place that still does.
+        if (_active.ProblemFocus is { } focus)
+        {
+            var showing = shown.FirstOrDefault(p => p.Key == focus.Key);
+            if (showing is null || showing.Places.Count == 0)
+            {
+                _active.ProblemFocus = null;
+                Board.SetLeakCells([]);
+            }
+            else
+            {
+                var i = focus.IsAll ? ProblemFocus.All : Math.Min(focus.Instance, showing.Places.Count - 1);
+                if (i != focus.Instance) _active.ProblemFocus = focus with { Instance = i };
+                Board.SetLeakCells(i < 0 ? showing.Cells! : showing.Places[i].Cells);
+            }
+        }
+
         BadgeBlocking.Visibility = blocking.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         BadgeBlockingText.Text = $"!  {blocking.Count}";
         BadgeBlocking.ToolTip = blocking.Count > 0 ? string.Join("\n", blocking.Select(p => p.Title)) : null;
@@ -2058,8 +2080,14 @@ public partial class MainWindow : Window
     }
 
     /// <summary>
-    /// One problem as an expandable row: a coloured title, action buttons (Show/View, and Dismiss for a
-    /// dismissible warning), and the detail revealed on expand.
+    /// One problem as an expandable row: a coloured title, action buttons (Show, Next when it applies in more than
+    /// one place, and Dismiss for a dismissible warning), a line saying what is on the plan while this problem is
+    /// showing, and the detail revealed on expand, with the places listed so any one can be jumped to (#78).
+    ///
+    /// <para><b>Show</b> is a toggle: checked while this problem's highlight is on the plan, so the list says which
+    /// entry the cyan on the canvas belongs to, and a second click clears it. <b>Next</b> steps through the places
+    /// one at a time, zooming to each, which is how a problem scattered across a big ship gets found without
+    /// playing hunt-the-tile over a zoomed-out plan. Show puts every place back on and resets the step.</para>
     ///
     /// <para>The title and the buttons are <b>stacked</b>, not side by side. They used to share a DockPanel with
     /// the buttons docked right, which works until the title is long: the inspector is a narrow column, the two
@@ -2070,6 +2098,8 @@ public partial class MainWindow : Window
     private FrameworkElement ProblemRow(Problem problem)
     {
         var color = problem.Severity == ProblemSeverity.Blocking ? ThemeManager.Bad : ThemeManager.Warn;
+        var places = problem.Places;
+        var focus = _active.ProblemFocus is { } f && f.Key == problem.Key ? f : (ProblemFocus?)null;
 
         var header = new StackPanel { Margin = new Thickness(0, 1, 0, 2) };
         header.Children.Add(new TextBlock
@@ -2077,28 +2107,43 @@ public partial class MainWindow : Window
             Text = "● " + problem.Title, Foreground = color, TextWrapping = TextWrapping.Wrap,
         });
 
-        // One row under the title, left-aligned and in reading order (Show/View first, then Dismiss).
+        // One row under the title, left-aligned and in reading order (Show, Next, then Dismiss).
         var actions = new StackPanel
         {
             Orientation = Orientation.Horizontal, Margin = new Thickness(11, 4, 0, 0),
             HorizontalAlignment = HorizontalAlignment.Left,
         };
 
-        if (problem.Cells is { Count: > 0 } cells)
+        if (places.Count > 0)
         {
-            // A leak/airtightness warning (dismissible) highlights its leak points AND focuses; a plain illegal
-            // problem (already hazard-tinted) just pans/zooms into view.
-            var isLeak = problem.DismissKey is not null;
-            // Every dismissible warning shares Show: leaks, unreachable devices, devices with no power, and the rest.
-            var btn = ActionButton(isLeak ? "Show" : "View",
-                isLeak ? "Highlight them on the plan and zoom to them" : "Zoom to this problem");
-            btn.Click += (_, e) =>
+            // A ToggleButton and its native checked state, never a hand-set background (CONVENTIONS).
+            var show = new ToggleButton
+            {
+                Content = "Show", IsChecked = focus is not null, FontSize = 11, MinWidth = 0,
+                Padding = new Thickness(8, 1, 8, 1), Margin = new Thickness(0, 0, 6, 0),
+                Cursor = System.Windows.Input.Cursors.Hand,
+                ToolTip = places.Count > 1
+                    ? "Highlight every place this applies and zoom to them. Click again to clear."
+                    : "Highlight it on the plan and zoom to it. Click again to clear.",
+            };
+            show.Click += (_, e) =>
             {
                 e.Handled = true;
-                if (isLeak) Board.SetLeakCells(cells);
-                Board.FocusTiles(cells);
+                if (focus is not null) ClearProblemFocus();
+                else FocusProblem(problem, ProblemFocus.All);
             };
-            actions.Children.Add(btn);
+            actions.Children.Add(show);
+
+            if (places.Count > 1)
+            {
+                var next = ActionButton("Next", "Step through the places one at a time, zooming to each.");
+                next.Click += (_, e) =>
+                {
+                    e.Handled = true;
+                    FocusProblem(problem, focus is { IsAll: false } at ? (at.Instance + 1) % places.Count : 0);
+                };
+                actions.Children.Add(next);
+            }
         }
         if (problem.DismissKey is { } key)
         {
@@ -2108,17 +2153,63 @@ public partial class MainWindow : Window
         }
         if (actions.Children.Count > 0) header.Children.Add(actions);
 
-        return new Expander
+        // What the cyan on the plan is, while it is this problem's: all of it, or which one of how many.
+        if (focus is { } showing)
+        {
+            header.Children.Add(new TextBlock
+            {
+                Text = showing.IsAll
+                    ? places.Count == 1 ? "Showing on the plan" : $"Showing all {places.Count}"
+                    : $"{showing.Instance + 1} of {places.Count}: {places[showing.Instance].Label}",
+                Foreground = ThemeManager.Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap,
+                Margin = new Thickness(11, 3, 0, 0),
+            });
+        }
+
+        var body = new StackPanel { Margin = new Thickness(11, 2, 2, 4) };
+        body.Children.Add(new TextBlock
+        {
+            Text = problem.Detail, Foreground = ThemeManager.Dim, FontSize = 12, TextWrapping = TextWrapping.Wrap,
+        });
+        if (places.Count > 1)
+        {
+            // Each place by name, and a click goes straight to it. Capped, because a design can have fifty unpowered
+            // lights, and Next walks the whole list anyway.
+            const int cap = 12;
+            for (var i = 0; i < Math.Min(places.Count, cap); i++)
+            {
+                var index = i;
+                var current = focus is { IsAll: false } at && at.Instance == i;
+                var line = new TextBlock
+                {
+                    Text = (current ? "▸ " : "   ") + places[i].Label,
+                    Foreground = current ? ThemeManager.Ink : ThemeManager.Accent,
+                    FontSize = 11, TextWrapping = TextWrapping.Wrap, Cursor = System.Windows.Input.Cursors.Hand,
+                    Margin = new Thickness(0, i == 0 ? 4 : 1, 0, 0), ToolTip = "Highlight this one and zoom to it.",
+                };
+                line.MouseLeftButtonDown += (_, e) => { e.Handled = true; FocusProblem(problem, index); };
+                body.Children.Add(line);
+            }
+            if (places.Count > cap)
+                body.Children.Add(new TextBlock
+                {
+                    Text = $"   and {places.Count - cap} more. Next steps through them all.",
+                    Foreground = ThemeManager.Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap,
+                    Margin = new Thickness(0, 1, 0, 0),
+                });
+        }
+
+        var row = new Expander
         {
             Header = header,
             Foreground = color,
             Margin = new Thickness(0, 1, 0, 1),
-            Content = new TextBlock
-            {
-                Text = problem.Detail, Foreground = ThemeManager.Dim, FontSize = 12, TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(11, 2, 2, 4),
-            },
+            Content = body,
+            IsExpanded = _active.ExpandedProblems.Contains(problem.Key),   // survives the rebuild after every scan
         };
+        row.Expanded += (_, _) => _active.ExpandedProblems.Add(problem.Key);
+        row.Collapsed += (_, _) => _active.ExpandedProblems.Remove(problem.Key);
+        return row;
 
         // MinWidth 0 because the Fluent default is wide enough that two of them would not fit side by side in a
         // narrow inspector, which is the shape this layout exists to fix.
@@ -2130,8 +2221,45 @@ public partial class MainWindow : Window
         };
     }
 
+    /// <summary>Put one problem on the plan: every place it applies (<see cref="ProblemFocus.All"/>) or one of
+    /// them, highlighted and zoomed to, and remembered on the session so the next scan can put it back. The panel
+    /// is re-rendered for the row's Show state and its counter line.</summary>
+    private void FocusProblem(Problem problem, int instance)
+    {
+        var places = problem.Places;
+        if (places.Count == 0) return;
+        if (instance >= places.Count) instance = 0;
+        _active.ProblemFocus = new ProblemFocus(problem.Key, instance);
+        var cells = instance < 0 ? problem.Cells! : places[instance].Cells;
+        Board.SetLeakCells(cells);
+        Board.FocusTiles(cells);
+        UpdateProblems(_lastProblems);
+    }
+
+    /// <summary>Take the problem highlight off the plan (Show clicked while checked).</summary>
+    private void ClearProblemFocus()
+    {
+        _active.ProblemFocus = null;
+        Board.SetLeakCells([]);
+        UpdateProblems(_lastProblems);
+    }
+
+    /// <summary>
+    /// A report (Ship Rating, the docking check) putting its own tiles on the plan. It draws through the same
+    /// highlight the Problems list uses, so whatever problem was showing lets go first: otherwise the next scan
+    /// would put the problem's tiles back over the report's.
+    /// </summary>
+    private void ShowReportCells(DocumentSession session, IReadOnlyList<(int X, int Y)> cells)
+    {
+        var hadFocus = session.ProblemFocus is not null;
+        session.ProblemFocus = null;
+        session.Board.SetLeakCells(cells);
+        if (hadFocus && ReferenceEquals(session, _active)) UpdateProblems(_lastProblems);   // un-check its Show
+    }
+
     /// <summary>Dismiss a warning by key (persisted in the .oplan), clear any leak highlight, and re-render the
-    /// problems from the last scan — no re-scan needed, since dismissal only filters the display.</summary>
+    /// problems from the last scan — no re-scan needed, since dismissal only filters the display. A problem that
+    /// was showing on the plan is let go by UpdateProblems, which no longer finds it among the shown ones.</summary>
     private void DismissAlert(string key)
     {
         if (RefuseIfReadOnly()) return;   // dismissals are saved in the .oplan, so they are an edit
@@ -6468,7 +6596,7 @@ public partial class MainWindow : Window
         // the Problems list draw through. A second highlight layer drawing the identical rectangle would be
         // duplication rather than clarity.
         var window = new DockingWindow(design, DesignAsDockShip, _catalog!, _index,
-            cells => session.Board.SetLeakCells(cells),
+            cells => ShowReportCells(session, cells),
             parts => session.Board.SetDockedGhost(parts),
             PickDockTarget)
         {

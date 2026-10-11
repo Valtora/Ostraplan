@@ -11,6 +11,14 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **Problems step through each place they apply.**
+  - Next on an entry zooms to one place at a time, with "2 of 5: Heater at 12, 7" saying which, and the
+    expanded entry lists every place for a click.
+  - Show stays lit while its entry is on the plan, clears on a second click, and follows the entry through
+    your edits.
+  - The highlight outlines each area as one shape instead of a box per tile. Thanks to nighoggDatatype.
+
 ### Changed
 - **Startup tips keep coming after you have seen them all.** They carry on round the list, so a tip you
   dismissed in a hurry comes round again. Settings ▸ Tips still turns them off. Thanks to nighoggDatatype.

@@ -44,6 +44,14 @@ internal readonly record struct ScanKey(
         settings.LightSunParallax, settings.LightSunAngle);
 }
 
+/// <summary>What the Problems panel has on the plan: one problem, by <see cref="Problem.Key"/>, and either every
+/// place it applies (<see cref="Instance"/> −1) or one of them. See <see cref="DocumentSession.ProblemFocus"/>.</summary>
+internal readonly record struct ProblemFocus(string Key, int Instance)
+{
+    public const int All = -1;
+    public bool IsAll => Instance < 0;
+}
+
 internal sealed class DocumentSession
 {
     /// <summary>This session's canvas. One per session rather than one shared and swapped, so a tab keeps its own
@@ -119,6 +127,19 @@ internal sealed class DocumentSession
     /// <summary>The most recent scan result, re-rendered when an alert is dismissed or restored. Per session so
     /// coming back to a tab shows its problems again without waiting on a re-scan.</summary>
     public List<Problem> LastProblems { get; set; } = [];
+
+    /// <summary>
+    /// Which problem the plan is highlighting, and which of its places (#78): <see cref="ProblemFocus.Instance"/>
+    /// is an index into <see cref="Problem.Places"/>, or −1 for all of them at once. Null when nothing is showing.
+    /// Held by key rather than by the <see cref="Problem"/> itself because every scan builds new problems, and the
+    /// one the user is stepping through has to be found again in the new list, with its count possibly changed by
+    /// the edit that caused the scan.
+    /// </summary>
+    public ProblemFocus? ProblemFocus { get; set; }
+
+    /// <summary>The problems whose detail the user has opened, by <see cref="Problem.Key"/>. The panel is rebuilt
+    /// after every scan, so without this each edit would fold every row back up.</summary>
+    public HashSet<string> ExpandedProblems { get; } = new(StringComparer.Ordinal);
 
     /// <summary>What the last scan that actually finished was a function of. A scan whose key matches this one
     /// would recompute the answer already on screen, so it does not run. Default until the first scan lands, which

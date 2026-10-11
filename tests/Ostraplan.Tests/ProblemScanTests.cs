@@ -145,6 +145,10 @@ public class ProblemScanTests
         Assert.Equal(ProblemScan.BlockedPortAlertKey, problem.DismissKey);
         Assert.Contains("cannot dock", problem.Title);
         Assert.Contains((3, 22), problem.Cells!);
+        // one dismiss key covers every blocked port, so each problem's own key carries the port (#78)
+        Assert.Equal($"{ProblemScan.BlockedPortAlertKey}:0,20", problem.Key);
+        var place = Assert.Single(problem.Places);
+        Assert.Equal("Floor at 3, 22", place.Label);
     }
 
     [Fact]
@@ -516,5 +520,81 @@ public class ProblemScanTests
         foreach (var def in new[] { "ItmDockSys03Closed", "ItmDockSys03Open" })
             if (g.Catalog.Lookup(def) is { } sec)
                 Assert.False(g.Catalog.IsPrimaryDocksys(sec), $"{def} is a Secondary and must stay movable");
+    }
+
+    // ---- the places a problem applies (#78): what Next steps through ----
+
+    [Fact]
+    public void Of_orders_places_by_reading_order_and_unions_their_cells()
+    {
+        var problem = Problem.Of(ProblemSeverity.Warning, "t", "d",
+        [
+            new ProblemInstance("right", [(9, 4), (10, 4)]),
+            new ProblemInstance("lower", [(1, 7)]),
+            new ProblemInstance("left", [(2, 4), (3, 4), (9, 4)]),   // shares a tile with "right"
+        ], dismissKey: "k");
+
+        Assert.Equal(["left", "right", "lower"], problem.Places.Select(p => p.Label));   // top row first, then left to right
+        Assert.Equal([(2, 4), (3, 4), (9, 4), (10, 4), (1, 7)], problem.Cells!);          // every tile once
+        Assert.Equal("k", problem.Key);
+    }
+
+    [Fact]
+    public void A_problem_from_cells_alone_is_one_place_and_a_ship_level_one_has_none()
+    {
+        var cells = new Problem(ProblemSeverity.Blocking, "Two tiles", "d", [(1, 1), (2, 2)]);
+        var place = Assert.Single(cells.Places);
+        Assert.Equal(cells.Cells, place.Cells);
+
+        var shipLevel = new Problem(ProblemSeverity.Blocking, "No docking port", "d", RuleKey: ProblemScan.NoDockingPortKey);
+        Assert.Empty(shipLevel.Places);
+        Assert.Equal(ProblemScan.NoDockingPortKey, shipLevel.Key);
+        Assert.Equal("Two tiles", cells.Key);   // nothing better to go on than the title
+    }
+
+    [Fact]
+    public void Each_illegal_part_is_its_own_place_named_and_positioned()
+    {
+        var cat = FixtureCat();
+        var doc = Doc(cat,
+            new Placement { DefName = "Dock", X = 0, Y = 5 },
+            new Placement { DefName = "Fix", X = 6, Y = 10 },   // listed right-to-left on purpose
+            new Placement { DefName = "Fix", X = 3, Y = 10 });
+
+        var illegal = Assert.Single(ProblemScan.Scan(doc, cat), p => p.Title.Contains("floor"));
+        Assert.Equal(["Bunk at 3, 10", "Bunk at 6, 10"], illegal.Places.Select(p => p.Label));   // reading order, not file order
+        Assert.Equal([(3, 10)], illegal.Places[0].Cells);
+        Assert.StartsWith(ProblemScan.LegalityKeyPrefix, illegal.Key);
+        Assert.Equal(illegal.Cells, illegal.Places.SelectMany(p => p.Cells).ToList());
+    }
+
+    [Fact]
+    public void Each_unsealed_compartment_is_its_own_place()
+    {
+        var cat = FixtureCat();
+        // two lone sealed-floor tiles, far apart: two compartments open to space, not one problem with four corners
+        var doc = Doc(cat,
+            new Placement { DefName = "FloorTile", X = 3, Y = 3 },
+            new Placement { DefName = "FloorTile", X = 30, Y = 3 });
+
+        var warn = Assert.Single(ProblemScan.Scan(doc, cat), p => p.DismissKey == ProblemScan.UnsealedAlertKey);
+        Assert.Equal(2, warn.Places.Count);
+        Assert.All(warn.Places, p => Assert.Contains("open to space", p.Label));
+        Assert.True(warn.Places[0].Anchor.X < warn.Places[1].Anchor.X);
+        Assert.Equal(warn.Cells!.Count, warn.Places.Sum(p => p.Cells.Count));   // no tile shared between the two
+    }
+
+    [Fact]
+    public void Each_part_past_the_mating_face_is_its_own_place_with_only_its_tiles_beyond()
+    {
+        var cat = Cat();
+        var doc = Doc(cat,
+            new Placement { DefName = "Dock", X = 0, Y = 0 },      // face along doc y = 0, outward = up
+            new Placement { DefName = "Floor", X = 2, Y = -1 },
+            new Placement { DefName = "Floor", X = 5, Y = -3 });
+        var problem = Assert.Single(ProblemScan.Scan(doc, cat));
+        Assert.Equal(ProblemScan.BeyondAirlockKey, problem.Key);
+        Assert.Equal(["Floor at 5, -3", "Floor at 2, -1"], problem.Places.Select(p => p.Label));
+        Assert.Equal([(2, -1), (5, -3)], problem.Cells!.OrderBy(c => c.X).ToList());
     }
 }

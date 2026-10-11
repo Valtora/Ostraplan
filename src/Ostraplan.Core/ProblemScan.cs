@@ -3,14 +3,59 @@ namespace Ostraplan.Core;
 public enum ProblemSeverity { Warning, Blocking }
 
 /// <summary>
+/// One place a problem applies: a compartment, a device, a part, a port. <see cref="Label"/> says what it is and
+/// where, in the words the Problems panel shows beside its counter ("Heater at 12, 7"), and <see cref="Cells"/>
+/// are the tiles the plan highlights and zooms to when the user steps to it (#78).
+/// </summary>
+public sealed record ProblemInstance(string Label, IReadOnlyList<(int X, int Y)> Cells)
+{
+    /// <summary>The first tile in reading order (top row first, then left to right): the point an instance is
+    /// sorted and named by.</summary>
+    public (int X, int Y) Anchor => Cells.Count == 0 ? (0, 0) : Cells.MinBy(c => (c.Y, c.X));
+
+    /// <summary>"Nav Station at 12, 7": how every instance that is a part is named.</summary>
+    public static string At(string what, int x, int y) => $"{what} at {x}, {y}";
+}
+
+/// <summary>
 /// A design issue. <see cref="Cells"/> are the world tiles the problem points at — hazard-tinted on the canvas
 /// for socket-legality/constructibility problems, or highlighted as leak points for an airtightness warning; null
 /// for ship-level problems (no docking port). A non-null <see cref="DismissKey"/> makes the problem
 /// <b>dismissible</b>: the user can hide it (and later Restore Alerts), keyed by this stable string so the
 /// dismissal survives edits and persists in the <c>.oplan</c> (see <see cref="ShipDocument.DismissedAlerts"/>).
+///
+/// <para><see cref="Instances"/> splits <see cref="Cells"/> into the separate places the problem applies, in
+/// reading order, so the panel can step through them one at a time (#78). Build a problem that has them through
+/// <see cref="Of"/>, which derives <see cref="Cells"/> from them so the two can never disagree. A problem built
+/// with cells alone has one instance covering all of them.</para>
+///
+/// <para><see cref="Key"/> names the one problem this is, stable from one scan to the next while the title's
+/// counts change, so what the user is looking at can be found again after an edit. It is <see cref="RuleKey"/>
+/// where one is given, else the dismiss key, else the title. A rule that raises several problems under one
+/// dismiss key (one per blocked port, one per soft requirement) gives each a rule key of its own, or the panel
+/// could not tell which of them is on the plan.</para>
 /// </summary>
 public sealed record Problem(ProblemSeverity Severity, string Title, string Detail,
-    IReadOnlyList<(int X, int Y)>? Cells = null, string? DismissKey = null);
+    IReadOnlyList<(int X, int Y)>? Cells = null, string? DismissKey = null,
+    IReadOnlyList<ProblemInstance>? Instances = null, string? RuleKey = null)
+{
+    public string Key => RuleKey ?? DismissKey ?? Title;
+
+    /// <summary>The places this problem applies, never null: a problem built from cells alone is one instance, and
+    /// a ship-level problem with no cells has none.</summary>
+    public IReadOnlyList<ProblemInstance> Places =>
+        Instances ?? (Cells is { Count: > 0 } ? [new ProblemInstance(Title, Cells)] : []);
+
+    /// <summary>A problem made of <paramref name="instances"/>: they are sorted into reading order and their cells
+    /// unioned into <see cref="Cells"/>.</summary>
+    public static Problem Of(ProblemSeverity severity, string title, string detail,
+        IEnumerable<ProblemInstance> instances, string? dismissKey = null, string? ruleKey = null)
+    {
+        var ordered = instances.OrderBy(i => i.Anchor.Y).ThenBy(i => i.Anchor.X).ToList();
+        var cells = ordered.SelectMany(i => i.Cells).Distinct().ToList();
+        return new Problem(severity, title, detail, cells, dismissKey, ordered, ruleKey);
+    }
+}
 
 /// <summary>
 /// Design checks the planner can already evaluate honestly. More join as the
@@ -29,6 +74,13 @@ public static class ProblemScan
     /// </summary>
     public const string TypeBCond = "IsTypeB";
 
+    /// <summary>Rule keys for the problems that have no dismiss key, so the panel can find the one the user is
+    /// looking at after a rescan (<see cref="Problem.Key"/>). A legality group's key carries its reason.</summary>
+    public const string NoDockingPortKey = "no-docking-port";
+    public const string BeyondAirlockKey = "beyond-airlock";
+    public const string LegalityKeyPrefix = "legality:";
+    public const string ModdedLegalityKeyPrefix = "modded-legality:";
+
     public static List<Problem> Scan(ShipDocument doc, Catalog catalog)
     {
         var problems = new List<Problem>();
@@ -43,7 +95,8 @@ public static class ProblemScan
             problems.Add(new Problem(ProblemSeverity.Blocking, "No docking port",
                 doc.IsResidence
                     ? "The ship can't dock with the station without one. Add the Primary Exterior Airlock from the SPECIAL tab."
-                    : "The ship can't dock without one. Add a Secondary Exterior Airlock from the HULL tab."));
+                    : "The ship can't dock without one. Add a Secondary Exterior Airlock from the HULL tab.",
+                RuleKey: NoDockingPortKey));
             return problems;
         }
 
@@ -56,10 +109,12 @@ public static class ProblemScan
             var part = doc.Part(port)!;
             var blocked = 0;
             (int X, int Y)? sample = null;
+            var beyond = new List<ProblemInstance>();   // one per part, with only its tiles past the face
             foreach (var q in doc.Placements)
             {
                 if (q.IsGiven) continue;   // the game bounds NEW construction, not existing hull (imported ships)
                 var (w, h) = doc.FootprintOf(q);
+                var tiles = new List<(int X, int Y)>();
                 for (var r = 0; r < h; r++)
                     for (var c = 0; c < w; c++)
                     {
@@ -68,14 +123,18 @@ public static class ProblemScan
                         {
                             blocked++;
                             sample ??= (q.X + c, q.Y + r);
+                            tiles.Add((q.X + c, q.Y + r));
                         }
                     }
+                if (tiles.Count > 0)
+                    beyond.Add(new ProblemInstance(ProblemInstance.At(doc.Part(q)?.Friendly ?? q.DefName, q.X, q.Y), tiles));
             }
 
             if (blocked > 0)
-                problems.Add(new Problem(ProblemSeverity.Blocking, "Construction beyond the airlock",
+                problems.Add(Problem.Of(ProblemSeverity.Blocking, "Construction beyond the airlock",
                     $"{blocked} tile(s) are past \"{part.Friendly}\" on the side it docks from, first at " +
-                    $"({sample!.Value.X},{sample.Value.Y}). The game won't build there, so move them inboard."));
+                    $"({sample!.Value.X},{sample.Value.Y}). The game won't build there, so move them inboard.",
+                    beyond, ruleKey: BeyondAirlockKey));
         }
 
         AddBlockedPortWarnings(doc, catalog, ports, problems);
@@ -121,12 +180,17 @@ public static class ProblemScan
             .Select(g => g.Count() > 1 ? $"{g.Key} ×{g.Count()}" : g.Key)
             .ToList();
         var listed = string.Join(", ", kinds.Take(6)) + (kinds.Count > 6 ? ", …" : "");
-        problems.Add(new Problem(ProblemSeverity.Warning,
+        problems.Add(Problem.Of(ProblemSeverity.Warning,
             $"{unpowered.Count} device{(unpowered.Count == 1 ? " has" : "s have")} no power",
             $"No battery or generator reaches {listed}.",
-            [.. unpowered.SelectMany(l => FootprintTiles(doc, l.Placement)).Distinct()],
-            DismissKey: UnpoweredAlertKey));
+            unpowered.Select(l => PartInstance(doc, l.Placement)),
+            dismissKey: UnpoweredAlertKey));
     }
+
+    /// <summary>One placement as a place a problem applies: named by its in-game name and position, covering its
+    /// footprint.</summary>
+    private static ProblemInstance PartInstance(ShipDocument doc, Placement p, string? suffix = null) =>
+        new(ProblemInstance.At(doc.Part(p)?.Friendly ?? p.DefName, p.X, p.Y) + suffix, [.. FootprintTiles(doc, p)]);
 
     /// <summary>Every document tile a placement's rotated footprint covers.</summary>
     private static IEnumerable<(int X, int Y)> FootprintTiles(ShipDocument doc, Placement p)
@@ -165,18 +229,13 @@ public static class ProblemScan
         var cores = doc.Placements.Where(p => IsReactorCore(doc.Part(p), catalog)).ToList();
         if (cores.Count < 2) return;
 
-        var cells = cores.SelectMany(p =>
-        {
-            var (w, h) = doc.FootprintOf(p);
-            return from r in Enumerable.Range(0, h) from c in Enumerable.Range(0, w) select (p.X + c, p.Y + r);
-        }).ToList();
         var listed = string.Join(", ", cores.Select(p => $"{doc.Part(p)?.Friendly ?? p.DefName} at ({p.X},{p.Y})"));
 
-        problems.Add(new Problem(ProblemSeverity.Warning,
+        problems.Add(Problem.Of(ProblemSeverity.Warning,
             $"{cores.Count} fusion reactor cores",
             "The nav station drives only one core and can end up driving the unlit one, leaving the torch with no " +
             $"thrust. Found: {listed}. Keep one core, or Dismiss if the spare is deliberate.",
-            cells, DismissKey: MultipleReactorsAlertKey));
+            cores.Select(p => PartInstance(doc, p)), dismissKey: MultipleReactorsAlertKey));
     }
 
     /// <summary>True for a part the game would file as one of the ship's reactors: the condowner matches
@@ -215,22 +274,22 @@ public static class ProblemScan
         var primaries = doc.Placements.Where(p => catalog.IsPrimaryDocksys(doc.Part(p))).ToList();
         if (primaries.Count < 2) return;
 
-        var cells = primaries.SelectMany(p =>
-        {
-            var (w, h) = doc.FootprintOf(p);
-            return from r in Enumerable.Range(0, h) from c in Enumerable.Range(0, w) select (p.X + c, p.Y + r);
-        }).ToList();
         string Name(Placement p) => $"{doc.Part(p)?.Friendly ?? p.DefName} at ({p.X},{p.Y})";
 
-        var detail = BoundingPort(doc, catalog) is { } bounding
+        var bounding = BoundingPort(doc, catalog);
+        var detail = bounding is not null
             ? $"Only {Name(bounding)} limits where you can build: nothing new can go beyond the side it docks " +
               "from (the red area). Either airlock can still dock."
             : "Either airlock can dock.";
         if (primaries.Any(p => p.X == 0 && p.Y == 0))
             detail += " The one at (0,0) was added by an older Ostraplan. Select it and press Delete.";
 
-        problems.Add(new Problem(ProblemSeverity.Warning,
-            $"{primaries.Count} primary docking ports", detail, cells, DismissKey: MultiplePrimaryPortsAlertKey));
+        problems.Add(Problem.Of(ProblemSeverity.Warning,
+            $"{primaries.Count} primary docking ports", detail,
+            primaries.Select(p => PartInstance(doc, p,
+                ReferenceEquals(p, bounding) ? ", limits where you can build"
+                : p.X == 0 && p.Y == 0 ? ", added by an older Ostraplan" : null)),
+            dismissKey: MultiplePrimaryPortsAlertKey));
     }
 
     /// <summary>The dismiss key for the blocked mating-face warning.</summary>
@@ -272,31 +331,34 @@ public static class ProblemScan
 
             var cells = new List<(int X, int Y)>();
             var names = new List<string>();
+            var blockers = new List<ProblemInstance>();   // one per part in the corridor, with only its tiles there
             foreach (var q in doc.Placements)
             {
                 if (q.IsGiven || ReferenceEquals(q, port)) continue;
                 var (w, h) = doc.FootprintOf(q);
-                var hit = false;
+                var tiles = new List<(int X, int Y)>();
                 for (var r = 0; r < h; r++)
                     for (var c = 0; c < w; c++)
                     {
                         var (x, y) = (q.X + c, q.Y + r);
                         if ((axisY ? x : y) < lo || (axisY ? x : y) > hi) continue;   // outside the corridor
                         if (((axisY ? y : x) + 0.5 - face) * dir <= 0.01) continue;   // inboard of the face
-                        cells.Add((x, y));
-                        hit = true;
+                        tiles.Add((x, y));
                     }
-                if (hit && doc.Part(q) is { } qPart) names.Add(qPart.Friendly);
+                if (tiles.Count == 0) continue;
+                cells.AddRange(tiles);
+                if (doc.Part(q) is { } qPart) names.Add(qPart.Friendly);
+                blockers.Add(new ProblemInstance(ProblemInstance.At(doc.Part(q)?.Friendly ?? q.DefName, q.X, q.Y), tiles));
             }
 
             if (cells.Count == 0) continue;
             var distinct = names.Distinct().ToList();
             var listed = string.Join(", ", distinct.Take(4)) + (distinct.Count > 4 ? ", …" : "");
-            problems.Add(new Problem(ProblemSeverity.Warning,
+            problems.Add(Problem.Of(ProblemSeverity.Warning,
                 $"\"{portPart.Friendly}\" at ({port.X},{port.Y}) is blocked and cannot dock",
                 $"{cells.Count} tile(s) sit in front of it ({listed}), so nothing can dock there. Give a towing brace " +
                 "the airlock's rotation, move the part inboard, or Dismiss if this is an internal docking bay.",
-                cells, DismissKey: BlockedPortAlertKey));
+                blockers, dismissKey: BlockedPortAlertKey, ruleKey: $"{BlockedPortAlertKey}:{port.X},{port.Y}"));
         }
     }
 
@@ -337,11 +399,17 @@ public static class ProblemScan
             var why = unreachable.Any(d => d.Reason == WalkBlock.SightBlocked)
                 ? " Some are in range but out of sight."
                 : "";
-            problems.Add(new Problem(ProblemSeverity.Warning,
+            problems.Add(Problem.Of(ProblemSeverity.Warning,
                 $"{unreachable.Count} device{(unreachable.Count == 1 ? "" : "s")} cannot be reached",
                 $"No crew member can reach: {listed}.{why} Clear a walkable tile within range of each.",
-                [.. unreachable.SelectMany(d => d.BodyTiles).Distinct().Select(grid.GridToDoc)],
-                DismissKey: UnreachableAlertKey));
+                unreachable.Select(d =>
+                {
+                    var tiles = d.BodyTiles.Select(grid.GridToDoc).ToList();
+                    var (x, y) = tiles.Count == 0 ? (0, 0) : tiles.MinBy(t => (t.Y, t.X));
+                    var how = d.Reason == WalkBlock.SightBlocked ? ", out of sight" : "";
+                    return new ProblemInstance(ProblemInstance.At(d.Friendly, x, y) + how, tiles);
+                }),
+                dismissKey: UnreachableAlertKey));
         }
 
         // Interior floor the crew cannot walk to from the main body. Only worth saying when there IS a main body
@@ -352,12 +420,17 @@ public static class ProblemScan
         if (isolated.Count == 0) return;
 
         var cut = isolated.Sum(z => z.TileCount);
-        problems.Add(new Problem(ProblemSeverity.Warning,
+        problems.Add(Problem.Of(ProblemSeverity.Warning,
             $"{isolated.Count} sealed-off compartment{(isolated.Count == 1 ? "" : "s")}",
             $"{cut} walkable tile(s) in {isolated.Count} area(s) have no route to the rest of the ship. A closed " +
             "door that is unpowered, locked or damaged counts as a wall.",
-            [.. isolated.SelectMany(z => z.Tiles).Select(grid.GridToDoc)],
-            DismissKey: IsolatedAlertKey));
+            isolated.Select(z =>
+            {
+                var tiles = z.Tiles.Select(grid.GridToDoc).ToList();
+                var (x, y) = tiles.MinBy(t => (t.Y, t.X));
+                return new ProblemInstance(ProblemInstance.At($"{z.TileCount} tiles sealed off", x, y), tiles);
+            }),
+            dismissKey: IsolatedAlertKey));
     }
 
     /// <summary>
@@ -432,60 +505,66 @@ public static class ProblemScan
             pending = pending.Where(p => !doc.Part(p)!.IsModded).ToList();
         }
 
-        var coreGroups = new Dictionary<string, (List<(int, int)> Cells, List<string> Parts)>(StringComparer.Ordinal);
-        var moddedGroups = new Dictionary<string, (List<(int, int)> Cells, List<string> Parts)>(StringComparer.Ordinal);
-        void Group(Dictionary<string, (List<(int, int)> Cells, List<string> Parts)> groups, PartDef part, FitResult res)
+        // Grouped by reason, one instance per part. A part's instance covers the tiles where the rule broke, or
+        // its whole footprint when the check named none, so stepping to it always lands on something.
+        var coreGroups = new Dictionary<string, (List<ProblemInstance> Parts, List<string> Names)>(StringComparer.Ordinal);
+        var moddedGroups = new Dictionary<string, (List<ProblemInstance> Parts, List<string> Names)>(StringComparer.Ordinal);
+        void Group(Dictionary<string, (List<ProblemInstance> Parts, List<string> Names)> groups, Placement p, FitResult res)
         {
+            var part = doc.Part(p)!;
             var reason = res.Reason ?? "illegal placement";
             if (!groups.TryGetValue(reason, out var g)) groups[reason] = g = ([], []);
-            g.Cells.AddRange(res.FailedCells);
-            g.Parts.Add(part.Friendly);
+            var cells = res.FailedCells.Count > 0 ? res.FailedCells : [.. FootprintTiles(doc, p)];
+            g.Parts.Add(new ProblemInstance(ProblemInstance.At(part.Friendly, p.X, p.Y), cells));
+            g.Names.Add(part.Friendly);
         }
-        foreach (var p in pending) Group(coreGroups, doc.Part(p)!, lastFail[p.Id]);   // hard core failures
-        foreach (var (p, res) in moddedFails) Group(moddedGroups, doc.Part(p)!, res);
+        foreach (var p in pending) Group(coreGroups, p, lastFail[p.Id]);   // hard core failures
+        foreach (var (p, res) in moddedFails) Group(moddedGroups, p, res);
 
         foreach (var (reason, g) in coreGroups)
         {
-            var distinct = g.Parts.Distinct().ToList();
+            var distinct = g.Names.Distinct().ToList();
             var names = string.Join(", ", distinct.Take(6)) + (distinct.Count > 6 ? ", …" : "");
-            problems.Add(new Problem(ProblemSeverity.Blocking,
+            problems.Add(Problem.Of(ProblemSeverity.Blocking,
                 $"{reason} ({g.Parts.Count} part{(g.Parts.Count == 1 ? "" : "s")})",
                 $"The game builds floors, then walls, then fittings, and can't place these at their step: {names}. " +
                 "Change the layout so each has something to build on. Highlighted tiles show where the rule breaks.",
-                g.Cells));
+                g.Parts, ruleKey: LegalityKeyPrefix + reason));
         }
 
         foreach (var (reason, g) in moddedGroups)
         {
-            var distinct = g.Parts.Distinct().ToList();
+            var distinct = g.Names.Distinct().ToList();
             var names = string.Join(", ", distinct.Take(6)) + (distinct.Count > 6 ? ", …" : "");
-            problems.Add(new Problem(ProblemSeverity.Warning,
+            problems.Add(Problem.Of(ProblemSeverity.Warning,
                 $"{g.Parts.Count} modded part{(g.Parts.Count == 1 ? "" : "s")} may not fit: {reason}",
                 $"Ostraplan checks core-game rules only, and a mod may make these valid: {names}. " +
                 "Check them in game. Highlighted tiles show where the core rules disagree.",
-                g.Cells));
+                g.Parts, ruleKey: ModdedLegalityKeyPrefix + reason));
         }
 
         // Soft-requirement advisories (e.g. an overhead light with no adjacent power conduit): the part is placed —
         // the game's own spawned ships do the same — but the interactive builder's rule is unmet, so it is a single
         // dismissible Warning rather than a block. See CheckFit.SoftReqs / issue #11.
-        var advisoryGroups = new Dictionary<string, (List<(int, int)> Cells, List<string> Parts)>(StringComparer.Ordinal);
+        var advisoryGroups = new Dictionary<string, (List<ProblemInstance> Parts, List<string> Names)>(StringComparer.Ordinal);
         foreach (var (p, res) in advisories)
         {
+            var part = doc.Part(p)!;
             var reason = res.Advisory!;
             if (!advisoryGroups.TryGetValue(reason, out var g)) advisoryGroups[reason] = g = ([], []);
-            if (res.AdvisoryCells is not null) g.Cells.AddRange(res.AdvisoryCells);
-            g.Parts.Add(doc.Part(p)!.Friendly);
+            var cells = res.AdvisoryCells is { Count: > 0 } ac ? ac : [.. FootprintTiles(doc, p)];
+            g.Parts.Add(new ProblemInstance(ProblemInstance.At(part.Friendly, p.X, p.Y), cells));
+            g.Names.Add(part.Friendly);
         }
         foreach (var (reason, g) in advisoryGroups)
         {
-            var distinct = g.Parts.Distinct().ToList();
+            var distinct = g.Names.Distinct().ToList();
             var names = string.Join(", ", distinct.Take(6)) + (distinct.Count > 6 ? ", …" : "");
-            problems.Add(new Problem(ProblemSeverity.Warning,
+            problems.Add(Problem.Of(ProblemSeverity.Warning,
                 $"{reason} ({g.Parts.Count} part{(g.Parts.Count == 1 ? "" : "s")})",
                 $"These spawn fine, but a crew couldn't build them there in game: {names}. Run a POWR conduit onto " +
                 "the highlighted tile, or Dismiss if you're exporting a spawned design.",
-                g.Cells, DismissKey: SoftReqAlertKey));
+                g.Parts, dismissKey: SoftReqAlertKey, ruleKey: $"{SoftReqAlertKey}:{reason}"));
         }
     }
 
@@ -522,11 +601,18 @@ public static class ProblemScan
         var kinds = new List<string>();
         if (open > 0) kinds.Add($"{open} open to space (not walled in)");
         if (holes > 0) kinds.Add($"{holes} missing a sealed floor");
-        var leakCells = breaches.SelectMany(b => b.Tiles).Distinct().ToList();
-        problems.Add(new Problem(ProblemSeverity.Warning,
+        problems.Add(Problem.Of(ProblemSeverity.Warning,
             $"{breaches.Count} unsealed compartment{(breaches.Count == 1 ? "" : "s")}",
             $"{string.Join(", ", kinds)}.",
-            leakCells, DismissKey: UnsealedAlertKey));
+            breaches.Where(b => b.Tiles.Count > 0).Select(b =>
+            {
+                var (x, y) = b.Tiles.MinBy(t => (t.Y, t.X));
+                var what = b.OpenToSpace
+                    ? $"{b.ExposedFloorCount} floor tile{(b.ExposedFloorCount == 1 ? "" : "s")} open to space"
+                    : $"{b.Tiles.Count} tile{(b.Tiles.Count == 1 ? "" : "s")} missing a sealed floor";
+                return new ProblemInstance(ProblemInstance.At(what, x, y), b.Tiles);
+            }),
+            dismissKey: UnsealedAlertKey));
     }
 
     /// <summary>

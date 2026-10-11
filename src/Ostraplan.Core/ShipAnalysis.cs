@@ -99,7 +99,9 @@ public static class ShipAnalysis
     /// user at the fix rather than the symptom, an open-to-space breach reports only the
     /// <b>leak points</b> — the missing-wall gaps where sealed floor abuts open space — not
     /// the whole flooded compartment; an enclosed room reports its unsealed holes. Tiles
-    /// are document coords.
+    /// are document coords. Open-to-space breaches come one per connected area of floor, so
+    /// two separate unwalled decks are two breaches even though both flood into the one
+    /// exterior.
     /// </summary>
     public static List<Breach> FindBreaches(ShipGrid grid, RoomPartition partition)
     {
@@ -121,21 +123,48 @@ public static class ShipAnalysis
             // (the missing wall), not the flooded floor. A gap is an open tile (no floor,
             // no wall) in this same exterior room next to a sealed floor; a floor at the
             // grid edge has no gap tile to mark, so mark the floor itself.
-            var gaps = new HashSet<int>();
-            foreach (var t in room.Tiles)
+            //
+            // One breach per connected AREA of floor, not one for the whole exterior. Every unwalled
+            // floor on the ship floods into the same exterior room, so a ship with five separate open
+            // areas used to report one breach whose leak points were scattered across the whole plan,
+            // which is the hunt-the-tile problem of #78. Each area the designer laid is reported on
+            // its own, with its own gaps and its own floor count.
+            var floorArea = new Dictionary<int, int>();   // floor tile -> area index
+            var areas = new List<List<int>>();
+            foreach (var seed in room.Tiles)
             {
-                if (!grid.Has(t, "IsFloorSealed")) continue;
-                foreach (var nt in RoomBuilder.Cardinals(grid, t))
+                if (!grid.Has(seed, "IsFloorSealed") || floorArea.ContainsKey(seed)) continue;
+                var area = new List<int>();
+                var stack = new Stack<int>();
+                stack.Push(seed);
+                floorArea[seed] = areas.Count;
+                while (stack.Count > 0)
                 {
-                    if (nt < 0) gaps.Add(t);   // exposed at the grid edge — no gap tile to mark
-                    else if (partition.TileRoom[nt] == ri && !grid.Has(nt, "IsFloorSealed") && !grid.Has(nt, "IsWall"))
-                        gaps.Add(nt);          // an open gap where a wall is missing
+                    var t = stack.Pop();
+                    area.Add(t);
+                    foreach (var nt in RoomBuilder.Cardinals(grid, t))
+                    {
+                        if (nt < 0 || floorArea.ContainsKey(nt)) continue;
+                        if (partition.TileRoom[nt] != ri || !grid.Has(nt, "IsFloorSealed")) continue;
+                        floorArea[nt] = areas.Count;
+                        stack.Push(nt);
+                    }
                 }
+                areas.Add(area);
             }
-            if (gaps.Count > 0)
+
+            foreach (var area in areas)
             {
-                var area = room.Tiles.Count(t => grid.Has(t, "IsFloorSealed"));   // all floor this opening vents
-                breaches.Add(new Breach(true, gaps.Select(grid.GridToDoc).ToArray(), room.TileCount, area));
+                var gaps = new HashSet<int>();
+                foreach (var t in area)
+                    foreach (var nt in RoomBuilder.Cardinals(grid, t))
+                    {
+                        if (nt < 0) gaps.Add(t);   // exposed at the grid edge — no gap tile to mark
+                        else if (partition.TileRoom[nt] == ri && !grid.Has(nt, "IsFloorSealed") && !grid.Has(nt, "IsWall"))
+                            gaps.Add(nt);          // an open gap where a wall is missing
+                    }
+                if (gaps.Count > 0)
+                    breaches.Add(new Breach(true, gaps.Select(grid.GridToDoc).ToArray(), room.TileCount, area.Count));
             }
         }
         return breaches;

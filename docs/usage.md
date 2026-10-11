@@ -377,9 +377,18 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   exactly where and when the game itself shows it. This needs no overlay turned on. A part
   whose use point sits at its own centre gets no mark, since that says nothing about which
   way it faces, and the game skips it for the same reason.
-- **Problems** (inspector): live blocking/warning issues for placement and
-  airlock-envelope. Each entry expands for the detail, and a **View** button pans and
-  zooms the canvas straight to the offending tiles so it's easy to find on a big ship.
+- **Problems** (inspector): live blocking/warning issues for placement, airtightness,
+  crew access, power and the airlock envelope. Each entry expands for the detail and
+  lists every place it applies, one line each, and a click on a line jumps to it.
+  - **Show** highlights every place the entry applies on the plan, as a cyan outline, and
+    zooms to them. It stays lit while that entry is on the plan, so the list says which
+    entry the highlight belongs to, and a second click clears it. The highlight follows
+    the entry through your edits, so fixing one place leaves the rest lit.
+  - **Next** appears when an entry applies in more than one place and steps through them
+    one at a time, zooming to each. A line under the buttons reads "2 of 5: Heater at 12,
+    7" so you know which one you are looking at. Show puts them all back and resets the
+    step. This is the way through a problem scattered across a big ship, where showing all
+    of it at once leaves the plan zoomed out too far to see any one tile.
 - **Materials…** (Analyse): the **bill of materials** — each part's install-kit
   count, for the whole ship or the current selection, with **Copy list**.
   - **Retrofit from…** nets the bill against a ship you already have, so it reads as
