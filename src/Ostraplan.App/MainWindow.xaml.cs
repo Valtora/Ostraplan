@@ -2042,6 +2042,7 @@ public partial class MainWindow : Window
         BadgeWarning.ToolTip = warnings.Count > 0 ? string.Join("\n", warnings.Select(p => p.Title)) : null;
 
         ProblemsPanel.Children.Clear();
+        _problemRowRefreshers.Clear();   // the rows they belonged to are gone
         if (shown.Count == 0)
         {
             ProblemsPanel.Children.Add(new TextBlock
@@ -2099,7 +2100,9 @@ public partial class MainWindow : Window
     {
         var color = problem.Severity == ProblemSeverity.Blocking ? ThemeManager.Bad : ThemeManager.Warn;
         var places = problem.Places;
-        var focus = _active.ProblemFocus is { } f && f.Key == problem.Key ? f : (ProblemFocus?)null;
+        // Read live, never captured: the row is refreshed in place when the focus moves (see RefreshProblemRows),
+        // so a handler has to see the focus as it is at the click, not as it was when the row was built.
+        ProblemFocus? OwnFocus() => _active.ProblemFocus is { } f && f.Key == problem.Key ? f : null;
 
         var header = new StackPanel { Margin = new Thickness(0, 1, 0, 2) };
         header.Children.Add(new TextBlock
@@ -2114,12 +2117,13 @@ public partial class MainWindow : Window
             HorizontalAlignment = HorizontalAlignment.Left,
         };
 
+        ToggleButton? show = null;
         if (places.Count > 0)
         {
             // A ToggleButton and its native checked state, never a hand-set background (CONVENTIONS).
-            var show = new ToggleButton
+            show = new ToggleButton
             {
-                Content = "Show", IsChecked = focus is not null, FontSize = 11, MinWidth = 0,
+                Content = "Show", FontSize = 11, MinWidth = 0,
                 Padding = new Thickness(8, 1, 8, 1), Margin = new Thickness(0, 0, 6, 0),
                 Cursor = System.Windows.Input.Cursors.Hand,
                 ToolTip = places.Count > 1
@@ -2129,7 +2133,7 @@ public partial class MainWindow : Window
             show.Click += (_, e) =>
             {
                 e.Handled = true;
-                if (focus is not null) ClearProblemFocus();
+                if (OwnFocus() is not null) ClearProblemFocus();
                 else FocusProblem(problem, ProblemFocus.All);
             };
             actions.Children.Add(show);
@@ -2140,7 +2144,7 @@ public partial class MainWindow : Window
                 next.Click += (_, e) =>
                 {
                     e.Handled = true;
-                    FocusProblem(problem, focus is { IsAll: false } at ? (at.Instance + 1) % places.Count : 0);
+                    FocusProblem(problem, OwnFocus() is { IsAll: false } at ? (at.Instance + 1) % places.Count : 0);
                 };
                 actions.Children.Add(next);
             }
@@ -2153,24 +2157,21 @@ public partial class MainWindow : Window
         }
         if (actions.Children.Count > 0) header.Children.Add(actions);
 
-        // What the cyan on the plan is, while it is this problem's: all of it, or which one of how many.
-        if (focus is { } showing)
+        // What the cyan on the plan is, while it is this problem's: all of it, or which one of how many. Always in
+        // the tree and collapsed when not showing, so moving the focus changes text rather than layout.
+        var status = new TextBlock
         {
-            header.Children.Add(new TextBlock
-            {
-                Text = showing.IsAll
-                    ? places.Count == 1 ? "Showing on the plan" : $"Showing all {places.Count}"
-                    : $"{showing.Instance + 1} of {places.Count}: {places[showing.Instance].Label}",
-                Foreground = ThemeManager.Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap,
-                Margin = new Thickness(11, 3, 0, 0),
-            });
-        }
+            Foreground = ThemeManager.Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap,
+            Margin = new Thickness(11, 3, 0, 0), Visibility = Visibility.Collapsed,
+        };
+        header.Children.Add(status);
 
         var body = new StackPanel { Margin = new Thickness(11, 2, 2, 4) };
         body.Children.Add(new TextBlock
         {
             Text = problem.Detail, Foreground = ThemeManager.Dim, FontSize = 12, TextWrapping = TextWrapping.Wrap,
         });
+        var lines = new List<(int Index, TextBlock Line)>();
         if (places.Count > 1)
         {
             // Each place by name, and a click goes straight to it. Capped, because a design can have fifty unpowered
@@ -2179,16 +2180,14 @@ public partial class MainWindow : Window
             for (var i = 0; i < Math.Min(places.Count, cap); i++)
             {
                 var index = i;
-                var current = focus is { IsAll: false } at && at.Instance == i;
                 var line = new TextBlock
                 {
-                    Text = (current ? "▸ " : "   ") + places[i].Label,
-                    Foreground = current ? ThemeManager.Ink : ThemeManager.Accent,
                     FontSize = 11, TextWrapping = TextWrapping.Wrap, Cursor = System.Windows.Input.Cursors.Hand,
                     Margin = new Thickness(0, i == 0 ? 4 : 1, 0, 0), ToolTip = "Highlight this one and zoom to it.",
                 };
                 line.MouseLeftButtonDown += (_, e) => { e.Handled = true; FocusProblem(problem, index); };
                 body.Children.Add(line);
+                lines.Add((index, line));
             }
             if (places.Count > cap)
                 body.Children.Add(new TextBlock
@@ -2209,6 +2208,28 @@ public partial class MainWindow : Window
         };
         row.Expanded += (_, _) => _active.ExpandedProblems.Add(problem.Key);
         row.Collapsed += (_, _) => _active.ExpandedProblems.Remove(problem.Key);
+
+        // Everything about this row that depends on the focus, redone in place when it moves. The row itself is
+        // never rebuilt for a focus change: rebuilding re-creates the Expanders, and each one plays its open
+        // animation as it arrives, so the whole list folded and unfolded on every click of Next.
+        void Refresh()
+        {
+            var focus = OwnFocus();
+            if (show is not null) show.IsChecked = focus is not null;
+            status.Visibility = focus is null ? Visibility.Collapsed : Visibility.Visible;
+            if (focus is { } showing)
+                status.Text = showing.IsAll
+                    ? places.Count == 1 ? "Showing on the plan" : $"Showing all {places.Count}"
+                    : $"{showing.Instance + 1} of {places.Count}: {places[showing.Instance].Label}";
+            foreach (var (i, line) in lines)
+            {
+                var current = focus is { IsAll: false } at && at.Instance == i;
+                line.Text = (current ? "▸ " : "   ") + places[i].Label;
+                line.Foreground = current ? ThemeManager.Ink : ThemeManager.Accent;
+            }
+        }
+        _problemRowRefreshers.Add(Refresh);
+        Refresh();
         return row;
 
         // MinWidth 0 because the Fluent default is wide enough that two of them would not fit side by side in a
@@ -2221,9 +2242,19 @@ public partial class MainWindow : Window
         };
     }
 
+    /// <summary>One per row in the Problems panel: redoes the row's Show state, counter line and place markers from
+    /// the session's focus. Filled by <see cref="ProblemRow"/>, emptied by <see cref="UpdateProblems"/>.</summary>
+    private readonly List<Action> _problemRowRefreshers = [];
+
+    /// <summary>Bring every row's focus-dependent state up to date without rebuilding the panel.</summary>
+    private void RefreshProblemRows()
+    {
+        foreach (var refresh in _problemRowRefreshers) refresh();
+    }
+
     /// <summary>Put one problem on the plan: every place it applies (<see cref="ProblemFocus.All"/>) or one of
-    /// them, highlighted and zoomed to, and remembered on the session so the next scan can put it back. The panel
-    /// is re-rendered for the row's Show state and its counter line.</summary>
+    /// them, highlighted and zoomed to, and remembered on the session so the next scan can put it back. The rows
+    /// are refreshed in place for the Show state and the counter line.</summary>
     private void FocusProblem(Problem problem, int instance)
     {
         var places = problem.Places;
@@ -2233,7 +2264,7 @@ public partial class MainWindow : Window
         var cells = instance < 0 ? problem.Cells! : places[instance].Cells;
         Board.SetLeakCells(cells);
         Board.FocusTiles(cells);
-        UpdateProblems(_lastProblems);
+        RefreshProblemRows();
     }
 
     /// <summary>Take the problem highlight off the plan (Show clicked while checked).</summary>
@@ -2241,7 +2272,7 @@ public partial class MainWindow : Window
     {
         _active.ProblemFocus = null;
         Board.SetLeakCells([]);
-        UpdateProblems(_lastProblems);
+        RefreshProblemRows();
     }
 
     /// <summary>
@@ -2254,7 +2285,7 @@ public partial class MainWindow : Window
         var hadFocus = session.ProblemFocus is not null;
         session.ProblemFocus = null;
         session.Board.SetLeakCells(cells);
-        if (hadFocus && ReferenceEquals(session, _active)) UpdateProblems(_lastProblems);   // un-check its Show
+        if (hadFocus && ReferenceEquals(session, _active)) RefreshProblemRows();   // un-check its Show
     }
 
     /// <summary>Dismiss a warning by key (persisted in the .oplan), clear any leak highlight, and re-render the
