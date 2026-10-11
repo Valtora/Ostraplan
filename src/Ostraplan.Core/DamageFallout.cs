@@ -104,7 +104,8 @@ public static class DamageFallout
         if (grid.TileCount == 0) return null;
 
         var partition = RoomBuilder.Build(grid);
-        var walk = WalkNetwork.Build(grid, catalog, null, WalkNetwork.ForbiddenTiles(intact, grid));
+        var walk = WalkNetwork.Build(grid, catalog, null, WalkNetwork.ForbiddenTiles(intact, grid),
+            WalkNetwork.DoorsOnLoad(intact, grid, catalog));
         var power = PowerNetwork.Build(grid, catalog);
         var systems = ShipDiagnostics.SystemRows(grid, catalog, Propulsion.Estimate(intact, grid, catalog));
 
@@ -198,7 +199,8 @@ public static class DamageFallout
         ShipGrid grid, Catalog catalog, ShipDocument projected, DamageBaseline baseline,
         List<DamageConsequence> found)
     {
-        var walk = WalkNetwork.Build(grid, catalog, null, WalkNetwork.ForbiddenTiles(projected, grid));
+        var walk = WalkNetwork.Build(grid, catalog, null, WalkNetwork.ForbiddenTiles(projected, grid),
+            WalkNetwork.DoorsOnLoad(projected, grid, catalog));
 
         // Devices that were operable on foot and are not any more. A part that was destroyed outright is not here
         // to be counted, and the changes list already says it is gone: this is about what SURVIVED the hit and
@@ -214,7 +216,8 @@ public static class DamageFallout
                 [.. lost.SelectMany(d => d.BodyTiles).Distinct().Select(grid.GridToDoc)]));
 
         // Deck that is still walkable but no longer joined to the main body. A stuck door counts, because an
-        // unpowered or damaged closed door is a solid wall to pathing.
+        // unpowered or damaged closed door is a solid wall to pathing, and so does one whose power the hit cut:
+        // both hulls read their doors in the form their power leaves them in (WalkNetwork.DoorsOnLoad).
         var main = walk.LargestZone;
         var reachable = main >= 0 ? walk.Zones[main].Tiles.ToHashSet() : [];
         var cut = baseline.MainBodyTiles

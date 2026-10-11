@@ -3082,6 +3082,45 @@ does **not** carry over to walking. From `data/items`:
 
 An unpowered, locked or damaged closed door genuinely seals a section off.
 
+### Power decides which closed form a door loads in (verified 1.0.1.5)
+
+The form a door is placed in is not the form crew meet. Every `ItmDoor01*` condowner names a
+power-info and ticks `Power`, which grants `IsReadyUsePower` about once a game second, and
+`Powered.Run` then re-forms the door from what its `PowerA`/`PowerB` points reach:
+
+| Placed form | Power-info | When | Interaction (gate) | Becomes |
+|---|---|---|---|---|
+| `ItmDoor01Closed` (`IsOff`) | `Door01Closed` | tick covered | `MSDoor01ClosedPowerupAllow` (`TIsDoor01ClosedOffUnlocked`) | `ItmDoor01ClosedOn`, passable |
+| `ItmDoor01ClosedOn` (`IsPowered`) | `Door01Closed` | tick short | `MSDoor01ClosedShutdownAllow` (`TIsDoor01ClosedOnUnlocked`) | `ItmDoor01Closed`, stuck |
+| `ItmDoor01ClosedLocked` | `Door01ClosedLocked` | tick covered | `MSDoor01ClosedLockedPowerupAllow` | `ItmDoor01ClosedOnLocked`, still stuck |
+
+- **Covered** is `Powered.UsePower`: it gathers from the `aConnectedPowerCOs` on the input tiles,
+  and `GatherPower` skips any source holding no `StatPower`, so a flat battery covers nothing.
+  Covered and not yet `IsPowered` sets `IsPowered`, then queues `strIntPowerOn` if its
+  `CTTestUs` and `CTTestThem` pass. Short and `IsPowered` runs `ShutDown`, which clears
+  `IsPowered` and queues `strIntPowerOff` the same way. Each interaction's `objLootModeSwitch`
+  is a one-entry loot naming the new form (`ItmDoorInt01ClosedOn` → `ItmDoor01ClosedOn`).
+- **The gates keep the forms apart.** The two closed forms share `Door01Closed`, and each switch
+  admits only one of them, so the Off form never shuts down and the On form never powers up.
+- **An Off form on breaker wiring stays off.** It loads with `IsSignalOff`, `Run` sends it to
+  `ShutDown`, and `ShutDown` returns at once because it is not `IsPowered`.
+- **The Door04 and Door05 skins** are cooverlays over these condowners and become their own
+  counterparts through `mapModeSwitches` (`ItmDoor05Closed` → `ItmDoor05ClosedOn`).
+
+The palette door is `ItmDoor01Open` ("Door (Opened, Off)") and the door toggle swaps it to
+`ItmDoor01Closed`, so every door shut in a plan is the stuck form until its power is read.
+Reading the placed form walled off every compartment behind a door the player had powered
+([issue #77](https://github.com/Valtora/Ostraplan/issues/77)). Across the 220 stock ships it
+changes nothing: every `ClosedOn` door is on a supplied network and no `Closed` door is.
+
+> **Ported in Ostraplan:** `Catalog.PowerSwitchForm` (the interaction, gate, loot and re-skin
+> chain) and `WalkNetwork.DoorsOnLoad`, which takes "covered" from `PowerBudget` (the door draws,
+> and its network has charge stored, a generator with a rate, or a running core) and hands
+> `WalkNetwork.Build` the doorway tiles whose `IsPortalStuck` the swap changes. The problem scan,
+> the Walk overlay and the damage fallout all read doors this way. **Re-verify per patch:** the
+> door power-infos' `strIntPowerOn`/`strIntPowerOff`, their gates, and the mode-switch loots
+> (`WalkNetworkTests` asserts the chain against live data).
+
 ### Connectivity (`Ostranauts.Pathing.JumpPointSearch`)
 
 The game pathfinds with jump-point search over 8 directions, caching an `IsWalkable` grid.
@@ -4431,6 +4470,9 @@ has no branch for.
 - **…but door state is NOT cosmetic to WALKING** — `ItmDoor01Closed` (unpowered), `…ClosedOnLocked`
   and the `…Dmg` forms add `TILPortalClosedStuck` → `IsPortalStuck` and genuinely seal a section
   off; `ItmDoor01ClosedOn` does not, because crew open it (§21).
+- **…and power, not the placed form, decides which closed form loads.** A powered network
+  switches `ItmDoor01Closed` to `ItmDoor01ClosedOn` within a tick, and a dead one switches it back
+  (§21).
 - **Walking needs no floor** — an empty in-grid tile is walkable (the spacewalk case); only
   `IsEvaTileWithGravitation` suspends it, and only under gravity (§21).
 - **Interaction range is Chebyshev and per-interaction** — `max(|dx|,|dy|)` against the target's

@@ -96,6 +96,18 @@ public sealed class Fixtures
         return this;
     }
 
+    /// <summary>Register a mode switch: an interaction with no approach that replaces the condowner it runs on with
+    /// <paramref name="becomes"/>, through a one-entry loot as <c>objLootModeSwitch</c> names it. This is what a
+    /// power-info's <c>strIntPowerOn</c> and <c>strIntPowerOff</c> point at. <paramref name="testUs"/> is the gate the
+    /// condowner must pass first; register it with <see cref="Trig"/>.</summary>
+    public Fixtures ModeSwitch(string name, string becomes, string? testUs = null)
+    {
+        var loot = name + "Loot";
+        _loots[loot] = new LootDef(loot, [becomes], []);
+        _interactionDefs[name] = new InteractionDef(name, null, null, 0, false) { LootModeSwitch = loot, TestUs = testUs };
+        return this;
+    }
+
     /// <summary>
     /// Add a part. Each of its <c>w×h</c> footprint tiles adds <paramref name="tileConds"/> (auto-registered
     /// as a loot named "<c>&lt;name&gt;Adds</c>"), so the part contributes real conditions to the grid.

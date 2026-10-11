@@ -107,6 +107,115 @@ public class WalkNetworkTests
         Assert.Equal(2, r.Zones.Count(z => z.TileCount >= 2));
     }
 
+    // ---- doors: power decides which form a door loads in (#77) ----
+
+    private static PowerInfoDef DoorPower() => new("Door01Closed", ["PowerA"])
+    {
+        Amount = 5e-6, UsePowerCT = "TIsReadyUsePower", AllowExtPower = true,
+        PowerOnInteraction = "MSDoorUp", PowerOffInteraction = "MSDoorDown",
+    };
+
+    /// <summary>
+    /// <c>ItmDoor01Closed</c> and <c>ItmDoor01ClosedOn</c> as the walk and the power budget see them. They share a
+    /// power-info, and its two switches are gated so that only the Off form powers up and only the On form shuts
+    /// down, as <c>TIsDoor01ClosedOffUnlocked</c> and <c>TIsDoor01ClosedOnUnlocked</c> gate the real ones. Each
+    /// door's own tile is on the power path, so a battery beside it feeds its input point.
+    /// </summary>
+    private static Fixtures Doored()
+    {
+        var f = Base();
+        string[] power = [Catalog.PowerTicker];
+        f.Part("DoorOff", tileConds: ["IsPortal", "IsWall", "IsPortalStuck", "IsObstruction", "IsFloor", "IsFloorSealed", "IsPowerPath"],
+            startingConds: ["IsPortal", "IsInstalled", "IsOff"], category: "HULL",
+            powerInputs: [(0, 0)], powerInfo: DoorPower(), tickers: power);
+        f.Part("DoorOn", tileConds: ["IsPortal", "IsWall", "IsObstruction", "IsFloor", "IsFloorSealed", "IsPowerPath"],
+            startingConds: ["IsPortal", "IsInstalled", "IsPowered"], category: "HULL",
+            powerInputs: [(0, 0)], powerInfo: DoorPower(), tickers: power);
+        f.Trig("TIsDoorOff", reqs: ["IsOff"]);
+        f.Trig("TIsDoorOn", forbids: ["IsOff"]);
+        f.ModeSwitch("MSDoorUp", "DoorOn", testUs: "TIsDoorOff");
+        f.ModeSwitch("MSDoorDown", "DoorOff", testUs: "TIsDoorOn");
+        f.Part("Batt", tileConds: ["IsPowerPath"], startingConds: ["IsInstalled", "IsPowerStorage"], category: "POWR",
+            powerOutput: (0, 0), condValues: new Dictionary<string, double> { ["StatPower"] = 80.96, ["StatPowerMax"] = 80.96 });
+        f.Part("FlatBatt", tileConds: ["IsPowerPath"], startingConds: ["IsInstalled", "IsPowerStorage"], category: "POWR",
+            powerOutput: (0, 0), condValues: new Dictionary<string, double> { ["StatPower"] = 0, ["StatPowerMax"] = 80.96 });
+        f.Part("Breaker", tileConds: ["IsFixture"], startingConds: ["IsInstalled"], category: "CTRL");
+        return f;
+    }
+
+    /// <summary>Two floored compartments either side of <paramref name="door"/>, with <paramref name="supply"/>
+    /// under the doorway when there is one.</summary>
+    private static ShipDocument Corridor(Catalog cat, string door, string? supply = null)
+    {
+        var doc = Fixtures.Doc(cat, [.. Strip("Floor", 0, 1, 0), Fixtures.P(door, 2, 0), .. Strip("Floor", 3, 4, 0)]);
+        if (supply is not null) Fixtures.Place(doc, supply, 2, 1);
+        return doc;
+    }
+
+    /// <summary>The walk as the problem scan and the overlay run it: every door read in the form its power leaves
+    /// it in.</summary>
+    private static WalkResult AnalyzeLoaded(Catalog cat, ShipDocument doc)
+    {
+        var grid = ShipGrid.FromDocument(doc, cat);
+        return WalkNetwork.Build(grid, cat, null, WalkNetwork.ForbiddenTiles(doc, grid), WalkNetwork.DoorsOnLoad(doc, grid, cat));
+    }
+
+    private static int Sections(WalkResult r) => r.Zones.Count(z => z.TileCount >= 2);
+
+    [Fact]
+    public void A_door_shut_in_its_off_form_comes_on_when_power_reaches_it()
+    {
+        // The reported case: the door toggle lands on the Off form, which jams its doorway, but the first power tick
+        // on a charged network switches it to the On form, and crew open that.
+        var cat = Doored().Build();
+        var doc = Corridor(cat, "DoorOff", "Batt");
+
+        Assert.Equal(2, Sections(Analyze(cat, doc)));   // read as placed, it is a wall
+        Assert.Single(AnalyzeLoaded(cat, doc).Zones, z => z.TileCount >= 2);
+    }
+
+    [Fact]
+    public void A_door_shut_in_its_off_form_stays_stuck_with_no_power()
+    {
+        var cat = Doored().Build();
+
+        Assert.Equal(2, Sections(AnalyzeLoaded(cat, Corridor(cat, "DoorOff"))));
+    }
+
+    [Fact]
+    public void A_flat_battery_does_not_switch_a_door_on()
+    {
+        // Powered.GatherPower skips a source holding no charge, so the tick is never covered.
+        var cat = Doored().Build();
+
+        Assert.Equal(2, Sections(AnalyzeLoaded(cat, Corridor(cat, "DoorOff", "FlatBatt"))));
+    }
+
+    [Fact]
+    public void A_door_shut_in_its_off_form_and_wired_to_a_breaker_stays_shut()
+    {
+        // An Off form on breaker wiring loads with IsSignalOff, so Powered.Run shuts it down instead of drawing.
+        var cat = Doored().Build();
+        var doc = Corridor(cat, "DoorOff", "Batt");
+        var breaker = Fixtures.Place(doc, "Breaker", 0, 3);
+        new AddLinkCommand(new DeviceLink(breaker.Id, doc.Placements.Single(p => p.DefName == "DoorOff").Id)).Do(doc);
+
+        Assert.Equal(2, Sections(AnalyzeLoaded(cat, doc)));
+        // the editor scans a snapshot, which has to carry the wiring for the same answer
+        Assert.Equal(2, Sections(AnalyzeLoaded(cat, doc.Snapshot())));
+    }
+
+    [Fact]
+    public void A_powered_door_with_nothing_behind_it_shuts_down_and_seals()
+    {
+        // The other direction: Powered.ShutDown switches an IsPowered door whose tick comes up short to the Off form.
+        var cat = Doored().Build();
+
+        Assert.Single(Analyze(cat, Corridor(cat, "DoorOn")).Zones, z => z.TileCount >= 2);   // read as placed
+        Assert.Equal(2, Sections(AnalyzeLoaded(cat, Corridor(cat, "DoorOn"))));
+        Assert.Single(AnalyzeLoaded(cat, Corridor(cat, "DoorOn", "Batt")).Zones, z => z.TileCount >= 2);
+    }
+
     // ---- connectivity ----
 
     [Fact]
@@ -551,6 +660,77 @@ public class WalkNetworkTests
         var on = g.Catalog.Lookup("ItmDoor01ClosedOn");
         Skip.If(on is null, "ItmDoor01ClosedOn not in this install");
         Assert.DoesNotContain("IsPortalStuck", on!.Item.SocketAdds.SelectMany(g.Catalog.LootConds).ToHashSet());
+    }
+
+    [SkippableFact]
+    public void Real_data_switches_a_closed_door_on_and_off_through_its_power_info()
+    {
+        // Door01Closed's strIntPowerOn and strIntPowerOff, through their gates and mode-switch loots.
+        var g = TestData.RequireGame();
+        string? Switch(string def, bool up)
+        {
+            var part = g.Catalog.Lookup(def);
+            Skip.If(part is null, $"{def} not in this install");
+            return g.Catalog.PowerSwitchForm(part!, up);
+        }
+
+        Assert.Equal("ItmDoor01ClosedOn", Switch("ItmDoor01Closed", up: true));
+        Assert.Equal("ItmDoor01Closed", Switch("ItmDoor01ClosedOn", up: false));
+        // each gate admits one form only, so neither switches the other way
+        Assert.Null(Switch("ItmDoor01Closed", up: false));
+        Assert.Null(Switch("ItmDoor01ClosedOn", up: true));
+        // a locked door powers up locked, which is still stuck
+        Assert.Equal("ItmDoor01ClosedOnLocked", Switch("ItmDoor01ClosedLocked", up: true));
+        // a skin powers up into its own skin, through the cooverlay's mapModeSwitches
+        Assert.Equal("ItmDoor05ClosedOn", Switch("ItmDoor05Closed", up: true));
+    }
+
+    /// <summary>A stock ship whose one closed door is powered: the salvage pod.</summary>
+    private static ShipDocument SalvagePod(DataIndex index, Catalog catalog)
+    {
+        var path = TemplateImport.ListShipFiles(index).Select(s => s.Path)
+            .FirstOrDefault(p => System.IO.Path.GetFileNameWithoutExtension(p) == "SalvagePodSmall");
+        Skip.If(path is null, "the SalvagePodSmall template is not in this install");
+        return TemplateImport.LoadFile(path!, catalog).Doc;
+    }
+
+    private static int SealedOffTiles(ShipDocument doc, Catalog catalog) => ProblemScan.Scan(doc, catalog)
+        .Where(p => p.DismissKey == ProblemScan.IsolatedAlertKey).Sum(p => p.Cells?.Count ?? 0);
+
+    [SkippableFact]
+    public void A_stock_door_switched_off_in_the_plan_but_powered_seals_nothing()
+    {
+        // #77, reproduced on stock data: shutting a door with the toggle leaves it in the Off form, and the plan used
+        // to read that as a wall although the pod's batteries switch it on as soon as it loads.
+        var g = TestData.RequireGame();
+        var doc = SalvagePod(g.Index, g.Catalog);
+        var doors = doc.Placements.Where(p => p.DefName == "ItmDoor01ClosedOn").ToList();
+        Skip.If(doors.Count == 0, "the salvage pod no longer has a powered closed door");
+        Assert.Equal(0, SealedOffTiles(doc, g.Catalog));
+
+        foreach (var door in doors)
+        {
+            new RemoveCommand([door]).Do(doc);
+            new PlaceCommand(door.Restate("ItmDoor01Closed", door.Rot)).Do(doc);
+        }
+
+        Assert.Equal(0, SealedOffTiles(doc, g.Catalog));
+    }
+
+    [SkippableFact]
+    public void A_stock_door_whose_power_is_taken_away_seals_its_section()
+    {
+        // The other direction on the same pod: with its batteries gone the door shuts down into the stuck form.
+        var g = TestData.RequireGame();
+        var doc = SalvagePod(g.Index, g.Catalog);
+        var sources = doc.Placements
+            .Where(p => doc.Part(p) is { } part && (part.StartingConds.Contains("IsPowerStorage") || part.StartingConds.Contains("IsPowerGen")))
+            .ToList();
+        Skip.If(sources.Count == 0, "the salvage pod carries no power source");
+
+        new RemoveCommand(sources).Do(doc);
+
+        Assert.True(SealedOffTiles(doc, g.Catalog) > 0, "a powered door with nothing behind it should shut and seal");
     }
 
     [SkippableFact]

@@ -649,8 +649,8 @@ public sealed class ShipDocument
 
     /// <summary>
     /// An independent copy for off-thread analysis: the same placements (poses + given-ness) with
-    /// their own accumulated tile conditions and their own zones, sharing the catalog. Safe to read
-    /// on a background thread while the original keeps being edited on the UI thread.
+    /// their own accumulated tile conditions, their own zones and their own breaker wiring, sharing the
+    /// catalog. Safe to read on a background thread while the original keeps being edited on the UI thread.
     ///
     /// <para>Taken on the UI thread — it has to be, since the point is to freeze the live document at an instant —
     /// so it is on the path of every debounced scan and its cost is felt directly. The conditions are therefore
@@ -662,16 +662,27 @@ public sealed class ShipDocument
     public ShipDocument Snapshot()
     {
         var copy = new ShipDocument(Catalog);
-        // Device, Reactor and Fill come across for the no-power warning (ProblemScan.AddUnpoweredWarning): a bus knob
-        // at Off holds a device off, and a lit core is a power source only while its panel and its fuel keep it lit.
-        // All three are replaced rather than mutated when they change, so sharing the references is safe.
+        // Device, Reactor and Fill come across for the power budget (PowerBudget.Measure), which the no-power warning
+        // and the walk's door reading both rest on: a bus knob at Off holds a device off, and a lit core is a power
+        // source only while its panel and its fuel keep it lit. All three are replaced rather than mutated when they
+        // change, so sharing the references is safe.
+        var ids = new Dictionary<Guid, Guid>();
         foreach (var p in _placements)
-            copy.AddUnconditioned(new Placement
+        {
+            var q = new Placement
             {
                 DefName = p.DefName, X = p.X, Y = p.Y, Rot = p.Rot, IsGiven = p.IsGiven,
                 OriginStrID = p.OriginStrID, SwappedFromStrID = p.SwappedFromStrID, SwappedFromDef = p.SwappedFromDef,
                 Device = p.Device, Reactor = p.Reactor, Fill = p.Fill,
-            });
+            };
+            ids[p.Id] = q.Id;
+            copy.AddUnconditioned(q);
+        }
+        // The breaker wiring, onto the copy's fresh ids, because the power budget reads it too: an Off form wired to a
+        // breaker loads signalled off and stays off, so a door shut that way stays shut. A dangling link stays out.
+        foreach (var l in _links)
+            if (ids.TryGetValue(l.Source, out var source) && ids.TryGetValue(l.Target, out var target))
+                copy._links.Add(new DeviceLink(source, target));
         copy.Conds.CopyFrom(Conds);
         // The zones, because the walk analysis reads the Forbid ones (WalkNetwork.ForbiddenTiles) and this is what
         // it is handed. Without them that call came back empty however many zones the design carried, so the
@@ -706,11 +717,29 @@ public sealed class ShipDocument
     /// <see cref="PowerBudget"/>: a device's bus knob, a reactor's panel, and the fill of the two reactant tanks
     /// (a lit core with no fuel aboard goes out, and what it fed loses power). A fill on anything else is left
     /// out, so filling a canister still costs no re-scan.</para>
+    ///
+    /// <para><b>So is whether an Off form is on breaker wiring</b>, which the same budget reads: one loads
+    /// signalled off and stays off, so a door shut in its Off form and wired to a breaker stays shut where an
+    /// unwired one would come on (<see cref="WalkNetwork.DoorsOnLoad"/>). Any other wiring is left out, so wiring
+    /// a pump to its alarm still costs no re-scan.</para>
     /// </summary>
     public long AnalysisKey()
     {
         unchecked
         {
+            HashSet<Guid>? wired = null;
+            if (_links.Count > 0)
+            {
+                var present = _placements.Select(p => p.Id).ToHashSet();
+                foreach (var l in _links)
+                    if (present.Contains(l.Source) && present.Contains(l.Target))
+                    {
+                        wired ??= [];
+                        wired.Add(l.Source);
+                        wired.Add(l.Target);
+                    }
+            }
+
             var h = FnvOffset;
             foreach (var p in _placements)
             {
@@ -720,6 +749,9 @@ public sealed class ShipDocument
                 h = Fnv(h, p.Rot);
                 h = Fnv(h, p.IsGiven ? 1 : 0);
                 h = Fnv(h, p.Device is { } d ? (int)d.Bus + 1 : 0);
+                var offAndWired = wired is not null && wired.Contains(p.Id)
+                    && Part(p) is { } part && part.StartingConds.Contains("IsOff");
+                h = Fnv(h, offAndWired ? 1 : 0);
                 if (p.Reactor is { } r)
                     foreach (var (key, value) in r.ToPanelPairs())
                     {

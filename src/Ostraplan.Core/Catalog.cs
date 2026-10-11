@@ -926,7 +926,8 @@ public sealed class Catalog
     /// <para>It is <b>not</b> cosmetic to <see cref="WalkNetwork"/>, though: a closed door that
     /// is unpowered, locked or damaged carries <c>IsPortalStuck</c> and is a solid wall to crew
     /// pathing, so toggling one shut can seal a section off. That is the game's behaviour, not a
-    /// modelling choice.</para>
+    /// modelling choice. The toggle lands on the Off form, and a powered network switches that on
+    /// when the ship loads, so the walk reads it as a door (<see cref="WalkNetwork.DoorsOnLoad"/>).</para>
     /// </summary>
     public string? DoorToggle(string defName)
     {
@@ -1002,6 +1003,53 @@ public sealed class Catalog
         // several states: only the unqualified (nominal) one is offered, and only when it is unambiguous.
         var nominal = on.Where(d => !d.Friendly.Contains('(')).ToList();
         return nominal.Count == 1 ? nominal[0].DefName : null;
+    }
+
+    private readonly ConcurrentDictionary<(string Def, bool Up), string?> _powerSwitch = new();
+
+    /// <summary>
+    /// The condowner a placed part becomes once the ship has loaded and its power has settled. With
+    /// <paramref name="poweredUp"/>, the form <c>strIntPowerOn</c> switches an unpowered device to when a tick is
+    /// covered in full; without it, the form <c>strIntPowerOff</c> switches a powered one back to when a tick comes
+    /// up short. Null when the part does not switch that way: no power-info, no such interaction, a gate the part
+    /// fails, or a mode-switch loot that does not name exactly one condowner.
+    ///
+    /// <para>The port of the tail of <c>Powered.UsePower</c> and of <c>Powered.ShutDown</c>. Each sets or clears
+    /// <c>IsPowered</c> first, then queues the interaction only when its <c>CTTestUs</c> and <c>CTTestThem</c> both
+    /// pass on the device, and the interaction's <c>objLootModeSwitch</c> names the replacement. The gates are what
+    /// keep the doors apart: <c>ItmDoor01Closed</c> powers up into <c>ItmDoor01ClosedOn</c> through
+    /// <c>TIsDoor01ClosedOffUnlocked</c>, while the locked door has a power-info of its own that takes it to
+    /// <c>ItmDoor01ClosedOnLocked</c>, which is still stuck.</para>
+    ///
+    /// <para>A cooverlay skin becomes its own counterpart (<c>ItmDoor05Closed</c> into <c>ItmDoor05ClosedOn</c>),
+    /// re-skinned through the overlay's <c>mapModeSwitches</c> as the game's <c>JCOO.GetModeSwitch</c> does.</para>
+    /// </summary>
+    public string? PowerSwitchForm(PartDef part, bool poweredUp) =>
+        _powerSwitch.GetOrAdd((part.DefName, poweredUp), _ => ComputePowerSwitch(part, poweredUp));
+
+    private string? ComputePowerSwitch(PartDef part, bool poweredUp)
+    {
+        var name = poweredUp ? part.PowerInfo?.PowerOnInteraction : part.PowerInfo?.PowerOffInteraction;
+        if (string.IsNullOrEmpty(name) || InteractionDefs.GetValueOrDefault(name) is not { } ia) return null;
+
+        // Powered sets IsPowered before it tests the power-up gate, and clears it before the shutdown one.
+        var conds = new HashSet<string>(part.StartingConds, StringComparer.Ordinal);
+        if (poweredUp) conds.Add("IsPowered");
+        else conds.Remove("IsPowered");
+        if (!Passes(ia.TestUs) || !Passes(ia.TestThem)) return null;
+
+        if (ia.LootModeSwitch is not { Length: > 0 } ms || ms == "Blank"
+            || Loots.GetValueOrDefault(ms) is not { Conds.Length: 1 } loot) return null;
+        var target = loot.Conds[0];
+        if (Index is { } index && index.Type("cooverlays").TryGetValue(part.DefName, out var raw)
+            && ReskinModeSwitch(CoOverlayDef.Parse(raw.El).ModeSwitches, target) is { } skinned)
+            target = skinned;
+        return target != part.DefName && Lookup(target) is not null ? target : null;
+
+        // An undefined trigger name reads as a bare condition, as CondEval's nested triggers do.
+        bool Passes(string? ct) =>
+            string.IsNullOrEmpty(ct)
+            || (Triggers.TryGetValue(ct, out var trigger) ? CondEval.Triggered(trigger, conds, this) : conds.Contains(ct));
     }
 
     /// <summary>The stem of a switched-on def name, dropping a trailing <c>On</c> or colour-suffixed <c>OnX</c>.

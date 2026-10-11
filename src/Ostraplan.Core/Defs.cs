@@ -353,9 +353,18 @@ public sealed record InteractionDef(string Name, string? Title, string? TargetPo
 
     /// <summary>The loot naming what this interaction turns its target INTO (<c>objLootModeSwitch</c>), or null.
     /// The game's <c>CondOwner.ModeSwitch</c> replaces the target with the condowner this loot names, which is how
-    /// a break, a repair or a power toggle changes what is on the tile. Read here for the break direction only:
-    /// see <see cref="Catalog.BreakForms"/>.</summary>
+    /// a break, a repair or a power toggle changes what is on the tile. Read here for the break direction (see
+    /// <see cref="Catalog.BreakForms"/>) and the power one (see <see cref="Catalog.PowerSwitchForm"/>).</summary>
     public string? LootModeSwitch { get; init; }
+
+    /// <summary><c>CTTestUs</c>: the trigger the interaction's own condowner must pass before it is queued, or
+    /// null for none. <c>Powered</c> tests it before queuing a power switch, which is what keeps a locked door's
+    /// switch from firing the unlocked door's interaction.</summary>
+    public string? TestUs { get; init; }
+
+    /// <summary><c>CTTestThem</c>: the same for the target. A power switch targets its own condowner, so
+    /// <c>Powered</c> tests both against the device itself.</summary>
+    public string? TestThem { get; init; }
 
     public static InteractionDef Parse(JsonElement e) => new(
         Json.Str(e, "strName") ?? "",
@@ -365,6 +374,8 @@ public sealed record InteractionDef(string Name, string? Title, string? TargetPo
         Json.Bool(e, "bNoWalk"))
     {
         LootModeSwitch = Json.Str(e, "objLootModeSwitch"),
+        TestUs = Json.Str(e, "CTTestUs"),
+        TestThem = Json.Str(e, "CTTestThem"),
     };
 }
 
@@ -648,6 +659,11 @@ public sealed record PowerInfoDef(string Name, string[] InputPointNames)
     /// installed off comes on by itself the moment the network can carry it.</summary>
     public string? PowerOnInteraction { get; init; }
 
+    /// <summary><c>strIntPowerOff</c>: the interaction <c>Powered.ShutDown</c> queues on a device that is
+    /// <c>IsPowered</c> once a tick comes up short. On an on form this is the switch back to the off form, which is
+    /// how a powered door that loses its supply becomes one that will not open.</summary>
+    public string? PowerOffInteraction { get; init; }
+
     /// <summary>True when <c>Powered.SetData</c> arms the draw: a positive <c>fAmount</c> and a use-power trigger.
     /// Whether the trigger then fires is the device's own state, which <see cref="PowerBudget"/> works out.</summary>
     public bool Draws => Amount > 0 && UsePowerCT is not null;
@@ -663,6 +679,7 @@ public sealed record PowerInfoDef(string Name, string[] InputPointNames)
         OverrideCond = Json.Str(e, "strOverrideCond"),
         OverrideAmount = Json.Dbl(e, "fOverrideAmount"),
         PowerOnInteraction = Json.Str(e, "strIntPowerOn"),
+        PowerOffInteraction = Json.Str(e, "strIntPowerOff"),
     };
 }
 

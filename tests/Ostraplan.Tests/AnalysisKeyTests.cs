@@ -16,6 +16,7 @@ public class AnalysisKeyTests
         .Container("Box", 4, 4)
         .Part("Widget", category: "MISC")
         .Part("Gadget", category: "MISC")
+        .Part("Lamp", startingConds: ["IsInstalled", "IsOff"], category: "MISC")
         .Build();
 
     private static ShipDocument Ship(Catalog cat) => Fixtures.Doc(cat,
@@ -181,6 +182,18 @@ public class AnalysisKeyTests
         Assert.NotEqual(before, doc.AnalysisKey());
     }
 
+    /// <summary>An Off form on breaker wiring loads signalled off and stays off, which decides whether a door shut in
+    /// that form can be walked through. The power budget reads it, so the key has to.</summary>
+    [Fact]
+    public void Wiring_a_switched_off_part_to_a_breaker_moves_it()
+    {
+        var doc = Ship(Cat());
+        var lamp = Fixtures.Place(doc, "Lamp", 2, 1);
+        var before = doc.AnalysisKey();
+        new AddLinkCommand(new DeviceLink(doc.Placements[4].Id, lamp.Id)).Do(doc);
+        Assert.NotEqual(before, doc.AnalysisKey());
+    }
+
     [Fact]
     public void Setting_a_reactor_panel_moves_it()
     {
@@ -214,6 +227,8 @@ public class AnalysisKeyTests
         new CreateZoneCommand(Zone(ShipZone.CondForbid)).Do(doc);   // the zones have to come across too
         doc.Placements[3].Device = new DeviceSettings { Bus = DeviceBusMode.Off };   // and the settings it reads
         doc.Placements[4].Reactor = new ReactorSettings { Bus = ReactorPowerBus.Batt };
+        var lamp = Fixtures.Place(doc, "Lamp", 2, 1);   // and the breaker wiring, onto the copy's own ids
+        new AddLinkCommand(new DeviceLink(doc.Placements[4].Id, lamp.Id)).Do(doc);
         Assert.Equal(doc.AnalysisKey(), doc.Snapshot().AnalysisKey());
     }
 }

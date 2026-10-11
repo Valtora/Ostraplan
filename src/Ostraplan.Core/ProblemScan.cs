@@ -139,10 +139,12 @@ public static class ProblemScan
 
         AddBlockedPortWarnings(doc, catalog, ports, problems);
         AddLegalityProblems(doc, problems);
-        // One analysis grid for the checks below that walk the built ship, since building it is most of their cost.
+        // One analysis grid for the checks below that walk the built ship, since building it is most of their cost,
+        // and one power budget, which both of them read.
         var grid = ShipGrid.FromDocument(doc, catalog);
-        AddWalkabilityWarnings(doc, catalog, grid, problems);
-        AddUnpoweredWarning(doc, catalog, grid, problems);
+        var power = grid.TileCount > 1 ? PowerBudget.Measure(doc, grid, catalog) : PowerBudgetReport.Empty;
+        AddWalkabilityWarnings(doc, catalog, grid, power, problems);
+        AddUnpoweredWarning(doc, grid, power, problems);
         AddMultipleReactorWarning(doc, catalog, problems);
 
         return problems;
@@ -164,10 +166,10 @@ public static class ProblemScan
     /// <para>The live scan reads a <see cref="ShipDocument.Snapshot"/>, which carries the bus knobs, the reactor
     /// panels and the tank fills for this check, and <see cref="ShipDocument.AnalysisKey"/> moves with them.</para>
     /// </summary>
-    private static void AddUnpoweredWarning(ShipDocument doc, Catalog catalog, ShipGrid grid, List<Problem> problems)
+    private static void AddUnpoweredWarning(ShipDocument doc, ShipGrid grid, PowerBudgetReport power, List<Problem> problems)
     {
         if (grid.TileCount <= 1) return;
-        var unpowered = PowerBudget.Measure(doc, grid, catalog).Unconnected
+        var unpowered = power.Unconnected
             .Where(l => !l.OffInPlan && !l.IsReactor)
             .ToList();
         if (unpowered.Count == 0) return;
@@ -377,11 +379,17 @@ public static class ProblemScan
     /// be able to dismiss, exactly like the unsealed-compartment alert. The walk analysis runs with the defaults
     /// (interior only, Forbid zones respected); the View-menu switches change only the overlay, so the report does
     /// not quietly re-interpret the ship behind the user.</para>
+    ///
+    /// <para>Doors are read in the form their power leaves them in once the ship loads
+    /// (<see cref="WalkNetwork.DoorsOnLoad"/>), so a door switched off in the plan but on a charged network is a
+    /// way through, as it is in game.</para>
     /// </summary>
-    private static void AddWalkabilityWarnings(ShipDocument doc, Catalog catalog, ShipGrid grid, List<Problem> problems)
+    private static void AddWalkabilityWarnings(
+        ShipDocument doc, Catalog catalog, ShipGrid grid, PowerBudgetReport power, List<Problem> problems)
     {
         if (grid.TileCount <= 1) return;
-        var walk = WalkNetwork.Build(grid, catalog, WalkOptions.Default, WalkNetwork.ForbiddenTiles(doc, grid));
+        var walk = WalkNetwork.Build(grid, catalog, WalkOptions.Default, WalkNetwork.ForbiddenTiles(doc, grid),
+            WalkNetwork.DoorsOnLoad(doc, grid, catalog, power));
 
         var unreachable = walk.Unreachable.ToList();
         if (unreachable.Count > 0)

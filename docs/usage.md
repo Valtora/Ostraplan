@@ -343,7 +343,10 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
     side, since a plan has no gas simulation.)
   - **Door state matters here**, unlike for rooms and the rating. A closed door only
     seals a section off if it is unpowered, locked or damaged; a powered one crew simply
-    open, so it still joins both sides.
+    open, so it still joins both sides. What counts is whether power reaches the door,
+    not the state it was placed in: a door shut in the plan switches itself on when the
+    ship loads if a charged battery or a generator reaches it, and stays shut if nothing
+    does or a breaker holds it off.
   - The **▾** beside **Walk** turns on **EVA Access** (include routes over the hull, off
     by default so interior routes are what you see) and chooses whether **Forbid zones**
     apply. Both settings are remembered.
@@ -588,7 +591,8 @@ fires. Drag another to fire again. Damage builds up across strikes and is
     sits inside a zone you named, the report calls it by that name.
   - **what the crew can no longer get to** — fittings that were operable on foot and are not
     any more, and deck that is still standable but has no route back to the main body. A
-    damaged or unpowered closed door is a solid wall to pathing, so a stuck door counts.
+    damaged or unpowered closed door is a solid wall to pathing, so a stuck door counts, and
+    so does a closed door whose power the hit cut.
   - **what lost power**, to a cut conduit run or a dead battery.
   - **which of the ship's own systems stopped working** — the reactor, its He3 and D2O, the
     thrusters, their distributor and reaction mass, backup power, and life support's pumps,

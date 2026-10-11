@@ -1485,7 +1485,8 @@ public partial class MainWindow : Window
                     if (showLight) lov = LightNetwork.Build(grid, catalog, sun);
                     if (showWalk)
                         wov = WalkNetwork.ToOverlay(grid, WalkNetwork.Build(
-                            grid, catalog, walkOpts, WalkNetwork.ForbiddenTiles(snapshot, grid)));
+                            grid, catalog, walkOpts, WalkNetwork.ForbiddenTiles(snapshot, grid),
+                            WalkNetwork.DoorsOnLoad(snapshot, grid, catalog)));
                 }
                 var rov = roomSpecs is null ? RoomOverlay.Empty : RoomOverlay.Build(snapshot, catalog, roomSpecs);
                 return (probs, pov, rov, lov, wov);

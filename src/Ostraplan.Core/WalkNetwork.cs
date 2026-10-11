@@ -167,7 +167,8 @@ public sealed record WalkOverlay(
 /// seal identically — walking cares which door it is. <c>ItmDoor01Closed</c> (unpowered), <c>…ClosedOnLocked</c>,
 /// <c>…ClosedDmg</c> and <c>ItmDockSys03ClosedDmg</c> all add <c>TILPortalClosedStuck</c>, carrying
 /// <c>IsPortalStuck</c>, and genuinely seal a section off. <c>ItmDoor01ClosedOn</c> adds plain
-/// <c>TILPortalClosed</c> and is passable, because crew open it.</para>
+/// <c>TILPortalClosed</c> and is passable, because crew open it. Which of the first two a closed door is on load
+/// is the power network's call rather than the plan's: see <see cref="DoorsOnLoad"/>.</para>
 ///
 /// <para><b>Connectivity.</b> The game pathfinds with jump-point search over eight directions; for a zone
 /// partition only its adjacency rule matters: the four cardinals always, and a diagonal only when at least one of
@@ -198,20 +199,25 @@ public static class WalkNetwork
     /// </summary>
     private const string MineableCond = "IsMineable";
 
+    /// <summary>The condition a door that will not open puts on its doorway tile.</summary>
+    private const string StuckCond = "IsPortalStuck";
+
     /// <summary>
     /// Analyse a grid. <paramref name="forbiddenTiles"/> are grid tile indices covered by a painted Forbid zone
     /// (zones are document overlays and contribute no tile conditions, so the caller projects them — see
-    /// <see cref="ForbiddenTiles"/>); pass null when there are none.
+    /// <see cref="ForbiddenTiles"/>); pass null when there are none. <paramref name="doorsOnLoad"/> are the doorway
+    /// tiles a door's power changes, from <see cref="DoorsOnLoad"/>; pass null to read every door as placed.
     /// </summary>
     public static WalkResult Build(
-        ShipGrid grid, Catalog catalog, WalkOptions? options = null, IReadOnlySet<int>? forbiddenTiles = null)
+        ShipGrid grid, Catalog catalog, WalkOptions? options = null, IReadOnlySet<int>? forbiddenTiles = null,
+        IReadOnlyDictionary<int, bool>? doorsOnLoad = null)
     {
         options ??= WalkOptions.Default;
         var n = grid.TileCount;
         if (n == 0) return WalkResult.Empty;
 
         var walkable = new bool[n];
-        for (var t = 0; t < n; t++) walkable[t] = IsWalkable(grid, t, options, forbiddenTiles);
+        for (var t = 0; t < n; t++) walkable[t] = IsWalkable(grid, t, options, forbiddenTiles, doorsOnLoad);
 
         var tileZone = Label(grid, walkable);
         var zones = Collect(grid, tileZone, walkable);
@@ -224,7 +230,7 @@ public static class WalkNetwork
         {
             var evaOpts = options with { IncludeExterior = true };
             evaWalkable = new bool[n];
-            for (var t = 0; t < n; t++) evaWalkable[t] = IsWalkable(grid, t, evaOpts, forbiddenTiles);
+            for (var t = 0; t < n; t++) evaWalkable[t] = IsWalkable(grid, t, evaOpts, forbiddenTiles, doorsOnLoad);
         }
 
         var devices = Reach(grid, catalog, walkable, tileZone, evaWalkable);
@@ -259,16 +265,107 @@ public static class WalkNetwork
         return set;
     }
 
+    /// <summary>
+    /// The doorway tiles whose <c>IsPortalStuck</c> the ship loads with differently from the plan, keyed by grid
+    /// tile, with the answer it loads with. Hand it to <see cref="Build"/>.
+    ///
+    /// <para>A door's placed form is not the last word on whether it opens, because its power-info re-forms it about
+    /// once a second (<see cref="Catalog.PowerSwitchForm"/>). The palette's door is an Off form, and shut it is
+    /// <c>ItmDoor01Closed</c>, which adds <c>TILPortalClosedStuck</c>. Give it a charged network and the first tick
+    /// switches it to <c>ItmDoor01ClosedOn</c>, which adds plain <c>TILPortalClosed</c> and opens for crew. Reading
+    /// the placed form instead walled off every compartment behind a door the player had powered and could not
+    /// switch on in the plan (#77). The rule runs the other way too: a powered closed door with nothing behind it
+    /// shuts down into the stuck form.</para>
+    ///
+    /// <para>Whether a door's tick is covered is <see cref="PowerBudget"/>'s answer: the door draws, which for a
+    /// door means it is not an Off form wired to a breaker (that loads with <c>IsSignalOff</c> and stays off), and
+    /// its network has charge stored, a generator with a rate, or a running core. Pass <paramref name="power"/>
+    /// when the caller has measured already; otherwise it is measured here, and only once a door that could change
+    /// turns up.</para>
+    ///
+    /// <para>The answer is the tile's whole count after the swap, not the door's say alone, so a doorway something
+    /// else also jams stays jammed.</para>
+    /// </summary>
+    public static IReadOnlyDictionary<int, bool> DoorsOnLoad(
+        ShipDocument doc, ShipGrid grid, Catalog catalog, PowerBudgetReport? power = null)
+    {
+        // Only a switch that changes whether the door jams its doorway is worth anything here: an open door switching
+        // on is still open, and a locked one powers up locked. Most designs have no door left after that, and then
+        // there is no budget to measure.
+        bool Jams(PartDef form) => form.Item.SocketAdds.Any(a => catalog.LootConds(a).Contains(StuckCond));
+        PartDef? Changes(PartDef def, bool poweredUp) =>
+            catalog.PowerSwitchForm(def, poweredUp) is { } name && catalog.Lookup(name) is { } form
+            && Jams(form) != Jams(def) ? form : null;
+
+        var doors = new List<(PlacedPart Part, PartDef Def, PartDef? Up, PartDef? Down)>();
+        foreach (var part in grid.Parts)
+        {
+            if (!part.Part.StartingConds.Contains("IsPortal")
+                || catalog.Lookup(part.Part.DefName) is not { PowerInfo: not null } def) continue;
+            var up = Changes(def, poweredUp: true);
+            var down = Changes(def, poweredUp: false);
+            if (up is not null || down is not null) doors.Add((part, def, up, down));
+        }
+        if (doors.Count == 0) return new Dictionary<int, bool>();
+
+        power ??= PowerBudget.Measure(doc, grid, catalog);
+        var drawing = new HashSet<string>(StringComparer.Ordinal);
+        var covered = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var net in power.Networks)
+        {
+            var supplied = net.Unlimited || net.GeneratorKw > 0 || net.StoredKwh > 0;
+            foreach (var load in net.Loads)
+            {
+                drawing.Add(load.Placement.Id.ToString());
+                if (supplied) covered.Add(load.Placement.Id.ToString());
+            }
+        }
+        foreach (var load in power.Unconnected) drawing.Add(load.Placement.Id.ToString());
+
+        // Each door's placed form and settled form laid out on scratch maps, so the swap can be read off as a
+        // difference in the grid's own counts.
+        var placed = new TileConds(catalog);
+        var settled = new TileConds(catalog);
+        foreach (var (part, def, up, down) in doors)
+        {
+            if (part.StrID is not { } id || !drawing.Contains(id)) continue;
+            // Powered.UsePower switches a door that is not yet IsPowered up once a tick is covered, and
+            // Powered.ShutDown switches one that is back down once a tick is not.
+            var on = def.StartingConds.Contains("IsPowered");
+            var form = covered.Contains(id) ? (on ? null : up) : (on ? down : null);
+            if (form is null) continue;
+            placed.Apply(part.TopLeftCol, part.TopLeftRow, part.Rot, part.Part.Item, +1);
+            settled.Apply(part.TopLeftCol, part.TopLeftRow, part.Rot, form.Item, +1);
+        }
+
+        var result = new Dictionary<int, bool>();
+        foreach (var (c, r) in placed.Cells.Union(settled.Cells))
+        {
+            if (!grid.InBounds(c, r)) continue;
+            var t = grid.Index(c, r);
+            var before = Stuck(grid.CondsAt(t));
+            var after = before - Stuck(placed.At(c, r)) + Stuck(settled.At(c, r));
+            if (before > 0 != after > 0) result[t] = after > 0;
+        }
+        return result;
+
+        static double Stuck(IReadOnlyDictionary<string, double>? conds) => conds?.GetValueOrDefault(StuckCond) ?? 0;
+    }
+
     /// <summary>Port of <c>Tile.IsWalkable</c> — see the type remarks for the rule and what is deliberately
     /// omitted.</summary>
-    private static bool IsWalkable(ShipGrid grid, int t, WalkOptions options, IReadOnlySet<int>? forbidden)
+    private static bool IsWalkable(ShipGrid grid, int t, WalkOptions options, IReadOnlySet<int>? forbidden,
+        IReadOnlyDictionary<int, bool>? doorsOnLoad)
     {
         if (options.RespectForbidZones && forbidden is not null && forbidden.Contains(t)) return false;
         if (!options.IncludeExterior && !IsShipTile(grid, t)) return false;
 
         var portal = grid.Has(t, "IsPortal");
         if (grid.Has(t, "IsWall") && !portal) return false;
-        if (portal && grid.Has(t, "IsPortalStuck")) return false;
+        var stuck = doorsOnLoad is not null && doorsOnLoad.TryGetValue(t, out var settled)
+            ? settled
+            : grid.Has(t, StuckCond);
+        if (portal && stuck) return false;
         // bPassable = !IsObstruction; the game blocks only an obstruction that is ALSO a fixture, which is why an
         // open door (obstruction, no fixture) is walkable and an under-floor rack (fixture, no obstruction) is too
         if (grid.Has(t, "IsObstruction") && grid.Has(t, "IsFixture")) return false;

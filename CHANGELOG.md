@@ -23,6 +23,13 @@ each release was verified against is recorded in
 - **Startup tips keep coming after you have seen them all.** They carry on round the list, so a tip you
   dismissed in a hurry comes round again. Settings ▸ Tips still turns them off. Thanks to nighoggDatatype.
 
+### Fixed
+- **A powered closed door no longer seals off a compartment.**
+  - A door shut in the plan switches itself on when the ship loads if a charged battery or a generator
+    reaches it, as it does in game, so crew can walk through it.
+  - One with no power, or held off by a breaker, still seals the compartment behind it. Thanks to
+    nighoggDatatype.
+
 ## [1.27.0] 2026-10-06, tips
 
 ### Added

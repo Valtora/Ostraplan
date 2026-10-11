@@ -201,11 +201,16 @@ public sealed class DamageState
                 Id = p.Id,
                 DefName = def, X = p.X, Y = p.Y, Rot = p.Rot, IsGiven = p.IsGiven,
                 OriginStrID = p.OriginStrID, SwappedFromStrID = p.SwappedFromStrID, SwappedFromDef = p.SwappedFromDef,
+                Device = p.Device, Reactor = p.Reactor, Fill = p.Fill,
             });
         }
         // Zones ride along: a Forbid zone changes what the walk analysis admits, so dropping them would make the
-        // damaged ship answer a different question from the intact one.
+        // damaged ship answer a different question from the intact one. So do the bus knobs, reactor panels, tank
+        // fills and breaker wiring, for the same reason: the walk reads each door in the form its power leaves it
+        // in, and the power budget behind that reads all four. A link to a part the strike destroyed is left
+        // dangling, which every reader of links skips.
         foreach (var z in doc.Zones) copy.AddZone(z);
+        foreach (var link in doc.Links) copy.AddLink(link);
         return copy;
     }
 
