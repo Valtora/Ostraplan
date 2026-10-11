@@ -7811,13 +7811,13 @@ public partial class MainWindow : Window
     private void ShowStartupTip()
     {
         if (TipPicker.DueAtStartup(Tips.All, _settings.Tips, DateTime.UtcNow)
-            && TipPicker.NextUnseen(Tips.All, _settings.Tips) is { } tip)
+            && TipPicker.Next(Tips.All, _settings.Tips) is { } tip)
             ShowTip(tip);
     }
 
     private void OnTipClick(object sender, RoutedEventArgs e)
     {
-        if (TipPicker.ForBulb(Tips.All, _settings.Tips) is { } tip) ShowTip(tip);
+        if (TipPicker.Next(Tips.All, _settings.Tips) is { } tip) ShowTip(tip);
         else OpenTipHub(this);   // every tip is turned off, and the hub is where they come back from
     }
 

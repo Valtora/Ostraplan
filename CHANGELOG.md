@@ -9,6 +9,12 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
+## [Unreleased]
+
+### Changed
+- **Startup tips keep coming after you have seen them all.** They carry on round the list, so a tip you
+  dismissed in a hurry comes round again. Settings ▸ Tips still turns them off. Thanks to nighoggDatatype.
+
 ## [1.27.0] 2026-10-06, tips
 
 ### Added

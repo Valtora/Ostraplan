@@ -2200,9 +2200,9 @@ with it open.
   in order, with a checkbox for each topic and for each tip. Turn off **Shortcuts** if you
   already know the keys, or **Apartments** if you never build one. **Start over** marks
   every tip unseen.
-- **New tips arrive with updates.** Once you have seen every tip, nothing appears at
-  startup until an update adds one about something new. The bulb still steps through them
-  all.
+- **Tips come round again.** Once you have seen every tip, they carry on round the list
+  from the last one shown, so a tip you waved away in a hurry gets another turn. A tip an
+  update adds comes first, wherever it sits in the list.
 
 **⚙ Settings ▸ Tips** turns tips off altogether, sets how often they appear at startup
 (at most every 1 to 48 hours, every launch, or never), and takes the bulb out of the

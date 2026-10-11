@@ -306,11 +306,10 @@ public sealed class TipSettings
     /// <summary>Single tips switched off, by id.</summary>
     [JsonPropertyName("hiddenTips")] public List<string> HiddenTips { get; set; } = [];
 
-    /// <summary>Every tip the card has shown, by id. What decides the next tip and whether there is one to show at
-    /// startup at all.</summary>
+    /// <summary>Every tip the card has shown, by id. What decides the next tip.</summary>
     [JsonPropertyName("seen")] public List<string> Seen { get; set; } = [];
 
-    /// <summary>The tip the card showed last, so the bulb carries on from it once everything has been seen.</summary>
+    /// <summary>The tip the card showed last, so the next one carries on from it once everything has been seen.</summary>
     [JsonPropertyName("last")] public string? Last { get; set; }
 
     /// <summary>When the card last showed a tip, by any route. The startup interval is measured from it.</summary>
@@ -360,12 +359,13 @@ public static class TipPicker
         tips.FirstOrDefault(t => IsShown(t, s) && !s.Seen.Contains(t.Id, StringComparer.Ordinal));
 
     /// <summary>
-    /// Whether a tip should appear by itself at this launch. Only while there is an unseen one: once everything has
-    /// been seen the startup tip stops, and the next build that adds a tip starts it again.
+    /// Whether a tip should appear by itself at this launch. Seeing every tip does not stop it: a tip waved away in a
+    /// hurry deserves another turn, so the startup tip carries on round the list the way the bulb does. Only turning
+    /// tips off stops it.
     /// </summary>
     public static bool DueAtStartup(IReadOnlyList<Tip> tips, TipSettings s, DateTime nowUtc)
     {
-        if (!s.Enabled || NextUnseen(tips, s) is null) return false;
+        if (!s.Enabled || !tips.Any(t => IsShown(t, s))) return false;
         return s.StartupMode switch
         {
             TipStartup.Never => false,
@@ -394,9 +394,9 @@ public static class TipPicker
         return null;
     }
 
-    /// <summary>What the bulb opens on: the next unseen tip, and once there is none, the one after the last shown,
-    /// so it carries on round the list. Null when nothing may be shown.</summary>
-    public static Tip? ForBulb(IReadOnlyList<Tip> tips, TipSettings s)
+    /// <summary>What the card opens on, at startup or from the bulb: the next unseen tip, and once there is none, the
+    /// one after the last shown, so it carries on round the list. Null when nothing may be shown.</summary>
+    public static Tip? Next(IReadOnlyList<Tip> tips, TipSettings s)
     {
         if (NextUnseen(tips, s) is { } next) return next;
         if (s.Last is { } last && tips.FirstOrDefault(t => t.Id == last) is { } previous) return Step(tips, s, previous, +1);

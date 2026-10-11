@@ -145,22 +145,22 @@ public class TipsTests
         var s = new TipSettings();
         foreach (var tag in Enum.GetValues<TipTag>()) s.SetTagHidden(tag, true);
         Assert.Null(TipPicker.Step(Five, s, Five[0], +1));
-        Assert.Null(TipPicker.ForBulb(Five, s));
+        Assert.Null(TipPicker.Next(Five, s));
     }
 
     [Fact]
-    public void The_bulb_carries_on_round_the_list_once_everything_is_seen()
+    public void The_next_tip_carries_on_round_the_list_once_everything_is_seen()
     {
         var s = new TipSettings();
-        Assert.Equal("a", TipPicker.ForBulb(Five, s)!.Id);
+        Assert.Equal("a", TipPicker.Next(Five, s)!.Id);
 
         s.Seen.AddRange(["a", "b", "c", "d", "e"]);
         s.Last = "c";
-        Assert.Equal("d", TipPicker.ForBulb(Five, s)!.Id);
+        Assert.Equal("d", TipPicker.Next(Five, s)!.Id);
         s.Last = "e";
-        Assert.Equal("a", TipPicker.ForBulb(Five, s)!.Id);
+        Assert.Equal("a", TipPicker.Next(Five, s)!.Id);
         s.Last = "removed-in-a-later-build";
-        Assert.Equal("a", TipPicker.ForBulb(Five, s)!.Id);
+        Assert.Equal("a", TipPicker.Next(Five, s)!.Id);
     }
 
     [Fact]
@@ -225,9 +225,19 @@ public class TipsTests
     }
 
     [Fact]
-    public void Startup_tips_go_quiet_once_everything_has_been_seen()
+    public void Startup_tips_keep_coming_once_everything_has_been_seen()
     {
-        var s = new TipSettings { AtStartup = nameof(TipStartup.EveryLaunch), Seen = ["a", "b", "c", "d", "e"] };
+        // A tip dismissed in a hurry gets another turn, so seeing them all is no reason to stop (#39).
+        var s = new TipSettings { AtStartup = nameof(TipStartup.EveryLaunch), Seen = ["a", "b", "c", "d", "e"], Last = "e" };
+        Assert.True(TipPicker.DueAtStartup(Five, s, Now));
+        Assert.Equal("a", TipPicker.Next(Five, s)!.Id);
+    }
+
+    [Fact]
+    public void No_startup_tip_is_due_when_every_tip_is_hidden()
+    {
+        var s = new TipSettings { AtStartup = nameof(TipStartup.EveryLaunch) };
+        foreach (var tag in Enum.GetValues<TipTag>()) s.SetTagHidden(tag, true);
         Assert.False(TipPicker.DueAtStartup(Five, s, Now));
     }
 
