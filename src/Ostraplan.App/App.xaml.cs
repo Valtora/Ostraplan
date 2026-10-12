@@ -558,6 +558,18 @@ public partial class App : Application
             return;
         }
 
+        // preview render: the main window's toolbar, light and dark, at three UI scales and several widths, with names
+        // beside the icons and without, plus two of its tooltips. Game-free.
+        if (e.Args.Contains("--ribbonsmoke"))
+        {
+            var dir = e.Args.SkipWhile(a => a != "--ribbonsmoke").Skip(1).FirstOrDefault() ?? AppContext.BaseDirectory;
+            Directory.CreateDirectory(dir);
+            try { RenderRibbon(dir); }
+            catch (Exception ex) { File.WriteAllText(Path.Combine(dir, "ribbonsmoke-error.txt"), ex.ToString()); }
+            Shutdown(0);
+            return;
+        }
+
         // preview render: draw a page of backdrops (#43) so the composited locale art can be eyeballed without
         // clicking through Settings for each of the thirty-odd of them. Needs the game install.
         if (e.Args.Contains("--bgsmoke"))
@@ -929,6 +941,147 @@ public partial class App : Application
             var page = new System.Windows.Controls.Border { Background = ThemeManager.WindowBg, Child = content };
             Shot(page, hub.Width, hub.Height, Path.Combine(dir, $"tip-hub-{mode}.png"));
         }
+    }
+
+    /// <summary>
+    /// <c>--ribbonsmoke</c>: the toolbar as it stands on a real <see cref="MainWindow"/>, which is never shown. The ribbon
+    /// stays in the window rather than being lifted out, because the label switch and the icons are resources the window
+    /// and the ribbon hold; it is measured and arranged on its own, the way <c>RibbonLayoutTests</c> does it, and the UI
+    /// scale is the same LayoutTransform <see cref="UiScale"/> puts on a window's content. The lock is showing and locked,
+    /// two overlays are on and Undo is greyed, so the checked, disabled and plain states are all in the picture.
+    /// <c>ribbon-tooltips.txt</c> lists every control's tooltip, title first, and <c>ribbon-switch.txt</c> the width at
+    /// which the toolbar fits on one row at each scale.
+    /// </summary>
+    private static void RenderRibbon(string dir)
+    {
+        (double Scale, int[] Widths)[] runs = [(0.8, [900, 1280]), (1.0, [900, 1100, 1280, 1440, 1920]), (2.0, [1920, 2560])];
+        var tips = new List<string>();
+        var switches = new List<string>();
+
+        foreach (var mode in new[] { "dark", "light" })
+        {
+            ThemeManager.Apply(mode);
+            // One window a theme, restaged for each picture: every MainWindow opens a section in the activity log.
+            var w = Staged();
+            var ribbon = (System.Windows.Controls.Border)w.FindName("Ribbon");
+            foreach (var labels in new[] { false, true })
+                foreach (var (scale, widths) in runs)
+                    foreach (var width in widths)
+                    {
+                        Lay(w, ribbon, labels, scale, width);
+                        var name = $"ribbon-{mode}-{(int)(scale * 100)}-{width}{(labels ? "-labels" : "")}.png";
+                        Encode(ribbon, width, ribbon.DesiredSize.Height, Path.Combine(dir, name));
+                    }
+
+            // Where the toggles come up beside the actions, for each scale with and without labels. Measured with no
+            // data warnings showing, which is the usual case.
+            if (mode == "dark")
+            {
+                var warnings = (System.Windows.Controls.TextBlock)w.FindName("TxtWarnings");
+                var staged = warnings.Text;
+                warnings.Text = "";
+                var toggles = (UIElement)w.FindName("RibbonToggles");
+                foreach (var labels in new[] { false, true })
+                    foreach (var scale in new[] { 0.8, 1.0, 1.25, 1.5, 2.0 })
+                    {
+                        var oneRowFrom = 0;
+                        for (var width = 600; width <= 5000 && oneRowFrom == 0; width += 10)
+                        {
+                            Lay(w, ribbon, labels, scale, width);
+                            if (System.Windows.Controls.Grid.GetRow(toggles) == 0) oneRowFrom = width;
+                        }
+                        switches.Add($"{(labels ? "labels" : "icons only")}, {scale:P0}: one row from {oneRowFrom}px");
+                    }
+                warnings.Text = staged;
+                Lay(w, ribbon, false, 1.0, 1440);
+            }
+
+            // A tooltip is drawn in a popup that never opens here, so its content goes into a ToolTip of its own.
+            foreach (var button in new[] { "BtnRooms", "BtnUndo", "BtnForce" })
+            {
+                var source = (FrameworkElement)w.FindName(button);
+                if (mode == "dark") tips.Add($"{button}: {ToolIcon.TipText(source)}");
+                var content = source.ToolTip;
+                source.ToolTip = null;
+                // A ToolTip refuses a parent, so it is drawn on its own.
+                var tip = new System.Windows.Controls.ToolTip { Content = content };
+                tip.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+                tip.Arrange(new Rect(tip.DesiredSize));
+                Encode(tip, tip.DesiredSize.Width, tip.DesiredSize.Height, Path.Combine(dir, $"ribbon-tip-{button}-{mode}.png"));
+            }
+            if (mode == "dark")
+                foreach (var b in Descendants(w.FindName("Ribbon") as DependencyObject).OfType<System.Windows.Controls.Primitives.ButtonBase>())
+                    if (b.Name is { Length: > 0 } n && !tips.Any(t => t.StartsWith(n + ":")))
+                        tips.Add($"{n}: {ToolIcon.TipText(b)}");
+            w.Close();
+        }
+        File.WriteAllLines(Path.Combine(dir, "ribbon-tooltips.txt"), tips);
+        File.WriteAllLines(Path.Combine(dir, "ribbon-switch.txt"), switches);
+
+        // The ribbon is measured on its own, so nothing but this call lays it out. A Measure at an unchanged size
+        // returns at once whatever its children did, which would leave the label switch and the move between rows
+        // undrawn, so the whole subtree is marked dirty first.
+        static void Lay(MainWindow w, System.Windows.Controls.Border ribbon, bool labels, double scale, double width)
+        {
+            w.ApplyToolbarLabels(labels);
+            ribbon.LayoutTransform = scale == 1.0 ? Transform.Identity : new ScaleTransform(scale, scale);
+            for (var i = 0; i < 3; i++)
+            {
+                Invalidate(ribbon);
+                ribbon.Measure(new Size(width, double.PositiveInfinity));
+                ribbon.Arrange(new Rect(0, 0, width, ribbon.DesiredSize.Height));
+                w.RelayoutRibbon();
+            }
+            Invalidate(ribbon);
+            ribbon.Measure(new Size(width, double.PositiveInfinity));
+            ribbon.Arrange(new Rect(0, 0, width, ribbon.DesiredSize.Height));
+        }
+
+        static void Invalidate(DependencyObject d)
+        {
+            if (d is UIElement e) e.InvalidateMeasure();
+            for (var i = 0; i < VisualTreeHelper.GetChildrenCount(d); i++) Invalidate(VisualTreeHelper.GetChild(d, i));
+        }
+
+        static MainWindow Staged()
+        {
+            var w = new MainWindow();
+            ((System.Windows.Controls.TextBlock)w.FindName("TxtDoc")).Text = "Untitled ship";
+            // The byline makes row 0 taller than a button, which is what shows a control stretching to the row.
+            var byline = (System.Windows.Controls.TextBlock)w.FindName("TxtDocByline");
+            byline.Text = "Make Model · DESIGNATION";
+            byline.Visibility = Visibility.Visible;
+            ((System.Windows.Controls.TextBlock)w.FindName("TxtWarnings")).Text = "2 data warnings";
+            var lockButton = (System.Windows.Controls.Primitives.ToggleButton)w.FindName("BtnLock");
+            lockButton.Visibility = Visibility.Visible;
+            lockButton.IsChecked = true;
+            ((System.Windows.Controls.Primitives.ToggleButton)w.FindName("BtnRooms")).IsChecked = true;
+            ((System.Windows.Controls.Primitives.ToggleButton)w.FindName("BtnLight")).IsChecked = true;
+            ((UIElement)w.FindName("BtnUndo")).IsEnabled = false;
+            return w;
+        }
+
+        static IEnumerable<DependencyObject> Descendants(DependencyObject? root)
+        {
+            if (root is null) yield break;
+            foreach (var child in LogicalTreeHelper.GetChildren(root).OfType<DependencyObject>())
+            {
+                yield return child;
+                foreach (var d in Descendants(child)) yield return d;
+            }
+        }
+    }
+
+    /// <summary>Encode what is already laid out. Part of <c>--ribbonsmoke</c>, whose ribbon cannot take
+    /// <see cref="Shot"/>'s UpdateLayout: that would lay out the unshown window around it.</summary>
+    private static void Encode(Visual visual, double width, double height, string path)
+    {
+        var bmp = new RenderTargetBitmap((int)Math.Ceiling(width), (int)Math.Ceiling(height), 96, 96, PixelFormats.Pbgra32);
+        bmp.Render(visual);
+        var enc = new PngBitmapEncoder();
+        enc.Frames.Add(BitmapFrame.Create(bmp));
+        using var fs = File.Create(path);
+        enc.Save(fs);
     }
 
     /// <summary>Measure, arrange and encode a window's content at its own size. Part of <c>--bundlesmoke</c>.</summary>

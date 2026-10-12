@@ -15,6 +15,7 @@ namespace Ostraplan.App;
 /// <param name="Theme">"system" / "light" / "dark".</param>
 /// <param name="Scale">The UI scale factor (1.0 = 100%), already clamped by the dialog.</param>
 /// <param name="OpenAs">How the main window should open next launch.</param>
+/// <param name="ToolbarLabels">Whether the toolbar shows names beside its icons.</param>
 /// <param name="Backdrop">What the plan is drawn on, and its grid markings.</param>
 /// <param name="ModOverrides">Whether modded parts may be placed against the core placement law.</param>
 /// <param name="NavModuleArt">Whether the arrange window draws the nav modules with the game's own art.</param>
@@ -33,6 +34,7 @@ public sealed record SettingsHooks(
     Action<string> Theme,
     Action<double> Scale,
     Action<WindowOpenAs> OpenAs,
+    Action<bool> ToolbarLabels,
     Action<BackdropSettings> Backdrop,
     Action<bool> ModOverrides,
     Action<bool> NavModuleArt,
@@ -91,6 +93,7 @@ public sealed class SettingsDialog : Window
         body.Children.Add(ThemeRow());
         body.Children.Add(ScaleRow());
         body.Children.Add(OpenAsRow());
+        body.Children.Add(ToolbarLabelsRow());
         body.Children.Add(NavArtRow());
 
         Section(body, "THE PLAN'S BACKDROP");
@@ -123,8 +126,8 @@ public sealed class SettingsDialog : Window
         body.Children.Add(PathRow(
             "Ostranauts install",
             _gameRootText,
-            "Where Ostraplan reads the game's data and sprites. Found through Steam; set it for a non-Steam or "
-            + "moved install. Takes effect next launch.",
+            "Where Ostraplan reads the game's data and sprites, and which version of the game it is. Found through "
+            + "Steam; set it for a non-Steam or moved install. Takes effect next launch.",
             PickGameRoot,
             () => ApplyGameRoot(null)));
 
@@ -230,6 +233,22 @@ public sealed class SettingsDialog : Window
         };
         return Row("Open as", combo,
             "Whether the main window opens as you left it or maximised. Takes effect next launch.");
+    }
+
+    private UIElement ToolbarLabelsRow()
+    {
+        var box = new CheckBox
+        {
+            Content = "Show names beside the toolbar icons",
+            IsChecked = _settings.ToolbarLabels,
+            Foreground = Ink,
+            VerticalAlignment = VerticalAlignment.Center,
+        };
+        box.Checked += (_, _) => { if (!_init) _hooks.ToolbarLabels(true); };
+        box.Unchecked += (_, _) => { if (!_init) _hooks.ToolbarLabels(false); };
+        return Row("Toolbar labels", box,
+            "Off, each icon names itself and its key when you point at it. On, the toolbar needs more width and "
+            + "moves to two rows sooner.");
     }
 
     private UIElement NavArtRow()
@@ -727,7 +746,7 @@ public sealed class SettingsDialog : Window
     {
         var box = new CheckBox
         {
-            Content = "Show the 💡 button in the toolbar",
+            Content = "Show the bulb in the toolbar",
             IsChecked = _settings.Tips.ShowBulb,
             Foreground = Ink,
             VerticalAlignment = VerticalAlignment.Center,
@@ -826,9 +845,12 @@ public sealed class SettingsDialog : Window
     {
         _env = env ?? _env;
 
+        // The game's version sits beside the folder it was read from. It used to be in the toolbar, where it took
+        // room on every window for something read once after a game update.
+        var version = _env?.InstalledVersion is { } v ? $"Game version {v} " : "";
         _gameRootText.Text = _settings.GameRootOverride is { Length: > 0 } root
-            ? root + "\n(set here)"
-            : _env is { } e ? $"{e.GameRoot}\n(found via {e.DiscoveredVia})" : "not found";
+            ? $"{root}\n{version}(set here)"
+            : _env is { } e ? $"{e.GameRoot}\n{version}(found via {e.DiscoveredVia})" : "not found";
 
         _savesText.Text = _settings.SavesDirOverride is { Length: > 0 }
             ? (GameEnv.ResolveSaves(_settings.SavesDirOverride) ?? _settings.SavesDirOverride) + "\n(set here)"

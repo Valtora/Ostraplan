@@ -135,6 +135,7 @@ public partial class MainWindow : Window
 
         RestoreWindowPlacement();   // the size, position and maximised state the window was last closed at (#69)
         RestorePaneWidths();   // the palette / inspector widths the user last dragged, and whether either is hidden
+        ApplyToolbarLabels();   // names beside the toolbar's icons, if Settings asks for them
 
         // The tab the app opens on, built last because activating it touches the timers and the freeze gate above.
         // Its document arrives with the game data (LoadDataAsync); the session has to exist before that, because
@@ -912,7 +913,6 @@ public partial class MainWindow : Window
 
         var v = env.InstalledVersion ?? "unknown";
         AuditLog.Add($"Loaded game data (Game {v}).");
-        TxtVersion.Text = $"Game {v}";
 
         // The nav modules' art comes out of the install's resources.assets, a read of a few seconds that nothing
         // at startup waits for: the Arrange screen window awaits it when it is first opened, and falls back to its
@@ -7878,7 +7878,7 @@ public partial class MainWindow : Window
         if (_settingsDialog is { } open) { open.Activate(); return; }
 
         var dlg = new SettingsDialog(_settings, _catalog, _env, new SettingsHooks(
-            SetTheme, SetUiScale, SetWindowOpenAs, SetBackdrop, SetModOverrides, SetNavModuleArt, SetGameRoot,
+            SetTheme, SetUiScale, SetWindowOpenAs, SetToolbarLabels, SetBackdrop, SetModOverrides, SetNavModuleArt, SetGameRoot,
             SetSavesDir, SetRestoreTabs, SetSessionBackup, SetSessionBackupSeconds, SetCloseWithUnsaved,
             SetTipsOn, SetTipsAtStartup, SetTipsHours, SetTipsBulb, OpenTipHub))
         {
@@ -8155,6 +8155,21 @@ public partial class MainWindow : Window
     }
 
     private void OnForceToggleClick(object sender, RoutedEventArgs e) => SetForcePlace(!Board.ForcePlace);
+
+    /// <summary>Settings ▸ Toolbar labels: names beside the toolbar's icons, or icons alone (persisted).</summary>
+    private void SetToolbarLabels(bool on)
+    {
+        _settings.ToolbarLabels = on;
+        _settings.Save();
+        AuditLog.Setting("Toolbar labels", on ? "on" : "off");
+        ApplyToolbarLabels();
+    }
+
+    /// <summary>Show or hide the label in every icon button's template at once. The buttons change width, and the
+    /// ribbon's SizeChanged handlers move the toggles between one row and two to suit. The smoke render and the tests
+    /// pass <paramref name="on"/> to draw either arrangement without touching the user's settings.</summary>
+    internal void ApplyToolbarLabels(bool? on = null) =>
+        Resources["ToolbarLabelVisibility"] = (on ?? _settings.ToolbarLabels) ? Visibility.Visible : Visibility.Collapsed;
 
     /// <summary>Whether the arrange window draws the nav modules with the game's art (persisted). The art itself
     /// is read at startup whatever this says, so switching it on takes effect at the next Arrange screen.</summary>

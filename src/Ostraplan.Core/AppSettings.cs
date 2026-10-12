@@ -160,6 +160,9 @@ public sealed class AppSettings
     /// the install's <c>resources.assets</c>, see <c>NavModArt</c>) rather than as flat labelled panels. On by
     /// default; the flat panels are what the window falls back to when the art cannot be read either way.</summary>
     [JsonPropertyName("navModuleArt")] public bool NavModuleArt { get; set; } = true;
+    /// <summary>Show each toolbar icon's name beside it. Off by default: the icons alone keep the toolbar on one row
+    /// at more window sizes, and every one names itself in its tooltip.</summary>
+    [JsonPropertyName("toolbarLabels")] public bool ToolbarLabels { get; set; }
     /// <summary>Light Viz exterior daylight: the parallax location whose sun lights shine on the design (a name
     /// from <c>data/parallax</c>), or empty/null for no sun. The overlay renders game-exact, so there are no
     /// brightness/dimming tuners any more — only the sun location + angle persist.</summary>

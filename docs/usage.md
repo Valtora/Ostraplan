@@ -47,11 +47,11 @@ right, but treat a mismatch as "double-check in-game".
 | **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**, an **ITEMS** tab for loose floor cargo, a **SPECIAL** tab for the structure the game places but never lets you build, and a **FAV/REC** tab at the front for the parts you pinned and the ones you just placed. Search by friendly or internal name. Modded parts show a small origin badge. |
 | **Canvas** (centre) | The tile grid. Place, paint, select, pan and zoom here. A **tab strip** appears above it as soon as a second design is open, and disappears again when you are back to one. |
 | **Inspector** (right) | The selected part's details, ship stats, the **Problems** list, and the **Law report**. |
-| **Toolbar** (top) | The actions, grouped **File · Edit · Design · Analyse**, with the **💡** tip button (see [Tips](#tips)), **⚙ Settings** and the **Help ▾** menu on the right. Then two groups, divided by what a button does. **Edit modes** change what a click does: **Symmetry** (click to cycle the axes), **Surfaces**, and **Force**, which stops the placement law refusing anything (see [Force place](#the-law--live-validation)) and puts a red **FORCE PLACE** marker in the status bar for as long as it is on. **Overlays** only change what you see and never affect editing: **Zones · Rooms · Power · Light · Walk · Access · Wire · Spawners**. Each highlights in the accent colour while active, and **Light**, **Walk** and **Spawners** carry a **▾** for their own options. **Spawners** is the one that hides rather than adds: it takes the loot spawners off the plan, and its ▾ decides how much of a spawner's scatter square is drawn (see [Loot spawners](#loot-spawners--what-a-ship-arrives-carrying)). **Fit** frames the design. Narrow the window past the point where all of that fits on one line and the two groups drop to a second row of their own, returning beside the actions when there is room again. The design's name sits in the middle, with its make, model and designation underneath once you have set them in **Ship Info**. When a newer release exists it is downloaded in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
+| **Toolbar** (top) | The menus and the two reports (**File**, **Design**, **Simulate**, **Ship Rating**, **Diagnostics**, **Help**) are words. Everything else is an icon: point at one for its name and its key, or turn on **Settings ▸ Toolbar labels** to have the names written beside them. The actions, grouped **File · Edit · Design · Analyse**, with the undo and redo arrows and the padlock under Edit, and the bulb for tips (see [Tips](#tips)), the gear for **Settings** and the **Help** menu on the right. Then two groups, divided by what a button does. **Edit modes** change what a click does: **Symmetry** (mirrored triangles; click to cycle the axes), **Surfaces** (stacked layers), and **Force** (a gavel with a no-entry sign), which stops the placement law refusing anything (see [Force place](#the-law--live-validation)) and puts a red **FORCE PLACE** marker in the status bar for as long as it is on. **Overlays** only change what you see and never affect editing: **Zones** (a dashed square) · **Rooms** (a floor plan) · **Power** (a lightning bolt) · **Light** (a sun) · **Walk** (a walking figure) · **Access** (a pointing hand) · **Wire** (two linked dots) · **Spawners** (boxes). Each highlights in the accent colour while active, and **Light**, **Walk** and **Spawners** carry a **▾** for their own options. **Spawners** is the one that hides rather than adds: it takes the loot spawners off the plan, and its ▾ decides how much of a spawner's scatter square is drawn (see [Loot spawners](#loot-spawners--what-a-ship-arrives-carrying)). **Fit** (four arrows round a square) frames the design. Narrow the window past the point where all of that fits on one line and the two groups drop to a second row of their own, returning beside the actions when there is room again. The design's name sits in the middle, with its make, model and designation underneath once you have set them in **Ship Info**. When a newer release exists it is downloaded in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
 
 ### Settings
 
-**⚙ Settings** (or **Ctrl+,**) holds everything that is Ostraplan's own preference rather
+**Settings** (the gear in the toolbar, or **Ctrl+,**) holds everything that is Ostraplan's own preference rather
 than part of a design. Changes apply as you make them.
 
 | Setting | What it does |
@@ -61,11 +61,12 @@ than part of a design. Changes apply as you make them.
 | **Tabs** | Reopening last session's designs, the backup of unsaved changes, and what closing does with them. See [Picking up where you left off](#picking-up-where-you-left-off). |
 | **Scale markings** | A brighter grid line every 5, 10 or 20 tiles, for judging the size of a hull at a glance. Off by default. |
 | **Panels** | The palette and the inspector are both resizable: drag the divider beside either one, down to a minimum that keeps the panel readable. Double-click a divider, or press **F2** for the palette and **F3** for the inspector, to hide that panel entirely and give the canvas the whole window; the same gesture brings it back at the width you had. Both widths are remembered between sessions. |
+| **Toolbar labels** | Writes each toolbar icon's name beside it. Off by default, since the toolbar then needs more width and moves its edit modes and overlays to a second row sooner. With it off, pointing at an icon gives its name and key. |
 | **UI scale** | 80% to 200%, scaling everything Ostraplan draws, right-click menus, dropdowns and tooltips included. Above 100% for a high-resolution monitor run at 100% Windows scaling, where the app's text would otherwise be tiny; below it to fit more into the window you have, on a laptop panel or beside a second copy of the app. It is a layout scale, not a magnifying glass, so text and vectors stay sharp. Dialogs and reports resize with it; the main window keeps the size you gave it, and below 100% spends the space it saves on the canvas. |
 | **Open as** | Ostraplan remembers where its window was and how big it was, and reopens like that, maximised if you closed it maximised. Set this to **Maximised** to have it fill the screen every launch whatever you closed it at; un-maximising still gives back the window you had. A remembered position is checked against your monitors as they are at launch, so unplugging the screen it was on opens it centred rather than off the edge. Read at launch, so a change takes effect next time Ostraplan starts. |
 | **Mod overrides** | Let a modded part be placed where the core-game rules say it doesn't fit (see [The Law](#the-law--live-validation)). |
-| **Tips** | Whether tips appear, how often at startup, and whether the 💡 sits in the toolbar. **Choose topics and tips…** opens the list of them. See [Tips](#tips). |
-| **Ostranauts install** | Where the game's data and sprites are read from. Found through Steam automatically. Read once at launch, so a change takes effect next time you start Ostraplan. |
+| **Tips** | Whether tips appear, how often at startup, and whether the bulb sits in the toolbar. **Choose topics and tips…** opens the list of them. See [Tips](#tips). |
+| **Ostranauts install** | Where the game's data and sprites are read from, and the version of the game found there. Found through Steam automatically. Read once at launch, so a change takes effect next time you start Ostraplan. |
 | **Saves** | Where your save games are. Ostraplan follows the game's own save-location setting, so set this only if your saves are somewhere neither the game nor Ostraplan knows about. Applies immediately. |
 
 Both folders show what they resolved to and where that came from, and **Automatic** puts
@@ -148,7 +149,7 @@ logic, so they're exact for vanilla parts but only best-effort for modded ones (
 mod can add its own conditions or even code). So a modded part flagged illegal is a
 **yellow warning**, not a red error — "modded part may not fit; verify in-game." To
 place a modded part where the rules say it doesn't fit, turn on **Mod overrides**
-in **⚙ Settings**: the ghost turns **amber** (placing against the rules, flagged) and
+in **Settings**: the ghost turns **amber** (placing against the rules, flagged) and
 the part lands, flagged in Problems. That toggle only affects modded content. For core
 parts, **Force place** below is the deliberate way out.
 
@@ -816,7 +817,7 @@ Lock a design to look at it without being able to change it: a ship somebody sen
 one of your own kept as the reference you build variations from. A stray click, a key
 pressed out of habit or a Ctrl+S then cannot touch the file.
 
-- **The padlock** in the toolbar, beside Undo and Redo, locks and unlocks the design on
+- **The padlock** in the toolbar, after the undo and redo arrows, locks and unlocks the design on
   screen. **File ▸ Lock Design…** does the same. It is only there for a design saved to a
   file, since locking is about keeping that file as it is.
 - **File ▸ Open Read-only…** (**Alt+Shift+O**) opens designs already locked, as many at once
@@ -827,7 +828,8 @@ accidents and is not a security measure. **A design with unsaved changes cannot 
 it stands.** You are asked to save the changes or discard them, and discarding reloads the
 design from its file, because a locked design is exactly what is in its file.
 
-While a design is locked, the tab, the title bar and the status bar all show 🔒, and
+While a design is locked, the tab and the title bar show 🔒, the padlock in the toolbar is
+drawn closed, the status bar says **READ ONLY**, and
 nothing that would change it works. Arming a part, painting, moving, deleting, pasting,
 renaming, zones, wiring, fills, the damage brush, dismissing a warning, Ship Info, undo and
 redo are all refused, and the status bar says why. Looking still works: pan, zoom, rotate
@@ -2213,7 +2215,7 @@ with it open.
 
 - **When they appear.** A tip appears at startup once the game data has loaded, at most
   once every 8 hours by default, and never on the launch that shows what an update brought.
-  The **💡** button in the toolbar shows the next one whenever you want it.
+  The bulb in the toolbar shows the next one whenever you want it.
 - **The card.** **‹** and **›** step back and forward through the tips in order, so a tip
   you dismissed too quickly is one click away. **Hide this tip** stops that one appearing,
   and **✕** or **Esc** closes the card.
@@ -2225,7 +2227,7 @@ with it open.
   from the last one shown, so a tip you waved away in a hurry gets another turn. A tip an
   update adds comes first, wherever it sits in the list.
 
-**⚙ Settings ▸ Tips** turns tips off altogether, sets how often they appear at startup
+**Settings ▸ Tips** turns tips off altogether, sets how often they appear at startup
 (at most every 1 to 48 hours, every launch, or never), and takes the bulb out of the
 toolbar.
 

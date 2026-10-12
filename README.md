@@ -33,6 +33,6 @@ Download **`Ostraplan-win-Setup.exe`** from the [Releases](https://github.com/Va
 
 ## Licence and disclaimers
 
-Ostraplan is free and open source under the [MIT License](LICENSE). It is a fan-made tool, **not affiliated with or endorsed by Blue Bottle Games**. Ostranauts and all its data and art are © Blue Bottle Games, and Ostraplan ships **none** of it, reading everything from your own install at runtime. Please support and buy the game: <https://store.steampowered.com/app/1022980/Ostranauts/>.
+Ostraplan is free and open source under the [MIT License](LICENSE). Its toolbar icons are from Microsoft's Fluent UI System Icons, also MIT; see [THIRD-PARTY-NOTICES.md](THIRD-PARTY-NOTICES.md). It is a fan-made tool, **not affiliated with or endorsed by Blue Bottle Games**. Ostranauts and all its data and art are © Blue Bottle Games, and Ostraplan ships **none** of it, reading everything from your own install at runtime. Please support and buy the game: <https://store.steampowered.com/app/1022980/Ostranauts/>.
 
 **No warranty.** Ostraplan is provided as-is. It can write to your save files, so back them up first, and use it at your own risk.

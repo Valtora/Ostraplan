@@ -30,6 +30,12 @@ each release was verified against is recorded in
     and Delete.
   - Rotate and flip, Replace, Draw order, Condition and More hold the rest.
   - Point at any entry for a line on what it does. Thanks to RedTwinkleToes.
+- **The toolbar uses icons in place of most of its words.**
+  - The edit modes, the overlays, Undo, Redo, the padlock, Fit, tips and Settings are icons that give their name
+    and key when you point at them.
+  - Settings ▸ Toolbar labels writes the names beside the icons if you prefer them.
+  - The padlock is drawn open or closed to match the design, and the game version is now in Settings beside the
+    install folder.
 - **Startup tips keep coming after you have seen them all.** They carry on round the list, so a tip you
   dismissed in a hurry comes round again. Settings ▸ Tips still turns them off. Thanks to nighoggDatatype.
 

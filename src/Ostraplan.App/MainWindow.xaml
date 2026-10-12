@@ -2,6 +2,7 @@
         xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
         xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
         xmlns:local="clr-namespace:Ostraplan.App"
+        xmlns:sys="clr-namespace:System;assembly=System.Runtime"
         Title="Ostraplan" Width="1440" Height="920"
         WindowStartupLocation="CenterScreen"
         Background="{DynamicResource WindowBg}"
@@ -105,20 +106,106 @@
              squashed sliver, and the font decides its shape. A ContentTemplate only replaces what goes inside the
              button, not the button's own template, so the Fluent chrome stays. The stroke takes the inherited text
              foreground, which is how it follows Fluent's hover, pressed and disabled states. -->
+        <Geometry x:Key="Chevron">M1,1 L5,5 L9,1</Geometry>
+        <!-- Its height comes from a box the size of a toolbar icon, so the arrow matches the toggle it belongs to
+             exactly. It used to stretch to the row instead, which matched text toggles but outgrew the icons once
+             a design's byline made the row taller than they are. -->
         <Style x:Key="SplitArrow" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
             <Setter Property="Padding" Value="7,3"/>
             <Setter Property="Margin" Value="1,0,3,0"/>
-            <Setter Property="VerticalAlignment" Value="Stretch"/>
             <Setter Property="ContentTemplate">
                 <Setter.Value>
                     <DataTemplate>
-                        <Path Data="M1,1 L5,5 L9,1" Width="10" Height="6" StrokeThickness="1.6"
-                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
-                              VerticalAlignment="Center" HorizontalAlignment="Center" SnapsToDevicePixels="True"
-                              Stroke="{Binding Path=(TextElement.Foreground), RelativeSource={RelativeSource Self}}"/>
+                        <Grid Height="20">
+                            <Path Data="{StaticResource Chevron}" Width="10" Height="6" StrokeThickness="1.6"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                  VerticalAlignment="Center" HorizontalAlignment="Center" SnapsToDevicePixels="True"
+                                  Stroke="{Binding Path=(TextElement.Foreground), RelativeSource={RelativeSource Self}}"/>
+                        </Grid>
                     </DataTemplate>
                 </Setter.Value>
             </Setter>
+        </Style>
+
+        <!-- A toolbar button that opens a menu: its name, then the same drawn chevron as SplitArrow, for the same
+             reason (a typed "▾" renders as a sliver, and its shape is the font's). -->
+        <Style x:Key="MenuButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Padding" Value="10,3"/>
+            <Setter Property="Margin" Value="0,0,3,0"/>
+            <Setter Property="ContentTemplate">
+                <Setter.Value>
+                    <DataTemplate>
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding}" VerticalAlignment="Center"/>
+                            <Path Data="{StaticResource Chevron}" Width="10" Height="6" StrokeThickness="1.6"
+                                  Margin="7,1,0,0" VerticalAlignment="Center" SnapsToDevicePixels="True"
+                                  StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                                  Stroke="{Binding Path=(TextElement.Foreground), RelativeSource={RelativeSource Self}}"/>
+                        </StackPanel>
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+
+        <!-- Toolbar buttons that show an icon in place of their name. The glyph is ToolIcon.Icon on the button, from
+             ToolbarIcons.xaml, and its fill is the inherited text foreground like the chevron's stroke, so it follows
+             every Fluent state and both themes. Content stays the name: it is the label beside the icon when
+             Settings asks for labels (ToolbarLabelVisibility, set by MainWindow.ApplyToolbarLabels), and what a
+             screen reader announces. The tooltip opens with the name and key (ToolIcon.Title), since with labels off
+             nothing else on screen says what the button is. -->
+        <Visibility x:Key="ToolbarLabelVisibility">Collapsed</Visibility>
+        <DataTemplate x:Key="ToolIconContent">
+            <StackPanel Orientation="Horizontal">
+                <Path Width="20" Height="20" VerticalAlignment="Center"
+                      Data="{Binding Path=(local:ToolIcon.Icon), RelativeSource={RelativeSource Self}}"
+                      Fill="{Binding Path=(TextElement.Foreground), RelativeSource={RelativeSource Self}}"/>
+                <TextBlock Text="{Binding}" Margin="5,0,1,0" VerticalAlignment="Center"
+                           Visibility="{DynamicResource ToolbarLabelVisibility}"/>
+            </StackPanel>
+        </DataTemplate>
+        <Style x:Key="ToolButton" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
+            <Setter Property="Padding" Value="7,3"/>
+            <Setter Property="Margin" Value="0,0,3,0"/>
+            <Setter Property="ContentTemplate" Value="{StaticResource ToolIconContent}"/>
+        </Style>
+        <!-- Fluent's ToggleButton template does not hand ContentTemplate on to its ContentPresenter (Button's does), so
+             a ContentTemplate setter here is ignored and the toggle shows its name as plain text. The presenter still
+             looks a template up by the content's type, though, and a toggle's content is its name, a string: so this
+             style carries the template for a string, where only the toggles wearing it can find it. Every one of them
+             has a ToolIcon.Title, which makes its tooltip a panel rather than a string this template could catch. -->
+        <Style x:Key="ToolToggle" TargetType="ToggleButton" BasedOn="{StaticResource OverlayToggle}">
+            <Style.Resources>
+                <DataTemplate DataType="{x:Type sys:String}">
+                    <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource ToolIconContent}"/>
+                </DataTemplate>
+            </Style.Resources>
+            <Setter Property="Padding" Value="7,3"/>
+        </Style>
+        <!-- The same, as the left half of a split button (SplitToggle's closed-up margin). BasedOn passes on a style's
+             setters and triggers but not its Resources, so the string template is repeated here and in LockToggle. -->
+        <Style x:Key="ToolSplitToggle" TargetType="ToggleButton" BasedOn="{StaticResource ToolToggle}">
+            <Style.Resources>
+                <DataTemplate DataType="{x:Type sys:String}">
+                    <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource ToolIconContent}"/>
+                </DataTemplate>
+            </Style.Resources>
+            <Setter Property="Margin" Value="0"/>
+        </Style>
+        <!-- The tab's lock (#74) draws its state: an open padlock while the design can be edited, a closed one while
+             it is locked. Set here rather than on the button, since a local value would beat the trigger. The icons
+             are DynamicResource because ToolbarIcons.xaml is merged on the ribbon, below this dictionary. -->
+        <Style x:Key="LockToggle" TargetType="ToggleButton" BasedOn="{StaticResource ToolToggle}">
+            <Style.Resources>
+                <DataTemplate DataType="{x:Type sys:String}">
+                    <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource ToolIconContent}"/>
+                </DataTemplate>
+            </Style.Resources>
+            <Setter Property="local:ToolIcon.Icon" Value="{DynamicResource IconLockOpen}"/>
+            <Style.Triggers>
+                <Trigger Property="IsChecked" Value="True">
+                    <Setter Property="local:ToolIcon.Icon" Value="{DynamicResource IconLockClosed}"/>
+                </Trigger>
+            </Style.Triggers>
         </Style>
         <!-- A document tab. Same reasoning as OverlayToggle above: a ToggleButton on the Fluent chain wearing the
              theme's own checked accent for the active tab, rather than a hard-set background that Fluent's hover
@@ -181,10 +268,14 @@
              when they drop to row 1. The identity block stays on row 0 in both arrangements, since row 1 is the
              toggles' whole width when they are on it (#75).
 
-             The actions and the right-hand block change width on their own (the lock appears once a design has a
-             file, an update button appears after the check), and the grid's size does not move when they do, so
-             they ask for a relayout too. -->
-        <Border DockPanel.Dock="Top" Background="{DynamicResource PanelBg}" Padding="8,6">
+             The actions, the toggles and the right-hand block change width on their own (the lock appears once a
+             design has a file, an update button appears after the check, and all three widen when Settings puts
+             names beside the icons), and the grid's size does not move when they do, so they ask for a relayout
+             too. -->
+        <Border x:Name="Ribbon" DockPanel.Dock="Top" Background="{DynamicResource PanelBg}" Padding="8,6">
+            <Border.Resources>
+                <ResourceDictionary Source="ToolbarIcons.xaml"/>
+            </Border.Resources>
             <Grid x:Name="RibbonGrid" SizeChanged="OnRibbonSizeChanged">
                 <Grid.ColumnDefinitions>
                     <ColumnDefinition Width="Auto"/>
@@ -200,34 +291,39 @@
                 <!-- The actions. Always row 0, always leftmost. -->
                 <StackPanel x:Name="RibbonActions" Grid.Row="0" Grid.Column="0" Orientation="Horizontal"
                             SizeChanged="OnRibbonSizeChanged">
-                    <Button x:Name="BtnFileMenu" Content="File ▾" Padding="10,3" Margin="0,0,3,0" Click="OnFileMenuClick"
+                    <!-- Words stay on the menus and the two reports: what a menu holds, or which report opens, is not
+                         something an icon can say. Everything that toggles or acts in one step is an icon. -->
+                    <Button x:Name="BtnFileMenu" Content="File" Style="{StaticResource MenuButton}" Click="OnFileMenuClick"
                             ToolTip="New, open, save, import, export, and write back to a save."/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 
                     <!-- Edit (frequent — kept as direct buttons) -->
                     <!-- Hold either one, or right-click it, for the list of edits it would step through (#76). -->
-                    <Button x:Name="BtnUndo" Content="Undo" Padding="10,3" Margin="0,0,3,0" Click="OnUndoClick"
+                    <Button x:Name="BtnUndo" Content="Undo" Style="{StaticResource ToolButton}" Click="OnUndoClick"
+                            local:ToolIcon.Icon="{StaticResource IconUndo}" local:ToolIcon.Title="Undo (Ctrl+Z)"
                             PreviewMouseLeftButtonDown="OnHistoryButtonDown" PreviewMouseLeftButtonUp="OnHistoryButtonUp"
                             MouseRightButtonUp="OnHistoryButtonRightClick"
-                            ToolTip="Undo the last edit. Hold or right-click for the list. (Ctrl+Z)"/>
-                    <Button x:Name="BtnRedo" Content="Redo" Padding="10,3" Margin="0,0,3,0" Click="OnRedoClick"
+                            ToolTip="Undo the last edit. Hold or right-click for the list."/>
+                    <Button x:Name="BtnRedo" Content="Redo" Style="{StaticResource ToolButton}" Click="OnRedoClick"
+                            local:ToolIcon.Icon="{StaticResource IconRedo}" local:ToolIcon.Title="Redo (Ctrl+Y)"
                             PreviewMouseLeftButtonDown="OnHistoryButtonDown" PreviewMouseLeftButtonUp="OnHistoryButtonUp"
                             MouseRightButtonUp="OnHistoryButtonRightClick"
-                            ToolTip="Redo the last undone edit. Hold or right-click for the list. (Ctrl+Y)"/>
+                            ToolTip="Redo the last undone edit. Hold or right-click for the list."/>
                     <!-- The tab's lock (#74). Only there while the design has a file behind it, since locking is
                          about not overwriting that file by accident. A ToggleButton for the Fluent checked accent,
-                         with IsChecked driven from the session by RefreshChrome and Click as the only way in. -->
-                    <ToggleButton x:Name="BtnLock" Content="🔒" Style="{StaticResource OverlayToggle}" Click="OnLockClick"
-                            Visibility="Collapsed"
+                         with IsChecked driven from the session by RefreshChrome and Click as the only way in. Its
+                         icon comes from LockToggle, which swaps the padlock open or closed with IsChecked. -->
+                    <ToggleButton x:Name="BtnLock" Content="Lock" Style="{StaticResource LockToggle}" Click="OnLockClick"
+                            Visibility="Collapsed" local:ToolIcon.Title="Lock"
                             ToolTip="Lock the design against changes. Click again to unlock."/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 
-                    <Button x:Name="BtnDesignMenu" Content="Design ▾" Padding="10,3" Margin="0,0,3,0" Click="OnDesignMenuClick"
+                    <Button x:Name="BtnDesignMenu" Content="Design" Style="{StaticResource MenuButton}" Click="OnDesignMenuClick"
                             ToolTip="Ship identity, re-skin, repairs, snapshot, bill of materials, and reports."/>
 
-                    <Button x:Name="BtnSimulateMenu" Content="Simulate ▾" Padding="10,3" Margin="0,0,3,0" Click="OnSimulateMenuClick"
+                    <Button x:Name="BtnSimulateMenu" Content="Simulate" Style="{StaticResource MenuButton}" Click="OnSimulateMenuClick"
                             ToolTip="Fire a micrometeoroid or weapon at the design and see what breaks."/>
 
                     <Border Style="{StaticResource ToolSep}"/>
@@ -259,42 +355,54 @@
                      starts in. The keyboard gestures still drive all of these; SyncViewToggles keeps IsChecked in
                      step whichever path fires. Click drives the canvas; the code-set IsChecked never re-enters
                      Click. -->
-                <StackPanel x:Name="RibbonToggles" Grid.Row="0" Grid.Column="1" Orientation="Horizontal">
+                <StackPanel x:Name="RibbonToggles" Grid.Row="0" Grid.Column="1" Orientation="Horizontal"
+                            SizeChanged="OnRibbonSizeChanged">
                     <Border x:Name="RibbonTogglesSep" Style="{StaticResource ToolSep}"/>
 
                     <!-- Edit modes. -->
-                    <ToggleButton x:Name="BtnSymmetry" Content="Symmetry" Style="{StaticResource OverlayToggle}" Click="OnSymmetryToggleClick"
-                            ToolTip="Mirror what you place. Click to cycle the axes, drag the handle to move them. (M)"/>
-                    <ToggleButton x:Name="BtnSurface" Content="Surfaces" Style="{StaticResource OverlayToggle}" Click="OnSurfaceToggleClick"
-                            ToolTip="Ghost all but walls and floors, and paint skins onto the deck. (T)"/>
+                    <ToggleButton x:Name="BtnSymmetry" Content="Symmetry" Style="{StaticResource ToolToggle}" Click="OnSymmetryToggleClick"
+                            local:ToolIcon.Icon="{StaticResource IconSymmetry}" local:ToolIcon.Title="Symmetry (M)"
+                            ToolTip="Mirror what you place. Click to cycle the axes, drag the handle to move them."/>
+                    <ToggleButton x:Name="BtnSurface" Content="Surfaces" Style="{StaticResource ToolToggle}" Click="OnSurfaceToggleClick"
+                            local:ToolIcon.Icon="{StaticResource IconSurfaces}" local:ToolIcon.Title="Surfaces (T)"
+                            ToolTip="Ghost all but walls and floors, and paint skins onto the deck."/>
                     <!-- No keyboard gesture on purpose: this one bypasses the placement law, and the reporter's own
                          argument was that it should take a deliberate click rather than a key nobody meant to press
                          (#67). The status bar carries a red marker for as long as it is on. -->
-                    <ToggleButton x:Name="BtnForce" Content="Force" Style="{StaticResource OverlayToggle}" Click="OnForceToggleClick"
+                    <ToggleButton x:Name="BtnForce" Content="Force" Style="{StaticResource ToolToggle}" Click="OnForceToggleClick"
+                            local:ToolIcon.Icon="{StaticResource IconForce}" local:ToolIcon.Title="Force"
                             ToolTip="Place parts where the placement law says they don't fit. They still show as build-order problems."/>
 
                     <Border Style="{StaticResource ToolSep}"/>
 
                     <!-- Overlays. -->
-                    <ToggleButton x:Name="BtnZones" Content="Zones" Style="{StaticResource OverlayToggle}" Click="OnZonesToggleClick"
-                            ToolTip="Show the crew-assignable zone paint. (Z)"/>
-                    <ToggleButton x:Name="BtnRooms" Content="Rooms" Style="{StaticResource OverlayToggle}" Click="OnRoomsToggleClick"
-                            ToolTip="Show the compartments the game would flood-fill. (C)"/>
-                    <ToggleButton x:Name="BtnPower" Content="Power" Style="{StaticResource OverlayToggle}" Click="OnPowerToggleClick"
-                            ToolTip="Show the conduit network and any orphaned runs. (P)"/>
-                    <ToggleButton x:Name="BtnLight" Content="Light" Style="{StaticResource SplitToggle}" Click="OnLightToggleClick"
-                            ToolTip="Simulate the in-game interior lighting. (L)"/>
+                    <ToggleButton x:Name="BtnZones" Content="Zones" Style="{StaticResource ToolToggle}" Click="OnZonesToggleClick"
+                            local:ToolIcon.Icon="{StaticResource IconZones}" local:ToolIcon.Title="Zones (Z)"
+                            ToolTip="Show the crew-assignable zone paint."/>
+                    <ToggleButton x:Name="BtnRooms" Content="Rooms" Style="{StaticResource ToolToggle}" Click="OnRoomsToggleClick"
+                            local:ToolIcon.Icon="{StaticResource IconRooms}" local:ToolIcon.Title="Rooms (C)"
+                            ToolTip="Show the compartments the game would flood-fill."/>
+                    <ToggleButton x:Name="BtnPower" Content="Power" Style="{StaticResource ToolToggle}" Click="OnPowerToggleClick"
+                            local:ToolIcon.Icon="{StaticResource IconPower}" local:ToolIcon.Title="Power (P)"
+                            ToolTip="Show the conduit network and any orphaned runs."/>
+                    <ToggleButton x:Name="BtnLight" Content="Light" Style="{StaticResource ToolSplitToggle}" Click="OnLightToggleClick"
+                            local:ToolIcon.Icon="{StaticResource IconLight}" local:ToolIcon.Title="Light (L)"
+                            ToolTip="Simulate the in-game interior lighting."/>
                     <Button x:Name="BtnLightMenu" Content="▾" Style="{StaticResource SplitArrow}" Click="OnLightMenuClick"
                             ToolTip="Exterior sun and its angle."/>
-                    <ToggleButton x:Name="BtnWalk" Content="Walk" Style="{StaticResource SplitToggle}" Click="OnWalkToggleClick"
-                            ToolTip="Show which tiles crew can reach and which fittings they can use. (K)"/>
+                    <ToggleButton x:Name="BtnWalk" Content="Walk" Style="{StaticResource ToolSplitToggle}" Click="OnWalkToggleClick"
+                            local:ToolIcon.Icon="{StaticResource IconWalk}" local:ToolIcon.Title="Walk (K)"
+                            ToolTip="Show which tiles crew can reach and which fittings they can use."/>
                     <Button x:Name="BtnWalkMenu" Content="▾" Style="{StaticResource SplitArrow}" Click="OnWalkMenuClick"
                             ToolTip="Whether EVA access counts, and whether Forbid zones are respected."/>
-                    <ToggleButton x:Name="BtnAccess" Content="Access" Style="{StaticResource OverlayToggle}" Click="OnAccessToggleClick"
-                            ToolTip="Point at a fitting to see where crew would work it from. (J)"/>
-                    <ToggleButton x:Name="BtnWire" Content="Wire" Style="{StaticResource OverlayToggle}" Click="OnWireToggleClick"
+                    <ToggleButton x:Name="BtnAccess" Content="Access" Style="{StaticResource ToolToggle}" Click="OnAccessToggleClick"
+                            local:ToolIcon.Icon="{StaticResource IconAccess}" local:ToolIcon.Title="Access (J)"
+                            ToolTip="Point at a fitting to see where crew would work it from."/>
+                    <ToggleButton x:Name="BtnWire" Content="Wire" Style="{StaticResource ToolToggle}" Click="OnWireToggleClick"
+                            local:ToolIcon.Icon="{StaticResource IconWire}" local:ToolIcon.Title="Wire"
                             ToolTip="Show signal wiring: sensors a device follows, and boxes that switch it."/>
-                    <ToggleButton x:Name="BtnSpawners" Content="Spawners" Style="{StaticResource SplitToggle}" Click="OnSpawnersToggleClick"
+                    <ToggleButton x:Name="BtnSpawners" Content="Spawners" Style="{StaticResource ToolSplitToggle}" Click="OnSpawnersToggleClick"
+                            local:ToolIcon.Icon="{StaticResource IconSpawners}" local:ToolIcon.Title="Spawners"
                             ToolTip="Show loot spawners on the plan. They never appear in play."/>
                     <Button x:Name="BtnSpawnersMenu" Content="▾" Style="{StaticResource SplitArrow}" Click="OnSpawnersMenuClick"
                             ToolTip="When to show a spawner's scatter square, and how to draw it."/>
@@ -302,8 +410,9 @@
                     <Border Style="{StaticResource ToolSep}"/>
 
                     <!-- Camera. Nothing to configure, so no arrow. -->
-                    <Button x:Name="BtnFit" Content="Fit" Padding="10,3" Margin="0,0,3,0" Click="OnFitClick"
-                            ToolTip="Frame the whole design in the view. (F)"/>
+                    <Button x:Name="BtnFit" Content="Fit" Style="{StaticResource ToolButton}" Click="OnFitClick"
+                            local:ToolIcon.Icon="{StaticResource IconFit}" local:ToolIcon.Title="Fit (F)"
+                            ToolTip="Frame the whole design in the view."/>
                 </StackPanel>
 
 
@@ -325,21 +434,21 @@
                             SizeChanged="OnRibbonSizeChanged">
                     <TextBlock x:Name="TxtWarnings" VerticalAlignment="Center"
                                Foreground="{DynamicResource Warn}" Margin="12,0,0,0"/>
-                    <TextBlock x:Name="TxtVersion" VerticalAlignment="Center"
-                               Foreground="{DynamicResource Dim}" Margin="12,0,0,0"/>
+                    <!-- The game version that used to sit here is in Settings, beside the install it was read from. -->
                     <Button x:Name="BtnUpdate" Padding="10,3" Margin="6,0,0,0"
                             Visibility="Collapsed" Click="OnUpdateClick"
                             Background="{DynamicResource AccentBg}" Foreground="{DynamicResource AccentText}"
                             ToolTip="A newer release is available. Click to open the download page."/>
                     <!-- Tips (#39). Hidden while tips are off or the user has taken the bulb away; SyncTipChrome
                          decides. -->
-                    <Button x:Name="BtnTip" Content="💡" Padding="8,3" Margin="6,0,0,0"
-                            Click="OnTipClick"
+                    <Button x:Name="BtnTip" Content="Tip" Style="{StaticResource ToolButton}" Margin="6,0,0,0"
+                            Click="OnTipClick" local:ToolIcon.Icon="{StaticResource IconTip}" local:ToolIcon.Title="Tip"
                             ToolTip="Show a tip about something you might not have found yet."/>
-                    <Button x:Name="BtnSettings" Content="⚙ Settings" Padding="10,3" Margin="6,0,0,0"
-                            Click="OnSettingsClick"
-                            ToolTip="Theme, UI scale, tips, mod overrides, and the game folders. (Ctrl+,)"/>
-                    <Button x:Name="BtnHelp" Content="Help ▾" Padding="10,3" Margin="6,0,0,0"
+                    <Button x:Name="BtnSettings" Content="Settings" Style="{StaticResource ToolButton}" Margin="6,0,0,0"
+                            Click="OnSettingsClick" local:ToolIcon.Icon="{StaticResource IconSettings}"
+                            local:ToolIcon.Title="Settings (Ctrl+,)"
+                            ToolTip="Theme, UI scale, tips, mod overrides, and the game folders."/>
+                    <Button x:Name="BtnHelp" Content="Help" Style="{StaticResource MenuButton}" Margin="6,0,0,0"
                             Click="OnHelpMenuClick" ToolTip="Controls and keybinds, tips, report a bug, and the activity log. (F1)"/>
                 </StackPanel>
             </Grid>
@@ -371,7 +480,7 @@
             </StatusBarItem>
             <!-- The design on screen is locked (#74), so nothing a click does will change it. -->
             <StatusBarItem x:Name="ReadOnlyBadge" Visibility="Collapsed">
-                <TextBlock Text="🔒 READ ONLY" FontWeight="Bold" Foreground="{DynamicResource Warn}"
+                <TextBlock Text="READ ONLY" FontWeight="Bold" Foreground="{DynamicResource Warn}"
                            ToolTip="This design is locked. Click the padlock in the toolbar to unlock it."/>
             </StatusBarItem>
             <StatusBarItem HorizontalAlignment="Right">

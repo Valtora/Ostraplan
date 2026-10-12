@@ -218,6 +218,14 @@ Accent and severity colours come from the `ThemeManager` brushes (`AccentBg`/`Ac
 is the Ship Rating button look). Reference them with `DynamicResource` so a light/dark
 switch re-resolves them.
 
+**Fluent's `ToggleButton` ignores `ContentTemplate`.** Its control template does not pass the property on to
+its `ContentPresenter` (the `Button` template does), so a `ContentTemplate` setter on a toggle style changes
+nothing and the toggle shows its content as plain text. The presenter still picks a template by the content's
+type, so the toolbar's icon toggles carry an implicit `DataTemplate` for `String` in their style's `Resources`,
+where only the toggles wearing that style can find it. `BasedOn` does not pass `Resources` on, so each derived
+style repeats it. Toolbar icons are geometry from `ToolbarIcons.xaml` drawn in the inherited text foreground, the
+same way as the split-button chevron, and `--ribbonsmoke` renders the toolbar in both themes at three scales.
+
 **A wrapped `TabControl` reorders itself, and you cannot stop it.** WPF lays a
 TabControl's headers out with a `TabPanel`, which moves the row holding the *selected*
 header down against the content. With enough headers to wrap, the strip therefore
