@@ -122,7 +122,7 @@ either, so they add nothing to the save-edit cost estimate.
 The palette's first tab keeps the parts you actually use within one click of any tab.
 
 - **Favorites** — click the ☆ on any palette row, or right-click a placed tile or loose
-  item ▸ **Add to Favorites**, to pin it. The star fills gold.
+  item ▸ **More ▸ Add to Favorites**, to pin it. The star fills gold.
 - **Recent** — every part you place is recorded automatically, newest first (the last
   8). Favorited parts are left out of Recent, since they already have a home, and
   reappear there if you unpin them.
@@ -157,7 +157,7 @@ overhead bin has to go up after the bin, because the bin wants that tile clear a
 moment it is installed. Ostraplan searches for a build order that works, but it never
 takes anything down again, so it cannot find an order that needs a part laid *after*
 something already standing in the way, and it reports the pair as unbuildable. Right-click
-the part that should go up last and choose **Build last**. Nothing about the part moves,
+the part that should go up last and choose **More ▸ Build last**. Nothing about the part moves,
 and it is not drawn any differently. It goes to the end of its own class (docking, then
 floors, then walls, then fittings), which is the order the game builds in, and the choice
 is saved with the design and travels into the game on export.
@@ -198,7 +198,7 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   and keep painting it. **Replace with…:** **Ctrl+R** swaps the selection for a
   compatible part — one on the same layer and the same size on the deck, so a floor
   swaps for a floor and a 3×3 machine for a 3×3 machine. **Find and Replace All…**
-  (right-click menu) does the same to every copy of that part in the ship at once.
+  (right-click ▸ **Replace**) does the same to every copy of that part in the ship at once.
 - **Paint over the deck:** **Surfaces** mode (**T**) lets a wall/floor brush re-skin the
   tile it lands on rather than refusing it, and ghosts everything else out of the way.
   See [Surfaces mode](#surfaces-mode--painting-the-deck).
@@ -220,10 +220,14 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   same as Ctrl+click on a part. To reach the structure *under* a loose item, press **`**
   to step down the pile, use the right-click stacked picker, or turn on **Surfaces** mode,
   which puts clutter out of the way of clicks entirely.
-- **Right-click** for the context menu: Duplicate (**Ctrl+D**), Copy
-  (**Ctrl+C**) / Paste (**Ctrl+V**), Rotate, Flip Horizontal / Vertical, Delete
-  (**Del**), **Use as brush** (**Alt+click**, the eyedropper — arm the part you clicked, at its
-  rotation, and keep drawing), and **Replace with…** (**Ctrl+R**).
+- **Right-click** for the context menu. It opens on what is under the cursor, then what
+  the part itself does (a door, a power switch, wiring, contents, its name), then
+  Duplicate (**Ctrl+D**), Copy (**Ctrl+C**), Paste (**Ctrl+V**) and Delete (**Del**). The
+  rest is folded into submenus: **Rotate and flip**, **Replace** (**Replace with…**,
+  **Ctrl+R**, and **Find and Replace All…**), **Draw order**, **Condition** (**Repair** and
+  **Clear painted condition**), and **More** (**Make Loose Item**, **Use as brush**, the
+  eyedropper on **Alt+click**, **Add to Favorites**, **Build last** and **Run loot
+  spawners…**). Point at any entry for a line on what it does.
 - **Reach what's underneath:** **`** steps the selection down the pile of things under
   the cursor, wrapping at the bottom; the right-click menu lists the whole pile too.
   **Move Back** / **Move Forward** (**Ctrl+[** / **Ctrl+]**) change which of them draws
@@ -724,7 +728,7 @@ others have not. An area rolls exactly as the brush does, once per object, so bo
 - **Not everything can be worn.** Ship systems and parts with no damage pool of their own are
   left alone, exactly as the game leaves them, and the window says how many a stroke passed
   over.
-- **To undo a painted part later**, select it and use **right-click ▸ Clear painted condition**.
+- **To undo a painted part later**, select it and use **right-click ▸ Condition ▸ Clear painted condition**.
   That is not the same as painting it to 100%: cleared means "whatever the export's wear
   setting decides", where 100% means pristine no matter what that setting says. The inspector
   shows a **Condition** row on anything you have painted, so its presence answers "did I paint
@@ -1746,7 +1750,7 @@ imported ship) are preserved untouched.
 ## Loose items & fixtures
 
 Right-click a placed fixture — a sink, an appliance, a gas canister — and choose
-**Make Loose Item** to uninstall it into its packaged (loose) form on the tile, or
+**More ▸ Make Loose Item** to uninstall it into its packaged (loose) form on the tile, or
 **Install item** to do the reverse. Only parts the game can actually uninstall are
 offered (raw hull, walls and the fixed airlock never are). The swap keeps the
 tile, rotation and any contents, and is one undo step. A loose fixture no longer
@@ -1809,7 +1813,7 @@ Both are remembered, and both apply to every design you have open.
 ### Running them
 
 **Right-click a spawner ▸ Run spawner…**, or right-click a selection holding several and choose
-**Run loot spawners…**, to roll what they would make and lay it on the deck as ordinary items.
+**More ▸ Run loot spawners…**, to roll what they would make and lay it on the deck as ordinary items.
 It uses the game's own loot tables and the game's own arithmetic, so what comes out is what the
 ship would actually have arrived with.
 
@@ -1853,7 +1857,7 @@ of them for the working part, using the game's own repair jobs, so nothing is in
 
 - It tells you how many it found, and of how many kinds, before it changes anything.
 - Tile, rotation, custom name and contents all ride across. One undo step for the lot.
-- To fix a section rather than the whole ship, select it, right-click and choose **Repair**.
+- To fix a section rather than the whole ship, select it, right-click and choose **Condition ▸ Repair**.
   The entry only appears when something in the selection is actually broken.
 - A **themed** wall or floor is repaired into the same theme (a damaged Testudo wall
   becomes an intact Testudo wall, not a generic one).
@@ -1934,6 +1938,10 @@ is the one people hit, because its on-state is a colour variant. Those were plac
 no way to switch them on. Now they can be switched either way, in one undo step, keeping
 tile, rotation and contents.
 
+The switch is separate from a device's **Bus** in the inspector. Switching decides whether
+the device is on at all; Bus decides when a switched-on device runs: **Auto** when the sensor
+it follows trips, **On** all the time, **Off** never.
+
 This is not cosmetic. Both the **Ship Rating** and **Diagnostics** ignore anything switched
 off, so a transponder left off really does read as a fault, and switching your lift rotors
 on is what makes them count in **Flight Dynamics**.
@@ -1979,7 +1987,7 @@ Placing *arbitrary* loose inventory — tools, food, consumables — is the sepa
 **ITEMS** palette tab: arm one and click to lay it on the deck, or drop it into a
 container under the cursor if one accepts it. Right-click a placed loose item for
 **Rename…**, **Change Quantity** (stackable items, up to the item's stack limit) and
-**Delete**.
+**Delete**, with **Draw order** and **More ▸ Add to Favorites** below them.
 Loose cargo carries no structure, so it takes no part in the Law for building the ship; it
 renders and travels with the ship through **Export** and save write-back.
 
@@ -2039,7 +2047,7 @@ for you:
   **a small part inside a bigger one draws under it**, and loose deck clutter draws over
   installed parts, because that is what "lying on the floor" looks like.
 
-When you disagree, say so: **Move Back** and **Move Forward** (right-click, or
+When you disagree, say so: **Move Back** and **Move Forward** (right-click ▸ **Draw order**, or
 **Ctrl+[** and **Ctrl+]**) step the selected part or loose item through the pile on its
 tile, and **Reset order** puts that pile back to automatic. The choice is saved with the
 design. A nudge only moves a part against the ones the game put at the same place in the

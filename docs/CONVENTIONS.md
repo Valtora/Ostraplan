@@ -366,6 +366,21 @@ because a game-exact output should not be adjustable. Functional controls that s
 game data, such as the exterior sun location and angle, stayed. If a slider can make the
 output disagree with the game, it does not belong.
 
+## The right-click menu has a place for every entry
+
+The plan's right-click menu grew an entry with every feature until a single device showed more than twenty in
+one flat list, and players stopped reading it. It is now in four parts (`OnContextMenuRequested`): what is under
+the cursor, what this part does (door, power, wiring, contents, name), the everyday edits (Duplicate, Copy, Paste,
+Delete), and submenus for the rest: **Rotate and flip**, **Replace**, **Draw order**, **Condition** and **More**.
+
+- **A new entry goes into one of those parts**, not onto the end of the menu. Something only some parts can do
+  belongs with the part's own entries; anything rarer goes into the submenu it fits, or **More**.
+- **Every entry is a `ContextEntry`, which takes a tooltip.** One sentence on what the entry does, in the voice
+  of the rest of the UI. It shows on a greyed-out entry too.
+- **Submenus keep their names and places** whatever is in them, because tips and usage.md name paths through
+  them ("Right-click ▸ Condition ▸ Repair"). Moving an entry means updating every tip that names it (DEVELOPMENT,
+  Tips).
+
 ## Prose in the app and the docs
 
 Objective and plain, in user-facing text, docs and commit messages alike. Comments earn

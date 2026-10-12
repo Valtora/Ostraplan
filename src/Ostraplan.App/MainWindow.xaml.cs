@@ -3600,9 +3600,10 @@ public partial class MainWindow : Window
     /// cases in the menu asks the user to classify a part the app has already classified. What they then click is
     /// filtered to what will actually work, which is where that information belongs.</para>
     /// </summary>
-    private void AddWiringItems(ContextMenu menu, Placement p, Func<string, string, RoutedEventHandler, bool, MenuItem> item)
+    private List<Control> WiringEntries(Placement p)
     {
-        if (_doc is null) return;
+        var entries = new List<Control>();
+        if (_doc is null) return entries;
 
         // Which end this part is. Driving wins where a part could be both, since that is the connection it can
         // make several of; a driven part has one input and would only ever replace what it had.
@@ -3625,25 +3626,22 @@ public partial class MainWindow : Window
             else if (ReferenceEquals(target, p)) connected.Add(($"Disconnect from {Name(source)}", source, target));
         }
 
-        if (end is null && connected.Count == 0) return;
-
-        menu.Items.Add(new Separator());
         if (end is { } wireEnd)
-            menu.Items.Add(item("Wiring…", "", (_, _) => Board.BeginWirePick(p, wireEnd), true));
+            entries.Add(ContextEntry("Wiring…", "",
+                wireEnd == WireEnd.Driver
+                    ? "Click each device on the plan that this one should control."
+                    : "Click the sensor on the plan that this device should follow.",
+                (_, _) => Board.BeginWirePick(p, wireEnd)));
 
         // A signal box can drive a great many things, so past a couple these fold into a submenu rather than
         // burying the rest of the menu under a list of disconnects.
-        if (connected.Count == 0) return;
-        if (connected.Count <= 2)
-        {
-            foreach (var (label, driver, driven) in connected)
-                menu.Items.Add(item(label, "", (_, _) => OnLinkToggleRequested(driver, driven), true));
-            return;
-        }
-        var sub = new MenuItem { Header = $"Disconnect ({connected.Count})" };
-        foreach (var (label, driver, driven) in connected)
-            sub.Items.Add(item(label, "", (_, _) => OnLinkToggleRequested(driver, driven), true));
-        menu.Items.Add(sub);
+        const string cut = "Remove this link. Wire in the toolbar shows every link on the plan.";
+        var disconnects = connected
+            .Select(c => (Control)ContextEntry(c.Label, "", cut, (_, _) => OnLinkToggleRequested(c.Driver, c.Driven)))
+            .ToList();
+        if (disconnects.Count <= 2) entries.AddRange(disconnects);
+        else entries.Add(ContextGroup($"Disconnect ({disconnects.Count})", disconnects)!);
+        return entries;
     }
 
     private void OnAddZoneClick(object sender, RoutedEventArgs e)
@@ -3998,20 +3996,45 @@ public partial class MainWindow : Window
         Board.InvalidateVisual();
     }
 
-    /// <summary>The Move Back / Move Forward / Reset order entries for a tile, appended to whichever context menu
-    /// is open. Both menus offer them, because a canister and the regulator it leans on are one pile whether the
-    /// canister is installed or lying on the deck. Nothing is added when only one thing is drawn on the tile.</summary>
-    private void AddRestackItems(ContextMenu menu, (int X, int Y) cell, Func<string, string, RoutedEventHandler, bool, MenuItem> item)
+    /// <summary>The Draw order submenu for a tile: Move Back, Move Forward and Reset order. Both context menus offer
+    /// it, because a canister and the regulator it leans on are one pile whether the canister is installed or lying
+    /// on the deck. Null when only one thing is drawn on the tile.</summary>
+    private MenuItem? DrawOrderGroup((int X, int Y) cell)
     {
-        if (_doc is null || Board.RestackTarget(cell) is not { } t) return;
+        if (_doc is null || Board.RestackTarget(cell) is not { } t) return null;
         var pile = ZOrder.StackAt(_doc, t.X, t.Y, t.Item);
-        if (pile.Count < 2) return;
+        if (pile.Count < 2) return null;
 
         var at = pile.ToList().FindIndex(i => i.Id == t.Item.Id);
-        menu.Items.Add(new Separator());
-        menu.Items.Add(item("Move Back", "Ctrl+[", (_, _) => Restack(false, cell), at > 0));
-        menu.Items.Add(item("Move Forward", "Ctrl+]", (_, _) => Restack(true, cell), at < pile.Count - 1));
-        menu.Items.Add(item("Reset order", "", (_, _) => ResetStackOrder(cell), pile.Any(i => i.ZBias != 0)));
+        return ContextGroup("Draw order",
+        [
+            ContextEntry("Move Back", "Ctrl+[", "Draw it under the next thing on this tile.",
+                (_, _) => Restack(false, cell), at > 0),
+            ContextEntry("Move Forward", "Ctrl+]", "Draw it over the next thing on this tile.",
+                (_, _) => Restack(true, cell), at < pile.Count - 1),
+            ContextEntry("Reset order", "", "Put this tile's pile back in its usual order.",
+                (_, _) => ResetStackOrder(cell), pile.Any(i => i.ZBias != 0)),
+        ]);
+    }
+
+    /// <summary>One entry on a plan's right-click menu. Every entry carries a tooltip saying what it does, shown
+    /// even while it is greyed out, because the menu is where a player meets a feature they have not used.</summary>
+    private static MenuItem ContextEntry(string header, string gesture, string tip, RoutedEventHandler onClick, bool enabled = true)
+    {
+        var item = new MenuItem { Header = header, InputGestureText = gesture, IsEnabled = enabled, ToolTip = tip };
+        ToolTipService.SetShowOnDisabled(item, true);
+        item.Click += onClick;
+        return item;
+    }
+
+    /// <summary>A submenu on a plan's right-click menu, or null when there is nothing to put in it. Greyed out when
+    /// every entry in it is, so a submenu that can do nothing does not open onto a column of grey.</summary>
+    private static MenuItem? ContextGroup(string header, IReadOnlyList<Control> entries)
+    {
+        if (entries.Count == 0) return null;
+        var group = new MenuItem { Header = header, IsEnabled = entries.OfType<MenuItem>().Any(m => m.IsEnabled) };
+        foreach (var e in entries) group.Items.Add(e);
+        return group;
     }
 
     /// <summary>
@@ -4396,19 +4419,23 @@ public partial class MainWindow : Window
             : $"⛔ {skipped} deck items left out: those tiles already hold one";
     }
 
+    /// <summary>
+    /// The plan's right-click menu, in four parts: what is under the cursor (the selection, or the pile on the
+    /// tile), what this part does (its door, power, wiring, contents and name), the everyday edits, and everything
+    /// else folded into submenus by kind.
+    ///
+    /// <para>It used to be one flat list that grew an entry with every feature, past twenty on a single device, and
+    /// players read it as a wall. The part's own entries come first because they are why somebody right-clicks a
+    /// part rather than pressing a key, and the edits stay one click away because they are the ones used most. The
+    /// submenus keep their names and their places whichever entries they hold, so a tip can name a path through
+    /// them ("Right-click ▸ Condition ▸ Repair") and have it still be right.</para>
+    /// </summary>
     private void OnContextMenuRequested((int X, int Y) cell)
     {
         if (_doc is null) return;
         var stack = _doc.HitTestStack(cell.X, cell.Y);   // topmost first, placements only (what the actions act on)
         var drawn = _doc.RenderStackAt(cell.X, cell.Y);  // the same pile as drawn, loose items included
         if (stack.Count == 0) return;
-
-        static MenuItem Item(string header, string gesture, RoutedEventHandler onClick, bool enabled = true)
-        {
-            var item = new MenuItem { Header = header, InputGestureText = gesture, IsEnabled = enabled };
-            item.Click += onClick;
-            return item;
-        }
 
         var menu = new ContextMenu { PlacementTarget = Board };
 
@@ -4456,8 +4483,8 @@ public partial class MainWindow : Window
                 foreach (var row in rows)
                 {
                     var (label, parts, loose) = row;
-                    pick.Items.Add(Item($"{label} ({parts.Count + loose.Count})", "",
-                        (_, _) => Board.SetSelection(parts, loose)));
+                    pick.Items.Add(ContextEntry($"{label} ({parts.Count + loose.Count})", "",
+                        "Narrow the selection to these alone.", (_, _) => Board.SetSelection(parts, loose)));
                 }
                 menu.Items.Add(pick);
             }
@@ -4483,7 +4510,8 @@ public partial class MainWindow : Window
                 var name = d.Placement is { } dp
                     ? Rename.Display(dp, _doc.Part(dp)) + (_doc.IsLocked(dp) ? "   · fixed" : "")
                     : Rename.Display(d.Loose!, _catalog!.Lookup(d.DefName)) + "   · loose";
-                menu.Items.Add(Item((isSel ? "●  " : "○  ") + name, "", (_, _) => Board.SelectItem(target)));
+                menu.Items.Add(ContextEntry((isSel ? "●  " : "○  ") + name, "", "Select this one out of the pile.",
+                    (_, _) => Board.SelectItem(target)));
             }
         }
         else
@@ -4530,154 +4558,177 @@ public partial class MainWindow : Window
             && ReplaceOps.CommonClass(_doc, [selected[0]]) is { } fcls
             && ReplaceOps.CompatibleTargets(_catalog!, fcls).Count > 0;
 
-        // door state — flip the selected doors between open and closed
+        static string Count(int n) => n > 1 ? $" ({n})" : "";
+        // A lone part's own entries (name, wiring, contents) use the selected part, else the topmost on the tile. A
+        // multi-selection has none of them: each is about one part.
+        var single = multi ? null : (selected.Count == 1 ? selected[0] : stack[0]);
+
+        // ---- what this part does ----
+        var own = new List<Control>();
+
+        // door state: flip the selected doors between open and closed
         var toClose = unlocked.Where(p => _catalog!.DoorToggle(p.DefName) is not null && p.DefName.Contains("Open")).ToList();
         var toOpen = unlocked.Where(p => _catalog!.DoorToggle(p.DefName) is not null && p.DefName.Contains("Closed")).ToList();
-        if (toClose.Count > 0 || toOpen.Count > 0)
-        {
-            menu.Items.Add(new Separator());
-            if (toClose.Count > 0)
-                menu.Items.Add(Item("Close door" + (toClose.Count > 1 ? $" ({toClose.Count})" : ""), "", (_, _) => ToggleDoors(toClose)));
-            if (toOpen.Count > 0)
-                menu.Items.Add(Item("Open door" + (toOpen.Count > 1 ? $" ({toOpen.Count})" : ""), "", (_, _) => ToggleDoors(toOpen)));
-        }
+        if (toClose.Count > 0)
+            own.Add(ContextEntry("Close door" + Count(toClose.Count), "", "The ship spawns with this door shut.",
+                (_, _) => ToggleDoors(toClose)));
+        if (toOpen.Count > 0)
+            own.Add(ContextEntry("Open door" + Count(toOpen.Count), "", "The ship spawns with this door open.",
+                (_, _) => ToggleDoors(toOpen)));
 
-        // power state — switch the selected devices on or off. Split by which way each one can go, so a mixed
+        // power state: switch the selected devices on or off. Split by which way each one can go, so a mixed
         // selection offers both and each entry does exactly what it says.
         var switchable = unlocked.Where(p => _catalog!.PowerToggle(p.DefName) is not null).ToList();
         var toSwitchOn = switchable.Where(p => _catalog!.Lookup(p.DefName)?.StartingConds.Contains("IsOff") == true).ToList();
         var toSwitchOff = switchable.Except(toSwitchOn).ToList();
-        if (toSwitchOn.Count > 0 || toSwitchOff.Count > 0)
-        {
-            menu.Items.Add(new Separator());
-            if (toSwitchOn.Count > 0)
-                menu.Items.Add(Item("Switch on" + (toSwitchOn.Count > 1 ? $" ({toSwitchOn.Count})" : ""), "", (_, _) => TogglePower(toSwitchOn)));
-            if (toSwitchOff.Count > 0)
-                menu.Items.Add(Item("Switch off" + (toSwitchOff.Count > 1 ? $" ({toSwitchOff.Count})" : ""), "", (_, _) => TogglePower(toSwitchOff)));
-        }
+        if (toSwitchOn.Count > 0)
+            own.Add(ContextEntry("Switch on" + Count(toSwitchOn.Count), "",
+                "The ship spawns with this switched on. The rating and Diagnostics ignore anything switched off.",
+                (_, _) => TogglePower(toSwitchOn)));
+        if (toSwitchOff.Count > 0)
+            own.Add(ContextEntry("Switch off" + Count(toSwitchOff.Count), "",
+                "The ship spawns with this switched off, and the rating and Diagnostics ignore it.",
+                (_, _) => TogglePower(toSwitchOff)));
 
-        // rename — a single part, whatever it is (the game renames anything that is not a person, the primary
-        // airlock included: its lock is about geometry, not about what it is called). One at a time by nature: a
-        // name is the thing that tells two otherwise-identical racks apart, so applying one to a multi-selection
-        // would defeat the point.
-        var renameTarget = multi ? null : (selected.Count == 1 ? selected[0] : stack[0]);
-        if (renameTarget is { } rt && Rename.CanRename(_doc.Part(rt)))
-        {
-            menu.Items.Add(new Separator());
-            menu.Items.Add(Item(rt.CustomName is null ? "Rename…" : "Rename or clear…", "", (_, _) => RenamePart(rt)));
-        }
+        // wiring: a single part that takes part in a signal connection. Starting a wire is a two-step gesture (arm
+        // here, then click the partner in the plan), so it belongs on the part rather than on a mode: the menu is
+        // where you already are when you decide a pump should follow that alarm. The Wire toolbar button only shows
+        // the wiring, the way the other overlay toggles only show their own thing.
+        if (single is { } wireOn) own.AddRange(WiringEntries(wireOn));
 
-        // wiring — a single part that takes part in a signal connection. Starting a wire is a two-step gesture
-        // (arm here, then click the partner in the plan), so it belongs on the part rather than on a mode: the
-        // menu is where you already are when you decide a pump should follow that alarm. The Wire toolbar button
-        // only shows the wiring, the way the other overlay toggles only show their own thing.
-        var wireTarget = multi ? null : (selected.Count == 1 ? selected[0] : stack[0]);
-        if (wireTarget is { } wireOn) AddWiringItems(menu, wireOn, Item);
-
-        // installed ⇄ loose form: uninstall a placed fixture to its packaged (loose) form on the tile, or
-        // re-install a loose one. Eligibility is the game's own uninstall/install jobs, so only real fixtures
-        // qualify (raw hull, walls and the fixed airlock have no such job and never appear).
-        var toLoosen = FormSwap.Loosenable(_doc, unlocked);
-        var toInstall = FormSwap.Installable(_doc, unlocked);
-        if (toLoosen.Count > 0 || toInstall.Count > 0)
-        {
-            menu.Items.Add(new Separator());
-            if (toLoosen.Count > 0)
-                menu.Items.Add(Item("Make Loose Item" + (toLoosen.Count > 1 ? $" ({toLoosen.Count})" : ""), "", (_, _) => SwapForms(toLoosen)));
-            if (toInstall.Count > 0)
-                menu.Items.Add(Item("Install item" + (toInstall.Count > 1 ? $" ({toInstall.Count})" : ""), "", (_, _) => SwapForms(toInstall)));
-        }
-
-        // repair — a part that is broken as a def (a damaged wall, a wrecked alarm) swapped for its working form.
-        // Only ever offered when the selection actually contains one, so an intact ship never shows it; the
-        // whole-ship version is Design ▸ Repair All.
-        var toRepair = Repair.Repairable(_doc, unlocked);
-        if (toRepair.Count > 0)
-        {
-            menu.Items.Add(new Separator());
-            menu.Items.Add(Item("Repair" + (toRepair.Count > 1 ? $" ({toRepair.Count})" : ""), "", (_, _) => SwapForms(toRepair)));
-        }
-
-        // The Damage Brush paints; this is the only way to unpaint, so it is offered wherever the selection
-        // actually carries a painted condition and nowhere else. It clears the authored value rather than setting
-        // 100%: the two differ at the export, where cleared means "whatever the wear setting decides" and 100%
-        // means "pristine, whatever the wear setting says".
-        var toUnpaint = unlocked.Where(p => p.Condition is not null).ToList();
-        var looseUnpaint = Board.SelectedLooseObjects().Where(o => o.Condition is not null).ToList();
-        if (toUnpaint.Count + looseUnpaint.Count > 0)
-        {
-            var n = toUnpaint.Count + looseUnpaint.Count;
-            menu.Items.Add(new Separator());
-            menu.Items.Add(Item("Clear painted condition" + (n > 1 ? $" ({n})" : ""), "",
-                (_, _) => ClearPaintedCondition(toUnpaint, looseUnpaint)));
-        }
-
-        // "View contents…": a single container/console/crate — shown even when empty (so an imported empty
-        // container isn't "locked"). Not shown for a multi-selection — uses the lone selected part, else topmost.
-        var cargoTarget = multi ? null : (selected.Count == 1 ? selected[0] : stack[0]);
-        var contentsShown = false;
-        if (cargoTarget is { } ct && CanViewContents(ct))
+        // "View contents…": a single container/console/crate, shown even when empty (so an imported empty
+        // container isn't "locked").
+        if (single is { } ct && CanViewContents(ct))
         {
             var n = ct.Cargo.Count;
-            menu.Items.Add(new Separator());
-            contentsShown = true;
-            menu.Items.Add(Item("View contents" + (n > 0 ? $" ({n})" : "") + "…", "", (_, _) => OpenInventory(ct)));
+            own.Add(ContextEntry("View contents" + (n > 0 ? $" ({n})" : "") + "…", "",
+                "See and change what's inside. It goes into the game with the ship.", (_, _) => OpenInventory(ct)));
             // a nav console's screens are its modules, and where each one sits is the console's own arrangement
-            if (NavConsole.IsConsole(_doc?.Part(ct)))
-                menu.Items.Add(Item("Arrange screen…", "", (_, _) => OpenNavArrange(ct)));
+            if (NavConsole.IsConsole(_doc.Part(ct)))
+                own.Add(ContextEntry("Arrange screen…", "", "Lay out the console's modules as they sit on its screen.",
+                    (_, _) => OpenNavArrange(ct)));
         }
 
-        // "Fill…": how much gas or fuel a canister or tank holds. A different question from "View contents" —
-        // that is a container's inventory of items, this is the payload the part itself carries — but they sit
-        // together because both are "what is inside this thing".
-        var fillTarget = multi ? null : (selected.Count == 1 ? selected[0] : stack[0]);
-        if (fillTarget is { } ft && ContainerFill.Describe(_doc?.Part(ft), _catalog!) is not null)
+        // "Fill…": how much gas or fuel a canister or tank holds. A different question from "View contents" (that
+        // is a container's inventory of items, this is the payload the part itself carries), but they sit together
+        // because both are "what is inside this thing".
+        if (single is { } ft && ContainerFill.Describe(_doc.Part(ft), _catalog!) is not null)
+            own.Add(ContextEntry(ft.Fill is null ? "Fill…" : "Fill (changed)…", "",
+                "Set how much gas or fuel it holds.", (_, _) => OpenFill(ft)));
+
+        // rename: one part at a time by nature, since a name is what tells two otherwise-identical racks apart (the
+        // game renames anything that is not a person, the primary airlock included: its lock is about geometry, not
+        // about what it is called)
+        if (single is { } rt && Rename.CanRename(_doc.Part(rt)))
+            own.Add(ContextEntry(rt.CustomName is null ? "Rename…" : "Rename or clear…", "",
+                "Give it a name of its own. The name goes into the game with it.", (_, _) => RenamePart(rt)));
+
+        if (own.Count > 0)
         {
-            if (!contentsShown) menu.Items.Add(new Separator());
-            menu.Items.Add(Item(ft.Fill is null ? "Fill…" : "Fill (changed)…", "", (_, _) => OpenFill(ft)));
+            menu.Items.Add(new Separator());
+            foreach (var e in own) menu.Items.Add(e);
         }
 
+        // ---- the everyday edits ----
         menu.Items.Add(new Separator());
+        menu.Items.Add(ContextEntry("Duplicate" + suffix, "Ctrl+D",
+            "Copy the selection just beside the original, with its names, contents and device settings.",
+            (_, _) => DuplicateSelection(), canAct));
+        menu.Items.Add(ContextEntry("Copy" + suffix, "Ctrl+C", "Copy the selection, to paste here or in another tab.",
+            (_, _) => CopySelection(), canAct));
+        // The tile the menu was opened on, not wherever the cursor is by the time the item is clicked: by then it is
+        // over the menu popup, which is a window of its own and not the canvas.
+        menu.Items.Add(ContextEntry("Paste", "Ctrl+V", "Paste at the tile you right-clicked.",
+            (_, _) => PasteClipboard(cell), _clip.Count > 0));
+        menu.Items.Add(ContextEntry("Delete" + suffix, "Del", "Take the selection off the plan. Undo brings it back.",
+            (_, _) => DeleteSelection(), canAct));
+
+        // ---- the rest, folded by kind ----
+        var groups = new List<MenuItem?>
+        {
+            ContextGroup("Rotate and flip",
+            [
+                ContextEntry("Rotate CW" + suffix, "R", "Turn the selection 90° clockwise.", (_, _) => RotateSelection(90), canRotate),
+                ContextEntry("Rotate CCW" + suffix, "Shift+R", "Turn the selection 90° anticlockwise.",
+                    (_, _) => RotateSelection(-90), canRotate),
+                ContextEntry("Flip Horizontal" + suffix, "H", "Mirror the selection left to right.",
+                    (_, _) => FlipSelection(horizontal: true), canRotate),
+                ContextEntry("Flip Vertical" + suffix, "Shift+H", "Mirror the selection top to bottom.",
+                    (_, _) => FlipSelection(horizontal: false), canRotate),
+            ]),
+        };
+
+        var replace = new List<Control>();
+        if (canReplace)
+            replace.Add(ContextEntry("Replace with…" + suffix, "Ctrl+R",
+                "Swap the selection for another part of the same layer and size.", (_, _) => ReplaceSelection()));
+        if (canFindReplace)
+            replace.Add(ContextEntry("Find and Replace All…" + Count(findMatches.Count), "",
+                "Swap every copy of this part in the ship.", (_, _) => FindAndReplace()));
+        groups.Add(ContextGroup("Replace", replace));
+
+        if (!multi) groups.Add(DrawOrderGroup(cell));
+
+        // repair: a part that is broken as a def (a damaged wall, a wrecked alarm) swapped for its working form. Only
+        // offered when the selection contains one, so an intact ship never shows it; the whole-ship version is
+        // Design ▸ Repair All.
+        var condition = new List<Control>();
+        var toRepair = Repair.Repairable(_doc, unlocked);
+        if (toRepair.Count > 0)
+            condition.Add(ContextEntry("Repair" + Count(toRepair.Count), "", "Swap each broken part for its working form.",
+                (_, _) => SwapForms(toRepair)));
+        // The Damage Brush paints; this is the only way to unpaint, so it is offered wherever the selection carries a
+        // painted condition and nowhere else. It clears the authored value rather than setting 100%: the two differ
+        // at the export, where cleared means "whatever the wear setting decides" and 100% means "pristine, whatever
+        // the wear setting says".
+        var toUnpaint = unlocked.Where(p => p.Condition is not null).ToList();
+        var looseUnpaint = selectedLoose.Where(o => o.Condition is not null).ToList();
+        if (toUnpaint.Count + looseUnpaint.Count > 0)
+            condition.Add(ContextEntry("Clear painted condition" + Count(toUnpaint.Count + looseUnpaint.Count), "",
+                "Take off the wear the Damage Brush painted on it.",
+                (_, _) => ClearPaintedCondition(toUnpaint, looseUnpaint)));
+        groups.Add(ContextGroup("Condition", condition));
+
+        var more = new List<Control>();
+        // installed ⇄ loose form: uninstall a placed fixture to its packaged (loose) form on the tile, or re-install
+        // a loose one. Eligibility is the game's own uninstall/install jobs, so only real fixtures qualify (raw hull,
+        // walls and the fixed airlock have no such job and never appear).
+        var toLoosen = FormSwap.Loosenable(_doc, unlocked);
+        var toInstall = FormSwap.Installable(_doc, unlocked);
+        if (toLoosen.Count > 0)
+            more.Add(ContextEntry("Make Loose Item" + Count(toLoosen.Count), "",
+                "Uninstall it where it stands, as a loose item on the deck.", (_, _) => SwapForms(toLoosen)));
+        if (toInstall.Count > 0)
+            more.Add(ContextEntry("Install item" + Count(toInstall.Count), "", "Install it where it stands.",
+                (_, _) => SwapForms(toInstall)));
         if (brushDef is not null)
         {
-            menu.Items.Add(Item("Use as brush", "Alt+Click", (_, _) => OnArmFromTile(brushDef, brushRot)));
-            menu.Items.Add(Item(_settings.IsFavorite(brushDef, false) ? "Remove from Favorites" : "Add to Favorites",
-                "", (_, _) => ToggleFavoriteByRef(brushDef, false)));
+            more.Add(ContextEntry("Use as brush", "Alt+Click", "Arm this part at its own rotation and carry on placing it.",
+                (_, _) => OnArmFromTile(brushDef, brushRot)));
+            var favourite = _settings.IsFavorite(brushDef, false);
+            more.Add(ContextEntry(favourite ? "Remove from Favorites" : "Add to Favorites", "",
+                favourite ? "Unpin it from the palette's FAV/REC tab." : "Pin it to the palette's FAV/REC tab.",
+                (_, _) => ToggleFavoriteByRef(brushDef, false)));
         }
-        // "Run loot spawners…": offered whenever the design has any, since the dialog can widen the scope from
-        // the catch to the whole ship (#65).
-        if (_doc is not null && SpawnerRun.Runnable(_doc).Count > 0)
+        // "Build last": the ordering escape hatch (#67). Unlocked parts only, because the build-order sweep does not
+        // judge given or locked structure at all, so moving one through the list would change nothing.
+        if (unlocked.Count > 0)
+            more.Add(ContextEntry("Build last" + Count(unlocked.Count), "",
+                "Build the selection after everything else, for a part that only fits once another is up.",
+                (_, _) => BuildLast(unlocked)));
+        // "Run loot spawners…": offered whenever the design has any, since the dialog can widen the scope from the
+        // catch to the whole ship (#65).
+        if (SpawnerRun.Runnable(_doc).Count > 0)
         {
             var caught = selectedLoose.Count(SpawnerRun.IsRunnable);
-            menu.Items.Add(Item("Run loot spawners…" + (caught > 1 ? $" ({caught})" : ""), "",
+            more.Add(ContextEntry("Run loot spawners…" + Count(caught), "",
+                "Roll what the loot spawners would make and lay it on the deck.",
                 (_, _) => RunSpawners(selectedLoose.Where(SpawnerRun.IsRunnable).ToList())));
-            menu.Items.Add(new Separator());
         }
+        groups.Add(ContextGroup("More", more));
 
-        if (canReplace)
-            menu.Items.Add(Item("Replace with…" + suffix, "Ctrl+R", (_, _) => ReplaceSelection()));
-        if (canFindReplace)
-            menu.Items.Add(Item("Find and Replace All…" + (findMatches.Count > 1 ? $" ({findMatches.Count})" : ""), "", (_, _) => FindAndReplace()));
-        menu.Items.Add(Item("Duplicate" + suffix, "Ctrl+D", (_, _) => DuplicateSelection(), canAct));
-        menu.Items.Add(Item("Copy" + suffix, "Ctrl+C", (_, _) => CopySelection(), canAct));
-        // The tile the menu was opened on, not wherever the cursor is by the time the item is clicked — by then it
-        // is over the menu popup, which is a window of its own and not the canvas.
-        menu.Items.Add(Item("Paste", "Ctrl+V", (_, _) => PasteClipboard(cell), _clip.Count > 0));
-        menu.Items.Add(Item("Rotate CW" + suffix, "R", (_, _) => RotateSelection(90), canRotate));
-        menu.Items.Add(Item("Rotate CCW" + suffix, "Shift+R", (_, _) => RotateSelection(-90), canRotate));
-        menu.Items.Add(Item("Flip Horizontal" + suffix, "H", (_, _) => FlipSelection(horizontal: true), canRotate));
-        menu.Items.Add(Item("Flip Vertical" + suffix, "Shift+H", (_, _) => FlipSelection(horizontal: false), canRotate));
-        if (!multi) AddRestackItems(menu, cell, Item);
-        // "Build last": the ordering escape hatch (#67). Unlocked parts only, because the build-order sweep does
-        // not judge given or locked structure at all, so moving one through the list would change nothing.
-        if (unlocked.Count > 0)
-        {
-            menu.Items.Add(new Separator());
-            menu.Items.Add(Item("Build last" + (unlocked.Count > 1 ? $" ({unlocked.Count})" : ""), "",
-                (_, _) => BuildLast(unlocked)));
-        }
         menu.Items.Add(new Separator());
-        menu.Items.Add(Item("Delete" + suffix, "Del", (_, _) => DeleteSelection(), canAct));
+        foreach (var g in groups.OfType<MenuItem>()) menu.Items.Add(g);
         menu.IsOpen = true;
     }
 
@@ -4753,20 +4804,14 @@ public partial class MainWindow : Window
         }
     }
 
-    /// <summary>Context menu for a loose floor item (the Items palette): change its stacked quantity (when the item
-    /// stacks) and delete it. Fired by a right-click on the item, which has already selected it.</summary>
+    /// <summary>Context menu for a loose floor item (the Items palette), laid out like a placed part's: what the item
+    /// does, Delete, then Draw order and More folded away. Fired by a right-click on the item, which has already
+    /// selected it.</summary>
     private void OnLooseContextMenuRequested((int X, int Y) cell)
     {
         if (_doc is null || _catalog is null || Board.SelectedLoose is not { } lo) return;
         var part = _catalog.Lookup(lo.DefName);
         if (part is null) return;
-
-        static MenuItem Item(string header, string gesture, RoutedEventHandler onClick, bool enabled = true)
-        {
-            var item = new MenuItem { Header = header, InputGestureText = gesture, IsEnabled = enabled };
-            item.Click += onClick;
-            return item;
-        }
 
         var menu = new ContextMenu { PlacementTarget = Board };
         menu.Items.Add(new MenuItem
@@ -4776,39 +4821,49 @@ public partial class MainWindow : Window
         });
         menu.Items.Add(new Separator());
 
-        var stackable = part.StackLimit > 1;
-        menu.Items.Add(Item(stackable ? "Change Quantity…" : "Change Quantity (not stackable)", "",
-            (_, _) => ChangeLooseQuantity(lo, part), stackable));
-
-        // rename — the same entry a placed part gets, because the game draws no line between the two (#38). One
-        // item at a time, for the same reason: a name is what tells two otherwise-identical crates apart.
-        menu.Items.Add(Item(lo.CustomName is null ? "Rename…" : "Rename or clear…", "", (_, _) => RenameLoose(lo, part)));
-
         // "View contents…": a deck item that can hold things — a crate or toolbox, or a garment, backpack or EVA
         // suit, which store in their own pockets rather than a grid. Shown even when empty, like a placed
         // container, so an item you have not filled yet is not unreachable.
         if (Cargo.CanHoldCargo(part, _catalog))
         {
             var held = lo.Cargo.Sum(c => c.SubtreeCount);
-            menu.Items.Add(new Separator());
-            menu.Items.Add(Item("View contents" + (held > 0 ? $" ({held})" : "") + "…", "",
-                (_, _) => OpenLooseInventory(lo, part)));
+            menu.Items.Add(ContextEntry("View contents" + (held > 0 ? $" ({held})" : "") + "…", "",
+                "See and change what's inside. It goes into the game with the ship.", (_, _) => OpenLooseInventory(lo, part)));
         }
 
         // "Run spawner…": roll what it would make and lay that on the deck instead (#65). Offered on the item
         // itself, because that is where the question comes up.
         if (SpawnerRun.IsRunnable(lo))
-        {
-            menu.Items.Add(new Separator());
-            menu.Items.Add(Item("Run spawner…", "", (_, _) => RunSpawners([lo])));
-        }
+            menu.Items.Add(ContextEntry("Run spawner…", "", "Roll what this spawner would make and lay it on the deck.",
+                (_, _) => RunSpawners([lo])));
+
+        var stackable = part.StackLimit > 1;
+        menu.Items.Add(ContextEntry(stackable ? "Change Quantity…" : "Change Quantity (not stackable)", "",
+            stackable ? "Set how many are in the stack." : "This item does not stack.",
+            (_, _) => ChangeLooseQuantity(lo, part), stackable));
+
+        // rename — the same entry a placed part gets, because the game draws no line between the two (#38). One
+        // item at a time, for the same reason: a name is what tells two otherwise-identical crates apart.
+        menu.Items.Add(ContextEntry(lo.CustomName is null ? "Rename…" : "Rename or clear…", "",
+            "Give it a name of its own. The name goes into the game with it.", (_, _) => RenameLoose(lo, part)));
 
         menu.Items.Add(new Separator());
-        menu.Items.Add(Item(_settings.IsFavorite(lo.DefName, true) ? "Remove from Favorites" : "Add to Favorites",
-            "", (_, _) => ToggleFavoriteByRef(lo.DefName, true)));
-        AddRestackItems(menu, cell, Item);
+        menu.Items.Add(ContextEntry("Delete", "Del", "Take the selection off the plan. Undo brings it back.",
+            (_, _) => DeleteSelection()));
+
+        var favourite = _settings.IsFavorite(lo.DefName, true);
+        var groups = new[]
+        {
+            DrawOrderGroup(cell),
+            ContextGroup("More",
+            [
+                ContextEntry(favourite ? "Remove from Favorites" : "Add to Favorites", "",
+                    favourite ? "Unpin it from the palette's FAV/REC tab." : "Pin it to the palette's FAV/REC tab.",
+                    (_, _) => ToggleFavoriteByRef(lo.DefName, true)),
+            ]),
+        };
         menu.Items.Add(new Separator());
-        menu.Items.Add(Item("Delete", "Del", (_, _) => DeleteSelection()));
+        foreach (var g in groups.OfType<MenuItem>()) menu.Items.Add(g);
         menu.IsOpen = true;
     }
 

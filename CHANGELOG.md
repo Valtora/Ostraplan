@@ -25,6 +25,11 @@ each release was verified against is recorded in
   - Help ▸ Tips lists the tips under a heading for each topic. Thanks to RedTwinkleToes.
 
 ### Changed
+- **The right-click menu is shorter and says what each entry does.**
+  - What the part does comes first, such as Switch on, Wiring… or View contents…, then Duplicate, Copy, Paste
+    and Delete.
+  - Rotate and flip, Replace, Draw order, Condition and More hold the rest.
+  - Point at any entry for a line on what it does. Thanks to RedTwinkleToes.
 - **Startup tips keep coming after you have seen them all.** They carry on round the list, so a tip you
   dismissed in a hurry comes round again. Settings ▸ Tips still turns them off. Thanks to nighoggDatatype.
 
