@@ -99,12 +99,26 @@
         <!-- The right half: the arrow that opens that toggle's own options. Deliberately a plain Button on the
              Fluent chain rather than anything custom — CONVENTIONS is explicit that a control style adding more
              than padding and margin drops out of the theme and back to the light Aero2 template. Narrow padding
-             is what makes it read as an appendage; it is not a second button. -->
+             is what makes it read as an appendage; it is not a second button.
+
+             The arrow is drawn rather than typed. A "▾" glyph small enough to sit beside the toggle rendered as a
+             squashed sliver, and the font decides its shape. A ContentTemplate only replaces what goes inside the
+             button, not the button's own template, so the Fluent chrome stays. The stroke takes the inherited text
+             foreground, which is how it follows Fluent's hover, pressed and disabled states. -->
         <Style x:Key="SplitArrow" TargetType="Button" BasedOn="{StaticResource {x:Type Button}}">
-            <Setter Property="Padding" Value="4,3"/>
+            <Setter Property="Padding" Value="7,3"/>
             <Setter Property="Margin" Value="1,0,3,0"/>
-            <Setter Property="FontSize" Value="9"/>
             <Setter Property="VerticalAlignment" Value="Stretch"/>
+            <Setter Property="ContentTemplate">
+                <Setter.Value>
+                    <DataTemplate>
+                        <Path Data="M1,1 L5,5 L9,1" Width="10" Height="6" StrokeThickness="1.6"
+                              StrokeStartLineCap="Round" StrokeEndLineCap="Round" StrokeLineJoin="Round"
+                              VerticalAlignment="Center" HorizontalAlignment="Center" SnapsToDevicePixels="True"
+                              Stroke="{Binding Path=(TextElement.Foreground), RelativeSource={RelativeSource Self}}"/>
+                    </DataTemplate>
+                </Setter.Value>
+            </Setter>
         </Style>
         <!-- A document tab. Same reasoning as OverlayToggle above: a ToggleButton on the Fluent chain wearing the
              theme's own checked accent for the active tab, rather than a hard-set background that Fluent's hover

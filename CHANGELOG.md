@@ -34,6 +34,8 @@ each release was verified against is recorded in
   dismissed in a hurry comes round again. Settings ▸ Tips still turns them off. Thanks to nighoggDatatype.
 
 ### Fixed
+- **The arrows beside Light, Walk and Spawners are easier to see and to hit.** They were a squashed
+  sliver of a glyph, and are now a drawn chevron on a wider button.
 - **A powered closed door no longer seals off a compartment.**
   - A door shut in the plan switches itself on when the ship loads if a charged battery or a generator
     reaches it, as it does in game, so crew can walk through it.
