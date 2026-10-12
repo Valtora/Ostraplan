@@ -2210,9 +2210,9 @@ with it open.
   you dismissed too quickly is one click away. **Hide this tip** stops that one appearing,
   and **✕** or **Esc** closes the card.
 - **Which tips you see.** **Help ▾ ▸ Tips…** (or **All tips…** on the card) lists every tip
-  in order, with a checkbox for each topic and for each tip. Turn off **Shortcuts** if you
-  already know the keys, or **Apartments** if you never build one. **Start over** marks
-  every tip unseen.
+  in order under a heading for its topic, with a checkbox for each topic and for each
+  tip. Turn off **Shortcuts** if you already know the keys, or **Apartments** if you never
+  build one. **Start over** marks every tip unseen.
 - **Tips come round again.** Once you have seen every tip, they carry on round the list
   from the last one shown, so a tip you waved away in a hurry gets another turn. A tip an
   update adds comes first, wherever it sits in the list.

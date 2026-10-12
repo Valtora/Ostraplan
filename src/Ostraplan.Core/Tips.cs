@@ -52,11 +52,19 @@ public sealed record Tip(string Id, string Text, IReadOnlyList<TipTag> Tags);
 ///
 /// <para>Text on screen is short (CONVENTIONS), and a tip is held to <see cref="MaxLength"/> by a test. Name a key
 /// in the tip when the key is the point, and tag it <see cref="TipTag.Shortcuts"/> only then.</para>
+///
+/// <para>A tip's first topic is the one it is listed under in Help ▸ Tips, so the tips sharing a first topic sit
+/// together in the list: the hub draws a heading wherever the first topic changes, and a topic split in two would
+/// get two headings.</para>
 /// </summary>
 public static class Tips
 {
     /// <summary>The longest a tip may be. The card is a fixed width, and anything longer reads as a manual page.</summary>
     public const int MaxLength = 180;
+
+    /// <summary>Ids that belonged to tips since removed or rewritten under a new id. Kept so a test can stop one being
+    /// handed to a new tip, which would inherit whatever a user chose about the old one.</summary>
+    public static IReadOnlyList<string> Retired { get; } = ["switch-on", "bus-knob"];
 
     private static Tip T(string id, string text, params TipTag[] tags) => new(id, text, tags);
 
@@ -106,6 +114,10 @@ public static class Tips
             TipTag.Editing),
         T("filter-select", "With nothing armed, Shift+drag to box-select, then use the chips to keep only some layers: the walls alone, say, or only what's lying on the floor.",
             TipTag.Editing),
+        T("select-only", "Right-click a box selection ▸ Select only to narrow it to one layer, such as the walls and doors, or only the loose items.",
+            TipTag.Editing),
+        T("pile-menu", "Right-click a tile where things are piled up to list everything on it, then click one to select it.",
+            TipTag.Editing),
         T("step-down", "Press ` to select the next thing down the pile under the cursor, such as the floor under a crate.",
             TipTag.Editing, TipTag.Shortcuts),
         T("restack", "Ctrl+[ and Ctrl+] move the selected part back or forward in its tile's draw order. Right-click ▸ Reset order puts the pile back.",
@@ -118,6 +130,8 @@ public static class Tips
             TipTag.Editing),
         T("naming", "Click the name at the top of the inspector to rename a part or a deck item. The name goes into the game with it.",
             TipTag.Editing),
+        T("doors", "Right-click a door ▸ Open door or Close door to choose how it starts. Select several doors to set them all at once.",
+            TipTag.Editing),
         T("zones", "Zones (Z) shows haul, barter and forbid zones. Add one in the Zones panel and paint it the way you paint parts.",
             TipTag.Editing),
         T("zone-paint", "While painting a zone, Ctrl+drag erases it, and a double-click inside walls fills the whole room.",
@@ -125,6 +139,10 @@ public static class Tips
         T("build-last", "When two parts can only go up in one order, right-click the one that has to be built last ▸ Build last.",
             TipTag.Editing),
         T("force", "Force places parts the placement law refuses. Try Build last first: Force never makes a placement legal.",
+            TipTag.Editing),
+        T("repair-all", "Design ▸ Repair All swaps every broken part for its working form, using the game's own repair jobs.",
+            TipTag.Editing),
+        T("repair-part", "To repair only part of a ship, select it and right-click ▸ Repair. The entry appears when something in the selection is broken.",
             TipTag.Editing),
         T("open-several", "File ▸ Open takes several designs at once, each in its own tab. A design that's already open comes forward instead.",
             TipTag.Workspace),
@@ -186,15 +204,19 @@ public static class Tips
             TipTag.Reports),
         T("connector-badges", "While you place a powered part, IN and OUT badges mark its plugs, so you can turn it to meet a conduit before you click.",
             TipTag.Devices),
+        // power-switch and device-bus replace "switch-on" and "bus-knob" under new ids, so both come round again for
+        // anyone who read the old wording: players took Switch on/off and the Bus knob for the same control.
+        T("power-switch", "Right-click a device ▸ Switch on or Switch off. A few, such as the Transponder, go in switched off, and the rating and Diagnostics ignore anything switched off.",
+            TipTag.Devices),
         T("sensor-wiring", "A pump, scrubber, heater or cooler does nothing until it follows a sensor. Right-click it ▸ Wiring… and click its alarm or thermostat.",
             TipTag.Devices),
         T("one-sensor", "One sensor can drive as many devices as you like, so a single thermostat can run every heater and cooler on a deck.",
             TipTag.Devices),
-        T("bus-knob", "A device's Bus in the inspector is Auto to follow its sensor, On to run regardless, or Off to stop it dead.",
+        T("device-bus", "A device's Bus, in the inspector, decides when it runs once it's switched on: Auto when its sensor trips, On all the time, Off never.",
             TipTag.Devices),
         T("signal-box", "A signal box can switch anything installed on and off, from lights to doors and pumps. Right-click it ▸ Wiring… and click each one.",
             TipTag.Devices),
-        T("switch-on", "Right-click a device for Switch on or Switch off. The rating and Diagnostics ignore anything switched off, a transponder included.",
+        T("disconnect", "Right-click a wired device ▸ Disconnect to cut one of its links. Wire in the toolbar draws every link on the plan.",
             TipTag.Devices),
         T("reactor", "Select a fusion core to set its panel, and the ship can spawn with its reactor already lit.",
             TipTag.Devices),
@@ -228,10 +250,8 @@ public static class Tips
             TipTag.Simulate),
         T("damage-brush", "Simulate ▸ Damage Brush paints wear that's kept and exported. A range such as 25 to 70% looks lived-in, and nothing shows above 80%.",
             TipTag.Simulate),
-        T("repair-all", "Design ▸ Repair All swaps every broken part for its working form, using the game's own repair jobs.",
-            TipTag.Editing),
-        T("repair-part", "To repair only part of a ship, select it and right-click ▸ Repair. The entry appears when something in the selection is broken.",
-            TipTag.Editing),
+        T("clear-condition", "Right-click a part ▸ Clear painted condition to take off the wear the Damage Brush put on it.",
+            TipTag.Simulate),
         T("import-save", "File ▸ Import can bring your own ship out of a save, cargo and wiring included, as a design to edit.",
             TipTag.ImportExport),
         T("import-options", "Importing a template or a save's layout asks whether to bring container contents, deck items and loot spawners, and remembers.",

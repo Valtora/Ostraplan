@@ -18,6 +18,11 @@ each release was verified against is recorded in
   - Show stays lit while its entry is on the plan, clears on a second click, and follows the entry through
     your edits.
   - The highlight outlines each area as one shape instead of a box per tile. Thanks to nighoggDatatype.
+- **Tips cover more of the right-click menu.**
+  - New tips for opening and closing doors, clearing painted wear, disconnecting wiring, picking from a pile
+    and Select only.
+  - Switching a device on or off and its Bus setting have new tips that tell the two apart.
+  - Help ▸ Tips lists the tips under a heading for each topic. Thanks to RedTwinkleToes.
 
 ### Changed
 - **Startup tips keep coming after you have seen them all.** They carry on round the list, so a tip you

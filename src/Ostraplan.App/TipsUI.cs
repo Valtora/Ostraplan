@@ -129,7 +129,8 @@ public sealed class TipCard : Border
 }
 
 /// <summary>
-/// Help ▸ Tips (#39): every tip in the order the card shows them, with a switch for each topic and for each tip.
+/// Help ▸ Tips (#39): every tip in the order the card shows them, under a heading for its first topic, with a switch
+/// for each topic and for each tip.
 /// The other half of the controls, when and whether tips appear, is in Settings ▸ Tips; this window is about which.
 ///
 /// <para>Changes apply as they are made, like Settings, and go back to the main window through the callback, which
@@ -164,7 +165,7 @@ public sealed class TipHubWindow : Window
         var head = new StackPanel { Margin = new Thickness(0, 0, 0, 10) };
         head.Children.Add(new TextBlock
         {
-            Text = "Every tip, in the order they appear. Untick a topic or a tip to stop it appearing.",
+            Text = "Every tip by topic, in the order they appear. Untick a topic or a tip to stop it appearing.",
             Foreground = ThemeManager.Ink, TextWrapping = TextWrapping.Wrap,
         });
         if (!settings.Enabled)
@@ -204,8 +205,19 @@ public sealed class TipHubWindow : Window
             Margin = new Thickness(0, 10, 0, 0),
         });
 
+        // A heading wherever the first topic changes. Tips.All keeps each first topic together, so every topic gets
+        // one heading and the list still reads in the order the card shows it.
         var list = new StackPanel { Margin = new Thickness(0, 0, 10, 0) };
-        foreach (var tip in tips) list.Children.Add(BuildRow(tip));
+        TipTag? section = null;
+        foreach (var tip in tips)
+        {
+            if (tip.Tags.Count > 0 && tip.Tags[0] != section)
+            {
+                section = tip.Tags[0];
+                list.Children.Add(Heading(section.Value));
+            }
+            list.Children.Add(BuildRow(tip));
+        }
 
         var startOver = new Button
         {
@@ -263,12 +275,22 @@ public sealed class TipHubWindow : Window
         words.Children.Add(text);
         words.Children.Add(note);
 
-        var row = new DockPanel { Margin = new Thickness(0, 8, 0, 0) };
+        var row = new DockPanel { Margin = new Thickness(0, 10, 0, 0) };
         DockPanel.SetDock(box, Dock.Left);
         row.Children.Add(box);
         row.Children.Add(words);
         _rows.Add(new Row(tip, row, box, note));
         return row;
+    }
+
+    private static FrameworkElement Heading(TipTag tag)
+    {
+        var text = new TextBlock { Text = Tips.Label(tag), FontSize = 14, FontWeight = FontWeights.SemiBold, Foreground = ThemeManager.Ink };
+        return new Border
+        {
+            Child = text, BorderBrush = ThemeManager.PanelBorder, BorderThickness = new Thickness(0, 0, 0, 1),
+            Padding = new Thickness(0, 0, 0, 3), Margin = new Thickness(0, 18, 0, 0),
+        };
     }
 
     /// <summary>Bring every row in line with the settings: its tick, whether a topic is hiding it, and whether it has
@@ -283,10 +305,13 @@ public sealed class TipHubWindow : Window
             row.Box.IsEnabled = !byTopic;
             row.Element.Opacity = byTopic || _settings.IsTipHidden(row.Tip.Id) ? 0.5 : 1;
 
-            var parts = new List<string> { string.Join(", ", row.Tip.Tags.Select(Tips.Label)) };
+            // The first topic is the heading above the row, so the note names only the others.
+            var parts = new List<string>();
+            if (row.Tip.Tags.Count > 1) parts.Add("also " + string.Join(", ", row.Tip.Tags.Skip(1).Select(Tips.Label)));
             if (byTopic) parts.Add("hidden with " + string.Join(" and ", hiddenBy));
             else if (!_settings.Seen.Contains(row.Tip.Id)) parts.Add("not seen yet");
             row.Note.Text = string.Join("  ·  ", parts);
+            row.Note.Visibility = parts.Count > 0 ? Visibility.Visible : Visibility.Collapsed;
         }
     }
 }

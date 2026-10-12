@@ -56,6 +56,23 @@ public class TipsTests
     }
 
     [Fact]
+    public void A_retired_id_is_never_handed_to_a_new_tip()
+    {
+        // A user who hid the old tip would never see the new one, and one who had seen it would skip it.
+        Assert.All(Tips.All, t => Assert.DoesNotContain(t.Id, Tips.Retired));
+    }
+
+    [Fact]
+    public void Tips_sharing_a_first_topic_sit_together()
+    {
+        // Help ▸ Tips draws a heading wherever the first topic changes, so a topic split in two gets two headings.
+        var runs = new List<TipTag>();
+        foreach (var t in Tips.All)
+            if (runs.Count == 0 || runs[^1] != t.Tags[0]) runs.Add(t.Tags[0]);
+        Assert.Equal(runs.Count, runs.Distinct().Count());
+    }
+
+    [Fact]
     public void The_first_tip_says_where_to_turn_tips_off()
     {
         // Tips are on for everyone by default, including people who updated into them, so the first thing they see
