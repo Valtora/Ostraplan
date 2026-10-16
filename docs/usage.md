@@ -21,7 +21,8 @@ short tour of the features people tend to miss.
    code-signed yet, so Windows SmartScreen may warn once — click **More info ▸ Run
    anyway**. Prefer not to install? Download `Ostraplan-win-Portable.zip`, unzip it
    anywhere and run `Ostraplan.exe`. Or build from source
-   (`dotnet run --project src\Ostraplan.App`).
+   (`dotnet run --project src\Ostraplan.App`). On Linux, follow [LINUX.md](LINUX.md)
+   to run the portable zip under Wine.
 3. **Updates are automatic.** When a newer version is out, Ostraplan downloads it
    quietly in the background on launch and shows a **Restart to update to vX** button
    in the toolbar; it applies only when you click, so you never lose unsaved work.

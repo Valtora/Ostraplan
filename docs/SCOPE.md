@@ -213,7 +213,10 @@ Each of these is a deliberate no, not a backlog item.
   [Ostrasort](https://github.com/Valtora/Ostrasort) and ModTools' job, and Ostraplan
   hands off to Ostrasort rather than duplicating it.
 - **Publishing to the Workshop.** Export produces a local mod. You upload it in game.
-- **Running anywhere but Windows.** The app is WPF. It can run on Linux via Proton but this is not officially supported.
+- **A native build for anything but Windows.** The app is WPF, which only runs on Windows. It runs on Linux
+  under Wine, supported by the community rather than tested each release: see [LINUX.md](LINUX.md). Finding
+  the game and its saves there is in scope, since that is getting a design into the game. A port of the UI
+  to a cross-platform toolkit is not planned.
 - **Shipping game assets.** No game data or art is distributed with the tool, ever.
   Everything is read from your own install at runtime, which is also why you cannot
   use Ostraplan without owning the game.

@@ -45,12 +45,15 @@ public sealed class GameEnv
     /// This is what an install with saves outside LocalLow is actually using.</summary>
     public string? GameSavesSetting { get; init; }
 
+    /// <summary>The Windows profile the game itself writes under. That is the user's own on Windows, and Proton's
+    /// <c>steamuser</c> under Wine when the install has a Proton prefix beside it, because there the game runs in a
+    /// different prefix from Ostraplan (see <see cref="WineHost"/>).</summary>
+    public string GameProfile { get; init; } = Environment.GetEnvironmentVariable("USERPROFILE") ?? "";
+
     /// <summary>Where Ostranauts keeps saves out of the box:
-    /// <c>%USERPROFILE%\AppData\LocalLow\Blue Bottle Games\Ostranauts\Saves</c>. Shown in Settings as the
-    /// fallback, so a user can see what "automatic" resolved to.</summary>
-    public static string DefaultSavesDir => Path.Combine(
-        Environment.GetEnvironmentVariable("USERPROFILE") ?? "",
-        @"AppData\LocalLow\Blue Bottle Games\Ostranauts\Saves");
+    /// <c>AppData\LocalLow\Blue Bottle Games\Ostranauts\Saves</c> under <see cref="GameProfile"/>. Shown in
+    /// Settings as the fallback, so a user can see what "automatic" resolved to.</summary>
+    public string DefaultSavesDir => Path.Combine(GameProfile, @"AppData\LocalLow\Blue Bottle Games\Ostranauts\Saves");
 
     /// <summary>
     /// The Saves folder to read, or null when none of the candidates exist. Read-only, always.
@@ -118,7 +121,14 @@ public sealed class GameEnv
         return null;
     }
 
-    public static GameEnv Locate(string? gameRootOverride, string? savesDirOverride = null)
+    public static GameEnv Locate(string? gameRootOverride, string? savesDirOverride = null) =>
+        Locate(gameRootOverride, savesDirOverride, WineHost.Home);
+
+    /// <summary>
+    /// <see cref="Locate(string?, string?)"/> with the Linux home folder passed in rather than read from Wine, so
+    /// the Wine route can be exercised on Windows against a temp directory. Null is a Windows host.
+    /// </summary>
+    internal static GameEnv Locate(string? gameRootOverride, string? savesDirOverride, string? wineHome)
     {
         string root, via;
         if (gameRootOverride is not null)
@@ -129,7 +139,7 @@ public sealed class GameEnv
             root = Path.GetFullPath(gameRootOverride.Replace('/', '\\'));
             via = "user setting";
         }
-        else if (LocateViaSteam() is { } steamHit)
+        else if (LocateViaSteam(wineHome) is { } steamHit)
         {
             (root, via) = steamHit;
         }
@@ -148,12 +158,18 @@ public sealed class GameEnv
         var dataDir = Path.Combine(root, "Ostranauts_Data");
         var modsDir = Path.Combine(dataDir, "Mods");
 
+        // Under Wine the game runs in Proton's prefix rather than this one, so its settings and saves are in that
+        // prefix's profile, and a C: path it wrote names that prefix's drive rather than Ostraplan's.
+        var protonDriveC = wineHome is not null ? WineHost.ProtonDriveC(root) : null;
+        var profile = protonDriveC is not null
+            ? WineHost.ProtonProfile(protonDriveC)
+            : Environment.GetEnvironmentVariable("USERPROFILE") ?? "";
+        string GamePath(string path) => protonDriveC is null ? path : WineHost.MapProtonPath(path, protonDriveC);
+
         // The game's own settings.json can relocate both folders Ostraplan reads: the Mods folder via
         // strPathMods, and the save folder via strSaveLocation (which names the parent of Saves).
         string? gameSaves = null;
-        var settings = Path.Combine(
-            Environment.GetEnvironmentVariable("USERPROFILE") ?? "",
-            @"AppData\LocalLow\Blue Bottle Games\Ostranauts\settings.json");
+        var settings = Path.Combine(profile, @"AppData\LocalLow\Blue Bottle Games\Ostranauts\settings.json");
         if (File.Exists(settings))
         {
             try
@@ -163,9 +179,10 @@ public sealed class GameEnv
                 // too rather than depending on the shape.
                 var user = node as JsonObject ?? (node as JsonArray)?.OfType<JsonObject>().FirstOrDefault();
                 var custom = user?["strPathMods"]?.GetValue<string>();
-                if (!string.IsNullOrWhiteSpace(custom) && Directory.Exists(custom))
-                    modsDir = custom;
-                gameSaves = ResolveSaves(user?["strSaveLocation"]?.GetValue<string>());
+                if (!string.IsNullOrWhiteSpace(custom) && Directory.Exists(GamePath(custom)))
+                    modsDir = GamePath(custom);
+                var saveLocation = user?["strSaveLocation"]?.GetValue<string>();
+                gameSaves = ResolveSaves(saveLocation is null ? null : GamePath(saveLocation));
             }
             catch { /* unreadable settings.json is not Ostraplan's problem */ }
         }
@@ -188,11 +205,29 @@ public sealed class GameEnv
             InstalledVersion = ReadInstalledVersion(dataDir),
             SavesDirOverride = savesDirOverride,
             GameSavesSetting = gameSaves,
+            GameProfile = profile,
         };
     }
 
-    private static (string Root, string Via)? LocateViaSteam()
+    /// <summary>
+    /// The install, found through Steam's own record of its libraries. Under Wine the Linux Steam is asked first:
+    /// a Steam in this prefix's registry would be a Windows Steam installed into Ostraplan's prefix, which is not
+    /// the one the game is played through.
+    /// </summary>
+    private static (string Root, string Via)? LocateViaSteam(string? wineHome)
     {
+        if (wineHome is not null)
+        {
+            foreach (var relative in WineHost.SteamRoots)
+            {
+                var linuxSteam = Path.Combine(wineHome, relative);
+                if (Directory.Exists(linuxSteam)
+                    && ScanSteamLibraries(linuxSteam, "Linux Steam library", lib => WineHost.ToWindows(lib, wineHome) ?? lib)
+                        is { } linuxHit)
+                    return linuxHit;
+            }
+        }
+
         string? steam = null;
         try
         {
@@ -201,8 +236,16 @@ public sealed class GameEnv
         }
         catch { /* no registry access -> fall through to the default path */ }
         if (string.IsNullOrWhiteSpace(steam)) return null;
-        steam = Path.GetFullPath(steam.Replace('/', '\\'));
+        return ScanSteamLibraries(Path.GetFullPath(steam.Replace('/', '\\')), "Steam library", lib => lib);
+    }
 
+    /// <summary>
+    /// The first library under <paramref name="steam"/> holding a real install. Every library Steam knows about
+    /// is in its <c>libraryfolders.vdf</c>, and <paramref name="libraryPath"/> turns the paths written there into
+    /// ones this process can open: unchanged on Windows, Linux paths to Wine ones under Wine.
+    /// </summary>
+    private static (string Root, string Via)? ScanSteamLibraries(string steam, string label, Func<string, string> libraryPath)
+    {
         var libraries = new List<string> { steam };
         foreach (var vdf in new[]
                  {
@@ -213,7 +256,7 @@ public sealed class GameEnv
             if (!File.Exists(vdf)) continue;
             foreach (Match m in Regex.Matches(File.ReadAllText(vdf), "\"path\"\\s+\"((?:[^\"\\\\]|\\\\.)*)\""))
             {
-                try { libraries.Add(Regex.Unescape(m.Groups[1].Value)); }
+                try { libraries.Add(libraryPath(Regex.Unescape(m.Groups[1].Value))); }
                 catch (ArgumentException) { /* malformed escape in vdf - skip that entry */ }
             }
             break;
@@ -223,7 +266,7 @@ public sealed class GameEnv
         {
             var candidate = Path.Combine(lib, "steamapps", "common", "Ostranauts");
             if (InstallProblem(candidate) is null)
-                return (candidate, $"Steam library at {lib}");
+                return (candidate, $"{label} at {lib}");
         }
         return null;
     }

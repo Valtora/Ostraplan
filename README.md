@@ -14,12 +14,13 @@ It is a sibling tool to [**Ostrasort**](https://github.com/Valtora/Ostrasort), t
 
 Download **`Ostraplan-win-Setup.exe`** from the [Releases](https://github.com/Valtora/Ostraplan/releases) page and run it, or take the portable zip beside it. Updates are automatic. See [docs/usage.md](docs/usage.md#getting-started) for the detail, and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) to build it yourself.
 
-**Requirements:** Windows, and a **local Ostranauts install**, which Ostraplan reads its data and sprites from at runtime. Without the game it has nothing to read and won't work. **No game assets are distributed with the tool.**
+**Requirements:** Windows, or Linux under Wine (see [docs/LINUX.md](docs/LINUX.md)), and a **local Ostranauts install**, which Ostraplan reads its data and sprites from at runtime. Without the game it has nothing to read and won't work. **No game assets are distributed with the tool.**
 
 ## Documentation
 
 - [docs/FEATURES.md](docs/FEATURES.md): what it does, on one page.
 - [docs/usage.md](docs/usage.md): how to use it, start to finish.
+- [docs/LINUX.md](docs/LINUX.md): running it on Linux under Wine.
 - [docs/SCOPE.md](docs/SCOPE.md): what Ostraplan is for, and where the line is drawn.
 - [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md): the reverse-engineering reference. How Ostranauts works internally, and what Ostraplan ports.
 - [docs/OPLAN-FORMAT.md](docs/OPLAN-FORMAT.md): the `.oplan` document format, field by field.

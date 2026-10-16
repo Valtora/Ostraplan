@@ -9,6 +9,13 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
+## [Unreleased]
+
+### Fixed
+- **On Linux, Ostraplan finds the game and your saves by itself.**
+  - Under Wine it looks in Steam's Linux libraries, and reads saves from the folder Proton keeps for the game.
+  - docs/LINUX.md covers setting it up. Thanks to jbwagner.
+
 ## [1.31.0] 2026-10-12, toolbar icons
 
 ### Added

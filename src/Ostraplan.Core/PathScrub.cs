@@ -38,6 +38,7 @@ public static class PathScrub
             (Special(Environment.SpecialFolder.LocalApplicationData), "%LOCALAPPDATA%"),
             (Special(Environment.SpecialFolder.ApplicationData), "%APPDATA%"),
             (Special(Environment.SpecialFolder.UserProfile), "%USERPROFILE%"),
+            (WineHost.Home ?? "", "~"),   // the Linux home under Wine, where the game and Proton's saves are
         ];
         return raw.Where(r => r.Path.Length > 0)
                   .OrderByDescending(r => r.Path.Length)
