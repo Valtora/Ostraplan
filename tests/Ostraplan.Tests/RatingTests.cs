@@ -117,10 +117,12 @@ public class RatingTests(ITestOutputHelper output)
                 // non-Blank rooms (the aRating is a stale bake from an older game version, the same
                 // staleness the Refit's size slot shows). The recomputed count stays a LOWER bound
                 // because the game counts contained/pre-populated cargo the top-level loader can't
-                // (see certification parity); it must never exceed the game's own room data.
-                var bakedNonBlank = ship.Rooms.Count(r => r.RoomSpec is not (null or "" or "Blank"));
+                // (see certification parity); it must never exceed the game's own room data. A stale-bake room
+                // (ParityTests.StaleBakes) is baked Blank only because of its wrong void flag, so it counts back in.
+                var stale = ParityTests.StaleVoidRooms(Path.GetFileName(path));
+                var bakedNonBlank = ship.Rooms.Where((r, i) => stale.Contains(i) || r.RoomSpec is not (null or "" or "Blank")).Count();
                 Assert.True(int.Parse(mine.RoomCount) <= bakedNonBlank,
-                    $"room count {mine.RoomCount} exceeds the baked aRooms' {bakedNonBlank}");
+                    $"{ship.Name}: room count {mine.RoomCount} exceeds the baked aRooms' {bakedNonBlank}");
 
                 // Slots 1 (condition) and 3 (maneuver) depend on runtime damage / full cargo
                 // mass a layout-only import doesn't carry; both baked-rating templates are

@@ -49,6 +49,23 @@ public class ParityTests(ITestOutputHelper output)
         ["Vector2.json"] = "interceptor airlock: the game separates the airlock opening from the exterior void by a rule 4-connectivity flood does not reproduce; affects only which Blank/void region owns a few exterior tiles",
     };
 
+    /// <summary>
+    /// Single stored rooms whose baked <c>bVoid</c> contradicts the template's own items, keyed by file and stored
+    /// room index. Here the bake is wrong rather than the port: <c>Ship.CreateRooms</c> rebuilds Void from the tiles
+    /// every time the game loads a ship, so a stale flag is never what a player sees. Narrower than
+    /// <see cref="RoomExclusions"/>, so the rest of the ship stays under the gate.
+    ///
+    /// <para>A listed room is held to the answer the game recomputes, sealed, and its stored flag must still read
+    /// void, so the entry fails and asks to be pruned once the game rebakes the template.</para>
+    /// </summary>
+    internal static readonly Dictionary<(string File, int Room), string> StaleBakes = new()
+    {
+        [("Babak.json", 13)] = "baked void and Blank since the template was rewritten under game 1.0.1.x, with every tile floored; Babak Refit, rewritten the same day with the same parts there, bakes the same 46 tiles as sealed Engineering",
+    };
+
+    internal static IReadOnlySet<int> StaleVoidRooms(string file) =>
+        StaleBakes.Keys.Where(k => k.File == file).Select(k => k.Room).ToHashSet();
+
     [SkippableFact]
     public void Rooms_parity_across_all_core_templates()
     {
@@ -58,12 +75,15 @@ public class ParityTests(ITestOutputHelper output)
         int total = 0, passed = 0;
         var unexpected = new List<string>();
         var excludedSeen = new List<string>();
+        var staleSeen = new HashSet<string>();
         foreach (var (file, ship) in CoreShips(g.Env))
         {
             total++;
             var grid = ShipGrid.FromTemplate(ship, resolver, g.Catalog);
             var partition = RoomBuilder.Build(grid);
-            var diff = RoomParity.Compare(grid, partition, ship, out _);
+            var stale = StaleVoidRooms(file);
+            if (stale.Count > 0) staleSeen.Add(file);
+            var diff = RoomParity.Compare(grid, partition, ship, out _, stale);
             if (diff is null) passed++;
             else if (RoomExclusions.ContainsKey(file)) excludedSeen.Add($"{file}: {diff}");
             else unexpected.Add($"{file} ({ship.Name}): {diff}");
@@ -76,6 +96,9 @@ public class ParityTests(ITestOutputHelper output)
         // guard the exclusion list against silent bit-rot: every excluded ship must still be failing
         Assert.True(excludedSeen.Count == RoomExclusions.Count,
             $"only {excludedSeen.Count}/{RoomExclusions.Count} excluded templates still fail — prune RoomExclusions");
+        // and the stale-bake list against templates the game has since removed
+        var gone = StaleBakes.Keys.Select(k => k.File).Distinct().Where(f => !staleSeen.Contains(f)).ToList();
+        Assert.True(gone.Count == 0, $"StaleBakes names templates the corpus no longer has, so prune them: {string.Join(", ", gone)}");
     }
 
     [SkippableFact]
@@ -88,7 +111,7 @@ public class ParityTests(ITestOutputHelper output)
         var priority = specs.ToDictionary(s => s.Name, s => s.Priority);
         int Prio(string spec) => priority.GetValueOrDefault(spec, 0);
 
-        int checkedRooms = 0, matchedRooms = 0, underCert = 0, exteriorVoid = 0;
+        int checkedRooms = 0, matchedRooms = 0, underCert = 0, exteriorVoid = 0, staleRooms = 0;
         var unexpected = new List<string>();
         foreach (var (file, ship) in CoreShips(g.Env))
         {
@@ -97,10 +120,13 @@ public class ParityTests(ITestOutputHelper output)
             var grid = ShipGrid.FromTemplate(ship, resolver, g.Catalog);
             var partition = RoomBuilder.Build(grid);
             RoomCertifier.CertifyAll(partition, specs, g.Catalog);
-            if (RoomParity.Compare(grid, partition, ship, out var map) is not null) continue;   // covered by rooms test
+            var stale = StaleVoidRooms(file);
+            if (RoomParity.Compare(grid, partition, ship, out var map, stale) is not null) continue;   // covered by rooms test
 
             foreach (var (m, s) in map)
             {
+                // a stale bake's stored spec was certified against its wrong void flag, so it has nothing to compare
+                if (stale.Contains(s)) { staleRooms++; continue; }
                 checkedRooms++;
                 var mine = partition.Rooms[m].RoomSpec;
                 var stored = ship.Rooms[s].RoomSpec;
@@ -122,7 +148,7 @@ public class ParityTests(ITestOutputHelper output)
         }
 
         _out.WriteLine($"certification parity: {matchedRooms}/{checkedRooms} rooms exact; " +
-            $"{underCert} under-certified (contained cargo), {exteriorVoid} exterior-void aggregation, {unexpected.Count} unexpected");
+            $"{underCert} under-certified (contained cargo), {exteriorVoid} exterior-void aggregation, {staleRooms} stale bakes skipped, {unexpected.Count} unexpected");
         foreach (var f in unexpected.Take(30)) _out.WriteLine("  FAIL " + f);
         // The Law-relevant guarantee: Ostraplan never OVER-certifies a real (non-void) compartment.
         Assert.True(unexpected.Count == 0, $"{unexpected.Count} compartments over-certified vs the game (see test output)");
@@ -136,8 +162,10 @@ internal static class RoomParity
 {
     /// <summary>Null if the room partition (tile sets) and Void flags match; else a one-line
     /// diff. On success <paramref name="my2st"/> maps each recomputed room index to its
-    /// stored counterpart (for spec comparison).</summary>
-    public static string? Compare(ShipGrid grid, RoomPartition partition, ShipTemplate ship, out Dictionary<int, int> my2st)
+    /// stored counterpart (for spec comparison). Stored rooms in <paramref name="staleVoid"/>
+    /// (<see cref="ParityTests.StaleBakes"/>) are held to sealed rather than to their baked flag.</summary>
+    public static string? Compare(ShipGrid grid, RoomPartition partition, ShipTemplate ship, out Dictionary<int, int> my2st,
+        IReadOnlySet<int>? staleVoid = null)
     {
         my2st = [];
         var n = grid.TileCount;
@@ -184,8 +212,16 @@ internal static class RoomParity
 
         // Void parity on matched rooms
         foreach (var (m, s) in my2st)
-            if (partition.Rooms[m].Void != ship.Rooms[s].Void)
+        {
+            var expected = ship.Rooms[s].Void;
+            if (staleVoid?.Contains(s) == true)
+            {
+                if (!expected) return $"stored room {s} is no longer baked void, so prune it from StaleBakes";
+                expected = false;   // what the game's own load recomputes
+            }
+            if (partition.Rooms[m].Void != expected)
                 return $"void mismatch: my room {m} Void={partition.Rooms[m].Void}, stored room {s} bVoid={ship.Rooms[s].Void} ({partition.Rooms[m].TileCount} tiles)";
+        }
 
         return null;
     }
