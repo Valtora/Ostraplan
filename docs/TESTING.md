@@ -114,7 +114,7 @@ did not counter-rotate.
 
 \* `TemplateLoaderTests` loads a real core ship, so it is gated too.
 
-† These build WPF controls, so each runs its body on an STA thread of its own (see the `RunSta` helper each declares). `MainWindowTabsTests` constructs the real `MainWindow`, which is game-free because game data loads on `Loaded` and that is never raised — but it does mean it catches a constructor that throws, which is a crash on launch rather than a bug anyone could report.
+† These build WPF controls, so each runs its body on an STA thread of its own (see the `RunSta` helper each declares). `MainWindowTabsTests` constructs the real `MainWindow`, which is game-free because game data loads on `Loaded` and that is never raised — but it does mean it catches a constructor that throws, which is a crash on launch rather than a bug anyone could report. Every class that builds a `MainWindow` joins `MainWindowCollection`, so they run one at a time: two windows built at once on separate threads race on the real settings file and on WPF state the app only touches from one thread.
 
 `BakeWindowTests` compares the canvas against **itself** rather than against stored images, so it survives a
 game update that changes a sprite. Its ground-truth checks render the same frame with the culling turned off

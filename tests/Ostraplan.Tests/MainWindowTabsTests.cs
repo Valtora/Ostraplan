@@ -18,6 +18,7 @@ namespace Ostraplan.Tests;
 /// <para>Constructing the window does not load game data — that happens on <see cref="FrameworkElement.Loaded"/>,
 /// which is never raised here — so this stays game-free. STA, because it is WPF.</para>
 /// </summary>
+[Collection(MainWindowCollection.Name)]
 public class MainWindowTabsTests
 {
     [Fact]
@@ -44,8 +45,8 @@ public class MainWindowTabsTests
     [Fact]
     public void The_window_carries_a_tip_card_that_starts_closed()
     {
-        // Here rather than in TipsTests because closing the window writes the real settings file, and this class is
-        // the one whose tests that is safe in (they run one at a time).
+        // Here rather than in TipsTests because closing the window writes the real settings file, which is safe only
+        // in MainWindowCollection, whose tests run one at a time.
         RunSta(() =>
         {
             var w = new MainWindow();

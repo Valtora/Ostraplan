@@ -14,6 +14,7 @@ namespace Ostraplan.Tests;
 /// from the unthemed controls rather than the Fluent ones, which moves where the switch happens but not whether the
 /// arrangement it picks is stable. STA, because it is WPF.
 /// </summary>
+[Collection(MainWindowCollection.Name)]
 public class RibbonLayoutTests
 {
     /// <summary>
