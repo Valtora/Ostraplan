@@ -9,7 +9,7 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
-## [Unreleased]
+## [1.31.1] 2026-10-19, Linux under Wine
 
 ### Fixed
 - **On Linux, Ostraplan finds the game and your saves by itself.**
