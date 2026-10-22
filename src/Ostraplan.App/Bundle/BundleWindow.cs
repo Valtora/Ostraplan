@@ -401,7 +401,7 @@ public sealed class BundleWindow : Window
         var dlg = new OpenFileDialog
         {
             Title = "Add designs to this mod",
-            Filter = "Ostraplan ship (*.oplan)|*.oplan|All files (*.*)|*.*",
+            Filter = DesignFilters.Open,
             Multiselect = true,
             InitialDirectory = _settings.BundleExport?.LastPackDir ?? "",
         };

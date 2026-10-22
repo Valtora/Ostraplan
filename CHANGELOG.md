@@ -9,6 +9,13 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
+## [Unreleased]
+
+### Added
+- **Designs can be saved compressed, as .oplanz, for sharing.**
+  - Pick Compressed Ostraplan ship in File ▸ Save As. A large design comes out about a twentieth of the size.
+  - File ▸ Open reads an .oplanz, and a .zip with one design in it. Thanks to RedTwinkleToes.
+
 ## [1.31.1] 2026-10-19, Linux under Wine
 
 ### Fixed

@@ -150,6 +150,8 @@ public static class Tips
             TipTag.Editing),
         T("open-several", "File ▸ Open takes several designs at once, each in its own tab. A design that's already open comes forward instead.",
             TipTag.Workspace),
+        T("oplanz", "To share a large design, pick Compressed Ostraplan ship in File ▸ Save As. The .oplanz is a fraction of the size, and File ▸ Open reads it.",
+            TipTag.Workspace),
         T("copy-tabs", "Copy and paste work between tabs, and a paste keeps names, contents, fills and device settings.",
             TipTag.Workspace),
         T("switch-tabs", "Ctrl+Tab steps through your open designs, and Ctrl+W closes the one on screen.",

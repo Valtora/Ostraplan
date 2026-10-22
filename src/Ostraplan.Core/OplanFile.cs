@@ -1,4 +1,5 @@
 using System.IO;
+using System.IO.Compression;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 
@@ -17,6 +18,15 @@ namespace Ostraplan.Core;
 public sealed class OplanFile
 {
     public const int CurrentFormatVersion = 1;
+
+    /// <summary>The file extension, without the dot.</summary>
+    public const string Extension = "oplan";
+
+    /// <summary>The compressed form's extension, without the dot: a standard zip holding the one <c>.oplan</c>, for
+    /// sharing. A design imported from a save is mostly cargo snapshots and compresses about twentyfold, which is the
+    /// difference between fitting in a chat attachment and not. The JSON inside is the same document at the same
+    /// format version.</summary>
+    public const string CompressedExtension = "oplanz";
 
     [JsonPropertyName("formatVersion")] public int FormatVersion { get; set; } = CurrentFormatVersion;
     /// <summary>The plan-view orientation (Q/E rotation, a 90° step) the design was last saved in, so it reopens
@@ -172,19 +182,73 @@ public sealed class OplanFile
         return file;
     }
 
-    public void Save(string path) => File.WriteAllText(path, ToJson());
+    /// <summary>Write the design to <paramref name="path"/>: plain JSON for an <c>.oplan</c>, and a zip holding that
+    /// JSON for an <c>.oplanz</c>. The extension decides, because it is what the user picked in the Save dialog.</summary>
+    public void Save(string path)
+    {
+        if (!IsCompressed(path))
+        {
+            File.WriteAllText(path, ToJson());
+            return;
+        }
+        // Built in memory and written in one go, so a zip that fails part-way leaves the file on disk as it was.
+        using var buffer = new MemoryStream();
+        using (var zip = new ZipArchive(buffer, ZipArchiveMode.Create, leaveOpen: true))
+        {
+            // Named after the file it is in, so unzipping one by hand gives back the .oplan anyone would expect.
+            var entry = zip.CreateEntry($"{Path.GetFileNameWithoutExtension(path)}.{Extension}", CompressionLevel.Optimal);
+            using var writer = new StreamWriter(entry.Open());
+            writer.Write(ToJson());
+        }
+        File.WriteAllBytes(path, buffer.ToArray());
+    }
+
+    /// <summary>Whether <see cref="Save"/> writes <paramref name="path"/> compressed.</summary>
+    public static bool IsCompressed(string path) =>
+        Path.GetExtension(path).Equals("." + CompressedExtension, StringComparison.OrdinalIgnoreCase);
 
     /// <summary>The file's contents as <see cref="Save"/> writes them.</summary>
     public string ToJson() => JsonSerializer.Serialize(this, Options);
 
     public static OplanFile Load(string path)
     {
-        var file = JsonSerializer.Deserialize<OplanFile>(File.ReadAllText(path), Options)
+        var file = JsonSerializer.Deserialize<OplanFile>(ReadJson(path), Options)
                    ?? throw new InvalidDataException("File parsed to null.");
         if (file.FormatVersion > CurrentFormatVersion)
             throw new InvalidDataException(
                 $"'{Path.GetFileName(path)}' is format v{file.FormatVersion}; this build reads up to v{CurrentFormatVersion}.");
         return file;
+    }
+
+    /// <summary>
+    /// The design's JSON, from a plain <c>.oplan</c> or from a zip holding one: an <c>.oplanz</c>, or a <c>.zip</c>
+    /// somebody shared. Told apart by the first two bytes rather than by the extension, so a file renamed on its way
+    /// through a chat still opens. Every zip starts "PK", and no JSON document can.
+    /// </summary>
+    private static string ReadJson(string path)
+    {
+        using var stream = File.OpenRead(path);
+        Span<byte> head = stackalloc byte[2];
+        var zipped = stream.ReadAtLeast(head, 2, throwOnEndOfStream: false) == 2 && head[0] == 'P' && head[1] == 'K';
+        stream.Position = 0;
+        if (!zipped)
+        {
+            using var reader = new StreamReader(stream);   // as File.ReadAllText reads it, byte-order mark and all
+            return reader.ReadToEnd();
+        }
+
+        using var zip = new ZipArchive(stream, ZipArchiveMode.Read);
+        // A zip made on a Mac holds a "._" shadow of every file in it, which is no design whatever it is called.
+        var designs = zip.Entries
+            .Where(e => e.Name.EndsWith("." + Extension, StringComparison.OrdinalIgnoreCase)
+                        && !e.Name.StartsWith("._", StringComparison.Ordinal))
+            .ToList();
+        if (designs.Count != 1)
+            throw new InvalidDataException(designs.Count == 0
+                ? $"'{Path.GetFileName(path)}' has no Ostraplan design in it."
+                : $"'{Path.GetFileName(path)}' holds {designs.Count} designs. Unzip it and open them together.");
+        using var design = new StreamReader(designs[0].Open());
+        return design.ReadToEnd();
     }
 
     /// <summary>Rebuild a document; parts whose def is not in the catalog are returned, not placed.</summary>

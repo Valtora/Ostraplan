@@ -335,6 +335,31 @@ The block is still parsed, because it is the only thing that says where a legacy
 contents were. Opening one reads them back once, after which the design owns them and the
 next save writes them into the file and drops `source` for good. It is never written.
 
+## `.oplanz` — a compressed design
+
+An `.oplanz` is a **standard zip holding one `.oplan`**, for sharing. The JSON inside is
+byte for byte what Save would have written to an `.oplan`, at the same `formatVersion`, so
+everything above applies to it unchanged. The entry is named after the file it is in
+(`Kestrel.oplanz` holds `Kestrel.oplan`), so renaming one to `.zip` and unzipping it gives
+back the plain design.
+
+It exists for size. A design imported from a save is mostly cargo snapshots, and those
+compress about twentyfold: a 1.4 MB design is 70 KB as an `.oplanz`, which is the
+difference between fitting in a chat attachment and not.
+
+- **Writing.** The extension decides. Save As offers both, and a design saved as an
+  `.oplanz` goes on saving as one. The zip is built in memory and written in one go.
+- **Reading.** What is in the file decides, not its name. A file starting with the zip
+  signature `PK` is opened as a zip and the one entry whose name ends `.oplan` is read;
+  anything else is read as JSON. So a renamed file still opens either way, and so does a
+  `.zip` somebody made by hand. A `._` entry (the shadow file a Mac adds) is not a design.
+  A zip holding no `.oplan`, or more than one, is refused with a message saying which.
+- **A `.zip` opens untitled.** It is somebody's archive rather than a design file, and
+  saving into it would drop whatever else it holds, so the first save asks where to put the
+  design. An `.oplanz` opens on its own file like an `.oplan`.
+
+Auto-save snapshots and session backups stay plain `.oplan`: they never leave the machine.
+
 ## `.oplanmod` — a pack of designs
 
 A **ship pack** is a second, much smaller document: one mod made of several designs, written

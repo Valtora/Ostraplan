@@ -749,6 +749,13 @@ stores your parts (def, position, rotation), the mods the design depends on, and
 document notes. It does **not** embed game assets. See
 [OPLAN-FORMAT.md](OPLAN-FORMAT.md) for the exact shape.
 
+**Sharing a large design:** pick **Compressed Ostraplan ship (\*.oplanz)** in **File ▸ Save As**.
+An `.oplanz` is the same design zipped, typically a twentieth of the size, which matters for
+a ship imported from a save with full holds. Ctrl+S then keeps it compressed. **File ▸ Open**
+reads an `.oplanz` like any design, and also reads a `.zip` that has one design in it (choose
+**Zipped ship** in the dialog). A design opened from a `.zip` comes in untitled, so the first
+save asks where to put it rather than writing into somebody's archive.
+
 **Sharing a modded design:** the `.oplan` records which mods it needs. If someone
 opens it without those mods, Ostraplan names the missing parts and their mods and
 holds the design **read-only** — a standing "MISSING MODS" warning appears. This is

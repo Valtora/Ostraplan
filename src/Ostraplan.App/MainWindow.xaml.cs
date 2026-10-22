@@ -1904,7 +1904,7 @@ public partial class MainWindow : Window
         var dlg = new OpenFileDialog
         {
             Title = "Choose the design to retrofit from",
-            Filter = "Ostraplan ship (*.oplan)|*.oplan|All files (*.*)|*.*",
+            Filter = DesignFilters.Open,
         };
         if (dlg.ShowDialog(owner) != true) return null;
 
@@ -2554,7 +2554,8 @@ public partial class MainWindow : Window
         if (!GuardIncompleteSave()) return false;
         var dlg = new SaveFileDialog
         {
-            Filter = "Ostraplan ship (*.oplan)|*.oplan",
+            Filter = DesignFilters.Save,
+            FilterIndex = DesignFilters.SaveIndexFor(_doc.FilePath),
             FileName = string.Join("_", _meta.Name.Split(Path.GetInvalidFileNameChars())),
         };
         if (dlg.ShowDialog(this) != true) return false;
@@ -2820,7 +2821,7 @@ public partial class MainWindow : Window
         var dlg = new OpenFileDialog
         {
             Title = readOnly ? "Open read-only" : "Open",
-            Filter = "Ostraplan ship (*.oplan)|*.oplan|All files (*.*)|*.*",
+            Filter = DesignFilters.Open,
             Multiselect = true,
         };
         if (dlg.ShowDialog(this) != true) return;
@@ -2950,7 +2951,8 @@ public partial class MainWindow : Window
 
         var dlg = new SaveFileDialog
         {
-            Filter = "Ostraplan ship (*.oplan)|*.oplan",
+            Filter = DesignFilters.Save,
+            FilterIndex = DesignFilters.SaveIndexFor(_doc.FilePath),
             FileName = _active.DisplayName + " copy",
             InitialDirectory = Path.GetDirectoryName(_doc.FilePath) ?? "",
         };
@@ -3036,10 +3038,15 @@ public partial class MainWindow : Window
                 continue;
             }
 
-            AdoptLoadedDocument(file, doc, missing, path, dirty: false);
-            if (readOnly) _active.ReadOnly = true;
+            // A .zip is an archive somebody shared, not a design file: saving into it would throw away whatever else
+            // it holds. So the design opens untitled, and its first save asks where to put it. Having no file of its
+            // own, it has nothing for the lock to protect either, as for any untitled design.
+            var own = Path.GetExtension(path).Equals(".zip", StringComparison.OrdinalIgnoreCase) ? null : path;
+            var locked = readOnly && own is not null;
+            AdoptLoadedDocument(file, doc, missing, own, dirty: false);
+            if (locked) _active.ReadOnly = true;
             _settings.Touch(path);
-            AuditLog.Add(readOnly ? $"Opened {path} read-only." : $"Opened {path}.");
+            AuditLog.Add(locked ? $"Opened {path} read-only." : $"Opened {path}.");
             opened++;
 
             // A design written by an older build stored only the layout and left its container contents in the save
@@ -6786,7 +6793,7 @@ public partial class MainWindow : Window
         var dlg = new OpenFileDialog
         {
             Title = "Choose the design to dock with",
-            Filter = "Ostraplan ship (*.oplan)|*.oplan|All files (*.*)|*.*",
+            Filter = DesignFilters.Open,
         };
         if (dlg.ShowDialog(owner) != true) return null;
 
@@ -7794,7 +7801,7 @@ public partial class MainWindow : Window
     {
         if (_doc is null) return "none";
         var kind = (_doc.SourceSave ?? _saveContext?.Source) is not null ? "save-bound"
-            : _doc.FilePath is not null ? ".oplan" : "unsaved";
+            : _doc.FilePath is { } path ? (OplanFile.IsCompressed(path) ? ".oplanz" : ".oplan") : "unsaved";
         var dirty = _stack.Dirty ? ", unsaved changes" : "";
         var incomplete = _unresolvedParts.Count > 0 ? $", {_unresolvedParts.Count} missing-mod part(s)" : "";
         var others = _sessions.Count > 1 ? $" (+{_sessions.Count - 1} more open)" : "";
