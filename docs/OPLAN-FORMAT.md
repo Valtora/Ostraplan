@@ -358,6 +358,9 @@ difference between fitting in a chat attachment and not.
   left exactly as it was, so nothing that points at it breaks and nothing is deleted.
   Answering **Keep .oplan**, or picking the uncompressed type in Save As, keeps that tab
   plain for as long as it is open. A ship pack follows a converted member, below.
+- **Opening an out-of-date `.oplan`.** Once its `.oplanz` was written later, or the `.oplan`
+  has gone, the `.oplanz` has taken over (`OplanFile.SupersededBy`). Opening the `.oplan` then
+  offers the `.oplanz` instead, or opens it outright when the `.oplan` is missing.
 - **Reading.** What is in the file decides, not its name. A file starting with the zip
   signature `PK` is opened as a zip and the one entry whose name ends `.oplan` is read;
   anything else is read as JSON. So a renamed file still opens either way, and so does a

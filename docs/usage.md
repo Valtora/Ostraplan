@@ -755,8 +755,10 @@ from a save with full holds when you post it somewhere with an attachment limit.
 
 **Designs from before 1.33** are plain **`.oplan`** files, and they open as they always did.
 The first Ctrl+S on one asks before converting it, then writes the `.oplanz` beside it and
-leaves the `.oplan` as it was, so nothing that points at the old file breaks. A ship pack
-follows its designs to their new files. To keep a design as readable JSON, for example one
+leaves the `.oplan` as it was, so nothing that points at the old file breaks. Opening an
+`.oplan` that has a newer `.oplanz` beside it asks whether you meant the `.oplanz`, since the
+`.oplan` is then out of date; an `.oplan` that is no longer there opens its `.oplanz` without
+asking. A ship pack follows its designs to their new files in the same way. To keep a design as readable JSON, for example one
 you keep in git, answer **Keep .oplan**, or pick **Uncompressed Ostraplan ship (\*.oplan)** in
 **File ▸ Save As**; either holds for that tab while it is open.
 

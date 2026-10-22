@@ -74,14 +74,9 @@ public sealed class BundleFile
             : Path.GetFullPath(Path.Combine(Path.GetDirectoryName(Path.GetFullPath(bundlePath)) ?? "", entryPath));
 
         // A member stored as an .oplan that has since been saved as an .oplanz is followed to it. Converting leaves
-        // the .oplan where it was, so the pack would otherwise go on exporting the copy nobody edits any more: the
-        // .oplanz is taken whenever it was written later than the .oplan, or the .oplan has gone. The pack stores the
-        // path it resolved to, so it names the new file once it is next saved.
-        if (!OplanFile.IsPlain(path)) return path;
-        var twin = OplanFile.CompressedTwin(path);
-        return File.Exists(twin) && (!File.Exists(path) || File.GetLastWriteTimeUtc(twin) > File.GetLastWriteTimeUtc(path))
-            ? twin
-            : path;
+        // the .oplan where it was, so the pack would otherwise go on exporting the copy nobody edits any more. The
+        // pack stores the path it resolved to, so it names the new file once it is next saved.
+        return OplanFile.SupersededBy(path) ?? path;
     }
 
     /// <inheritdoc cref="ResolveDesignPath"/>

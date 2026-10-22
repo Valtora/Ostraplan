@@ -196,6 +196,33 @@ public class CompressedDesignTests
         Assert.Equal(@"C:\Ships\Kestrel Mk.2.oplanz", OplanFile.CompressedTwin(@"C:\Ships\Kestrel Mk.2.oplan"));
     }
 
+    /// <summary>Converting leaves the .oplan behind, so beside each other the newer file is the design. The .oplanz
+    /// takes over only once it is newer, or once the .oplan has gone.</summary>
+    [Fact]
+    public void An_oplan_is_superseded_by_a_newer_oplanz_beside_it()
+    {
+        InTempDir(dir =>
+        {
+            var plain = Path.Combine(dir, "Kestrel.oplan");
+            var twin = Path.Combine(dir, "Kestrel.oplanz");
+
+            File.WriteAllText(plain, "{}");
+            Assert.Null(OplanFile.SupersededBy(plain));                    // never converted
+
+            File.WriteAllText(twin, "{}");
+            File.SetLastWriteTimeUtc(plain, DateTime.UtcNow.AddMinutes(-5));
+            Assert.Equal(twin, OplanFile.SupersededBy(plain));            // converted since
+
+            File.SetLastWriteTimeUtc(plain, DateTime.UtcNow.AddMinutes(5));
+            Assert.Null(OplanFile.SupersededBy(plain));                    // the .oplan kept and edited later
+
+            File.Delete(plain);
+            Assert.Equal(twin, OplanFile.SupersededBy(plain));            // the .oplan cleared away
+
+            Assert.Null(OplanFile.SupersededBy(twin));                     // an .oplanz is never out of date this way
+        });
+    }
+
     [Fact]
     public void Saving_over_an_oplanz_replaces_it_whole()
     {

@@ -3037,6 +3037,30 @@ public partial class MainWindow : Window
         _sessions.FirstOrDefault(s => DesignPath.Same(s.Doc?.FilePath, path));
 
     /// <summary>
+    /// The file to open when <paramref name="requested"/> is asked for, or null when the user cancels. An
+    /// <c>.oplan</c> that has since been saved as an <c>.oplanz</c> beside it is out of date (see
+    /// <see cref="OplanFile.SupersededBy"/>), and editing it would end in a conversion that replaces the newer file,
+    /// so the newer one is offered first. An <c>.oplan</c> that is no longer there opens its <c>.oplanz</c> without
+    /// asking, since there is nothing to choose between: a Recent entry from before the conversion, say.
+    /// </summary>
+    private string? CurrentFileFor(string requested)
+    {
+        if (OplanFile.SupersededBy(requested) is not { } newer) return requested;
+        if (File.Exists(requested))
+        {
+            var choice = Dlg.Choose(this, DlgKind.Warning, "A newer .oplanz is beside this design",
+                $"{Path.GetFileName(newer)} was saved after {Path.GetFileName(requested)}, so the .oplan is probably " +
+                "out of date.\n\nOpen the .oplanz instead?",
+                "Open the .oplanz", "Open the .oplan");
+            if (choice == MessageDialog.Choice.Cancel) return null;
+            if (choice == MessageDialog.Choice.Secondary) return requested;
+        }
+        AuditLog.Add($"Opening {newer} in place of {requested}, which it has taken over from.");
+        _settings.RecentFiles.Remove(requested);
+        return newer;
+    }
+
+    /// <summary>
     /// Open each of <paramref name="paths"/> in a tab of its own, in the order given, leaving the last one opened on
     /// screen.
     ///
@@ -3060,8 +3084,9 @@ public partial class MainWindow : Window
         DocumentSession? alreadyOpen = null;
         var opened = 0;
 
-        foreach (var path in paths)
+        foreach (var requested in paths)
         {
+            if (CurrentFileFor(requested) is not { } path) continue;
             if (SessionFor(path) is { } open)
             {
                 alreadyOpen = open;

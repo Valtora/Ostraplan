@@ -216,6 +216,19 @@ public sealed class OplanFile
     /// folder. The <c>.oplan</c> is left where it was.</summary>
     public static string CompressedTwin(string path) => Path.ChangeExtension(path, CompressedExtension);
 
+    /// <summary>
+    /// The <c>.oplanz</c> that has taken over from the plain <c>.oplan</c> at <paramref name="path"/>, or null when
+    /// nothing has. Converting leaves the <c>.oplan</c> where it was, so the two sit side by side and only one of them
+    /// is being kept up to date: the <c>.oplanz</c> when it was written later, or when the <c>.oplan</c> has gone.
+    /// </summary>
+    public static string? SupersededBy(string path)
+    {
+        if (!IsPlain(path)) return null;
+        var twin = CompressedTwin(path);
+        if (!File.Exists(twin)) return null;
+        return !File.Exists(path) || File.GetLastWriteTimeUtc(twin) > File.GetLastWriteTimeUtc(path) ? twin : null;
+    }
+
     /// <summary>The file's contents as <see cref="Save"/> writes them.</summary>
     public string ToJson() => JsonSerializer.Serialize(this, Options);
 

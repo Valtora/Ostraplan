@@ -13,9 +13,10 @@ each release was verified against is recorded in
 
 ### Added
 - **Designs are saved compressed, as .oplanz, about a twentieth of the size.**
-  - Saving an .oplan asks first, then writes the .oplanz beside it and leaves the .oplan alone, and ship packs follow it there.
-  - Answer Keep .oplan, or pick Uncompressed Ostraplan ship in File ▸ Save As, to keep a design as readable JSON.
-  - File ▸ Open reads both, and a .zip with one design in it. Thanks to RedTwinkleToes.
+  - Saving an .oplan asks first, then writes the .oplanz beside it and leaves the .oplan alone.
+  - Opening an .oplan with a newer .oplanz beside it offers the .oplanz instead, and ship packs take the .oplanz.
+  - To keep a design as readable JSON, answer Keep .oplan or pick Uncompressed Ostraplan ship in File ▸ Save As. Thanks to RedTwinkleToes.
+- **File ▸ Open reads a .zip with one design in it.** Thanks to RedTwinkleToes.
 - **Double-clicking an .oplanz, .oplan or .oplanmod file opens it in Ostraplan.**
   - With Ostraplan already open, the design opens in a new tab there, and a pack opens in the Ship Bundle editor.
   - The installer sets this up. A portable copy does it from Settings ▸ Files.
