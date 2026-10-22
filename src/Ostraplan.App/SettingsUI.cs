@@ -111,6 +111,9 @@ public sealed class SettingsDialog : Window
         body.Children.Add(BackupRow());
         body.Children.Add(CloseModeRow());
 
+        Section(body, "FILES");
+        body.Children.Add(FileTypesRow());
+
         Section(body, "EDITING");
         body.Children.Add(ModOverrideRow());
 
@@ -775,6 +778,53 @@ public sealed class SettingsDialog : Window
         if (_tipStartup is { } combo) combo.IsEnabled = on;
         if (_tipBulb is { } bulb) bulb.IsEnabled = on;
         if (_tipHours is { } hours) hours.IsEnabled = on && _settings.Tips.StartupMode == TipStartup.Interval;
+    }
+
+    // ---- files ----
+
+    /// <summary>Which copy of Ostraplan Explorer opens Ostraplan files with, and the button that makes it this one.
+    /// It is the only way a portable copy takes them (see <see cref="ShellIntegration"/>), and the way back for an
+    /// installed copy after a portable one has had them.</summary>
+    private UIElement FileTypesRow()
+    {
+        var value = PathValue();
+        var use = new Button
+        {
+            Content = "Use this copy", Padding = new Thickness(12, 2, 12, 2), Margin = new Thickness(12, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Top,
+        };
+
+        void Refresh()
+        {
+            try
+            {
+                var mine = ShellIntegration.IsThisCopy();
+                value.Text = mine ? "This copy of Ostraplan"
+                    : ShellIntegration.RegisteredExe() is { } other ? $"Another copy of Ostraplan:\n{other}"
+                    : "Nothing yet";
+                use.IsEnabled = !mine;
+            }
+            catch (Exception ex)
+            {
+                value.Text = "Couldn't be read: " + ex.Message;
+            }
+        }
+
+        use.Click += (_, _) =>
+        {
+            try { ShellIntegration.Claim(); }
+            catch (Exception ex) { Dlg.Error(this, "Settings", "Windows didn't take the change.\n\n" + ex.Message); }
+            Refresh();
+        };
+        Refresh();
+
+        var dock = new DockPanel();
+        DockPanel.SetDock(use, Dock.Right);
+        dock.Children.Add(use);
+        dock.Children.Add(value);
+        return Row("Double-clicking an Ostraplan file opens it in", dock,
+            "Which copy opens .oplanz, .oplan and .oplanmod files from Explorer. The installed copy sets this up "
+            + "itself. A portable copy does only when you click here.");
     }
 
     // ---- game folders ----

@@ -26,6 +26,10 @@ public sealed class BundleFile
     /// <summary>The file extension, without the dot.</summary>
     public const string Extension = "oplanmod";
 
+    /// <summary>Whether <paramref name="path"/> names a pack rather than a design.</summary>
+    public static bool IsPack(string path) =>
+        Path.GetExtension(path).Equals("." + Extension, StringComparison.OrdinalIgnoreCase);
+
     [JsonPropertyName("formatVersion")] public int FormatVersion { get; set; } = CurrentFormatVersion;
     [JsonPropertyName("game")] public OplanGame Game { get; set; } = new();
     [JsonPropertyName("mod")] public BundleModMeta Mod { get; set; } = new();

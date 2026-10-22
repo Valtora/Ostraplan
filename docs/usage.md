@@ -65,6 +65,7 @@ than part of a design. Changes apply as you make them.
 | **Toolbar labels** | Writes each toolbar icon's name beside it. Off by default, since the toolbar then needs more width and moves its edit modes and overlays to a second row sooner. With it off, pointing at an icon gives its name and key. |
 | **UI scale** | 80% to 200%, scaling everything Ostraplan draws, right-click menus, dropdowns and tooltips included. Above 100% for a high-resolution monitor run at 100% Windows scaling, where the app's text would otherwise be tiny; below it to fit more into the window you have, on a laptop panel or beside a second copy of the app. It is a layout scale, not a magnifying glass, so text and vectors stay sharp. Dialogs and reports resize with it; the main window keeps the size you gave it, and below 100% spends the space it saves on the canvas. |
 | **Open as** | Ostraplan remembers where its window was and how big it was, and reopens like that, maximised if you closed it maximised. Set this to **Maximised** to have it fill the screen every launch whatever you closed it at; un-maximising still gives back the window you had. A remembered position is checked against your monitors as they are at launch, so unplugging the screen it was on opens it centred rather than off the edge. Read at launch, so a change takes effect next time Ostraplan starts. |
+| **Files** | Which copy of Ostraplan opens `.oplanz`, `.oplan` and `.oplanmod` files double-clicked in Explorer, and **Use this copy** to make it this one. The installed copy sets this up itself; a portable copy only from here. See [Opening from Explorer](#opening-from-explorer). |
 | **Mod overrides** | Let a modded part be placed where the core-game rules say it doesn't fit (see [The Law](#the-law--live-validation)). |
 | **Tips** | Whether tips appear, how often at startup, and whether the bulb sits in the toolbar. **Choose topics and tips…** opens the list of them. See [Tips](#tips). |
 | **Ostranauts install** | Where the game's data and sprites are read from, and the version of the game found there. Found through Steam automatically. Read once at launch, so a change takes effect next time you start Ostraplan. |
@@ -762,6 +763,20 @@ you keep in git, answer **Keep .oplan**, or pick **Uncompressed Ostraplan ship (
 **File ▸ Open** reads both forms, and also a `.zip` that has one design in it (choose
 **Zipped ship** in the dialog). A design opened from a `.zip` comes in untitled, so the first
 save asks where to put it rather than writing into somebody's archive.
+
+### Opening from Explorer
+
+Double-click an `.oplanz` or `.oplan` to open it, and an `.oplanmod` to open the pack in the
+**Ship Bundle** editor. With Ostraplan already open, the file goes to that window, which comes
+forward and opens the design in a tab of its own, as **File ▸ Open** would; selecting several
+designs and pressing Enter opens them all there. A file that arrives while a dialog is open
+waits until you close it. Started by a double-click, Ostraplan reopens last session's designs
+first and puts the one you clicked on top.
+
+The installer sets this up and the uninstaller takes it away again. An update leaves it alone
+if you have pointed the files at another copy. A portable copy never claims them by itself: use
+**Settings ▸ Files ▸ Use this copy**. A choice made in Windows' own **Open with** dialog wins
+over all of this.
 
 **Sharing a modded design:** the `.oplan` records which mods it needs. If someone
 opens it without those mods, Ostraplan names the missing parts and their mods and

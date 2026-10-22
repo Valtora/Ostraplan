@@ -125,6 +125,9 @@ Settings and the activity log are inside the prefix, at
 - Text uses substitute fonts, because Windows' Segoe UI is not available under Wine, so it looks slightly
   different from the screenshots.
 - **Show in folder** opens Wine's own file browser rather than your desktop's.
+- Double-clicking a design in your desktop's file manager has not been tried. **Settings ▸ Files ▸ Use
+  this copy** registers the file types inside the Wine prefix, which Wine may or may not pass on to your
+  desktop.
 - Not yet tried: the Steam Deck, Steam installed through Flatpak or Snap, and Workshop mods. Reports either
   way are useful.
 

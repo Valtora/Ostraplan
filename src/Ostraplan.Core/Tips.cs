@@ -152,6 +152,8 @@ public static class Tips
             TipTag.Workspace),
         T("oplanz", "Designs save compressed, as .oplanz. To keep one as readable JSON, pick Uncompressed Ostraplan ship in File ▸ Save As.",
             TipTag.Workspace),
+        T("double-click", "Double-click a design in Explorer and it opens in a new tab here. A portable copy needs Settings ▸ Files ▸ Use this copy first.",
+            TipTag.Workspace),
         T("copy-tabs", "Copy and paste work between tabs, and a paste keeps names, contents, fills and device settings.",
             TipTag.Workspace),
         T("switch-tabs", "Ctrl+Tab steps through your open designs, and Ctrl+W closes the one on screen.",

@@ -8,6 +8,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Controls.Primitives;
 using System.Windows.Input;
+using System.Windows.Interop;
 using System.Windows.Media;
 using System.Windows.Media.Animation;
 using System.Windows.Media.Imaging;
@@ -942,6 +943,10 @@ public partial class MainWindow : Window
 
         UpdateZoomText();
         LoadingOverlay.Visibility = Visibility.Collapsed;
+
+        // Last, so a design double-clicked to start Ostraplan opens on top of the ones the session brought back.
+        SingleInstance.App.Arrived += () => Dispatcher.BeginInvoke(OpenRequestedFiles);
+        OpenRequestedFiles();
 
         // An update landed last restart: say what it brought, once. A tip waits for the next launch rather than
         // stacking a second thing on top of that (#39).
@@ -6531,7 +6536,7 @@ public partial class MainWindow : Window
         m.Items.Add(new Separator());
         // Beside Transfer rather than under Export: it is not an export of the open design, and it does not touch
         // the open design at all. It gathers saved designs into one mod.
-        m.Items.Add(MenuAction("Ship Bundle (several ships in one mod)…", OpenBundleEditor,
+        m.Items.Add(MenuAction("Ship Bundle (several ships in one mod)…", () => OpenBundleEditor(),
             enabled: _catalog is not null && _index is not null && _env is not null));
         OpenMenuUnder(m, BtnFileMenu);
     }
@@ -6543,15 +6548,66 @@ public partial class MainWindow : Window
     /// are <c>.oplan</c> files, and the only thing it asks about the open tabs is whether one of them is sitting on
     /// unsaved changes to a file it is about to export, which is worth saying on the row.</para>
     /// </summary>
-    private void OpenBundleEditor()
+    private void OpenBundleEditor(string? pack = null)
     {
         if (_catalog is null || _index is null || _env is null) return;
         _roomSpecs ??= RoomCertifier.LoadSpecs(_index);
 
-        new Bundle.BundleWindow(_catalog, _index, _env, _settings, _roomSpecs, _sprites, IsOpenWithUnsavedEdits)
+        var editor = new Bundle.BundleWindow(_catalog, _index, _env, _settings, _roomSpecs, _sprites, IsOpenWithUnsavedEdits)
         {
             Owner = this,
-        }.ShowDialog();
+        };
+        if (pack is not null)
+        {
+            try { editor.OpenPack(pack); }
+            catch (Exception ex)
+            {
+                Dlg.Error(this, "Ship Bundle", $"{Path.GetFileName(pack)} could not be read.\n\n{ex.Message}");
+                return;
+            }
+            AuditLog.Add($"Opened the ship pack {pack}.");
+        }
+        editor.ShowDialog();
+    }
+
+    /// <summary>A file retried while a dialog is in the way. See <see cref="OpenRequestedFiles"/>.</summary>
+    private DispatcherTimer? _requestRetry;
+
+    /// <summary>
+    /// Open what was asked for from outside: designs and packs double-clicked in Explorer or named on the command
+    /// line, whether this copy was started with them or another launch handed them over (see
+    /// <see cref="SingleInstance"/>). Designs open in tabs of their own as File ▸ Open would open them, and a pack
+    /// opens in the Ship Bundle editor.
+    ///
+    /// <para>Files that arrive while a dialog is open wait until it closes. A dialog can be partway through
+    /// something on the design on screen, Save As for one, and opening another design would put a different one
+    /// on screen under it. A Windows file dialog does not count as modal to WPF, but it disables the window it
+    /// belongs to, so that is what is tested, and the wait is a short poll because nothing announces the dialog
+    /// closing.</para>
+    /// </summary>
+    private void OpenRequestedFiles()
+    {
+        if (_catalog is null || !SingleInstance.App.HasPending)
+        {
+            _requestRetry?.Stop();
+            return;
+        }
+        if (ComponentDispatcher.IsThreadModal || !Win32.IsWindowEnabled(new WindowInteropHelper(this).Handle))
+        {
+            _requestRetry ??= new DispatcherTimer(TimeSpan.FromMilliseconds(400), DispatcherPriority.Background,
+                (_, _) => OpenRequestedFiles(), Dispatcher);
+            _requestRetry.Start();
+            return;
+        }
+        _requestRetry?.Stop();
+
+        var files = SingleInstance.App.TakePending();
+        if (WindowState == WindowState.Minimized) Win32.ShowWindow(new WindowInteropHelper(this).Handle, Win32.SwRestore);
+        Activate();
+
+        var designs = files.Where(f => !BundleFile.IsPack(f)).ToList();
+        if (designs.Count > 0) OpenDesigns(designs);
+        foreach (var pack in files.Where(BundleFile.IsPack)) OpenBundleEditor(pack);
     }
 
     /// <summary>Whether a design is open in a tab that has unsaved changes. The bundle editor exports the file on

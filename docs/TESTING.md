@@ -87,6 +87,7 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 | Nav module art (the prefab read, `RectTransform` maths) | `NavModArtTests` (the geometry) | `NavModArtTests` (every stock module has a scene out of `resources.assets`, known labels and sprites come through, the fonts are TrueType) |
 | `.oplan` round-trip | `EngineTests` | `SaveEditTests` |
 | `.oplanz` and zipped designs (the zip written, read by content not name, the zips refused) | `CompressedDesignTests` | — |
+| File types and the single window (the registry layout on a scratch key, whose an uninstall removes, the launch arguments, the pipe hand-over) | `FileAssociationTests` | — |
 | Cargo edit / inventory grid | `CargoEditTests`, `InventoryGridTests`, `CargoTests` | `ContainerModelTests` |
 | Canister/tank fill (capacity, shared budget, write-out) | `ContainerFillTests` | `ContainerFillTests` (the capacity against real defs, and which gases the data declares) |
 | Repair (broken def → working def; clearing `StatDamage`) | `RepairTests` | `RepairTests` (the repair/undamage job split, and themed walls) |

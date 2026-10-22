@@ -242,4 +242,19 @@ be handled before any window exists. `VeloUpdate.cs` wraps the
 `UpdateManager`: it downloads a new version in the background on launch and applies it
 only when the user clicks **Restart to update**, so an update never costs unsaved work.
 
+The same hooks register Ostraplan's file types, `.oplanz`, `.oplan` and `.oplanmod`, per-user
+under `HKCU\Software\Classes`, pointing at `current\Ostraplan.exe` (`ShellIntegration`, with
+the registry layout in Core's `FileAssociations`). Install claims them. An update claims them
+unless another copy that still exists has them, which is also how an install from before they
+were registered picks them up. Uninstall removes them only while they are still this copy's.
+A portable or development build never registers itself, so a `dotnet run` cannot take over
+double-click; **Settings ▸ Files** does it on request.
+
+A launch given files while a copy is already running hands them over and exits, before WPF
+starts (`SingleInstance`). The first copy to start owns a per-user, per-session named mutex
+and serves a named pipe of the same name, restricted to the current user. A launch with no
+files still starts a second window as before. The running window opens what arrives once no
+dialog is up, including a Windows file dialog, which it detects by its own window being
+disabled.
+
 The build is not code-signed, which is why first run can trip SmartScreen.
