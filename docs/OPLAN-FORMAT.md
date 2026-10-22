@@ -1,7 +1,10 @@
 # The `.oplan` file format
 
-`.oplan` is Ostraplan's **native document format**: a single, human-readable JSON
-file describing one ship design. It is small, diff-friendly, and safe to share.
+A design is a single, human-readable JSON document describing one ship. Ostraplan saves
+it **compressed, as an `.oplanz`** (a zip holding that JSON, see
+[below](#oplanz--a-compressed-design)), or plain, as an **`.oplan`**. The JSON is the same
+either way, and everything in this document describes it. It is small, diff-friendly as
+an `.oplan`, and safe to share.
 
 This document is the reference for the on-disk shape. The authority is the
 serializer, `Ostraplan.Core/OplanFile.cs` — if the two ever disagree, the code
@@ -337,7 +340,8 @@ next save writes them into the file and drops `source` for good. It is never wri
 
 ## `.oplanz` — a compressed design
 
-An `.oplanz` is a **standard zip holding one `.oplan`**, for sharing. The JSON inside is
+An `.oplanz` is a **standard zip holding one `.oplan`**, and the form a design is saved in
+by default. The JSON inside is
 byte for byte what Save would have written to an `.oplan`, at the same `formatVersion`, so
 everything above applies to it unchanged. The entry is named after the file it is in
 (`Kestrel.oplanz` holds `Kestrel.oplan`), so renaming one to `.zip` and unzipping it gives
@@ -347,8 +351,13 @@ It exists for size. A design imported from a save is mostly cargo snapshots, and
 compress about twentyfold: a 1.4 MB design is 70 KB as an `.oplanz`, which is the
 difference between fitting in a chat attachment and not.
 
-- **Writing.** The extension decides. Save As offers both, and a design saved as an
-  `.oplanz` goes on saving as one. The zip is built in memory and written in one go.
+- **Writing.** The extension decides. Save As offers both, `.oplanz` first. The zip is
+  built in memory and written in one go.
+- **Converting.** Ctrl+S on a design that is still a plain `.oplan` asks first, then writes
+  the `.oplanz` of the same name beside it and moves the tab onto that file. The `.oplan` is
+  left exactly as it was, so nothing that points at it breaks and nothing is deleted.
+  Answering **Keep .oplan**, or picking the uncompressed type in Save As, keeps that tab
+  plain for as long as it is open. A ship pack follows a converted member, below.
 - **Reading.** What is in the file decides, not its name. A file starting with the zip
   signature `PK` is opened as a zip and the one entry whose name ends `.oplan` is read;
   anything else is read as JSON. So a renamed file still opens either way, and so does a
@@ -403,7 +412,7 @@ belongs to, and how that mod hands it out.
 | Field | What it is |
 |---|---|
 | `mod` | The mod's own details, plus `exclusiveStart`: pin the Shipbreaker start to this mod's ships. Asked of the mod because the career rolls one pool, so "only this ship" cannot be said twice in it. |
-| `ships[].path` | The `.oplan`, relative to the pack where that resolves (so a folder holding a pack and its designs moves or shares whole), absolute where it does not. |
+| `ships[].path` | The design, relative to the pack where that resolves (so a folder holding a pack and its designs moves or shares whole), absolute where it does not. A path naming an `.oplan` that has since been converted is followed to the `.oplanz` beside it whenever that one was written later or the `.oplan` is gone, and the pack names the `.oplanz` once it is next saved. |
 | `ships[].name` | A name to use instead of the design's own. It exists for one reason: two designs may share a name, and the game keys a ship's data and its pictures on that name, so one has to give. |
 | `ships[].replaces` | The `strName` of an existing ship this design takes over, or null. |
 | `ships[].wear` | The condition to bake in. No seed: one is drawn afresh at each review, as it is for a single design. |

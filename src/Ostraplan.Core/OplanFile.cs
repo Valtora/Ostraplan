@@ -207,6 +207,15 @@ public sealed class OplanFile
     public static bool IsCompressed(string path) =>
         Path.GetExtension(path).Equals("." + CompressedExtension, StringComparison.OrdinalIgnoreCase);
 
+    /// <summary>Whether <paramref name="path"/> is a plain <c>.oplan</c>, the format every design was saved in before
+    /// the <c>.oplanz</c> became the default, and so one that saving offers to convert.</summary>
+    public static bool IsPlain(string path) =>
+        Path.GetExtension(path).Equals("." + Extension, StringComparison.OrdinalIgnoreCase);
+
+    /// <summary>The <c>.oplanz</c> a plain <c>.oplan</c> becomes when it is converted: the same name in the same
+    /// folder. The <c>.oplan</c> is left where it was.</summary>
+    public static string CompressedTwin(string path) => Path.ChangeExtension(path, CompressedExtension);
+
     /// <summary>The file's contents as <see cref="Save"/> writes them.</summary>
     public string ToJson() => JsonSerializer.Serialize(this, Options);
 

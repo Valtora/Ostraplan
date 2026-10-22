@@ -12,9 +12,10 @@ each release was verified against is recorded in
 ## [Unreleased]
 
 ### Added
-- **Designs can be saved compressed, as .oplanz, for sharing.**
-  - Pick Compressed Ostraplan ship in File ▸ Save As. A large design comes out about a twentieth of the size.
-  - File ▸ Open reads an .oplanz, and a .zip with one design in it. Thanks to RedTwinkleToes.
+- **Designs are saved compressed, as .oplanz, about a twentieth of the size.**
+  - Saving an .oplan asks first, then writes the .oplanz beside it and leaves the .oplan alone, and ship packs follow it there.
+  - Answer Keep .oplan, or pick Uncompressed Ostraplan ship in File ▸ Save As, to keep a design as readable JSON.
+  - File ▸ Open reads both, and a .zip with one design in it. Thanks to RedTwinkleToes.
 
 ## [1.31.1] 2026-10-19, Linux under Wine
 

@@ -2,20 +2,20 @@ using Ostraplan.Core;
 
 namespace Ostraplan.App;
 
-/// <summary>The file-dialog filters for a design, in one place, so every dialog that reads one takes an
-/// <c>.oplanz</c> and a zipped design as well, and both dialogs that write one offer both forms.</summary>
+/// <summary>The file-dialog filters for a design, in one place, so every dialog that reads one takes both forms and
+/// a zipped design as well, and both dialogs that write one offer both forms with the compressed one first.</summary>
 internal static class DesignFilters
 {
     /// <summary>For a dialog that reads a design. A <c>.zip</c> is listed for the designs people share zipped, and
     /// <see cref="OplanFile.Load"/> reads the one design inside it.</summary>
     public const string Open =
-        "Ostraplan ship (*.oplan;*.oplanz)|*.oplan;*.oplanz|Zipped ship (*.zip)|*.zip|All files (*.*)|*.*";
+        "Ostraplan ship (*.oplanz;*.oplan)|*.oplanz;*.oplan|Zipped ship (*.zip)|*.zip|All files (*.*)|*.*";
 
     /// <summary>For a dialog that writes a design. The extension picked decides the form (see
-    /// <see cref="OplanFile.Save"/>).</summary>
-    public const string Save = "Ostraplan ship (*.oplan)|*.oplan|Compressed Ostraplan ship (*.oplanz)|*.oplanz";
+    /// <see cref="OplanFile.Save"/>), and the compressed one is the default.</summary>
+    public const string Save = "Ostraplan ship (*.oplanz)|*.oplanz|Uncompressed Ostraplan ship (*.oplan)|*.oplan";
 
-    /// <summary>The <see cref="Save"/> filter to start on, counted from 1 as the dialog counts: the one matching the
-    /// design's own file, so Save As on a compressed design stays compressed unless the user picks otherwise.</summary>
-    public static int SaveIndexFor(string? path) => path is not null && OplanFile.IsCompressed(path) ? 2 : 1;
+    /// <summary>The <see cref="Save"/> filter to start on, counted from 1 as the dialog counts: the uncompressed one
+    /// only for a design the user has already chosen to keep plain (see <see cref="DocumentSession.KeepPlain"/>).</summary>
+    public static int SaveIndexFor(bool keepPlain) => keepPlain ? 2 : 1;
 }

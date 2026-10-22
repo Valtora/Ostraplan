@@ -124,6 +124,11 @@ internal sealed class DocumentSession
     /// non-empty the design is INCOMPLETE and held read-only. See <c>MainWindow.GuardIncompleteSave</c>.</summary>
     public IReadOnlyList<OplanPart> UnresolvedParts { get; set; } = [];
 
+    /// <summary>The user chose to keep this design a plain <c>.oplan</c> rather than have Ctrl+S convert it to an
+    /// <c>.oplanz</c>, by answering Keep .oplan when asked or by picking the uncompressed type in Save As. Held for the
+    /// life of the tab and recorded nowhere, so a design reopened later is asked once more.</summary>
+    public bool KeepPlain { get; set; }
+
     /// <summary>The most recent scan result, re-rendered when an alert is dismissed or restored. Per session so
     /// coming back to a tab shows its problems again without waiting on a re-scan.</summary>
     public List<Problem> LastProblems { get; set; } = [];

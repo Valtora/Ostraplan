@@ -181,6 +181,21 @@ public class CompressedDesignTests
         });
     }
 
+    /// <summary>Only a plain .oplan is offered the conversion, and it becomes the .oplanz of the same name in the
+    /// same folder. A file opened under any other name is saved where it is.</summary>
+    [Fact]
+    public void An_oplan_converts_to_the_oplanz_beside_it()
+    {
+        Assert.True(OplanFile.IsPlain(@"C:\Ships\Kestrel.oplan"));
+        Assert.True(OplanFile.IsPlain(@"C:\Ships\Kestrel.OPLAN"));
+        Assert.False(OplanFile.IsPlain(@"C:\Ships\Kestrel.oplanz"));
+        Assert.False(OplanFile.IsPlain(@"C:\Ships\Kestrel.oplanmod"));
+        Assert.False(OplanFile.IsPlain(@"C:\Ships\Kestrel.json"));
+
+        Assert.Equal(@"C:\Ships\Kestrel.oplanz", OplanFile.CompressedTwin(@"C:\Ships\Kestrel.oplan"));
+        Assert.Equal(@"C:\Ships\Kestrel Mk.2.oplanz", OplanFile.CompressedTwin(@"C:\Ships\Kestrel Mk.2.oplan"));
+    }
+
     [Fact]
     public void Saving_over_an_oplanz_replaces_it_whole()
     {

@@ -128,6 +128,34 @@ public class BundleFileTests
         });
     }
 
+    /// <summary>Saving converts a design to an .oplanz and leaves the .oplan beside it, so a pack that named the
+    /// .oplan has to follow the design to the file that is being kept up to date, and only that far.</summary>
+    [Fact]
+    public void A_member_saved_as_an_oplanz_since_is_followed_to_it()
+    {
+        InTempDir(dir =>
+        {
+            var bundle = Path.Combine(dir, "pack.oplanmod");
+            var plain = Path.Combine(dir, "Kestrel.oplan");
+            var twin = Path.Combine(dir, "Kestrel.oplanz");
+
+            File.WriteAllText(plain, "{}");
+            Assert.Equal(plain, BundleFile.ResolveDesignPath(bundle, "Kestrel.oplan"));   // nothing converted yet
+
+            File.WriteAllText(twin, "{}");
+            File.SetLastWriteTimeUtc(plain, DateTime.UtcNow.AddMinutes(-5));
+            Assert.Equal(twin, BundleFile.ResolveDesignPath(bundle, "Kestrel.oplan"));    // converted since
+
+            File.SetLastWriteTimeUtc(plain, DateTime.UtcNow.AddMinutes(5));
+            Assert.Equal(plain, BundleFile.ResolveDesignPath(bundle, "Kestrel.oplan"));   // kept plain, and edited later
+
+            File.Delete(plain);
+            Assert.Equal(twin, BundleFile.ResolveDesignPath(bundle, "Kestrel.oplan"));    // the .oplan cleared away
+
+            Assert.Equal(twin, BundleFile.ResolveDesignPath(bundle, "Kestrel.oplanz"));   // already the new form
+        });
+    }
+
     [Fact]
     public void An_absolute_path_is_kept_as_one()
     {

@@ -744,15 +744,22 @@ stored.
 
 ## Saving & sharing
 
-Ostraplan's native format is **`.oplan`** — a small, shareable JSON file. It
+Designs are saved as **`.oplanz`** files: a small, shareable JSON document, zipped. It
 stores your parts (def, position, rotation), the mods the design depends on, and
 document notes. It does **not** embed game assets. See
 [OPLAN-FORMAT.md](OPLAN-FORMAT.md) for the exact shape.
 
-**Sharing a large design:** pick **Compressed Ostraplan ship (\*.oplanz)** in **File ▸ Save As**.
-An `.oplanz` is the same design zipped, typically a twentieth of the size, which matters for
-a ship imported from a save with full holds. Ctrl+S then keeps it compressed. **File ▸ Open**
-reads an `.oplanz` like any design, and also reads a `.zip` that has one design in it (choose
+Zipped, a design is typically a twentieth of the size, which matters for a ship imported
+from a save with full holds when you post it somewhere with an attachment limit.
+
+**Designs from before 1.33** are plain **`.oplan`** files, and they open as they always did.
+The first Ctrl+S on one asks before converting it, then writes the `.oplanz` beside it and
+leaves the `.oplan` as it was, so nothing that points at the old file breaks. A ship pack
+follows its designs to their new files. To keep a design as readable JSON, for example one
+you keep in git, answer **Keep .oplan**, or pick **Uncompressed Ostraplan ship (\*.oplan)** in
+**File ▸ Save As**; either holds for that tab while it is open.
+
+**File ▸ Open** reads both forms, and also a `.zip` that has one design in it (choose
 **Zipped ship** in the dialog). A design opened from a `.zip` comes in untitled, so the first
 save asks where to put it rather than writing into somebody's archive.
 

@@ -2527,16 +2527,25 @@ public partial class MainWindow : Window
         if (_active.ReadOnly) return SaveEditableCopy();
         if (!GuardIncompleteSave()) return false;
         if (_doc.FilePath is null) return SaveAs();
+        if (SaveTarget(_doc.FilePath) is not { } path) return false;
         try
         {
             var file = OplanFile.FromDocument(_doc, _index, _meta);
             file.ViewRot = Board.ViewRot;   // reopen in the orientation it was saved in
-            file.Save(_doc.FilePath);
+            file.Save(path);
         }
         catch (Exception ex)
         {
             Dlg.Show(this, ex.Message, "Save failed", MessageBoxButton.OK, MessageBoxImage.Error);
             return false;
+        }
+        // Moved onto the converted file only once it has been written, so a save that fails leaves the tab on the
+        // file that still holds the design.
+        if (path != _doc.FilePath)
+        {
+            AuditLog.Add($"Converted {_doc.FilePath} to {Path.GetFileName(path)}; the .oplan is left as it was.");
+            _settings.RecentFiles.Remove(_doc.FilePath);
+            _doc.FilePath = path;
         }
         _stack.MarkSaved();
         _stateDirty = false;
@@ -2555,7 +2564,7 @@ public partial class MainWindow : Window
         var dlg = new SaveFileDialog
         {
             Filter = DesignFilters.Save,
-            FilterIndex = DesignFilters.SaveIndexFor(_doc.FilePath),
+            FilterIndex = DesignFilters.SaveIndexFor(_active.KeepPlain),
             FileName = string.Join("_", _meta.Name.Split(Path.GetInvalidFileNameChars())),
         };
         if (dlg.ShowDialog(this) != true) return false;
@@ -2568,7 +2577,38 @@ public partial class MainWindow : Window
         }
         _doc.FilePath = dlg.FileName;
         _meta.Name = Path.GetFileNameWithoutExtension(dlg.FileName);
+        // Picking the uncompressed type is an answer in itself, so the save that follows does not ask again.
+        _active.KeepPlain = !OplanFile.IsCompressed(dlg.FileName);
         return Save();
+    }
+
+    /// <summary>
+    /// Where Ctrl+S writes a design whose file is <paramref name="path"/>: that file, or for a plain <c>.oplan</c>
+    /// the <c>.oplanz</c> beside it, the format designs are now saved in. Converting is said first rather than done
+    /// unannounced, since the design's file changes name. The <c>.oplan</c> is left exactly as it was, so nothing
+    /// that points at it breaks and nothing is deleted. Keep .oplan holds for the rest of the tab's life (see
+    /// <see cref="DocumentSession.KeepPlain"/>), for anyone who keeps designs as readable JSON. Null when the user
+    /// cancels, in which case nothing is saved.
+    /// </summary>
+    private string? SaveTarget(string path)
+    {
+        if (_active.KeepPlain || !OplanFile.IsPlain(path)) return path;
+        var twin = OplanFile.CompressedTwin(path);
+        // Both files are open, each in its own tab. Writing this one over the other would undo that tab's work, so
+        // this design stays where it is.
+        if (SessionFor(twin) is { } open && !ReferenceEquals(open, _active)) return path;
+
+        var replaces = File.Exists(twin)
+            ? $"\n\nThere is already a {Path.GetFileName(twin)} in that folder, which this replaces."
+            : "";
+        var choice = Dlg.Choose(this, DlgKind.Info, "Save as .oplanz?",
+            $"Designs are now saved compressed, at a fraction of the size. “{_active.DisplayName}” will be saved as " +
+            $"{Path.GetFileName(twin)}, and {Path.GetFileName(path)} is left as it is.{replaces}",
+            "Save as .oplanz", "Keep .oplan");
+        if (choice == MessageDialog.Choice.Cancel) return null;
+        if (choice == MessageDialog.Choice.Primary) return twin;
+        _active.KeepPlain = true;
+        return path;
     }
 
     /// <summary>
@@ -2952,7 +2992,7 @@ public partial class MainWindow : Window
         var dlg = new SaveFileDialog
         {
             Filter = DesignFilters.Save,
-            FilterIndex = DesignFilters.SaveIndexFor(_doc.FilePath),
+            FilterIndex = DesignFilters.SaveIndexFor(_active.KeepPlain),
             FileName = _active.DisplayName + " copy",
             InitialDirectory = Path.GetDirectoryName(_doc.FilePath) ?? "",
         };
@@ -2982,6 +3022,8 @@ public partial class MainWindow : Window
         }
         AuditLog.Add($"Saved an editable copy of \"{_active.DisplayName}\" to {dlg.FileName}.");
         OpenDesigns([dlg.FileName]);
+        // The copy's tab is on screen now, and a copy saved uncompressed was chosen that way, as in Save As.
+        if (DesignPath.Same(_doc?.FilePath, dlg.FileName)) _active.KeepPlain = !OplanFile.IsCompressed(dlg.FileName);
         return true;
     }
 
