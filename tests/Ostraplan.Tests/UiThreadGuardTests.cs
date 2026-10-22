@@ -1,3 +1,5 @@
+using System.Reflection;
+using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
@@ -222,6 +224,115 @@ public class UiThreadGuardTests
             return work();
         }
     }
+
+    // ---- every real call site, read out of the compiled app ----
+
+    /// <summary>
+    /// The guard only fires when the code runs, and much of what calls <see cref="Ui.OffThread"/> never runs in this
+    /// suite: MainWindow's data load needs the game, so a lambda added beside it that tainted its closure with
+    /// <c>this</c> passed every test here and stopped a Debug build at "Loading game data…". So the app's IL is read
+    /// instead. At each call, the closure type of the lambda being handed over is checked the way the guard checks
+    /// the object at runtime: no field that can hold a UI-owned object, directly or in a closure it chains to. A call
+    /// with <c>allowUiCapture: true</c> is skipped, as the guard skips it, and so is one whose delegate comes back
+    /// from another method, which this cannot follow.
+    /// </summary>
+    [Fact]
+    public void No_call_to_OffThread_in_the_app_hands_over_a_closure_that_holds_a_UI_object()
+    {
+        var problems = new List<string>();
+        foreach (var type in typeof(Ui).Assembly.GetTypes())
+        foreach (var method in type.GetMethods(AllDeclared).Cast<MethodBase>().Concat(type.GetConstructors(AllDeclared)))
+            CheckOffThreadCalls(method, problems);
+
+        Assert.True(problems.Count == 0, string.Join("\n", problems));
+    }
+
+    private const System.Reflection.BindingFlags AllDeclared = System.Reflection.BindingFlags.Instance
+        | System.Reflection.BindingFlags.Static | System.Reflection.BindingFlags.Public
+        | System.Reflection.BindingFlags.NonPublic | System.Reflection.BindingFlags.DeclaredOnly;
+
+    private static readonly Dictionary<short, System.Reflection.Emit.OpCode> OpCodesByValue =
+        typeof(System.Reflection.Emit.OpCodes).GetFields(System.Reflection.BindingFlags.Public | System.Reflection.BindingFlags.Static)
+            .Select(f => (System.Reflection.Emit.OpCode)f.GetValue(null)!)
+            .ToDictionary(o => o.Value);
+
+    private static void CheckOffThreadCalls(MethodBase method, List<string> problems)
+    {
+        if (method.GetMethodBody()?.GetILAsByteArray() is not { } il) return;
+        var module = method.Module;
+        var typeArgs = method.DeclaringType is { IsGenericType: true } t ? t.GetGenericArguments() : null;
+        var methodArgs = method.IsGenericMethod ? method.GetGenericArguments() : null;
+
+        MethodBase? lambda = null;   // the method behind the delegate most recently made, or null when unknown
+        var previous = System.Reflection.Emit.OpCodes.Nop;
+        for (var i = 0; i < il.Length;)
+        {
+            var code = il[i] == 0xFE ? unchecked((short)(0xFE00 | il[i + 1])) : il[i];
+            var op = OpCodesByValue[code];
+            i += op.Size;
+            var operandAt = i;
+            i += op.OperandType switch
+            {
+                System.Reflection.Emit.OperandType.InlineNone => 0,
+                System.Reflection.Emit.OperandType.ShortInlineBrTarget or System.Reflection.Emit.OperandType.ShortInlineI
+                    or System.Reflection.Emit.OperandType.ShortInlineVar => 1,
+                System.Reflection.Emit.OperandType.InlineVar => 2,
+                System.Reflection.Emit.OperandType.InlineI8 or System.Reflection.Emit.OperandType.InlineR => 8,
+                System.Reflection.Emit.OperandType.InlineSwitch => 4 + 4 * BitConverter.ToInt32(il, operandAt),
+                _ => 4,
+            };
+
+            if (op == System.Reflection.Emit.OpCodes.Ldftn)
+                lambda = Resolve(module, BitConverter.ToInt32(il, operandAt), typeArgs, methodArgs);
+            else if (op == System.Reflection.Emit.OpCodes.Call || op == System.Reflection.Emit.OpCodes.Callvirt)
+            {
+                var callee = Resolve(module, BitConverter.ToInt32(il, operandAt), typeArgs, methodArgs);
+                if (callee is { DeclaringType: var d, Name: nameof(Ui.OffThread) } && d == typeof(Ui))
+                {
+                    var allowed = previous == System.Reflection.Emit.OpCodes.Ldc_I4_1;   // allowUiCapture: true
+                    if (!allowed && lambda is not null && HoldsUiObject(lambda) is { } what)
+                        problems.Add($"{method.DeclaringType?.FullName}.{method.Name} hands {lambda.DeclaringType?.Name}." +
+                                     $"{lambda.Name} to Ui.OffThread, and its closure {what}.");
+                    lambda = null;
+                }
+                else if (callee is MethodInfo { ReturnType: var r } && typeof(Delegate).IsAssignableFrom(r))
+                    lambda = null;   // the delegate in hand came from this call, which is not followed
+            }
+            previous = op;
+        }
+    }
+
+    private static MethodBase? Resolve(Module module, int token, Type[]? typeArgs, Type[]? methodArgs)
+    {
+        try { return module.ResolveMethod(token, typeArgs, methodArgs); }
+        catch (ArgumentException) { return null; }
+    }
+
+    /// <summary>What a lambda's closure type can hold that the guard would refuse, or null. A lambda that is an
+    /// instance method of a UI class captured nothing but <c>this</c>, which is the window itself.</summary>
+    private static string? HoldsUiObject(MethodBase lambda)
+    {
+        if (lambda.IsStatic || lambda.DeclaringType is not { } closure) return null;
+        if (UiOwned(closure)) return $"is the {closure.Name} itself";
+        return UiField(closure, new HashSet<Type>());
+    }
+
+    private static string? UiField(Type closure, HashSet<Type> seen)
+    {
+        if (!closure.IsDefined(typeof(System.Runtime.CompilerServices.CompilerGeneratedAttribute), false)) return null;
+        if (!seen.Add(closure)) return null;
+        foreach (var f in closure.GetFields(AllDeclared & ~System.Reflection.BindingFlags.Static))
+        {
+            if (UiOwned(f.FieldType)) return $"holds `{f.Name}`, a {f.FieldType.Name}";
+            if (UiField(f.FieldType, seen) is { } nested) return nested;
+        }
+        return null;
+    }
+
+    /// <summary>A type whose instances belong to a thread. A Freezable is let through, because the guard lets a
+    /// frozen one through and the type cannot say whether it will be frozen.</summary>
+    private static bool UiOwned(Type t) =>
+        typeof(System.Windows.Threading.DispatcherObject).IsAssignableFrom(t) && !typeof(Freezable).IsAssignableFrom(t);
 
 #if DEBUG
     [Fact]

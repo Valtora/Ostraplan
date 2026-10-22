@@ -945,8 +945,7 @@ public partial class MainWindow : Window
         LoadingOverlay.Visibility = Visibility.Collapsed;
 
         // Last, so a design double-clicked to start Ostraplan opens on top of the ones the session brought back.
-        SingleInstance.App.Arrived += () => Dispatcher.BeginInvoke(OpenRequestedFiles);
-        OpenRequestedFiles();
+        ListenForRequestedFiles();
 
         // An update landed last restart: say what it brought, once. A tip waits for the next launch rather than
         // stacking a second thing on top of that (#39).
@@ -6572,6 +6571,20 @@ public partial class MainWindow : Window
 
     /// <summary>A file retried while a dialog is in the way. See <see cref="OpenRequestedFiles"/>.</summary>
     private DispatcherTimer? _requestRetry;
+
+    /// <summary>
+    /// Open the files waiting from this launch's command line, and from now on whatever another launch hands over.
+    ///
+    /// <para>A method of its own rather than two lines in <see cref="LoadDataAsync"/>. The handler calls instance
+    /// members, and the compiler files every lambda in a method into one closure, so there it put <c>this</c> on the
+    /// closure the data load hands to <see cref="Ui.OffThread"/>, and the guard stopped every Debug build at
+    /// "Loading game data…". <c>UiThreadGuardTests</c> now reads every call site out of the IL to catch that.</para>
+    /// </summary>
+    private void ListenForRequestedFiles()
+    {
+        SingleInstance.App.Arrived += () => Dispatcher.BeginInvoke(OpenRequestedFiles);
+        OpenRequestedFiles();
+    }
 
     /// <summary>
     /// Open what was asked for from outside: designs and packs double-clicked in Explorer or named on the command
