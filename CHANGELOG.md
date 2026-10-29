@@ -9,7 +9,7 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
-## [Unreleased]
+## [1.35.0] 2026-10-29, ship files
 
 ### Added
 - **Export can write just the ship file, a single data/ships .json, for a mod you put together yourself.**
