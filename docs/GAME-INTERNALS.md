@@ -1022,9 +1022,23 @@ during the fill, so a door tile filed afterward never voids a sealed room. Volum
 margin around a small ship unroomed, bounded by `TrimTiles` rather than a clean
 bounding box. The Outside room is Blank and never counts toward the rating.
 
+**A non-void room is not necessarily airtight.** A part whose `aUpdateCommands`
+carries `GasExchange,<A>,<B>,<rate>` with one end off the ship bleeds the room at the
+other end into space every tick. `CondOwner.GetPos` reads map points as floats, so core's
+`RoomB,0,9e99` becomes infinity, and `GasExchange.DoGas` exchanges with infinite volume
+when that end resolves to no room. Core gives this to `ItmCargoWeb01` and its damaged form
+(rate 1.0), and to the damaged floor grate, floor bin and rock floors (rate 0.16). The
+cargo web also adds `IsFloorSealed` to its tile (`TILFloorExtFlexAdds`), so a bay walled
+in around webs rooms as non-void and certifies like any sealed room, yet cannot hold air.
+`CargoRoomExterior` needs `bAllowVoid`, which is why every core ship with one (CR-53b,
+LB-77a, RF-72m, Station_COHO, Tombolo 2) has its webs in the outer exterior room.
+
 > **Ported in Ostraplan:** `ShipGrid`, `RoomBuilder.Build` (+ `AssignPortals`).
 > Parity is lenient on exterior-void over-claim (harmless); interior compartments
-> must match exactly.
+> must match exactly. The off-ship `GasExchange` is `CondOwnerDef.SpaceVentPoint`, filed
+> per room as `RoomModel.VentTiles` without touching `Void`, so certification and the
+> baked `bVoid` stay faithful while `ShipAnalysis.FindBreaches` and Room Viz report the
+> room as leaking.
 
 ---
 

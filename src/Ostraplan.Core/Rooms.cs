@@ -13,6 +13,14 @@ public sealed class RoomModel
     public string RoomSpec { get; set; } = "Blank";
     public List<PlacedPart> Parts { get; } = [];
 
+    /// <summary>Tiles where a part bleeds this room into space (<see cref="ResolvedPart.SpaceVentPoint"/>).
+    /// They leave <see cref="Void"/> alone, as they do in game, so certification and the baked <c>bVoid</c> stay
+    /// faithful; the room is still not airtight. See <see cref="VentsToSpace"/>.</summary>
+    public List<int> VentTiles { get; } = [];
+
+    /// <summary>A room the game calls sealed that cannot hold air, such as a bay walled in around cargo webs.</summary>
+    public bool VentsToSpace => !Void && VentTiles.Count > 0;
+
     public int TileCount => Tiles.Count;
     /// <summary>0.256 m³ per tile (hardcoded 0.25599998f); Void rooms carry no volume.</summary>
     public double Volume => Void ? 0.0 : 0.25599998 * Tiles.Count;
@@ -80,7 +88,20 @@ public static class RoomBuilder
 
         AssignPortals(grid, rooms, tileRoom);
         AssignParts(grid, rooms, tileRoom);
+        AssignVents(grid, rooms, tileRoom);
         return new RoomPartition(rooms, tileRoom);
+    }
+
+    /// <summary>File each space-venting part's tile against the room it bleeds, the room <c>GasExchange</c>
+    /// resolves at the part's on-ship point (<c>GetRoomAtWorldCoords1</c>).</summary>
+    private static void AssignVents(ShipGrid grid, List<RoomModel> rooms, int[] tileRoom)
+    {
+        foreach (var part in grid.Parts)
+        {
+            if (part.Part.SpaceVentPoint is not { } pt) continue;
+            var t = grid.MapPointTile(part, pt);
+            if (t >= 0 && tileRoom[t] is var ri and >= 0 && !rooms[ri].VentTiles.Contains(t)) rooms[ri].VentTiles.Add(t);
+        }
     }
 
     /// <summary>

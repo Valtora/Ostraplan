@@ -3614,15 +3614,16 @@ public sealed class ShipCanvas : FrameworkElement
                     c.PolyLineTo([r.TopRight, r.BottomRight, r.BottomLeft], true, false);
                 }
             geo.Freeze();
-            geos.Add((geo, room.Void ? RoomOpenFill : RoomPalette[room.Index % RoomPalette.Length]));
+            geos.Add((geo, room.Airtight ? RoomPalette[room.Index % RoomPalette.Length] : RoomOpenFill));
 
-            var title = room.Certified ? room.SpecFriendly : room.Void ? "Unsealed" : "Uncertified";
+            var title = room.Certified ? room.SpecFriendly : room.Airtight ? "Uncertified" : "Unsealed";
             var titleFt = RoomText(title, 13, room.Certified ? RoomTextBrush : RoomWarnTextBrush, bold: true);
             var lines = new List<FormattedText>
             {
                 titleFt,
                 RoomText($"{room.TileCount} tiles · ${room.Value.ToString("#,##0", CultureInfo.InvariantCulture)}", 11, RoomDimTextBrush),
             };
+            if (room.VentsToSpace) lines.Add(RoomText("Leaks air to space", 11, RoomWarnTextBrush));
             foreach (var miss in room.NearMisses)
                 lines.Add(RoomText(miss, 11, RoomDimTextBrush));
 

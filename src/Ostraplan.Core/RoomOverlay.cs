@@ -14,6 +14,12 @@ public sealed record RoomVizRoom(
 {
     /// <summary>A room that matched a real spec (Blank is the fallback, not a certification).</summary>
     public bool Certified => Spec != "Blank";
+
+    /// <summary>A room the game calls sealed that bleeds into space through a part (<see cref="RoomModel.VentsToSpace"/>).</summary>
+    public bool VentsToSpace { get; init; }
+
+    /// <summary>Whether the room can hold air: neither void nor venting.</summary>
+    public bool Airtight => !Void && !VentsToSpace;
 }
 
 /// <summary>
@@ -55,7 +61,10 @@ public sealed record RoomOverlay(IReadOnlyList<RoomVizRoom> Rooms)
                 r.Void, r.TileCount,
                 ShipValue.RoomValueOf(r, valueModifiers, catalog),
                 r.Tiles.Select(grid.GridToDoc).ToArray(),
-                certified ? [] : ShipAnalysis.NearMisses(r, specs, catalog)));
+                certified ? [] : ShipAnalysis.NearMisses(r, specs, catalog))
+            {
+                VentsToSpace = r.VentsToSpace,
+            });
         }
         return new RoomOverlay(rooms);
     }

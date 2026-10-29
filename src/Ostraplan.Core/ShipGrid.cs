@@ -170,7 +170,10 @@ public sealed class ShipGrid
                 : ContainerFill.Overlay(part.StartingCondValues, p.Fill, ContainerFill.Describe(part, catalog));
 
             var resolved = new ResolvedPart(part.DefName, part.Friendly, part.Item,
-                part.StartingConds, condValues, part.MapPoints);
+                part.StartingConds, condValues, part.MapPoints)
+            {
+                SpaceVentPoint = part.SpaceVentPoint,
+            };
             parts.Add(new PlacedPart(resolved, p.Id.ToString(), 0, 0, p.Rot, gx, gy, anchorIndex));
         }
 

@@ -9,6 +9,13 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
+## [Unreleased]
+
+### Fixed
+- **A room walled in around cargo webbing is no longer shown as airtight.**
+  - In game the webs bleed the room into space, so it is now an unsealed compartment in Problems, the Ship Rating and Room Viz.
+  - Damaged floor grates, floor bins and rock floors leak the same way and are caught too. Thanks to Slomes.
+
 ## [1.34.1] 2026-10-22, compressed designs
 
 ### Added

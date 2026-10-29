@@ -17,10 +17,12 @@ public sealed record RoomInfo(
 ///   exposed floor itself at the grid edge); <see cref="ExposedFloorCount"/> is how many
 ///   floor tiles that opening vents to space.</item>
 ///   <item>otherwise: an enclosed compartment missing a <b>sealed floor</b> on some tiles
-///   — <see cref="Tiles"/> are the holes.</item>
+///   — <see cref="Tiles"/> are the holes. When <see cref="Vents"/> is set the room is one the game
+///   calls sealed, and the holes are the parts bleeding it into space (cargo webs, damaged floor).</item>
 /// </list>
 /// </summary>
-public sealed record Breach(bool OpenToSpace, IReadOnlyList<(int X, int Y)> Tiles, int RoomTileCount, int ExposedFloorCount = 0);
+public sealed record Breach(bool OpenToSpace, IReadOnlyList<(int X, int Y)> Tiles, int RoomTileCount,
+    int ExposedFloorCount = 0, bool Vents = false);
 
 /// <summary>
 /// An optional value-raising move for one sealed room: the specs it could certify as (or upgrade
@@ -105,16 +107,28 @@ public static class ShipAnalysis
     /// </summary>
     public static List<Breach> FindBreaches(ShipGrid grid, RoomPartition partition)
     {
+        // A tile a part vents to space is not sealed floor here, whatever its conds say. A cargo web adds
+        // IsFloorSealed, so without this an exterior web bay read as player's floor open to space, and a deck
+        // abutting webs read as walled in.
+        var vents = partition.Rooms.SelectMany(r => r.VentTiles).ToHashSet();
+        bool Sealed(int t) => grid.Has(t, "IsFloorSealed") && !vents.Contains(t);
+
         var breaches = new List<Breach>();
         for (var ri = 0; ri < partition.Rooms.Count; ri++)
         {
             var room = partition.Rooms[ri];
+            if (room.VentsToSpace)
+            {
+                // the game calls this room sealed and bleeds it to space through its vents every tick
+                breaches.Add(new Breach(false, room.VentTiles.Select(grid.GridToDoc).ToArray(), room.TileCount, Vents: true));
+                continue;
+            }
             if (!room.Void) continue;   // sealed compartment — good
 
             if (!room.Outside)
             {
                 // enclosed but unsealed: the holes are exactly the tiles missing a sealed floor
-                var holes = room.Tiles.Where(t => !grid.Has(t, "IsFloorSealed")).Select(grid.GridToDoc).ToArray();
+                var holes = room.Tiles.Where(t => !Sealed(t)).Select(grid.GridToDoc).ToArray();
                 if (holes.Length > 0) breaches.Add(new Breach(false, holes, room.TileCount));
                 continue;
             }
@@ -133,7 +147,7 @@ public static class ShipAnalysis
             var areas = new List<List<int>>();
             foreach (var seed in room.Tiles)
             {
-                if (!grid.Has(seed, "IsFloorSealed") || floorArea.ContainsKey(seed)) continue;
+                if (!Sealed(seed) || floorArea.ContainsKey(seed)) continue;
                 var area = new List<int>();
                 var stack = new Stack<int>();
                 stack.Push(seed);
@@ -145,7 +159,7 @@ public static class ShipAnalysis
                     foreach (var nt in RoomBuilder.Cardinals(grid, t))
                     {
                         if (nt < 0 || floorArea.ContainsKey(nt)) continue;
-                        if (partition.TileRoom[nt] != ri || !grid.Has(nt, "IsFloorSealed")) continue;
+                        if (partition.TileRoom[nt] != ri || !Sealed(nt)) continue;
                         floorArea[nt] = areas.Count;
                         stack.Push(nt);
                     }
@@ -160,7 +174,7 @@ public static class ShipAnalysis
                     foreach (var nt in RoomBuilder.Cardinals(grid, t))
                     {
                         if (nt < 0) gaps.Add(t);   // exposed at the grid edge — no gap tile to mark
-                        else if (partition.TileRoom[nt] == ri && !grid.Has(nt, "IsFloorSealed") && !grid.Has(nt, "IsWall"))
+                        else if (partition.TileRoom[nt] == ri && !Sealed(nt) && !grid.Has(nt, "IsWall"))
                             gaps.Add(nt);          // an open gap where a wall is missing
                     }
                 if (gaps.Count > 0)

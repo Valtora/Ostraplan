@@ -43,6 +43,79 @@ public class DocumentAnalysisTests
     private static bool Ready((GameEnv, DataIndex, Catalog)? g) =>
         g is { } gg && gg.Item3.ByDefName.ContainsKey("ItmWall1x1") && gg.Item3.ByDefName.ContainsKey("ItmFloorGrate01");
 
+    // Cargo webs vent to space (GasExchange to RoomB at 0,9e99) but add IsFloorSealed to their tile, so the game
+    // rooms a walled-in web bay as sealed. These pin both halves: the room stays non-void, and it is a breach.
+    private enum Webs { WalledBay, OpenField, DeckBesideWebs }
+
+    private static ShipDocument BuildWebs(Catalog catalog, Webs layout)
+    {
+        var doc = new ShipDocument(catalog);
+        void Place(string def, int x, int y) => new PlaceCommand(new Placement { DefName = def, X = x, Y = y }).Do(doc);
+
+        for (var x = 0; x < 5; x++)
+            for (var y = 0; y < 5; y++)
+            {
+                if (x is 0 or 4 || y is 0 or 4)
+                {
+                    if (layout != Webs.OpenField) Place("ItmWall1x1", x, y);
+                }
+                else if (layout == Webs.DeckBesideWebs && x != 1) Place("ItmFloorGrate01", x, y);
+                else Place("ItmCargoWeb01", x, y);
+            }
+        return doc;
+    }
+
+    private static AnalysisReport AnalyseWebs((GameEnv Env, DataIndex Index, Catalog Catalog) g, Webs layout) =>
+        ShipAnalysis.AnalyzeDocument(BuildWebs(g.Catalog, layout), g.Catalog, RoomCertifier.LoadSpecs(g.Index));
+
+    private static bool WebsReady((GameEnv, DataIndex, Catalog)? g) =>
+        Ready(g) && g!.Value.Item3.ByDefName.ContainsKey("ItmCargoWeb01");
+
+    [SkippableFact]
+    public void A_bay_walled_in_around_cargo_webs_stays_nonvoid_but_leaks_air()
+    {
+        var g = TestData.RequireGame();
+        if (!WebsReady(g)) return;
+        var report = AnalyseWebs(g, Webs.WalledBay);
+
+        Assert.Contains(report.Rooms, r => !r.Void && r.TileCount == 9);   // the game's rooming: webs seal the floor
+        var breach = Assert.Single(report.Breaches);
+        Assert.True(breach.Vents);
+        Assert.False(breach.OpenToSpace);
+        Assert.Equal(9, breach.Tiles.Count);                               // every web is a leak point
+    }
+
+    [SkippableFact]
+    public void A_deck_sharing_a_room_with_cargo_webs_leaks_through_the_webs_only()
+    {
+        var g = TestData.RequireGame();
+        if (!WebsReady(g)) return;
+        var breach = Assert.Single(AnalyseWebs(g, Webs.DeckBesideWebs).Breaches);
+        Assert.True(breach.Vents);
+        Assert.Equal(new[] { (1, 1), (1, 2), (1, 3) }, breach.Tiles.OrderBy(t => t.Y));   // the web column, not the deck
+    }
+
+    [SkippableFact]
+    public void Cargo_webs_out_in_the_exterior_are_not_floor_open_to_space()
+    {
+        var g = TestData.RequireGame();
+        if (!WebsReady(g)) return;
+        Assert.Empty(AnalyseWebs(g, Webs.OpenField).Breaches);
+    }
+
+    [SkippableFact]
+    public void The_room_overlay_draws_a_walled_web_bay_as_unsealed()
+    {
+        var g = TestData.RequireGame();
+        if (!WebsReady(g)) return;
+        var (_, index, catalog) = g;
+        var overlay = RoomOverlay.Build(BuildWebs(catalog, Webs.WalledBay), catalog, RoomCertifier.LoadSpecs(index));
+        var room = Assert.Single(overlay.Rooms);
+        Assert.False(room.Void);
+        Assert.True(room.VentsToSpace);
+        Assert.False(room.Airtight);
+    }
+
     [SkippableFact]
     public void Sealed_interior_is_a_nonvoid_compartment_with_no_breaches()
     {

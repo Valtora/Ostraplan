@@ -511,9 +511,22 @@ public sealed record CondOwnerDef(
     /// progress (<c>StatDismantleProgress</c>, <c>StatRepairProgress</c>), which are jobs rather than damage.</para></summary>
     public string? BreakLoot { get; init; }
 
+    /// <summary>The map point of the room this part bleeds into space, or null for a part that holds air. Taken
+    /// from a <c>GasExchange,&lt;A&gt;,&lt;B&gt;,&lt;rate&gt;</c> entry in <c>aUpdateCommands</c> whose other end is
+    /// off the ship.
+    ///
+    /// <para>The game reads both ends as floats (<c>CondOwner.GetPos</c>), so a point beyond float range, which
+    /// core writes as <c>RoomB,0,9e99</c>, becomes infinity. <c>GasExchange.DoGas</c> treats an infinite end with no
+    /// room as space and runs the exchange every tick. Core gives this to the cargo web and to the damaged floor
+    /// grate, floor bin and rock floors. Rooming never sees it: the cargo web adds <c>IsFloorSealed</c> to its tile,
+    /// so a bay walled in around webs is a non-void room that still cannot hold air. See §8 of
+    /// docs/GAME-INTERNALS.md.</para></summary>
+    public (double X, double Y)? SpaceVentPoint { get; init; }
+
     public static CondOwnerDef Parse(JsonElement e)
     {
         var conds = Json.StrArray(e, "aStartingConds");
+        var mapPoints = ParseMapPoints(Json.StrArray(e, "mapPoints"));
         return new(
             Json.Str(e, "strName") ?? "",
             Json.Str(e, "strNameFriendly"),
@@ -521,7 +534,7 @@ public sealed record CondOwnerDef(
             Json.Str(e, "strItemDef"),
             conds.Select(LootDef.CondName).ToArray(),
             ParseCondValues(conds),
-            ParseMapPoints(Json.StrArray(e, "mapPoints")),
+            mapPoints,
             Json.StrArray(e, "mapGUIPropMaps"),
             Json.StrArray(e, "aTickers"))
         {
@@ -538,7 +551,28 @@ public sealed record CondOwnerDef(
             Interactions = Json.StrArray(e, "aInteractions"),
             Loot = Json.Str(e, "strLoot"),
             BreakLoot = ParseBreakLoot(Json.StrArray(e, "aUpdateCommands")),
+            SpaceVentPoint = ParseSpaceVent(Json.StrArray(e, "aUpdateCommands"), mapPoints),
         };
+    }
+
+    /// <summary>The on-ship end of the first <c>GasExchange</c> whose other end is off the ship (see
+    /// <see cref="SpaceVentPoint"/>), or null. An end named <c>self</c> or missing from the map points is not
+    /// space, so it never counts.</summary>
+    private static (double X, double Y)? ParseSpaceVent(string[] updateCommands,
+        IReadOnlyDictionary<string, (double X, double Y)> mapPoints)
+    {
+        static bool OffShip((double X, double Y) p) => Math.Abs(p.X) > float.MaxValue || Math.Abs(p.Y) > float.MaxValue;
+
+        foreach (var cmd in updateCommands)
+        {
+            if (cmd is null) continue;
+            var f = cmd.Split(',');
+            if (f.Length < 3 || f[0].Trim() is not "GasExchange") continue;
+            if (!mapPoints.TryGetValue(f[1].Trim(), out var a) || !mapPoints.TryGetValue(f[2].Trim(), out var b)) continue;
+            if (OffShip(b) && !OffShip(a)) return a;
+            if (OffShip(a) && !OffShip(b)) return b;
+        }
+        return null;
     }
 
     /// <summary>Pull the break loot out of <c>aUpdateCommands</c>: the third field of the comma-separated

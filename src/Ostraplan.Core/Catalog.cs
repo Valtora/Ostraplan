@@ -56,6 +56,10 @@ public sealed record PartDef(
     /// dead. Empty for non-device parts (walls, floors).</summary>
     public string[] TickerNames { get; init; } = [];
 
+    /// <summary>The map point of the room this part bleeds into space (<see cref="CondOwnerDef.SpaceVentPoint"/>),
+    /// or null for a part that holds air. A cargo web carries one.</summary>
+    public (double X, double Y)? SpaceVentPoint { get; init; }
+
     /// <summary>The part's in-game base value in credits (the <c>StatBasePrice</c> starting cond), or 0 when the
     /// def has none. This is the raw value the game reads before per-kiosk discount/markup — used for the
     /// save-edit cost estimate (see <see cref="EditCost"/>) and shown in the inspector.</summary>
@@ -1599,6 +1603,7 @@ public sealed class Catalog
             SkinCondLoot = overlay is { CondLoot: { Length: > 0 } skinLoot } ? skinLoot : null,
             BehaviourConds = behaviourConds,
             TickerNames = co?.TickerNames ?? [],
+            SpaceVentPoint = co?.SpaceVentPoint,
             InvSize = invSize,
             ContainerGrid = containerGrid,
             ContainerCT = co?.ContainerCT,

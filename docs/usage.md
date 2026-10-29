@@ -321,8 +321,10 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   room also lists what it needs and, importantly, which item **in** it blocks the
   spec — a gas canister left in a quarters keeps the room Blank and costs you its
   value, and this is where you see that. Unsealed rooms are red; the exterior isn't
-  tinted, so a compartment open to space simply loses its tint. Like PowerViz it only
-  computes while it's on.
+  tinted, so a compartment open to space simply loses its tint. A room walled in
+  around cargo webbing or damaged floor is red too and says it leaks air: the game
+  counts it as a closed room for certification, but those parts bleed it into space,
+  so it never holds pressure. Like PowerViz it only computes while it's on.
 - **Light Viz overlay** — the **Light** toolbar button or **L**, **off by
   default** (the plan opens on the flat sprite view). The game's own lighting
   reproduced pixel-exact on the plan: real occluders (glass windows pass light, open

@@ -88,6 +88,30 @@ public class DefsParsingTests
     }
 
     [Fact]
+    public void CondOwnerDef_reads_a_gas_exchange_to_an_off_ship_point_as_a_space_vent()
+    {
+        // the cargo web's own declaration: RoomB at y = 9e99 is infinity once the game casts it to float
+        var web = CondOwnerDef.Parse(El("""
+        {
+          "strName":"ItmCargoWeb01",
+          "mapPoints":["RoomA,0,0","RoomB,0,9e99"],
+          "aUpdateCommands":["Destructable,StatDamage,ACTDefaultDestroy,StatDamageMax,1.0","GasExchange,RoomA,RoomB,1.0"]
+        }
+        """));
+        Assert.Equal((0.0, 0.0), web.SpaceVentPoint);
+
+        // the same command between two on-ship points (a vent between rooms) holds air as far as space goes
+        var vent = CondOwnerDef.Parse(El("""
+        {
+          "strName":"ItmVent",
+          "mapPoints":["RoomA,0,16","RoomB,0,-16"],
+          "aUpdateCommands":["GasExchange,RoomA,RoomB,1.0"]
+        }
+        """));
+        Assert.Null(vent.SpaceVentPoint);
+    }
+
+    [Fact]
     public void CondTriggerDef_parses_reqs_forbids_and_the_and_flag()
     {
         var t = CondTriggerDef.Parse(El("""{ "strName":"TX", "aReqs":["IsA=1.0x1","IsB"], "aForbids":["IsC"], "bAND":false }"""));

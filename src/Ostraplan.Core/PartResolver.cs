@@ -20,6 +20,10 @@ public sealed record ResolvedPart(
     public HashSet<string> CondSet => _condSet ??= new HashSet<string>(StartingConds, StringComparer.Ordinal);
 
     public bool Has(string cond) => CondSet.Contains(cond);
+
+    /// <summary>The map point of the room this part bleeds into space, or null (see
+    /// <see cref="CondOwnerDef.SpaceVentPoint"/>).</summary>
+    public (double X, double Y)? SpaceVentPoint { get; init; }
 }
 
 /// <summary>
@@ -88,6 +92,9 @@ public sealed class PartResolver
             name, friendly, item,
             co?.StartingCondNames ?? [],
             co?.StartingCondValues ?? new Dictionary<string, double>(),
-            co?.MapPoints ?? new Dictionary<string, (double, double)>());
+            co?.MapPoints ?? new Dictionary<string, (double, double)>())
+        {
+            SpaceVentPoint = co?.SpaceVentPoint,
+        };
     }
 }

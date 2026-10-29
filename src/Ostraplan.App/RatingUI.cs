@@ -237,7 +237,9 @@ public sealed class RatingReportWindow : ReportWindow
                 {
                     Text = b.OpenToSpace
                         ? $"{n} leak point{(n == 1 ? "" : "s")} — {b.ExposedFloorCount}-tile area open to space"
-                        : $"{b.RoomTileCount}-tile compartment — {n} unsealed tile{(n == 1 ? "" : "s")}",
+                        : b.Vents
+                            ? $"{b.RoomTileCount}-tile compartment — {n} tile{(n == 1 ? "" : "s")} leaking air to space"
+                            : $"{b.RoomTileCount}-tile compartment — {n} unsealed tile{(n == 1 ? "" : "s")}",
                     Foreground = Warn, TextWrapping = TextWrapping.Wrap, VerticalAlignment = VerticalAlignment.Center,
                 });
                 body.Children.Add(row);

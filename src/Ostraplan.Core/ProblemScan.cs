@@ -605,10 +605,12 @@ public static class ProblemScan
         if (breaches.Count == 0) return;
 
         var open = breaches.Count(b => b.OpenToSpace);
-        var holes = breaches.Count - open;
+        var vents = breaches.Count(b => b.Vents);
+        var holes = breaches.Count - open - vents;
         var kinds = new List<string>();
         if (open > 0) kinds.Add($"{open} open to space (not walled in)");
         if (holes > 0) kinds.Add($"{holes} missing a sealed floor");
+        if (vents > 0) kinds.Add($"{vents} leaking air through cargo webbing or damaged floor");
         problems.Add(Problem.Of(ProblemSeverity.Warning,
             $"{breaches.Count} unsealed compartment{(breaches.Count == 1 ? "" : "s")}",
             $"{string.Join(", ", kinds)}.",
@@ -617,7 +619,9 @@ public static class ProblemScan
                 var (x, y) = b.Tiles.MinBy(t => (t.Y, t.X));
                 var what = b.OpenToSpace
                     ? $"{b.ExposedFloorCount} floor tile{(b.ExposedFloorCount == 1 ? "" : "s")} open to space"
-                    : $"{b.Tiles.Count} tile{(b.Tiles.Count == 1 ? "" : "s")} missing a sealed floor";
+                    : b.Vents
+                        ? $"{b.Tiles.Count} tile{(b.Tiles.Count == 1 ? "" : "s")} leaking air to space"
+                        : $"{b.Tiles.Count} tile{(b.Tiles.Count == 1 ? "" : "s")} missing a sealed floor";
                 return new ProblemInstance(ProblemInstance.At(what, x, y), b.Tiles);
             }),
             dismissKey: UnsealedAlertKey));
