@@ -83,6 +83,7 @@ public sealed class ShipStep : WizardStep
             fullNote: update
                 ? "Repairs every installed part, not just the ones you edited. Broken parts (a damaged wall, a " +
                   "wrecked alarm) need Design ▸ Repair All in the editor."
+                : destination == ExportDestination.Mod ? WearControl.ModFullNote
                 : null);
         control.Changed += () =>
         {

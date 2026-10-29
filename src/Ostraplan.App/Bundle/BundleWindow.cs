@@ -515,7 +515,7 @@ public sealed class BundleWindow : Window
     }
 
     private static WearControl NewWearControl() => new(
-        fullNote: "The ship arrives undamaged.");
+        fullNote: WearControl.ModFullNote);
 
     private void OnShipNameTyped()
     {

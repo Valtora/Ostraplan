@@ -21,9 +21,9 @@ public class WearTests
     [Fact]
     public void Vanilla_constants_match_the_decompiled_kiosk_pass()
     {
-        // DamageAllCOs(0.33) × the 0.75 pristine factor = 0.2475 ceiling; mean condition = 1 − 0.2475/2.
-        Assert.Equal(0.2475, WearModel.VanillaUsedCeiling, 6);
-        Assert.Equal(0.87625, WearModel.VanillaUsedCondition, 6);
+        // DamageAllCOs(0.33) on parts none of which is IsPristine: a 0.33 ceiling, mean condition 1 − 0.33/2.
+        Assert.Equal(0.33, WearModel.VanillaUsedCeiling, 6);
+        Assert.Equal(0.835, WearModel.VanillaUsedCondition, 6);
         Assert.True(WearOptions.Vanilla.Enabled);
         Assert.Equal(WearModel.VanillaUsedCondition, WearOptions.Vanilla.TargetCondition, 6);
         Assert.False(WearOptions.Pristine.Enabled);
@@ -31,7 +31,7 @@ public class WearTests
 
     [Theory]
     [InlineData(1.0, 0.0)]     // pristine target → no damage
-    [InlineData(0.876, 0.248)] // vanilla
+    [InlineData(0.835, 0.33)]  // vanilla
     [InlineData(0.5, 1.0)]
     [InlineData(0.1, 1.8)]
     public void CeilingFor_maps_target_condition_to_a_uniform_ceiling(double target, double expected)

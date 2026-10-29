@@ -27,8 +27,8 @@ public static class WearShader
     /// The damage rate below which the shader draws nothing at all (<c>ge r0.x, cb0[7].x, l(0.2)</c>).
     ///
     /// <para>A part is only 80% of the way to pristine before any wear appears, which is why the game's own kiosk
-    /// ships look clean: their parts average ~88% condition (<see cref="WearModel.VanillaUsedCondition"/>), so
-    /// almost none of them cross this line. A design painted to look lived-in has to go below 80% before it looks
+    /// ships look clean: their parts average 83.5% condition (<see cref="WearModel.VanillaUsedCondition"/>), so
+    /// most of them stay under this line. A design painted to look lived-in has to go below 80% before it looks
     /// like anything.</para>
     /// </summary>
     public const double Threshold = 0.2;

@@ -116,9 +116,29 @@ public sealed class ExportPlan
     /// in settings (it travels in the <c>.oplan</c> via <see cref="OplanMeta"/>).</summary>
     public ExportMetadata Identity { get; set; } = new();
 
-    /// <summary>The condition to bake in. Its <see cref="WearOptions.Seed"/> is null here: the driver pins a seed
-    /// when Review builds and reuses that same value at commit, or the two would damage different parts.</summary>
-    public WearOptions Wear { get; set; } = WearOptions.Vanilla;
+    /// <summary>The condition to bake in for the current <see cref="Destination"/>. Its <see cref="WearOptions.Seed"/>
+    /// is null here: the driver pins a seed when Review builds and reuses that same value at commit, or the two would
+    /// damage different parts.
+    ///
+    /// <para>A mod and a save keep separate answers. The game wears every ship a mod can deliver on its first full
+    /// load (a broker ship is spawned Used, a derelict and a starting ship are broken in), so a mod ship starts
+    /// pristine; only a Special Offer arrives as built. A ship written into a save gets no such pass, so baked wear
+    /// is the only wear it will have.</para></summary>
+    public WearOptions Wear
+    {
+        get => Destination == ExportDestination.Mod ? ModWear : SaveWear;
+        set
+        {
+            if (Destination == ExportDestination.Mod) ModWear = value;
+            else SaveWear = value;
+        }
+    }
+
+    /// <summary>The mod destination's condition. See <see cref="Wear"/>.</summary>
+    public WearOptions ModWear { get; set; } = WearOptions.Pristine;
+
+    /// <summary>The condition for both save destinations. See <see cref="Wear"/>.</summary>
+    public WearOptions SaveWear { get; set; } = WearOptions.Vanilla;
 
     /// <summary>True once the user has moved the condition control themselves. A derelict export otherwise turns
     /// wear off on their behalf, because the game damages a wreck on load and baking more on top of that is
@@ -154,7 +174,8 @@ public sealed class ExportPlan
             "update" when sourceSave is not null => ExportDestination.UpdateShipInSave,
             _ => ExportDestination.Mod,
         };
-        plan.Wear = new WearOptions(last.WearOn, last.WearTarget);
+        plan.SaveWear = new WearOptions(last.WearOn, last.WearTarget);
+        plan.ModWear = new WearOptions(last.ModWearOn, last.ModWearTarget);
 
         plan.Mod.Version = last.ModVersion;
         plan.Mod.Author = settings.ExportAuthor ?? meta.Author;
@@ -197,8 +218,10 @@ public sealed class ExportPlan
             ExportDestination.UpdateShipInSave => "update",
             _ => "mod",
         };
-        last.WearOn = Wear.Enabled;
-        last.WearTarget = Wear.TargetCondition;
+        last.WearOn = SaveWear.Enabled;
+        last.WearTarget = SaveWear.TargetCondition;
+        last.ModWearOn = ModWear.Enabled;
+        last.ModWearTarget = ModWear.TargetCondition;
 
         last.ModVersion = Mod.Version;
         last.BrokerPools = [.. Mod.Delivery.BrokerPools];

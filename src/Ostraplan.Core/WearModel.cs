@@ -12,7 +12,7 @@ public sealed record WearOptions(bool Enabled, double TargetCondition, int? Seed
     /// alone", which is not the same as a full-condition ship: see <see cref="Repaired"/>.</para></summary>
     public static WearOptions Pristine { get; } = new(false, 1.0);
 
-    /// <summary>The game's own kiosk ("Used") wear: average part condition ≈ 87.6%.</summary>
+    /// <summary>The game's own kiosk ("Used") wear: average part condition 83.5%.</summary>
     public static WearOptions Vanilla { get; } = new(true, WearModel.VanillaUsedCondition);
 
     /// <summary>"Repair All": an <b>armed</b> pass at a full-condition target, which clears every installed part's
@@ -41,33 +41,30 @@ public sealed record WearOptions(bool Enabled, double TargetCondition, int? Seed
 /// Ship Rating "Condition" slot is the mean of <c>clamp01(1 − StatDamage/StatDamageMax)</c> over every installed
 /// part (<c>Ship.CalculateRating</c>).</para>
 ///
-/// <para>The game's kiosk pass is <c>DamageAllCOs(0.33)</c>: per part, <c>StatDamage = uniform(0, 0.33·M)</c>,
-/// then ×0.75 because a fresh part is <c>IsPristine</c> — so the effective ceiling is
-/// <see cref="VanillaUsedCeiling"/> = 0.2475 and the mean condition is ≈ 87.6% (parts spread ~75%–100%). Parts
-/// flagged <c>IsSystem</c>, and parts with no <c>StatDamageMax</c>, are never damaged.</para>
+/// <para>The game's kiosk pass is <c>DamageAllCOs(0.33)</c>: per part, <c>StatDamage = uniform(0, 0.33·M)</c>, so
+/// <see cref="VanillaUsedCeiling"/> = 0.33 and the mean condition is 83.5% (parts spread 67%–100%). Parts
+/// flagged <c>IsSystem</c>, and parts with no <c>StatDamageMax</c>, are never damaged. <c>BreakIn</c> takes 25% off
+/// the damage to an <c>IsPristine</c> part, but no broker part carries it: only <c>Ship.BreakIn</c> (after its own
+/// damage pass) and <c>Trader.AddNewItems</c> (kiosk items) grant it, and no def declares it.</para>
 ///
 /// <para>Ostraplan generalises the single 0.33 knob to a target <b>average condition</b>: for a target C the
-/// uniform ceiling is <c>2·(1 − C)</c> (so the mean damage is <c>1 − C</c>), giving vanilla at C ≈ 0.876 and
+/// uniform ceiling is <c>2·(1 − C)</c> (so the mean damage is <c>1 − C</c>), giving vanilla at C = 0.835 and
 /// grungier ships as C drops. A hard per-part floor keeps condition ≥ <see cref="MinCondition"/> (10%) — the
 /// game's own kiosk wear never comes close, but a heavy custom setting would without it.</para>
 /// </summary>
 public static class WearModel
 {
     /// <summary>The game's kiosk wear pass magnitude — <c>DamageAllCOs(0.33)</c> (the ceiling as a fraction of
-    /// <c>StatDamageMax</c> before the pristine factor).</summary>
+    /// <c>StatDamageMax</c>).</summary>
     public const double VanillaUsedPercentage = 0.33;
 
-    /// <summary>The factor <c>CondOwner.BreakIn</c> applies to a still-<c>IsPristine</c> part's first damage
-    /// (fresh parts take 25% less). Kiosk parts are all pristine when the pass runs, so it always applies.</summary>
-    public const double PristineFactor = 0.75;
-
-    /// <summary>The effective uniform ceiling of a vanilla "Used" kiosk part's damage as a fraction of its
-    /// <c>StatDamageMax</c>: <c>0.33 × 0.75 = 0.2475</c>. Mean damage is half that; see
-    /// <see cref="VanillaUsedCondition"/>.</summary>
-    public const double VanillaUsedCeiling = VanillaUsedPercentage * PristineFactor;
+    /// <summary>The uniform ceiling of a vanilla "Used" kiosk part's damage as a fraction of its
+    /// <c>StatDamageMax</c>: the pass magnitude itself, since no broker part is <c>IsPristine</c> when it runs.
+    /// Mean damage is half that; see <see cref="VanillaUsedCondition"/>.</summary>
+    public const double VanillaUsedCeiling = VanillaUsedPercentage;
 
     /// <summary>The per-part condition floor Ostraplan enforces: no part is ever left below 10% condition,
-    /// however heavy the target. (Vanilla kiosk wear floors far higher, ≈ 75%.)</summary>
+    /// however heavy the target. (Vanilla kiosk wear floors far higher, at 67%.)</summary>
     public const double MinCondition = 0.10;
 
     /// <summary>The largest damage rate a part may take (so condition stays ≥ <see cref="MinCondition"/>).</summary>
@@ -78,8 +75,8 @@ public static class WearModel
     /// round-trip through a double.</summary>
     public const double RepairEpsilon = 1e-6;
 
-    /// <summary>The average part condition the game's own kiosk ("Used") wear produces: <c>1 − 0.2475/2 ≈
-    /// 0.876</c>. The Vanilla preset targets this.</summary>
+    /// <summary>The average part condition the game's own kiosk ("Used") wear produces: <c>1 − 0.33/2 =
+    /// 0.835</c>. The Vanilla preset targets this.</summary>
     public static double VanillaUsedCondition => 1.0 - VanillaUsedCeiling / 2.0;
 
     /// <summary>The uniform damage-rate ceiling for a target average condition <paramref name="targetCondition"/>:

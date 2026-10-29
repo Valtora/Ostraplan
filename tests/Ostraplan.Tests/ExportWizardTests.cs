@@ -121,12 +121,31 @@ public class ExportWizardTests
     }
 
     [SkippableFact]
-    public void Wear_defaults_to_the_vanilla_used_condition()
+    public void A_mod_export_defaults_to_a_pristine_ship()
     {
         var g = TestData.RequireGame();
         RunSta(() =>
         {
+            // the game wears a broker, derelict or starting ship itself on first load
             var session = Session(g);
+            var step = new ShipStep();
+            step.Enter(session);
+            step.Leave(session);
+
+            // the panel reads Pristine back as full condition, which mints the same undamaged ship
+            var wear = session.Plan.Wear;
+            Assert.True(!wear.Enabled || wear.IsRepair);
+        });
+    }
+
+    [SkippableFact]
+    public void A_ship_granted_into_a_save_defaults_to_the_vanilla_used_condition()
+    {
+        var g = TestData.RequireGame();
+        RunSta(() =>
+        {
+            // nothing wears a ship written into a save, so the baked wear is all it gets
+            var session = Session(g, ExportDestination.NewShipInSave);
             var step = new ShipStep();
             step.Enter(session);
             step.Leave(session);
@@ -134,6 +153,34 @@ public class ExportWizardTests
             Assert.True(session.Plan.Wear.Enabled);
             Assert.Equal(WearModel.VanillaUsedCondition, session.Plan.Wear.TargetCondition, 2);
         });
+    }
+
+    [Fact]
+    public void A_mod_and_a_save_remember_their_own_wear()
+    {
+        var settings = new AppSettings();
+        var plan = ExportPlan.FromSettings(settings, new OplanMeta { Name = "S" }, null);
+        plan.Destination = ExportDestination.Mod;
+        plan.Wear = new WearOptions(true, 0.6);
+        plan.Destination = ExportDestination.NewShipInSave;
+        plan.Wear = WearOptions.Repaired;
+        plan.SaveTo(settings);
+
+        var mod = ExportPlan.FromSettings(settings, new OplanMeta { Name = "S" }, null);
+        mod.Destination = ExportDestination.Mod;
+        Assert.Equal(new WearOptions(true, 0.6), mod.Wear);
+        mod.Destination = ExportDestination.NewShipInSave;
+        Assert.Equal(WearOptions.Repaired, mod.Wear);
+    }
+
+    [Fact]
+    public void A_worn_answer_remembered_before_the_split_does_not_carry_onto_mods()
+    {
+        // settings written while mods and saves shared one answer, and the old default was worn
+        var settings = new AppSettings { LastExport = new LastExport { WearOn = true, WearTarget = 0.876 } };
+        var plan = ExportPlan.FromSettings(settings, new OplanMeta { Name = "S" }, null);
+        plan.Destination = ExportDestination.Mod;
+        Assert.False(plan.Wear.Enabled);
     }
 
     [SkippableFact]
@@ -384,7 +431,7 @@ public class ExportWizardTests
         {
             // the spawner damages a wreck on load, so baking more on top double-damages every part
             var session = Session(g);
-            Assert.True(session.Plan.Wear.Enabled);
+            session.Plan.Wear = WearOptions.Vanilla;   // a worn answer remembered from an earlier export
             var step = new ObtainableStep();
             step.Populate(session);
             Descendants<CheckBox>(step).First(c => (string)c.Content == "Big").IsChecked = true;
@@ -402,6 +449,7 @@ public class ExportWizardTests
         RunSta(() =>
         {
             var session = Session(g);
+            session.Plan.Wear = WearOptions.Vanilla;
             session.Plan.WearChosen = true;   // the user moved the slider themselves
             var step = new ObtainableStep();
             step.Populate(session);

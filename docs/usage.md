@@ -718,7 +718,7 @@ others have not. An area rolls exactly as the brush does, once per object, so bo
 25–70% gives it the same varied look as dragging over every tile of it would have.
 
 - **Nothing shows above 80% condition.** The game draws no wear at all until a part is below
-  it, which is why its own second-hand ships look clean — they average about 88%. A range that
+  it, which is why its own second-hand ships look clean — they average about 84%. A range that
   stops at 85% will look like you did nothing, so aim well under.
 - **Painting a part to nothing breaks it.** At 0% it becomes its damaged form — a cracked wall,
   a wrecked alarm — because a part in Ostranauts cannot sit at a full damage pool; it breaks.
@@ -1088,10 +1088,12 @@ Writes a spawnable local mod (`data/ships/<Name>.json` in
     hands the mod to Ostrasort to register it (and patch any kiosk conflicts with
     other ship mods). **Ostraplan itself never writes `loading_order.json`** — that
     stays Ostrasort/ModTools' job. Untick it to register the mod yourself later.
-  - **Wear** — spawn the ship worn rather than pristine. The slider picks the target
-    **average** condition; it defaults to **~88%**, which is what the game's own kiosk
-    ("Used") ships come at, and damage is spread randomly across parts (none below
-    10%). Drag it left for a grungier ship, or to 100% (or untick) for pristine.
+  - **Wear** — a mod ship starts **pristine**, because the game wears it for you: a
+    broker ship arrives at about 84% condition, and a derelict or a starting ship is
+    broken in when it first loads. The one exception is the **Special Offer** slot,
+    whose ship arrives exactly as built, so pick **Worn** there if you want it used.
+    The slider picks the target **average** condition, and damage is spread randomly
+    across parts (none below 10%). Drag it left for a grungier ship.
     (Wear lives on **The ship** step, because every destination bakes it the same way.)
     The roll is pinned when **Review** builds, so the ship you're told about is the ship
     that gets written, part for part.
@@ -1917,7 +1919,7 @@ with three answers:
 |---|---|
 | **Keep each part's condition** | The ship keeps the wear it has. Offered only where there is some to keep: updating a ship in a save (its own), or granting a design imported from one (the source ship's, matched part by part). Parts you drew in afterwards were never on the original and arrive undamaged. |
 | **Full condition** | Every installed part at 100%. On an update this is **"Repair everything"** and actively clears the accumulated wear across the whole ship, bringing Condition back to **A**. On a ship being built fresh it is simply a pristine build. |
-| **Worn** | Damaged to a target **average** condition (10%–100%). Parts spread randomly around it, none below 10%. **88%** is the game's own kiosk ("Used") wear. |
+| **Worn** | Damaged to a target **average** condition (10%–100%). Parts spread randomly around it, none below 10%. **84%** is the game's own kiosk ("Used") wear. |
 
 Both **Full condition** and **Worn** act on **every** installed part on the ship, not only
 the parts you edited. Neither touches parts that are broken as parts — that is **Repair

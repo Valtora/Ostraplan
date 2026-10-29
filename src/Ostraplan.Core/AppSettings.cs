@@ -50,8 +50,16 @@ public sealed class LastExport
     /// degrades to the default instead of throwing.</summary>
     [JsonPropertyName("destination")] public string? Destination { get; set; }
 
+    /// <summary>The condition for a ship written into a save, the only path where baked wear is all the wear the
+    /// ship gets.</summary>
     [JsonPropertyName("wearOn")] public bool WearOn { get; set; } = true;
-    [JsonPropertyName("wearTarget")] public double WearTarget { get; set; } = 0.87625;
+    [JsonPropertyName("wearTarget")] public double WearTarget { get; set; } = WearModel.VanillaUsedCondition;
+
+    /// <summary>The condition for a mod export, kept apart because the game wears a mod's ships itself. New keys
+    /// rather than a reuse of <see cref="WearOn"/>, so a worn answer remembered from when the two were shared does not
+    /// carry onto mods.</summary>
+    [JsonPropertyName("modWearOn")] public bool ModWearOn { get; set; }
+    [JsonPropertyName("modWearTarget")] public double ModWearTarget { get; set; } = 1.0;
 
     [JsonPropertyName("modVersion")] public string ModVersion { get; set; } = "1.0.0";
     [JsonPropertyName("brokerPools")] public List<string> BrokerPools { get; set; } = [];

@@ -2605,6 +2605,27 @@ overriding or appending to the relevant pools:
 sell/derelict `GetQuotedPrice` cache does), and it is reset to 0 on a non-derelict
 Edit-load.
 
+### Which ships the game wears on arrival
+
+A ship file carries no wear of its own (every core template is `DMGStatus = 0`, and no def
+declares `StatDamage`); the spawner's `Ship.Damage` status decides, on the first Edit-load
+(`Ship.cs`, the `bPrefill` branch):
+
+| Path | Spawned as | Pass | On wear already in the file |
+| --- | --- | --- | --- |
+| Broker list (`Trader.AddNewShips`) | Used | `DamageAllCOs(0.33)` | skips any part with `StatDamage > 0`, so baked wear replaces the roll on those parts |
+| Derelict ring, or buying a derelict | Derelict | `Ship.BreakIn` → `DamageAllCOs(…, allowMultiple: true)` | stacks |
+| Chargen starting ship | New | `DamageAllCOs(fShipDmgMax, allowMultiple: true)` | stacks |
+| Special Offer (`AddSpecialOfferShip`) | New | none; buying it leaves the status alone | the only wear the ship gets |
+
+No broker part is `IsPristine` when the 0.33 pass runs (`Ship.BreakIn` grants it after its
+own damage, `Trader.AddNewItems` only to kiosk items), so the 25% pristine discount in
+`CondOwner.BreakIn` never applies and a Used ship averages 83.5% condition.
+
+> **Ported in Ostraplan:** `WearModel` (the 0.33 pass as `WearOptions.Vanilla`). A mod export
+> starts pristine (`ExportPlan.ModWear`) and a save destination worn (`SaveWear`), since only
+> a ship written into a save gets no pass.
+
 ### A ship's picture is a file named after the ship
 
 Everywhere the game shows a ship portrait it resolves the art from

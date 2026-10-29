@@ -15,6 +15,11 @@ each release was verified against is recorded in
 - **A room walled in around cargo webbing is no longer shown as airtight.**
   - In game the webs bleed the room into space, so it is now an unsealed compartment in Problems, the Ship Rating and Room Viz.
   - Damaged floor grates, floor bins and rock floors leak the same way and are caught too. Thanks to Slomes.
+- **A ship exported as a mod now starts pristine.**
+  - The game already wears broker, derelict and starting ships when they first load, so baked wear only repeated or doubled it.
+  - A Special Offer ship arrives as built, so choose Worn on the design step if you want one used.
+  - Ships written into a save still default to worn. Thanks to Nergal.
+- **The Worn setting's "Used kiosk" mark is 84%, the condition the game's broker ships really average.**
 
 ## [1.34.1] 2026-10-22, compressed designs
 

@@ -40,7 +40,14 @@ public sealed class WearControl : StackPanel
     private readonly TextBlock _spread;
     private readonly bool _keepIsSourceCondition;
 
-    /// <summary>The vanilla "Used" average condition as a whole-percent slider value (≈88).</summary>
+    /// <summary>The note under Pristine wherever the ship goes out as a mod. The game wears a broker ship (spawned
+    /// Used), a derelict and a starting ship itself on first load, so baking wear in only repeats or stacks on that.
+    /// A Special Offer is spawned New and is the one mod ship that arrives as built.</summary>
+    public const string ModFullNote =
+        "The game wears broker, derelict and starting ships itself when they first load. A Special Offer ship " +
+        "arrives as built, so choose Worn for one of those if you want it used.";
+
+    /// <summary>The vanilla "Used" average condition as a whole-percent slider value (84).</summary>
     private static readonly double VanillaPercent = Math.Round(WearModel.VanillaUsedCondition * 100.0);
 
     /// <summary>True when the user asked for each part's real condition to come across from the save the design was
@@ -135,8 +142,8 @@ public sealed class WearControl : StackPanel
 
         _spread = new TextBlock
         {
-            Text = "Each part is damaged randomly around this average, never below 10%. 88% matches the game's " +
-                   "\"Used\" kiosk ships.",
+            Text = $"Each part is damaged randomly around this average, never below 10%. {VanillaPercent}% matches " +
+                   "the game's \"Used\" kiosk ships.",
             Foreground = Dim, FontSize = 11, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(24, 4, 0, 0),
         };
         Children.Add(_spread);

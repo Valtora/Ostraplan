@@ -49,7 +49,7 @@ Getting a design into the game runs through one **wizard**: pick a destination, 
 - **Transfer a ship between saves.** Layout, cargo, loose items, zones, wiring, in-game identity and each part's real condition, out of one playthrough and into another. It copies rather than moves, so both saves keep working and neither original is modified.
 - **Design a station apartment.** A residence is a ship in every way that matters to a planner: same grid, same placement law, same rooms, same airtightness. Open a residence template or your own apartment out of a save, redesign it, and deliver it by those same save routes. Ostraplan knows it is not a vessel, so the Ship Rating, the nav checklist, propulsion and flight dynamics step aside instead of reporting a design with no engine as a catastrophe.
 
-A **wear slider** exports or injects a ship worn rather than pristine, using the game's own kiosk damage model (defaults to the ~88% condition a "Used" kiosk ship comes at, no part below 10%).
+A **wear slider** exports or injects a ship worn rather than pristine, using the game's own kiosk damage model (84% matches a "Used" kiosk ship, no part below 10%). A mod export starts pristine, since the game wears those ships itself.
 
 ## Mod-aware
 

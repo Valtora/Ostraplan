@@ -17,8 +17,8 @@ public class WearShaderTests
     public void Nothing_wears_above_eighty_percent_condition()
     {
         // ge r0.x, cb0[7].x, l(0.2) — the whole wear branch is skipped below this. It is why the game's own
-        // kiosk ships look clean: WearModel.VanillaUsedCondition is ~0.876, so a vanilla "Used" part averages a
-        // damage rate of ~0.124 and never crosses the line.
+        // kiosk ships look clean: WearModel.VanillaUsedCondition is 0.835, so a vanilla "Used" part averages a
+        // damage rate of 0.165 and mostly stays under the line.
         Assert.Equal(0.2, WearShader.Threshold, 6);
         Assert.True(1.0 - WearModel.VanillaUsedCondition < WearShader.Threshold);
 
