@@ -15,6 +15,10 @@ public enum StepId
     ModDetails,
     Obtainable,
     ModTarget,
+
+    /// <summary>Ship-file-only: where the <c>.json</c> goes.</summary>
+    ShipFileTarget,
+
     SavePrice,
     UpdateTarget,
     Review,
@@ -47,8 +51,8 @@ public sealed class WizardFlow
 
     public StepId CurrentStep => Steps[Current];
 
-    /// <summary>The steps a destination shows, in rail order. The mod path is the long one; both save paths trade
-    /// its three mod-specific steps for a single one.</summary>
+    /// <summary>The steps a destination shows, in rail order. The mod path is the long one; the save paths and the
+    /// bare ship file trade its three mod-specific steps for a single one.</summary>
     public static IReadOnlyList<StepId> StepsFor(ExportDestination destination, bool hasUnresolvedParts) =>
         destination switch
         {
@@ -59,6 +63,8 @@ public sealed class WizardFlow
             ],
             ExportDestination.NewShipInSave =>
                 [StepId.Destination, StepId.Ship, StepId.SavePrice, StepId.Review, StepId.Done],
+            ExportDestination.ShipFile =>
+                [StepId.Destination, StepId.Ship, StepId.ShipFileTarget, StepId.Review, StepId.Done],
             _ when hasUnresolvedParts =>
             [
                 StepId.Destination, StepId.Ship, StepId.MissingParts, StepId.UpdateTarget,

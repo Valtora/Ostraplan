@@ -996,7 +996,7 @@ All three default to **on**. Crew are never imported.
   ship** step (name, in-game identity, condition), because all of them want exactly
   those.
 
-Three destinations are offered. One that can't be used is shown **disabled with the
+Four destinations are offered. One that can't be used is shown **disabled with the
 reason on it** rather than hidden; today that only happens when you have no save games
 at all, which stops both save destinations.
 
@@ -1141,6 +1141,22 @@ on the right.
   a ship you have dropped loses its kiosk entries and its pictures, and a route you have
   unticked is removed. If the write fails, nothing is changed and the export you already had
   is left as it was.
+
+### As a ship file
+
+Writes the ship's `data/ships` entry as a single `.json` and nothing else: no
+`mod_info.json`, no preview art and no kiosk listing. It is for modders putting together
+their own mod, who drop the file into that mod's `data/ships` folder and add it to
+whatever loot pool they like.
+
+- The ship is built exactly as the mod destination builds it, docking ports and all, and
+  starts **pristine** for the same reason: the game wears a broker, derelict or starting
+  ship itself when it first loads.
+- The game knows the ship by its **strName**, which is the design name, not by the file
+  name. Nothing sells or spawns it until a loot pool names it.
+- **Where to write** picks the file. The folder is remembered; the file name is taken
+  from the design each time, so exporting a second design never offers to overwrite the
+  first one's file. Review asks before replacing a file that is already there.
 
 ### Into a save game
 

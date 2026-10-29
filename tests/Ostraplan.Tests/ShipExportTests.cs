@@ -160,6 +160,38 @@ public class ShipExportTests
     }
 
     [SkippableFact]
+    public void WriteShipFile_writes_one_pristine_ship_file_and_nothing_beside_it()
+    {
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
+        var specs = RoomCertifier.LoadSpecs(g.Index);
+        var doc = BuildDooredHull(g.Catalog);
+
+        var dest = Path.Combine(Path.GetTempPath(), "OstraplanShipFileTest_" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(dest);
+        try
+        {
+            var path = Path.Combine(dest, "anything.json");
+            var result = ShipExport.WriteShipFile(doc, g.Catalog, specs, path, "My Test Ship", new ExportMetadata());
+
+            Assert.Equal(path, result.Path);
+            Assert.Equal([path], Directory.EnumerateFileSystemEntries(dest).ToArray());   // no mod_info, art or temp file
+
+            // the game keys the ship by strName, not by the file name, and names an unnamed ship per spawn
+            var tmpl = Assert.Single(ShipTemplate.ParseFile(File.ReadAllText(path)).ToList());
+            Assert.Equal("My Test Ship", tmpl.Name);
+            Assert.Equal(ShipExport.VariedNames, tmpl.PublicName);
+
+            // no wear asked for, so every part is at full condition
+            Assert.Equal("A", result.Rating.Condition);
+        }
+        finally
+        {
+            Directory.Delete(dest, recursive: true);
+        }
+    }
+
+    [SkippableFact]
     public void Write_with_no_in_game_name_leaves_the_naming_to_the_game()
     {
         // Reported from a playthrough: an exported ship showed up in game called "fCargoTug", which is the name of

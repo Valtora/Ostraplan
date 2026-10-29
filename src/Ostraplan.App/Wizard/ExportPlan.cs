@@ -14,6 +14,10 @@ public enum ExportDestination
 
     /// <summary>The ship this design was imported from, rewritten in its own save (see <see cref="SaveEdit"/>).</summary>
     UpdateShipInSave,
+
+    /// <summary>A bare <c>data/ships</c> file and nothing else, for someone assembling their own mod (see
+    /// <see cref="ShipExport.WriteShipFile"/>).</summary>
+    ShipFile,
 }
 
 /// <summary>The mod destination's settings: what the mod is, which ship it replaces if any, how the ship becomes
@@ -108,6 +112,10 @@ public sealed class ExportPlan
 
     public ExportDestination Destination { get; set; } = ExportDestination.Mod;
 
+    /// <summary>True for the destinations that hand the ship to the game to spawn (a mod, a bare ship file), as
+    /// opposed to writing it into a save as a ship that already exists.</summary>
+    public bool SpawnedByGame => Destination is ExportDestination.Mod or ExportDestination.ShipFile;
+
     /// <summary>The design's name. For the mod destination this is the ship's <c>strName</c>; for a granted ship
     /// it is only a fallback display name, because a save ship's strName is its registration.</summary>
     public string ShipName { get; set; } = "";
@@ -126,15 +134,15 @@ public sealed class ExportPlan
     /// is the only wear it will have.</para></summary>
     public WearOptions Wear
     {
-        get => Destination == ExportDestination.Mod ? ModWear : SaveWear;
+        get => SpawnedByGame ? ModWear : SaveWear;
         set
         {
-            if (Destination == ExportDestination.Mod) ModWear = value;
+            if (SpawnedByGame) ModWear = value;
             else SaveWear = value;
         }
     }
 
-    /// <summary>The mod destination's condition. See <see cref="Wear"/>.</summary>
+    /// <summary>The condition for a mod or a bare ship file. See <see cref="Wear"/>.</summary>
     public WearOptions ModWear { get; set; } = WearOptions.Pristine;
 
     /// <summary>The condition for both save destinations. See <see cref="Wear"/>.</summary>
@@ -146,6 +154,9 @@ public sealed class ExportPlan
     public bool WearChosen { get; set; }
 
     public ModPlan Mod { get; } = new();
+
+    /// <summary>Where the ship-file destination writes its <c>.json</c>, or null until one is chosen.</summary>
+    public string? ShipFilePath { get; set; }
     public NewShipPlan NewShip { get; } = new();
     public UpdatePlan Update { get; } = new();
 
@@ -172,10 +183,13 @@ public sealed class ExportPlan
             "newShip" => ExportDestination.NewShipInSave,
             // only offer to reopen on the update destination for a design that still came from a save
             "update" when sourceSave is not null => ExportDestination.UpdateShipInSave,
+            "shipFile" => ExportDestination.ShipFile,
             _ => ExportDestination.Mod,
         };
         plan.SaveWear = new WearOptions(last.WearOn, last.WearTarget);
         plan.ModWear = new WearOptions(last.ModWearOn, last.ModWearTarget);
+
+        plan.ShipFilePath = last.ShipFilePath;
 
         plan.Mod.Version = last.ModVersion;
         plan.Mod.Author = settings.ExportAuthor ?? meta.Author;
@@ -216,12 +230,14 @@ public sealed class ExportPlan
         {
             ExportDestination.NewShipInSave => "newShip",
             ExportDestination.UpdateShipInSave => "update",
+            ExportDestination.ShipFile => "shipFile",
             _ => "mod",
         };
         last.WearOn = SaveWear.Enabled;
         last.WearTarget = SaveWear.TargetCondition;
         last.ModWearOn = ModWear.Enabled;
         last.ModWearTarget = ModWear.TargetCondition;
+        last.ShipFilePath = ShipFilePath;
 
         last.ModVersion = Mod.Version;
         last.BrokerPools = [.. Mod.Delivery.BrokerPools];

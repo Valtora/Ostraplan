@@ -83,7 +83,7 @@ public sealed class ShipStep : WizardStep
             fullNote: update
                 ? "Repairs every installed part, not just the ones you edited. Broken parts (a damaged wall, a " +
                   "wrecked alarm) need Design ▸ Repair All in the editor."
-                : destination == ExportDestination.Mod ? WearControl.ModFullNote
+                : destination is ExportDestination.Mod or ExportDestination.ShipFile ? WearControl.ModFullNote
                 : null);
         control.Changed += () =>
         {
@@ -153,7 +153,7 @@ public sealed class ShipStep : WizardStep
             ExportDestination.UpdateShipInSave =>
                 $"Read from your save. Any change is written back to the {noun}. Leave the in-game name blank to " +
                 "keep its current name. " + tail,
-            ExportDestination.Mod =>
+            ExportDestination.Mod or ExportDestination.ShipFile =>
                 "Leave the in-game name blank for a different game-generated name per spawn. " + tail,
             _ when isResidence =>
                 "Leave the in-game name blank to name the apartment after its station. " + tail,

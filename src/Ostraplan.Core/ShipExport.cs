@@ -101,6 +101,10 @@ public sealed record ExportResult(
     int PartCount, int RoomCount, ShipRating Rating, IReadOnlyList<string> Warnings,
     bool TouchedLootPools = false, int PreviewCount = 0);
 
+/// <summary>What <see cref="ShipExport.WriteShipFile"/> wrote: one <c>data/ships</c> file and nothing beside it.</summary>
+public sealed record ShipFileResult(
+    string Path, int PartCount, int RoomCount, ShipRating Rating, IReadOnlyList<string> Warnings);
+
 /// <summary>Flavor/identity fields for <see cref="ShipExport.Build"/>, split out from
 /// <see cref="ExportOptions"/> so callers that don't care about ship metadata (most tests) can omit
 /// it entirely. See <see cref="ExportOptions.PublicName"/> for why <see cref="PublicName"/> matters
@@ -680,6 +684,41 @@ public static class ShipExport
         return new ExportResult(
             result.ModDir, result.ShipJsonPath, result.ModInfoPath, only.PartCount, only.RoomCount, only.Rating,
             result.Warnings, result.TouchedLootPools, only.PreviewCount);
+    }
+
+    /// <summary>
+    /// Build the design and write it as a bare <c>data/ships</c> file at <paramref name="path"/>: the one-element
+    /// array the game reads, and nothing else. No <c>mod_info.json</c>, no preview art and no loot, so the ship is
+    /// for someone assembling their own mod, who drops it into that mod's <c>data/ships</c> folder and names it in
+    /// whatever pool they like. The game keys it by <paramref name="strName"/>, not by the file name.
+    ///
+    /// <para>A blank in-game name resolves to <see cref="VariedNames"/>, as a mod's does: the game hands this ship
+    /// out, and the design name is a file name. The file is written beside itself and swapped in, so a failed write
+    /// never leaves half a ship where a whole one was.</para>
+    /// </summary>
+    public static ShipFileResult WriteShipFile(
+        ShipDocument doc, Catalog catalog, IReadOnlyList<RoomSpecDef> specs, string path, string strName,
+        ExportMetadata meta, WearOptions? wear = null)
+    {
+        var warnings = new List<string>();
+        var resolved = meta with { PublicName = ResolvePublicName(meta.PublicName, VariedNames) };
+        var (ship, rating, roomCount) = Build(doc, catalog, specs, strName, warnings, resolved, wear);
+
+        var full = Path.GetFullPath(path);
+        Directory.CreateDirectory(Path.GetDirectoryName(full)!);
+        var tmp = full + ".tmp";
+        try
+        {
+            File.WriteAllText(tmp, Serialize(ship));
+            File.Move(tmp, full, overwrite: true);
+        }
+        catch
+        {
+            try { File.Delete(tmp); } catch { /* best effort, the write already failed */ }
+            throw;
+        }
+
+        return new ShipFileResult(full, ship.AItems.Length, roomCount, rating, warnings);
     }
 
     /// <summary>

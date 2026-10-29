@@ -11,6 +11,10 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **Export can write just the ship file, a single data/ships .json, for a mod you put together yourself.**
+  - Pick As a ship file in Export (Ctrl+E); there is no mod folder, art or kiosk listing, and the ship starts pristine. Thanks to Nergal.
+
 ### Fixed
 - **A room walled in around cargo webbing is no longer shown as airtight.**
   - In game the webs bleed the room into space, so it is now an unsealed compartment in Problems, the Ship Rating and Room Viz.

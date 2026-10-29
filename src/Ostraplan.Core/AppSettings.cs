@@ -61,6 +61,9 @@ public sealed class LastExport
     [JsonPropertyName("modWearOn")] public bool ModWearOn { get; set; }
     [JsonPropertyName("modWearTarget")] public double ModWearTarget { get; set; } = 1.0;
 
+    /// <summary>Where the last bare ship file was written, so the next one starts there.</summary>
+    [JsonPropertyName("shipFilePath")] public string? ShipFilePath { get; set; }
+
     [JsonPropertyName("modVersion")] public string ModVersion { get; set; } = "1.0.0";
     [JsonPropertyName("brokerPools")] public List<string> BrokerPools { get; set; } = [];
     [JsonPropertyName("brokerWeight")] public double BrokerWeight { get; set; }

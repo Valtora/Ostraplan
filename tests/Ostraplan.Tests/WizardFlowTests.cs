@@ -47,6 +47,14 @@ public class WizardFlowTests
     }
 
     [Fact]
+    public void The_ship_file_destination_trades_the_mod_steps_for_one_target_step()
+    {
+        Assert.Equal(
+            [StepId.Destination, StepId.Ship, StepId.ShipFileTarget, StepId.Review, StepId.Done],
+            WizardFlow.StepsFor(ExportDestination.ShipFile, hasUnresolvedParts: true));
+    }
+
+    [Fact]
     public void Missing_parts_appears_only_for_an_update_with_unresolved_defs()
     {
         Assert.Contains(StepId.MissingParts,

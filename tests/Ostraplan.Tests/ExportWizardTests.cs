@@ -53,7 +53,7 @@ public class ExportWizardTests
     // ---- the shell ----
 
     [SkippableFact]
-    public void The_wizard_opens_on_the_destination_step_with_all_three_offered()
+    public void The_wizard_opens_on_the_destination_step_with_every_destination_offered()
     {
         var g = TestData.RequireGame();
         RunSta(() =>
@@ -79,9 +79,10 @@ public class ExportWizardTests
             var wizard = new ExportWizard(Session(g));
 
             var tiles = Descendants<RadioButton>(Pane(wizard)!).ToList();
-            Assert.Equal(3, tiles.Count);
+            Assert.Equal(4, tiles.Count);
             Assert.True(tiles[0].IsEnabled);                          // as a mod, always available
-            Assert.Contains(tiles, t => !t.IsEnabled);                // the two not wired up in this build
+            Assert.True(tiles[3].IsEnabled);                          // as a ship file, likewise
+            Assert.Contains(tiles, t => !t.IsEnabled);                // the save destinations, with no saves here
         });
     }
 
@@ -577,6 +578,85 @@ public class ExportWizardTests
         {
             Directory.Delete(dir, recursive: true);
         }
+    }
+
+    [SkippableFact]
+    public void A_ship_file_export_writes_the_file_it_reviewed()
+    {
+        var g = TestData.RequireGame();
+        var dir = Path.Combine(Path.GetTempPath(), "OstraplanWizardTest-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(dir);
+        try
+        {
+            RunSta(() =>
+            {
+                var path = Path.Combine(dir, "Kestrel.json");
+                var session = Session(g, ExportDestination.ShipFile, shipName: "Kestrel");
+                session.Plan.ShipFilePath = path;
+                var driver = new ShipFileDriver();
+
+                var outcome = driver.BuildAsync(session).GetAwaiter().GetResult();
+                Assert.Contains(outcome.Facts, f => f.Label == "Writes to" && f.Value == path);
+                Assert.Contains(outcome.Facts, f => f.Label == "Condition" && f.Value == "pristine");
+                Assert.Empty(outcome.Acknowledgements);
+
+                driver.WriteAsync(session).GetAwaiter().GetResult();
+                Assert.Equal([path], Directory.EnumerateFileSystemEntries(dir).ToArray());
+
+                // a second export over it says so at Review, like an existing mod folder does
+                var again = new ShipFileDriver().BuildAsync(session).GetAwaiter().GetResult();
+                Assert.Contains("already exists", Assert.Single(again.Acknowledgements));
+            });
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [SkippableFact]
+    public void The_ship_file_target_names_the_file_after_this_design_in_the_remembered_folder()
+    {
+        var g = TestData.RequireGame();
+        var dir = Path.Combine(Path.GetTempPath(), "OstraplanWizardTest-" + Guid.NewGuid().ToString("N")[..8]);
+        Directory.CreateDirectory(dir);
+        try
+        {
+            RunSta(() =>
+            {
+                // the last ship file was another design's, so reusing its name would overwrite it
+                var settings = new AppSettings
+                {
+                    LastExport = new LastExport { Destination = "shipFile", ShipFilePath = Path.Combine(dir, "Old.json") },
+                };
+                var session = Session(g, ExportDestination.ShipFile, shipName: "Kestrel", settings: settings);
+                var step = new ShipFileTargetStep();
+                step.Enter(session);
+
+                Assert.Null(step.Validate());
+                step.Leave(session);
+                Assert.Equal(Path.Combine(dir, "Kestrel.json"), session.Plan.ShipFilePath);
+            });
+        }
+        finally
+        {
+            Directory.Delete(dir, recursive: true);
+        }
+    }
+
+    [Fact]
+    public void A_ship_file_shares_the_mod_wear_and_is_remembered_as_the_destination()
+    {
+        var settings = new AppSettings();
+        var plan = ExportPlan.FromSettings(settings, new OplanMeta { Name = "S" }, null);
+        plan.Destination = ExportDestination.Mod;
+        plan.Wear = new WearOptions(true, 0.7);
+        plan.Destination = ExportDestination.ShipFile;
+        Assert.Equal(new WearOptions(true, 0.7), plan.Wear);
+
+        plan.SaveTo(settings);
+        Assert.Equal(ExportDestination.ShipFile,
+            ExportPlan.FromSettings(settings, new OplanMeta { Name = "S" }, null).Destination);
     }
 
     [SkippableFact]

@@ -272,6 +272,8 @@ public static class Tips
             TipTag.ImportExport),
         T("export-mod", "Export (Ctrl+E) turns the design into a mod. Give it at least one way into the game: a broker, a special offer, a starting ship or derelict salvage.",
             TipTag.ImportExport),
+        T("export-ship-file", "Export ▸ As a ship file writes just the ship's data/ships .json, pristine, for a mod you are putting together yourself.",
+            TipTag.ImportExport, TipTag.Mods),
         T("replace-ship", "A mod export can replace an existing ship, so the game spawns your design in its place everywhere.",
             TipTag.ImportExport, TipTag.Mods),
         T("add-to-save", "Export can add a design to a copy of a save as a ship you own. It arrives a few km out, and the P.A.S.S. ferry takes you to it.",

@@ -55,6 +55,7 @@ public sealed class ExportWizard : Window
             new ModDriver(),
             new NewShipDriver(),
             new UpdateDriver(),
+            new ShipFileDriver(),
         ];
 
         if (preselect is { } d) session.Plan.Destination = d;
@@ -214,6 +215,7 @@ public sealed class ExportWizard : Window
         StepId.ModDetails => new ModDetailsStep(),
         StepId.Obtainable => new ObtainableStep(),
         StepId.ModTarget => new ModTargetStep(),
+        StepId.ShipFileTarget => new ShipFileTargetStep(),
         StepId.SavePrice => new SavePriceStep(),
         StepId.UpdateTarget => new UpdateTargetStep(),
         StepId.Review => new ReviewStep(),
