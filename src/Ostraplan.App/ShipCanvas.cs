@@ -358,8 +358,23 @@ public sealed class ShipCanvas : FrameworkElement
     /// over it, which is the whole request: a spawner is an editor object that is invisible in play, and someone
     /// laying out the ship itself wants it out of the way. It changes nothing about what the design holds, so a
     /// hidden spawner still exports, still counts and is still there when the toggle comes back on.</para>
+    ///
+    /// <para>Since the Layers panel this is the Spawners layer's eye, read off <see cref="Layers"/>, so the
+    /// toolbar button and the panel row are one switch.</para>
     /// </summary>
-    public bool ShowSpawners { get; private set; } = true;
+    public bool ShowSpawners => !Layers.IsHidden(PlanLayer.Spawners);
+
+    /// <summary>
+    /// The Layers panel: which layers are hidden and which are locked (see <see cref="LayerView"/>). A hidden layer
+    /// is not drawn; a hidden or locked one is out of the way of every pick the mouse makes, so the floor under an
+    /// airlock is a click away with the walls locked, and nothing on a layer you cannot reach can be selected,
+    /// erased or deleted. The document is untouched either way.
+    /// </summary>
+    public LayerView Layers { get; private set; } = LayerView.Default;
+
+    /// <summary>Erase mode: a left click or drag deletes the topmost reachable thing under each tile it crosses,
+    /// the whole stroke as one undo step. Set by the window, which keeps it exclusive with an armed brush.</summary>
+    public bool EraseMode { get; private set; }
 
     /// <summary>Spawners view: when the scatter square is drawn. See <see cref="SpawnerScatterWhen"/>.</summary>
     public SpawnerScatterWhen ScatterWhen { get; private set; } = SpawnerScatterWhen.Selected;
@@ -530,7 +545,18 @@ public sealed class ShipCanvas : FrameworkElement
     /// <see cref="ReadOnly"/>, so the window can say why nothing happened.</summary>
     public event Action? EditRefused;
 
-    private enum Drag { None, Pan, Move, Band, Paint, BoxFill, ZonePaint, ZoneBox, Aim, DamagePaint, DamageBox, SymMove }
+    private enum Drag { None, Pan, Move, Band, Paint, BoxFill, ZonePaint, ZoneBox, Aim, DamagePaint, DamageBox, SymMove, Erase }
+
+    /// <summary>What an erase stroke has claimed so far: one drawable per tile crossed, deleted together on release.</summary>
+    private readonly List<RenderItem> _eraseTargets = [];
+
+    /// <summary>The tile a press landed on when it was a second click on the lone selected drawable there. If the
+    /// release comes without the mouse having moved the selection, the click steps down the pile instead.</summary>
+    private (int X, int Y)? _cycleCell;
+
+    /// <summary>Where a middle-button press went down, so a release that never moved reads as a click (the
+    /// eyedropper) rather than the end of a pan.</summary>
+    private Point _middlePress;
     private Drag _drag;
     private Point _dragStartScreen;
     private (int X, int Y) _dragStartCell;
@@ -666,6 +692,10 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action? ShowLightChanged;              // the Light Viz overlay was toggled (update the menu check + trigger a scan)
     public event Action? ShowWalkChanged;               // the WalkViz overlay was toggled (update the toolbar caption + trigger a scan)
     public event Action? ShowWireChanged;               // WireViz was toggled (update the toolbar check)
+    public event Action? LayersChanged;                 // the Layers panel state changed (sync the panel and the status marker)
+    public event Action? EraseModeChanged;              // erase mode turned on or off (sync the toolbar)
+    /// <summary>An erase stroke finished: delete these, as one undo step.</summary>
+    public event Action<IReadOnlyList<Placement>, IReadOnlyList<LooseObject>>? EraseRequested;
     public event Action? ShowSpawnersChanged;           // the spawners view was toggled or retuned (update the toolbar check)
     public event Action? WirePickChanged;               // a wiring pick was armed or dropped (update the hint)
     public event Action? SurfaceModeChanged;            // Surfaces mode was toggled (update the toolbar highlight / hint / pattern bar)
@@ -772,6 +802,7 @@ public sealed class ShipCanvas : FrameworkElement
         }
         ArmedPart = part;
         _armedLoose = loose && part is not null;
+        if (part is not null) SetEraseMode(false);   // a brush in hand puts the eraser down
         if (part is not null)
         {
             SelectedIds.Clear();
@@ -845,17 +876,66 @@ public sealed class ShipCanvas : FrameworkElement
     /// <summary>Toggle the spawners view (see <see cref="ShowSpawners"/>).</summary>
     public void ToggleShowSpawners() => SetShowSpawners(!ShowSpawners);
 
-    public void SetShowSpawners(bool on)
+    public void SetShowSpawners(bool on) => SetLayers(Layers.WithHidden(PlanLayer.Spawners, !on));
+
+    /// <summary>Replace the layer state (see <see cref="Layers"/>). Whatever is selected on a layer that has just
+    /// gone out of reach is dropped from the selection, so Delete never acts on something you cannot see or
+    /// click.</summary>
+    public void SetLayers(LayerView view)
     {
-        if (ShowSpawners == on) return;
-        ShowSpawners = on;
-        // The spawner sprites are part of the baked ship, so the bake has to go with them. Nothing else about the
-        // document changed, which is why this drops the caches rather than raising a content change. The lit
-        // composite bakes the same sprites, so hiding a spawner has to reach that too or Light Viz still shows it.
+        if (ReferenceEquals(view, Layers)) return;
+        var spawnersWere = ShowSpawners;
+        Layers = view;
+        // A hidden layer's sprites are part of the baked ship, so the bake has to go with them. Nothing else about
+        // the document changed, which is why this drops the caches rather than raising a content change. The lit
+        // composite bakes the same sprites, so hiding a layer has to reach that too or Light Viz still shows it.
         _staticShip = null;
         RebuildLightComposite();
-        ShowSpawnersChanged?.Invoke();
+        DropUnreachableSelection();
+        LayersChanged?.Invoke();
+        if (spawnersWere != ShowSpawners) ShowSpawnersChanged?.Invoke();
         InvalidateVisual();
+    }
+
+    /// <summary>Turn erase mode on or off (see <see cref="EraseMode"/>). Any stroke in progress is abandoned.</summary>
+    public void SetEraseMode(bool on)
+    {
+        if (EraseMode == on) return;
+        EraseMode = on;
+        _eraseTargets.Clear();
+        Cursor = on ? Cursors.Cross : null;
+        EraseModeChanged?.Invoke();
+        InvalidateVisual();
+    }
+
+    /// <summary>The layer a drawable is on.</summary>
+    private PlanLayer LayerOf(RenderItem item) => LayerView.Of(Doc!.Catalog, item);
+
+    /// <summary>True when the mouse can reach this drawable: its layer is shown and unlocked.</summary>
+    public bool IsPickable(RenderItem item) => Doc is not null && Layers.IsPickable(LayerOf(item));
+
+    public bool IsPickable(Placement p) => IsPickable(new RenderItem(p, null));
+
+    /// <summary>Everything on the tile the mouse can reach, topmost first: <see cref="ShipDocument.RenderStackAt"/>
+    /// without the hidden and locked layers. Every pick goes through this or <see cref="IsPickable(RenderItem)"/>,
+    /// and the right-click picker lists it.</summary>
+    public IReadOnlyList<RenderItem> PickStackAt(int x, int y) =>
+        Doc is null ? [] : [.. Doc.RenderStackAt(x, y).Where(IsPickable)];
+
+    /// <summary>The structural half of <see cref="PickStackAt"/>, topmost first.</summary>
+    public IReadOnlyList<Placement> PickPlacementsAt(int x, int y) =>
+        Doc is null ? [] : [.. Doc.HitTestStack(x, y).Where(IsPickable)];
+
+    private void DropUnreachableSelection()
+    {
+        if (Doc is null) return;
+        var parts = Doc.Placements.Where(p => SelectedIds.Contains(p.Id) && !IsPickable(p)).Select(p => p.Id).ToList();
+        var loose = Doc.LooseObjects.Where(o => SelectedLooseIds.Contains(o.Id) && !Layers.IsPickable(LayerView.Of(o)))
+            .Select(o => o.Id).ToList();
+        foreach (var id in parts) SelectedIds.Remove(id);
+        foreach (var id in loose) SelectedLooseIds.Remove(id);
+        if (parts.Count > 0) SelectionChanged?.Invoke();
+        if (loose.Count > 0) LooseSelectionChanged?.Invoke();
     }
 
     /// <summary>Set how much of a spawner is shown. Neither of these hides the spawner itself, so neither touches
@@ -969,9 +1049,7 @@ public sealed class ShipCanvas : FrameworkElement
     /// Otherwise the ordinary topmost-part hit test.
     /// </summary>
     private Placement? SurfaceAwareHit(int x, int y) =>
-        SurfaceMode
-            ? Doc!.HitTestStack(x, y).FirstOrDefault(p => SurfacePaint.IsFocusLayer(Doc.Catalog, Doc.Part(p), LayerFocus))
-            : Doc!.HitTest(x, y);
+        PickPlacementsAt(x, y).FirstOrDefault(p => !SurfaceMode || SurfacePaint.IsFocusLayer(Doc!.Catalog, Doc.Part(p), LayerFocus));
 
     /// <summary>
     /// How many times this canvas has thrown away an analysis result it was holding. Every overlay drops its
@@ -1457,7 +1535,7 @@ public sealed class ShipCanvas : FrameworkElement
     /// <summary>The loose item on a tile when it is the <b>topmost</b> thing drawn there, else null. A loose item
     /// nudged under a fixture is no longer what a click on that tile lands on.</summary>
     private LooseObject? TopLooseAt((int X, int Y) cell) =>
-        Doc?.RenderStackAt(cell.X, cell.Y).FirstOrDefault().Loose;
+        PickStackAt(cell.X, cell.Y).FirstOrDefault().Loose;
 
     /// <summary>
     /// Step the selection one drawable down the pile under the cursor, wrapping at the bottom — the fast way
@@ -1467,16 +1545,45 @@ public sealed class ShipCanvas : FrameworkElement
     /// </summary>
     public void CycleSelectionUnderCursor()
     {
-        if (Doc is null || _hoverCell is not { } cell) return;
-        var stack = Doc.RenderStackAt(cell.X, cell.Y);
+        if (_hoverCell is { } cell) CycleSelectionAt(cell);
+    }
+
+    /// <summary>
+    /// Step the selection one down the pile on <paramref name="cell"/>: the ` key, and a second click on what is
+    /// already selected, which is how the game's own editor reaches what is underneath. Only the layers the mouse
+    /// can reach are in the pile, so a locked wall is stepped past rather than landed on.
+    ///
+    /// <para>The current position is the first selected drawable in the pile, whatever else is selected. Under
+    /// symmetry a pick carries its mirror partners, and requiring a lone selection would restart from the top on
+    /// every click and never get past it.</para>
+    /// </summary>
+    private void CycleSelectionAt((int X, int Y) cell)
+    {
+        var stack = PickStackAt(cell.X, cell.Y);
         if (stack.Count == 0) return;
 
         var current = -1;
         for (var i = 0; i < stack.Count && current < 0; i++)
-            if (stack[i].IsLoose ? SelectedLoose is { } sel && sel.Id == stack[i].Id
-                                 : SelectedIds.Count == 1 && SelectedIds.Contains(stack[i].Id))
+            if (stack[i].IsLoose ? SelectedLooseIds.Contains(stack[i].Id) : SelectedIds.Contains(stack[i].Id))
                 current = i;
         SelectItem(stack[current < 0 ? 0 : (current + 1) % stack.Count]);
+    }
+
+    /// <summary>
+    /// True when a plain left press on <paramref name="cell"/> is a click on a single pick that is already selected
+    /// there, the case a second click steps down the pile. A box selection is excluded: a click inside one grabs the
+    /// whole catch to move it, and stepping would throw the catch away. A pick carries its mirror partners under
+    /// symmetry, so up to that many selected drawables still count as one pick, provided only one of them is on
+    /// this tile.
+    /// </summary>
+    private bool IsSecondClickOnPick((int X, int Y) cell)
+    {
+        if (Doc is null) return false;
+        var here = PickStackAt(cell.X, cell.Y)
+            .Count(i => i.IsLoose ? SelectedLooseIds.Contains(i.Id) : SelectedIds.Contains(i.Id));
+        if (here != 1) return false;
+        var partners = SymMode switch { SymmetryMode.Off => 1, SymmetryMode.Both => 4, _ => 2 };
+        return SelectedLooseIds.Count == 0 ? SelectedIds.Count <= partners : SelectionCount == 1;
     }
 
     /// <summary>The axes through the middle of the design's own bounding box, which is the sensible place to put
@@ -1826,6 +1933,7 @@ public sealed class ShipCanvas : FrameworkElement
         {
             _drag = Drag.Pan;
             _dragStartScreen = screen;
+            _middlePress = screen;
             CaptureMouse();
             e.Handled = true;
             return;
@@ -1883,7 +1991,7 @@ public sealed class ShipCanvas : FrameworkElement
             var wc = CellAt(screen);
             if (e.ChangedButton == MouseButton.Left)
             {
-                if (Doc.HitTestStack(wc.X, wc.Y).FirstOrDefault(IsWirePartner) is { } partner)
+                if (PickPlacementsAt(wc.X, wc.Y).FirstOrDefault(IsWirePartner) is { } partner)
                 {
                     // Direction comes from which end the pick was anchored at, so the handler always receives
                     // (driver, driven) whichever way round the user worked.
@@ -1914,6 +2022,13 @@ public sealed class ShipCanvas : FrameworkElement
         if (e.ChangedButton == MouseButton.Right)
         {
             var rmbCell = CellAt(screen);
+            // Right-click puts the eraser down, the way it drops a held brush.
+            if (EraseMode)
+            {
+                SetEraseMode(false);
+                e.Handled = true;
+                return;
+            }
             // A loose floor item the cursor is over wins the right-click when it is the TOPMOST thing there, even
             // while a brush is armed: disarm, select it, and open its menu (Change Quantity / Delete) — otherwise a
             // dropped item is unreachable because the brush stays armed after dropping. One that has been pushed
@@ -1927,8 +2042,8 @@ public sealed class ShipCanvas : FrameworkElement
             // with no structure under the item — an import can leave one on bare ground — where the main menu has
             // nothing to open on and this is the only menu there is.
             if (Doc is not null && TopLooseAt(rmbCell) is { } looseRmb
-                && (SelectionCount <= 1 || Doc.HitTestStack(rmbCell.X, rmbCell.Y).Count == 0)
-                && (!SurfaceMode || Doc.HitTestStack(rmbCell.X, rmbCell.Y).Count == 0))
+                && (SelectionCount <= 1 || PickPlacementsAt(rmbCell.X, rmbCell.Y).Count == 0)
+                && (!SurfaceMode || PickPlacementsAt(rmbCell.X, rmbCell.Y).Count == 0))
             {
                 if (ArmedPart is not null) { SetArmed(null); Disarmed?.Invoke(); }
                 SelectOnlyLoose(looseRmb);
@@ -1943,7 +2058,9 @@ public sealed class ShipCanvas : FrameworkElement
             }
             else if (Doc is not null)
             {
-                var stack = Doc.HitTestStack(rmbCell.X, rmbCell.Y);
+                // Only what the mouse can reach: a tile whose every part is on a hidden or locked layer opens no
+                // menu, the same as bare deck, rather than a menu about a part you cannot see or select.
+                var stack = PickPlacementsAt(rmbCell.X, rmbCell.Y);
                 if (stack.Count > 0)
                 {
                     // A lone loose item still selected from an earlier click is dropped: this menu is about the
@@ -1988,12 +2105,58 @@ public sealed class ShipCanvas : FrameworkElement
             return;
         }
 
+        // Alt+double-click flood-selects every 1x1 tile of the same def 4-connected to the one clicked: a magic wand
+        // for bulk-deleting or replacing a run of identical tiles. Ctrl+Alt+double-click adds the region to the
+        // selection. A plain double-click used to do this; it is the second of two clicks now, which steps down the
+        // pile the way the game's own editor does. The first click of the pair was the eyedropper and armed the
+        // part, so the brush is put down again: a flood is a selection, and a selection is made unarmed.
+        // The seed is a lone selected part when it covers the tile (so the right-click picker can reach a buried
+        // conduit first), else the part a click would land on.
+        if (e.ClickCount == 2 && Keyboard.Modifiers.HasFlag(ModifierKeys.Alt))
+        {
+            Placement? seed = null;
+            if (SelectedIds.Count == 1)
+            {
+                var sel = Doc.Placements.FirstOrDefault(p => SelectedIds.Contains(p.Id));
+                if (sel is not null && Doc.Covers(sel, cell.X, cell.Y) && IsPickable(sel)) seed = sel;
+            }
+            seed ??= SurfaceAwareHit(cell.X, cell.Y);
+            if (seed is not null)
+            {
+                if (ArmedPart is not null) { SetArmed(null); Disarmed?.Invoke(); }
+                if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) { SelectedIds.Clear(); ClearLooseSelection(); }
+                foreach (var p in FloodSelect.Collect(Doc, seed)) SelectedIds.Add(p.Id);
+                ExtendSelectionAcrossSymmetry();
+                SelectionChanged?.Invoke();
+                InvalidateVisual();
+            }
+            e.Handled = true;
+            return;
+        }
+
         // Alt+LMB is the eyedropper: pick the (topmost) part under the cursor as the brush, at its own rotation.
         // Works whether or not something is already armed, and takes priority over placing/selecting so an
-        // Alt-click never edits.
+        // Alt-click never edits. A middle click does the same (see OnMouseUp).
         if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt) && SurfaceAwareHit(cell.X, cell.Y) is { } pick)
         {
             BrushPicked?.Invoke(pick.DefName, pick.Rot);
+            e.Handled = true;
+            return;
+        }
+
+        // Erase mode: the stroke claims the topmost reachable thing on each tile it crosses and deletes the lot on
+        // release. Locked and hidden layers are out of its reach like any other pick, which is what makes "lock the
+        // floors, then scrub the clutter off them" a single drag.
+        if (EraseMode)
+        {
+            if (!_readOnly)
+            {
+                _eraseTargets.Clear();
+                _drag = Drag.Erase;
+                EraseAt(cell);
+                CaptureMouse();
+                InvalidateVisual();
+            }
             e.Handled = true;
             return;
         }
@@ -2024,31 +2187,10 @@ public sealed class ShipCanvas : FrameworkElement
             return;
         }
 
-        // double-click a placed part to flood-select every 1×1 tile of the same def
-        // 4-connected to it — a magic wand for bulk-deleting/replacing a run of identical
-        // tiles. Only when nothing is armed. Seed def comes from a lone selected part when
-        // it covers the tile (so the RMB layer-picker can reach a buried conduit first),
-        // else the topmost part here. Ctrl+double-click adds the region to the selection.
-        if (e.ClickCount == 2 && ArmedPart is null)
+        // A double-click on a part is no longer special: its second click is an ordinary click on what the first
+        // one selected, which steps down the pile (below). Flood-select moved to Alt+double-click, above.
+        if (e.ClickCount == 2 && ArmedPart is null && SurfaceAwareHit(cell.X, cell.Y) is null && TopLooseAt(cell) is null)
         {
-            Placement? seed = null;
-            if (SelectedIds.Count == 1)
-            {
-                var sel = Doc.Placements.FirstOrDefault(p => SelectedIds.Contains(p.Id));
-                if (sel is not null && Doc.Covers(sel, cell.X, cell.Y)) seed = sel;
-            }
-            seed ??= SurfaceAwareHit(cell.X, cell.Y);
-            if (seed is not null)
-            {
-                if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control)) { SelectedIds.Clear(); ClearLooseSelection(); }
-                foreach (var p in FloodSelect.Collect(Doc, seed)) SelectedIds.Add(p.Id);
-                ExtendSelectionAcrossSymmetry();
-                SelectionChanged?.Invoke();
-                InvalidateVisual();
-                e.Handled = true;
-                return;
-            }
-
             // double-click on empty space selects the enclosed ("compartmentalized") air region, so you can arm a
             // part and press Enter to fill it (FillAirSelection). Open-to-space areas yield nothing, so a fill can't
             // leak into vacuum. The highlight persists until you fill it, edit the ship, or press Esc.
@@ -2111,6 +2253,25 @@ public sealed class ShipCanvas : FrameworkElement
             _dragStartScreen = screen;
             _dragStartCell = cell;
             CaptureMouse();
+            e.Handled = true;
+            InvalidateVisual();
+            return;
+        }
+
+        // A second click on what is already selected there steps down the pile, the way the game's own editor
+        // reaches what is underneath: a wall, then the floor under it, then round to the top again. It has to be told
+        // apart from the press that starts a drag, so the press still grabs the selection, and the release decides:
+        // if the selection never moved, it was a click (see OnMouseUp). Ahead of the loose-item branch below, which
+        // would otherwise take a click on a deck item as a fresh pick of it every time and never step past it.
+        if (!Keyboard.Modifiers.HasFlag(ModifierKeys.Control) && IsSecondClickOnPick(cell))
+        {
+            var movable = SelectedPlacements().Any(p => !Doc.IsLocked(p)) || SelectedLooseIds.Count > 0;
+            if (movable && !_readOnly)
+            {
+                BeginMoveDrag(cell);
+                _cycleCell = cell;
+            }
+            else CycleSelectionAt(cell);   // nothing to drag (the primary airlock, a locked tab), so no release to wait for
             e.Handled = true;
             InvalidateVisual();
             return;
@@ -2250,6 +2411,7 @@ public sealed class ShipCanvas : FrameworkElement
             HoverChanged?.Invoke(cell);
             RaiseSelectionSize();   // update the WxH readout as the box grows/shrinks
             if (_drag == Drag.Paint) PaintAt(cell);
+            else if (_drag == Drag.Erase) EraseAt(cell);
             else if (_drag == Drag.ZonePaint) ApplyZoneCell(cell);
             else if (_drag == Drag.ZoneBox) RebuildZoneBox(cell);
             if (ArmedPart is not null || _drag != Drag.None) InvalidateVisual();
@@ -2290,6 +2452,41 @@ public sealed class ShipCanvas : FrameworkElement
         var drag = _drag;
         _drag = Drag.None;
         ReleaseMouseCapture();
+        var cycleCell = _cycleCell;
+        _cycleCell = null;
+
+        // A middle press that never moved was a click, not a pan: the eyedropper, the same pick Alt+click makes.
+        // A few pixels of slack, because a middle button is a wheel and pressing it rarely leaves the pointer still.
+        if (drag == Drag.Pan && e.ChangedButton == MouseButton.Middle && Doc is not null
+            && (e.GetPosition(this) - _middlePress).Length < 4
+            && SurfaceAwareHit(CellAt(e.GetPosition(this)).X, CellAt(e.GetPosition(this)).Y) is { } dropped)
+        {
+            BrushPicked?.Invoke(dropped.DefName, dropped.Rot);
+            e.Handled = true;
+            return;
+        }
+
+        // The erase stroke ends: everything it claimed goes in one undo step, which the window builds the same way
+        // it deletes a selection.
+        if (drag == Drag.Erase)
+        {
+            var parts = _eraseTargets.Where(t => t.Placement is not null).Select(t => t.Placement!).ToList();
+            var loose = _eraseTargets.Where(t => t.Loose is not null).Select(t => t.Loose!).ToList();
+            _eraseTargets.Clear();
+            if (parts.Count + loose.Count > 0) EraseRequested?.Invoke(parts, loose);
+            InvalidateVisual();
+            e.Handled = true;
+            return;
+        }
+
+        // A press on the selection that never moved it was the second click of a pick: step down the pile.
+        if (drag == Drag.Move && cycleCell is { } stepAt && _moveDelta == (0, 0) && CellAt(e.GetPosition(this)) == stepAt)
+        {
+            CycleSelectionAt(stepAt);
+            InvalidateVisual();
+            e.Handled = true;
+            return;
+        }
 
         // The handle keeps its lit look when the pointer is still on it after the release, so letting go does not
         // look like it shrank away from under the cursor. The unconditional repaint at the end of this method
@@ -2386,6 +2583,7 @@ public sealed class ShipCanvas : FrameworkElement
             foreach (var p in Doc.Placements)
             {
                 if (IsGhosted(p)) continue;   // Surfaces mode: a box over the deck catches deck, not the clutter on it
+                if (!IsPickable(p)) continue;  // nor anything on a layer the Layers panel has hidden or locked
                 var (bx, by, bw, bh) = Doc.BodyBounds(p);   // band-select on the above-floor body
                 if (bx <= x1 && bx + bw - 1 >= x0 && by <= y1 && by + bh - 1 >= y0)
                     SelectedIds.Add(p.Id);
@@ -2398,7 +2596,7 @@ public sealed class ShipCanvas : FrameworkElement
             // makes against a part's body — a box drawn over the near end of a long antenna means that antenna.
             foreach (var lo in Doc.LooseObjects)
             {
-                if (IsGhosted(new RenderItem(null, lo))) continue;
+                if (IsGhosted(new RenderItem(null, lo)) || !IsPickable(new RenderItem(null, lo))) continue;
                 var (lw, lh) = LooseSize(lo);
                 if (lo.X <= x1 && lo.X + lw - 1 >= x0 && lo.Y <= y1 && lo.Y + lh - 1 >= y0)
                     SelectedLooseIds.Add(lo.Id);
@@ -2416,6 +2614,62 @@ public sealed class ShipCanvas : FrameworkElement
     }
 
     // ---- painting (live placements, committed as one undo step on release) ----
+
+    /// <summary>
+    /// The drawable an erase at <paramref name="cell"/> would take: the topmost thing there the mouse can reach and
+    /// the stroke has not already claimed, so dragging back over a tile does not dig a second layer out of it. In
+    /// Surfaces mode the ghosted layers are out of reach as well, as they are for every other click. The primary
+    /// airlock is never erasable, and it does not let the eraser through to what is under it either: a stroke over
+    /// the airlock leaves its tile alone.
+    /// </summary>
+    private RenderItem? EraseTargetAt((int X, int Y) cell)
+    {
+        if (Doc is null) return null;
+        foreach (var item in PickStackAt(cell.X, cell.Y))
+        {
+            if (IsGhosted(item)) continue;
+            if (_eraseTargets.Any(t => t.Id == item.Id)) return null;
+            if (item.Placement is { } p && Doc.IsLocked(p)) return null;
+            return item;
+        }
+        return null;
+    }
+
+    /// <summary>Claim what the eraser takes at <paramref name="cell"/>, and under symmetry the same part at each
+    /// mirror tile. A mirror tile gives up its topmost reachable drawable only when it is the same def, so erasing a
+    /// wall on one side never takes a fixture that happens to sit where the mirror lands.</summary>
+    private void EraseAt((int X, int Y) cell)
+    {
+        if (EraseTargetAt(cell) is not { } hit) return;
+        _eraseTargets.Add(hit);
+        foreach (var (mx, my, _) in Symmetry.Poses(cell.X, cell.Y, 0, 1, 1, SymCenter, SymVertical, SymHorizontal).Skip(1))
+            if (EraseTargetAt((mx, my)) is { } mirror && mirror.DefName == hit.DefName)
+                _eraseTargets.Add(mirror);
+        InvalidateVisual();
+    }
+
+    /// <summary>Tint what an erase stroke has claimed, and while idle in erase mode, what a click would take. Red
+    /// over the drawable's own body, so a 3x3 machine reads as one target rather than nine tiles.</summary>
+    private void DrawErasePreview(DrawingContext dc)
+    {
+        if (!EraseMode || Doc is null) return;
+        var targets = _drag == Drag.Erase ? _eraseTargets.ToList()
+            : _hoverCell is { } cell && EraseTargetAt(cell) is { } next ? [next] : [];
+        foreach (var t in targets)
+        {
+            Rect r;
+            if (t.Placement is { } p) r = CellRect(Doc.BodyBounds(p));
+            else
+            {
+                var (w, h) = LooseSize(t.Loose!);
+                r = CellRect(t.X, t.Y, w, h);
+            }
+            dc.DrawRectangle(EraseBrush, ErasePen, r);
+        }
+    }
+
+    private static readonly Brush EraseBrush = Frozen(new SolidColorBrush(Color.FromArgb(0x70, 0xE0, 0x40, 0x40)));
+    private static readonly Pen ErasePen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0xFF, 0x5A, 0x5A)), 1.5));
 
     private void PaintAt((int X, int Y) cell)
     {
@@ -3271,6 +3525,7 @@ public sealed class ShipCanvas : FrameworkElement
             }
         }
         DrawMark(dc);   // over the overlays: it is about what the last undo did, and lasts about a second
+        DrawErasePreview(dc);
 
         if (ArmedPart is not null && _armedLoose && _hoverCell is { } looseHover)
         {
@@ -4538,7 +4793,7 @@ public sealed class ShipCanvas : FrameworkElement
         // The preview always runs anchor → partner in the direction the wire will actually take, whichever end
         // the pick started from, so the dashed line reads the same way the committed one will.
         if (_hoverCell is { } hc
-            && Doc.HitTestStack(hc.X, hc.Y).FirstOrDefault(IsWirePartner) is { } hoverPartner)
+            && PickPlacementsAt(hc.X, hc.Y).FirstOrDefault(IsWirePartner) is { } hoverPartner)
         {
             var (from, to) = pick.End == WireEnd.Driver ? (pick.Anchor, hoverPartner) : (hoverPartner, pick.Anchor);
             dc.DrawLine(sensor ? SensorPreviewPen : WirePreviewPen, DeviceCentre(from), DeviceCentre(to));
@@ -5054,12 +5309,12 @@ public sealed class ShipCanvas : FrameworkElement
     /// <summary>Draw one drawable — a placement's sprite, or a loose floor item's.</summary>
     private void DrawItem(DrawingContext dc, RenderItem item, (int X, int Y) offset)
     {
+        // A hidden layer comes out of the picture entirely: the Layers panel's eye, and the Spawners view before it
+        // (#68). Gated here rather than at each walk of the render order, so the plan, the in-flux pass during a
+        // drag, the lit composite and the snapshot all agree about what is on screen. The mod's ship portrait is the
+        // deliberate exception and sets _portraitPass, because an exported asset must not change with a view toggle.
+        if (!_portraitPass && !Layers.IsDefault && Layers.IsHidden(LayerOf(item))) return;
         if (item.Placement is { } p) { DrawPlacement(dc, p, offset); return; }
-        // Spawners view off: the editor objects come out of the picture entirely (#68). Gated here rather than at
-        // each walk of the render order, so the plan, the in-flux pass during a drag, the lit composite and the
-        // snapshot all agree about what is on screen. The mod's ship portrait is the deliberate exception and
-        // sets _portraitPass, because an exported asset must not change with a view toggle.
-        if (!ShowSpawners && !_portraitPass && item.Loose?.Spawner is not null) return;
         // The drawable's own condition, not whatever the tile index happens to name: a design carrying an overlap
         // has two items answering for one tile, and each has to draw at its own wear.
         if (Doc!.Catalog.Lookup(item.DefName) is { } part)

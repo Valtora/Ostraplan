@@ -137,6 +137,7 @@ public partial class MainWindow : Window
         RestoreWindowPlacement();   // the size, position and maximised state the window was last closed at (#69)
         RestorePaneWidths();   // the palette / inspector widths the user last dragged, and whether either is hidden
         ApplyToolbarLabels();   // names beside the toolbar's icons, if Settings asks for them
+        BuildLayersPanel();     // the eye and padlock rows; SyncLayersChrome fills their state once a design is up
 
         // The tab the app opens on, built last because activating it touches the timers and the freeze gate above.
         // Its document arrives with the game data (LoadDataAsync); the session has to exist before that, because
@@ -266,7 +267,7 @@ public partial class MainWindow : Window
         if (Enum.TryParse<SurfaceFocus>(_settings.SurfaceFocus, out var focus)) board.SetLayerFocus(focus);
         // The spawners view (#68). App-wide like the backdrop rather than per design: it is about the person
         // looking at the plan, so a design handed to somebody else opens on their own preference.
-        board.SetShowSpawners(_settings.ShowSpawners);
+        board.SetLayers(SavedLayers());
         board.SetSpawnerView(
             Enum.TryParse<SpawnerScatterWhen>(_settings.SpawnerScatterWhen, out var scatterWhen)
                 ? scatterWhen : SpawnerScatterWhen.Selected,
@@ -301,6 +302,9 @@ public partial class MainWindow : Window
         board.ShowAccessChanged += OnShowAccessChanged; // the same analysis, read one part at a time
         board.ShowWireChanged += SyncViewToggles;       // keep the toolbar's WireViz button in step
         board.ShowSpawnersChanged += SyncViewToggles;   // and the Spawners button
+        board.LayersChanged += SyncLayersChrome;        // the Layers panel rows and the status-bar marker
+        board.EraseModeChanged += SyncViewToggles;      // the Erase button
+        board.EraseRequested += OnEraseRequested;       // an erase stroke finished: delete what it claimed
         board.WirePickChanged += OnWirePickChanged;     // swap the status hint while a wiring pick runs
         board.SurfaceModeChanged += OnSurfaceModeChanged;   // show/hide the Surfaces bar and swap the status hint
         board.SymmetryChanged += SyncViewToggles;          // M and the axis drag both land on the toolbar button
@@ -355,6 +359,7 @@ public partial class MainWindow : Window
         HideHistoryNote();    // and the undo line to the design that was on screen
 
         SyncViewToggles();
+        SyncLayersChrome();
         UpdateSurfaceBar();
         UpdateBrushText();
         RefreshDocTabs();
@@ -3319,23 +3324,202 @@ public partial class MainWindow : Window
     private void DeleteSelection()
     {
         if (_doc is null || RefuseIfReadOnly()) return;
-        var selected = Board.SelectedPlacements().Where(p => !_doc.IsLocked(p)).ToList();
-        // A primary port may go while another stays: the stray an older Ostraplan seeded at (0,0) has to be
-        // deletable, and the ship keeps the one it docks by. The last one standing stays locked.
-        var primaries = _doc.Placements.Count(_doc.IsLocked);
-        selected.AddRange(Board.SelectedPlacements().Where(_doc.IsLocked).Take(Math.Max(0, primaries - 1)));
-        var loose = Board.SelectedLooseObjects();
-        if (selected.Count == 0 && loose.Count == 0) return;
-
-        var cmds = new List<IDocCommand>(loose.Count + 1);
-        if (selected.Count > 0) cmds.Add(new RemoveCommand(selected));
-        cmds.AddRange(loose.Select(lo => (IDocCommand)new RemoveLooseCommand(lo)));
-        _stack.Push(_doc, cmds.Count == 1 ? cmds[0] : new CompositeCommand(cmds));
+        if (!DeleteItems(Board.SelectedPlacements(), Board.SelectedLooseObjects())) return;
 
         Board.SelectedIds.Clear();
         Board.ClearLooseSelection();
         UpdateInspector();
     }
+
+    /// <summary>
+    /// Remove these parts and deck items as one undo step: what Delete does to a selection and what an erase stroke
+    /// does to what it crossed. False when nothing could go.
+    ///
+    /// <para>Locked structure (the primary airlock) is skipped, except that a ship with more than one may lose all
+    /// but the last. Nothing loose is ever locked: it is cargo on the floor, not part of the ship.</para>
+    /// </summary>
+    private bool DeleteItems(IReadOnlyList<Placement> parts, IReadOnlyList<LooseObject> loose)
+    {
+        if (_doc is null) return false;
+        var removing = parts.Where(p => !_doc.IsLocked(p)).ToList();
+        // A primary port may go while another stays: the stray an older Ostraplan seeded at (0,0) has to be
+        // deletable, and the ship keeps the one it docks by. The last one standing stays locked.
+        var primaries = _doc.Placements.Count(_doc.IsLocked);
+        removing.AddRange(parts.Where(_doc.IsLocked).Take(Math.Max(0, primaries - 1)));
+        if (removing.Count == 0 && loose.Count == 0) return false;
+
+        var cmds = new List<IDocCommand>(loose.Count + 1);
+        if (removing.Count > 0) cmds.Add(new RemoveCommand(removing));
+        cmds.AddRange(loose.Select(lo => (IDocCommand)new RemoveLooseCommand(lo)));
+        _stack.Push(_doc, cmds.Count == 1 ? cmds[0] : new CompositeCommand(cmds));
+        return true;
+    }
+
+    /// <summary>An erase stroke finished. What it claimed goes in one undo step, and anything it took out of the
+    /// selection leaves the selection with it.</summary>
+    private void OnEraseRequested(IReadOnlyList<Placement> parts, IReadOnlyList<LooseObject> loose)
+    {
+        if (_doc is null || RefuseIfReadOnly()) return;
+        if (!DeleteItems(parts, loose)) return;
+        foreach (var p in parts) Board.SelectedIds.Remove(p.Id);
+        foreach (var lo in loose) Board.SelectedLooseIds.Remove(lo.Id);
+        UpdateInspector();
+    }
+
+    // ---- layers and the eraser ----
+
+    /// <summary>The layer state the settings remember. The Spawners eye is <see cref="AppSettings.ShowSpawners"/>,
+    /// which is older than the panel, so it is read from there rather than from the hidden list.</summary>
+    private LayerView SavedLayers() =>
+        LayerView.Parse(_settings.HiddenLayers, _settings.LockedLayers)
+            .WithHidden(PlanLayer.Spawners, !_settings.ShowSpawners);
+
+    /// <summary>
+    /// Set the layer state on every open design and remember it. App-wide like Force place and the Spawners view
+    /// before it: it is about the person looking at the plan rather than about the ship, so a design handed to
+    /// somebody else opens on their own preference.
+    /// </summary>
+    private void ApplyLayers(LayerView view)
+    {
+        foreach (var session in _sessions) session.Board.SetLayers(view);
+        _settings.ShowSpawners = !view.IsHidden(PlanLayer.Spawners);
+        _settings.HiddenLayers = [.. view.Hidden.Where(l => l != PlanLayer.Spawners).Select(l => l.ToString())];
+        _settings.LockedLayers = [.. view.Locked.Select(l => l.ToString())];
+        _settings.Save();
+        SyncLayersChrome();
+        SyncViewToggles();
+    }
+
+    /// <summary>
+    /// What the status-bar marker says is off. Hidden spawners are left out: that is the Spawners view, which has its
+    /// own lit toolbar button and was a plain view preference long before the panel, and a marker that never goes
+    /// away for somebody who simply keeps spawners off would stop being read.
+    /// </summary>
+    private static string? LayersMarker(LayerView view) => view.WithHidden(PlanLayer.Spawners, false).Summary();
+
+    /// <summary>Bring the Layers panel and the status-bar marker into line with the active design's layer
+    /// state.</summary>
+    private void SyncLayersChrome()
+    {
+        if (_sessions.Count > 0) ShowLayers(Board.Layers);
+    }
+
+    /// <summary>Draw <paramref name="view"/> on the panel and the marker. Separate from the sync so the ribbon
+    /// smoke render can stage a state without a design open.</summary>
+    internal void ShowLayers(LayerView view)
+    {
+        foreach (var (layer, eye, lockToggle) in _layerRows)
+        {
+            eye.IsChecked = !view.IsHidden(layer);
+            lockToggle.IsChecked = view.IsLocked(layer);
+        }
+        LnkLayersReset.Visibility = view.IsDefault ? Visibility.Collapsed : Visibility.Visible;
+        var marker = LayersMarker(view);
+        LayersBadge.Visibility = marker is null ? Visibility.Collapsed : Visibility.Visible;
+        TxtLayersBadge.Text = marker is null ? "" : "LAYERS: " + marker.ToUpperInvariant();
+    }
+
+    private readonly List<(PlanLayer Layer, ToggleButton Eye, ToggleButton Lock)> _layerRows = [];
+
+    /// <summary>
+    /// Build the Layers panel's rows: one per <see cref="PlanLayer"/>, an eye that shows or hides the layer and a
+    /// padlock that locks it against the mouse. Built once; <see cref="SyncLayersChrome"/> keeps the toggles in step
+    /// with the active design.
+    /// </summary>
+    private void BuildLayersPanel()
+    {
+        LayersRows.Children.Clear();
+        _layerRows.Clear();
+        foreach (var layer in Enum.GetValues<PlanLayer>())
+        {
+            var name = LayerView.Name(layer);
+            var eye = LayerToggle(EyeOpen, EyeShut, stroked: true,
+                $"Show or hide {name.ToLowerInvariant()}. Hidden, they are not drawn and the mouse cannot reach them.");
+            // The padlocks are the toolbar's, which live in the dictionary merged on the ribbon rather than the window.
+            var lockToggle = LayerToggle((Geometry)Ribbon.FindResource("IconLockClosed"), (Geometry)Ribbon.FindResource("IconLockOpen"),
+                stroked: false,
+                $"Lock {name.ToLowerInvariant()}. Locked, they stay drawn but clicks, boxes and the eraser pass through them.");
+            var target = layer;
+            eye.Click += (_, _) => ApplyLayers(Board.Layers.WithHidden(target, eye.IsChecked != true));
+            lockToggle.Click += (_, _) => ApplyLayers(Board.Layers.WithLocked(target, lockToggle.IsChecked == true));
+
+            var row = new DockPanel { Margin = new Thickness(0, 1, 0, 1) };
+            DockPanel.SetDock(eye, Dock.Left);
+            DockPanel.SetDock(lockToggle, Dock.Left);
+            row.Children.Add(eye);
+            row.Children.Add(lockToggle);
+            var label = new TextBlock { Text = name, VerticalAlignment = VerticalAlignment.Center, Margin = new Thickness(6, 0, 4, 0) };
+            label.SetResourceReference(TextBlock.ForegroundProperty, "Ink");
+            row.Children.Add(label);
+            LayersRows.Children.Add(row);
+            _layerRows.Add((layer, eye, lockToggle));
+        }
+        LayersRows.Visibility = _settings.LayersPanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        TxtLayersChevron.Text = _settings.LayersPanelCollapsed ? "▸" : "▾";
+        SyncLayersChrome();
+    }
+
+    /// <summary>An eye drawn as an outline: the lid and the iris. Stroked rather than filled like the toolbar icons,
+    /// because at row size a filled eye reads as a blob.</summary>
+    private static readonly Geometry EyeOpen = Geometry.Parse(
+        "M2.5,10 C4.5,6 7,4.8 10,4.8 C13,4.8 15.5,6 17.5,10 C15.5,14 13,15.2 10,15.2 C7,15.2 4.5,14 2.5,10 Z " +
+        "M10,7.6 A2.4,2.4 0 1 1 10,12.4 A2.4,2.4 0 1 1 10,7.6 Z");
+
+    /// <summary>The same eye struck through.</summary>
+    private static readonly Geometry EyeShut = Geometry.Parse(
+        "M2.5,10 C4.5,6 7,4.8 10,4.8 C13,4.8 15.5,6 17.5,10 C15.5,14 13,15.2 10,15.2 C7,15.2 4.5,14 2.5,10 Z " +
+        "M3.5,3.5 L16.5,16.5");
+
+    /// <summary>
+    /// One of a row's two toggles: the "on" glyph while checked, the "off" glyph, dimmed, otherwise.
+    /// <paramref name="stroked"/> draws the outline style the eye uses; the padlocks are the toolbar's own filled
+    /// icons.
+    /// </summary>
+    private ToggleButton LayerToggle(Geometry on, Geometry off, bool stroked, string tip)
+    {
+        var path = new System.Windows.Shapes.Path { Width = 16, Height = 16, Stretch = Stretch.Uniform };
+        path.SetResourceReference(stroked ? System.Windows.Shapes.Shape.StrokeProperty : System.Windows.Shapes.Shape.FillProperty, "Ink");
+        if (stroked) path.StrokeThickness = 1.3;
+        var toggle = new ToggleButton
+        {
+            Style = (Style)FindResource("LayerToggle"), Content = path, ToolTip = tip,
+        };
+        void Sync()
+        {
+            var c = toggle.IsChecked == true;
+            path.Data = c ? on : off;
+            path.Opacity = c ? 1 : 0.5;
+        }
+        toggle.Checked += (_, _) => Sync();
+        toggle.Unchecked += (_, _) => Sync();
+        Sync();
+        return toggle;
+    }
+
+    private void OnLayersHeaderClick(object sender, MouseButtonEventArgs e)
+    {
+        _settings.LayersPanelCollapsed = !_settings.LayersPanelCollapsed;
+        _settings.Save();
+        LayersRows.Visibility = _settings.LayersPanelCollapsed ? Visibility.Collapsed : Visibility.Visible;
+        TxtLayersChevron.Text = _settings.LayersPanelCollapsed ? "▸" : "▾";
+        e.Handled = true;
+    }
+
+    private void OnLayersResetClick(object sender, RoutedEventArgs e) => ApplyLayers(LayerView.Default);
+
+    /// <summary>Pick the eraser up or put it down. Picking it up drops whatever brush was in hand, the same as
+    /// arming a brush puts the eraser down.</summary>
+    private void ToggleErase()
+    {
+        if (_sessions.Count == 0) return;
+        if (!Board.EraseMode && RefuseIfReadOnly()) return;
+        var on = !Board.EraseMode;
+        if (on && Board.ArmedPart is not null) { Board.SetArmed(null); ClearPaletteSelection(); }
+        Board.SetEraseMode(on);
+        SyncViewToggles();
+    }
+
+    private void OnEraseToggleClick(object sender, RoutedEventArgs e) => ToggleErase();
 
     // ---- zones ----
 
@@ -3409,7 +3593,7 @@ public partial class MainWindow : Window
         _defaultHint ??= TxtHint.Text;
         TxtHint.Text =
             Board.WirePickArmed ? "WIRING · click the part to wire this to · click a connected one to disconnect · right-click/Esc to cancel"
-            : Board.SurfaceMode ? "SURFACES · drag to paint · Shift+drag box · Ctrl at release = outline · double-click selects a run"
+            : Board.SurfaceMode ? "SURFACES · drag to paint · Shift+drag box · Ctrl at release = outline · Alt+double-click selects a run"
             : _defaultHint;
     }
 
@@ -4511,8 +4695,10 @@ public partial class MainWindow : Window
     private void OnContextMenuRequested((int X, int Y) cell)
     {
         if (_doc is null) return;
-        var stack = _doc.HitTestStack(cell.X, cell.Y);   // topmost first, placements only (what the actions act on)
-        var drawn = _doc.RenderStackAt(cell.X, cell.Y);  // the same pile as drawn, loose items included
+        // Both piles leave out the layers the Layers panel has hidden or locked, the same rule the canvas picks by,
+        // so the picker never offers a part a click could not have reached.
+        var stack = Board.PickPlacementsAt(cell.X, cell.Y);   // topmost first, placements only (what the actions act on)
+        var drawn = Board.PickStackAt(cell.X, cell.Y);        // the same pile as drawn, loose items included
         if (stack.Count == 0) return;
 
         var menu = new ContextMenu { PlacementTarget = Board };
@@ -5186,6 +5372,10 @@ public partial class MainWindow : Window
                 Board.CycleSelectionUnderCursor();
                 e.Handled = true;
                 break;
+            case Key.X when !ctrl && !e.IsRepeat:   // pick the eraser up, or put it down
+                ToggleErase();
+                e.Handled = true;
+                break;
             case Key.Delete:
                 DeleteSelection();
                 e.Handled = true;
@@ -5213,7 +5403,8 @@ public partial class MainWindow : Window
                 e.Handled = OpenSelectedContents();
                 break;
             case Key.Escape:
-                if (Board.WirePickArmed)
+                if (Board.EraseMode) Board.SetEraseMode(false);   // put the eraser down before anything else goes
+                else if (Board.WirePickArmed)
                 {
                     // A wiring pick is the most transient thing on screen, so Escape drops it before anything
                     // else — except a held brush, which is more transient still. WireViz stays on: it is a view,
@@ -5262,7 +5453,7 @@ public partial class MainWindow : Window
                 e.Handled = true;
                 break;
             case Key.A when ctrl && !e.IsRepeat:   // select every part
-                if (_doc is not null) { Board.SetSelection(_doc.Placements); UpdateInspector(); }
+                if (_doc is not null) { Board.SetSelection(_doc.Placements.Where(Board.IsPickable)); UpdateInspector(); }
                 e.Handled = true;
                 break;
             case Key.S when ctrl && !e.IsRepeat:
@@ -7057,14 +7248,8 @@ public partial class MainWindow : Window
 
     /// <summary>Show or hide the loot spawners, and remember the choice (#68). App-wide like Force place and the
     /// backdrop, rather than per design: it is about the person looking at the plan, not about the ship.</summary>
-    private void OnSpawnersToggleClick(object sender, RoutedEventArgs e)
-    {
-        var on = !Board.ShowSpawners;
-        foreach (var session in _sessions) session.Board.SetShowSpawners(on);
-        _settings.ShowSpawners = on;
-        _settings.Save();
-        SyncViewToggles();
-    }
+    private void OnSpawnersToggleClick(object sender, RoutedEventArgs e) =>
+        ApplyLayers(Board.Layers.WithHidden(PlanLayer.Spawners, Board.ShowSpawners));
 
     private void OnSpawnersMenuClick(object sender, RoutedEventArgs e) =>
         OpenOptionsUnder(SpawnerOptionsItem(), BtnSpawnersMenu);
@@ -7127,6 +7312,7 @@ public partial class MainWindow : Window
         BtnAccess.IsChecked = Board.ShowAccess;
         BtnWire.IsChecked = Board.ShowWire;
         BtnSpawners.IsChecked = Board.ShowSpawners;
+        BtnErase.IsChecked = Board.EraseMode;
         BtnSurface.IsChecked = Board.SurfaceMode;
         BtnForce.IsChecked = Board.ForcePlace;
         ForceBadge.Visibility = Board.ForcePlace ? Visibility.Visible : Visibility.Collapsed;
@@ -7858,7 +8044,10 @@ public partial class MainWindow : Window
         $"- Mod overrides: {(Board.AllowModdedOverrides ? "on" : "off")}\n" +
         // Worth a line of its own in every report: a design built under it can carry placements the Law refuses,
         // and a reader who does not know that will look for a bug in the checker instead (#67).
-        $"- Force place: {(Board.ForcePlace ? "on" : "off")}\n";
+        $"- Force place: {(Board.ForcePlace ? "on" : "off")}\n" +
+        // A hidden layer looks like missing parts and a locked one like clicks that do nothing, so a report about
+        // either has to say whether the panel was the cause.
+        $"- Layers: {Board.Layers.Summary() ?? "all shown and unlocked"}\n";
 
     /// <summary>Ostraplan's crash log (unhandled-exception stack traces), beside the activity log.</summary>
     private static string ErrorLogPath => Path.Combine(AuditLog.Dir, "error.log");
@@ -8491,12 +8680,14 @@ public partial class MainWindow : Window
             ("Select", "LMB", "Select a part. Ctrl+click adds or removes; drag on empty space to box-select."),
             ("Filter box-select", "Shift + drag", "With nothing armed: box-select even from a part, then use the chips to keep only some layers."),
             ("Select loose items", "Box-select, then filter", "Keep or drop the Loose items row in the filter. Ctrl+click a loose item to add or remove it."),
-            ("Flood-select", "Double-click", "On a part: select every touching tile of the same type. Ctrl+double-click adds it."),
+            ("Flood-select", "Alt + double-click", "On a part: select every touching tile of the same type. Ctrl+Alt+double-click adds it."),
             ("Fill a compartment", "Double-click empty space, then Enter", "Select a sealed compartment, arm a part, then press Enter to fill it (Esc to cancel)."),
-            ("Use as brush", "Alt + click", "Arm the part under the cursor at its rotation. Also on the right-click menu."),
+            ("Use as brush", "Alt + click / MMB click", "Arm the part under the cursor at its rotation. Also on the right-click menu."),
+            ("Erase", "X", "Click or drag to delete the topmost part on each tile, as one undo step. Skips hidden and locked layers. RMB or Esc puts it down."),
+            ("Layers", "Layers panel", "Hide a layer (eye) or lock it (padlock), bottom left of the plan. Either way clicks, boxes and the eraser pass through it."),
             ("Replace with…", "Ctrl+R", "Swap the selection for a part of the same layer and size. Also on the right-click menu."),
             ("Move", "Drag selection", "Move the selection, with any loose items caught in it."),
-            ("Step down a stack", "`", "Select the next thing down the pile under the cursor, loose items included."),
+            ("Step down a stack", "Click again / `", "Click a selected part again, or press `, to select the next thing down the pile, loose items included."),
             ("Re-stack", "Ctrl+[ / Ctrl+]", "Move the selected part or loose item back or forward in its tile's draw order. Right-click ▸ Reset order undoes it."),
             ("Context menu", "RMB", "Actions for the part under the cursor. Cancels placement while a part is armed."),
             ("Rotate part", "R / Shift+R", "Rotate CW / CCW: the armed part, a selected part, or a whole selection about its centre. Walls and floors auto-tile instead."),

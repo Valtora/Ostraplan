@@ -211,6 +211,14 @@ public sealed class AppSettings
     /// <summary>Spawners view: draw loot spawners on the plan at all. On by default. Off is for editing the ship
     /// itself without the editor objects in the way, which is what #68 asked for first.</summary>
     [JsonPropertyName("showSpawners")] public bool ShowSpawners { get; set; } = true;
+    /// <summary>Layers panel: the layers hidden and the layers locked, by <see cref="PlanLayer"/> name. Remembered
+    /// between sessions like Force place, with a marker in the status bar while any are off, rather than reset on
+    /// launch. The Spawners layer's eye is <see cref="ShowSpawners"/>, which predates the panel, so it is not
+    /// listed in <see cref="HiddenLayers"/>.</summary>
+    [JsonPropertyName("hiddenLayers")] public List<string> HiddenLayers { get; set; } = [];
+    [JsonPropertyName("lockedLayers")] public List<string> LockedLayers { get; set; } = [];
+    /// <summary>Layers panel folded down to its header.</summary>
+    [JsonPropertyName("layersPanelCollapsed")] public bool LayersPanelCollapsed { get; set; }
     /// <summary>Spawners view: when to draw the scatter square, by <see cref="SpawnerScatterWhen"/> name. Stored
     /// by name like the surface focus, so an unknown value from a newer build reads as the default rather than as
     /// whatever integer happens to land in range.</summary>

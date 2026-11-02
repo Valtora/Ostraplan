@@ -11,6 +11,16 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **A Layers panel at the bottom left of the plan hides or locks each layer.**
+  - The eye hides a layer; the padlock leaves it drawn but lets clicks, boxes and the eraser pass through to what is under it.
+  - Lock Walls & doors and the floor under an airlock is one click away.
+  - Remembered between sessions, with a LAYERS marker in the status bar while any are off. Thanks to nadir.
+- **Click a selected part again to select what is under it, as in the game's editor.**
+  - Flood-select moves to Alt+double-click, since a double-click is now two of these clicks.
+- **An eraser: press X, then click or drag to delete the topmost part on each tile.** The stroke is one undo step and skips locked layers.
+- **A middle click picks up the part under the cursor as the brush**, the same as Alt+click. A middle drag still pans.
+
 ### Fixed
 - **The What's New window no longer cuts off long lines or turns every entry into a box.** Entries are a plain list that opens in place, with Show all details at the top.
 

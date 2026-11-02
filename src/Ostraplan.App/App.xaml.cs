@@ -1102,6 +1102,22 @@ public partial class App : Application
                 tip.Arrange(new Rect(tip.DesiredSize));
                 Encode(tip, tip.DesiredSize.Width, tip.DesiredSize.Height, Path.Combine(dir, $"ribbon-tip-{button}-{mode}.png"));
             }
+            // The Layers panel from the plan's bottom-left corner, with the walls hidden and the floors locked so the
+            // off glyphs, the Reset link and the status-bar marker are all in the picture.
+            w.ShowLayers(LayerView.Default.WithHidden(PlanLayer.Walls, true).WithLocked(PlanLayer.Floors, true));
+            var layers = (System.Windows.Controls.Border)w.FindName("LayersPanel");
+            // Measured in place, the way the ribbon is; the canvas margin is dropped for the shot so the panel
+            // lands at the bitmap's origin.
+            var margin = layers.Margin;
+            layers.Margin = new Thickness(0);
+            Invalidate(layers);
+            layers.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            layers.Arrange(new Rect(layers.DesiredSize));
+            Encode(layers, layers.DesiredSize.Width, layers.DesiredSize.Height, Path.Combine(dir, $"layers-panel-{mode}.png"));
+            layers.Margin = margin;
+            var badge = (System.Windows.Controls.TextBlock)w.FindName("TxtLayersBadge");
+            if (mode == "dark") tips.Add($"LayersBadge: {badge.Text}");
+
             if (mode == "dark")
                 foreach (var b in Descendants(w.FindName("Ribbon") as DependencyObject).OfType<System.Windows.Controls.Primitives.ButtonBase>())
                     if (b.Name is { Length: > 0 } n && !tips.Any(t => t.StartsWith(n + ":")))

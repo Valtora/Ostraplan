@@ -251,6 +251,30 @@
                 </TextBlock>
             </Grid>
         </DataTemplate>
+        <!-- The Layers panel's eye and padlock toggles: flat, so a column of twelve of them reads as a list rather than
+             a wall of buttons, and the glyph alone says the state (MainWindow.LayerToggle swaps it). Not focusable,
+             so clicking one leaves the keyboard on the plan. -->
+        <Style x:Key="LayerToggle" TargetType="ToggleButton">
+            <Setter Property="Width" Value="24"/>
+            <Setter Property="Height" Value="22"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Focusable" Value="False"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ToggleButton">
+                        <Border x:Name="Bg" Background="{TemplateBinding Background}" CornerRadius="3">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="Bg" Property="Background" Value="{DynamicResource PanelBorder}"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
     </Window.Resources>
 
     <!-- Chrome = everything the user can edit with (toolbar, sidebar, canvas). MainWindow.FreezeDoc disables it as
@@ -366,6 +390,9 @@
                     <ToggleButton x:Name="BtnSurface" Content="Surfaces" Style="{StaticResource ToolToggle}" Click="OnSurfaceToggleClick"
                             local:ToolIcon.Icon="{StaticResource IconSurfaces}" local:ToolIcon.Title="Surfaces (T)"
                             ToolTip="Ghost all but walls and floors, and paint skins onto the deck."/>
+                    <ToggleButton x:Name="BtnErase" Content="Erase" Style="{StaticResource ToolToggle}" Click="OnEraseToggleClick"
+                            local:ToolIcon.Icon="{StaticResource IconErase}" local:ToolIcon.Title="Erase (X)"
+                            ToolTip="Click or drag to delete the topmost part on each tile, as one undo step. Hidden and locked layers are left alone. Right-click or Esc to stop."/>
                     <!-- No keyboard gesture on purpose: this one bypasses the placement law, and the reporter's own
                          argument was that it should take a deliberate click rather than a key nobody meant to press
                          (#67). The status bar carries a red marker for as long as it is on. -->
@@ -477,6 +504,12 @@
             <StatusBarItem x:Name="ForceBadge" Visibility="Collapsed">
                 <TextBlock Text="FORCE PLACE" FontWeight="Bold" Foreground="{DynamicResource Bad}"
                            ToolTip="The placement law is off. Turn off Force in the toolbar to restore it."/>
+            </StatusBarItem>
+            <!-- A layer is hidden or locked in the Layers panel. Remembered between sessions like Force place, so this
+                 is what stops a missing wall reading as a deleted one. -->
+            <StatusBarItem x:Name="LayersBadge" Visibility="Collapsed">
+                <TextBlock x:Name="TxtLayersBadge" FontWeight="Bold" Foreground="{DynamicResource Warn}"
+                           ToolTip="Some layers are hidden or locked, so the mouse cannot reach them. Reset them in the Layers panel at the bottom left of the plan."/>
             </StatusBarItem>
             <!-- The design on screen is locked (#74), so nothing a click does will change it. -->
             <StatusBarItem x:Name="ReadOnlyBadge" Visibility="Collapsed">
@@ -630,6 +663,31 @@
                     </StackPanel>
                     <TextBlock x:Name="TxtSurfaceNote" Foreground="{DynamicResource Dim}" FontSize="11" Margin="0,6,0,0"
                                MaxWidth="420" TextWrapping="Wrap"/>
+                </StackPanel>
+            </Border>
+
+            <!-- The Layers panel: an eye and a padlock for each layer of the plan (MainWindow.BuildLayersPanel). Bottom
+                 left, where nothing else on the canvas is anchored, and foldable to its header so it never has to sit
+                 over a ship. Reset only shows while something is off. -->
+            <Border x:Name="LayersPanel" Grid.Row="1" HorizontalAlignment="Left" VerticalAlignment="Bottom"
+                    Margin="14,0,0,14" Padding="8,6,8,6" CornerRadius="6"
+                    Background="{DynamicResource PanelBg}" BorderBrush="{DynamicResource PanelBorder}" BorderThickness="1">
+                <StackPanel MinWidth="160">
+                    <DockPanel>
+                        <TextBlock x:Name="LnkLayersReset" DockPanel.Dock="Right" Visibility="Collapsed" FontSize="11"
+                                   VerticalAlignment="Center" Margin="10,0,0,0">
+                            <Hyperlink Click="OnLayersResetClick" Foreground="{DynamicResource Accent}"
+                                       ToolTip="Show and unlock every layer">Reset</Hyperlink>
+                        </TextBlock>
+                        <StackPanel Orientation="Horizontal" Background="Transparent" Cursor="Hand"
+                                    MouseLeftButtonUp="OnLayersHeaderClick" ToolTip="Fold the layer list away, or bring it back">
+                            <TextBlock x:Name="TxtLayersChevron" Text="&#x25BE;" Foreground="{DynamicResource Dim}" Width="12"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock Text="LAYERS" Foreground="{DynamicResource Dim}" FontSize="11" FontWeight="Bold"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                    </DockPanel>
+                    <StackPanel x:Name="LayersRows" Margin="0,4,0,0"/>
                 </StackPanel>
             </Border>
 
