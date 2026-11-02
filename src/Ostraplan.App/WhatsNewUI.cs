@@ -3,6 +3,8 @@ using System.Reflection;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Documents;
+using System.Windows.Input;
+using System.Windows.Media;
 using Ostraplan.Core;
 
 namespace Ostraplan.App;
@@ -51,19 +53,34 @@ public static class WhatsNewUI
     public static void Show(Window owner, IReadOnlyList<ReleaseNotes.Entry> entries, bool updated, Action<string> openUrl)
     {
         if (entries.Count == 0) return;
+        var window = Build(entries, updated, openUrl);
+        window.Owner = owner;
+        window.ShowDialog();
+    }
+
+    /// <summary>The window itself, unshown and unowned, so the smoke render can lay out the real thing.</summary>
+    internal static Window Build(IReadOnlyList<ReleaseNotes.Entry> entries, bool updated, Action<string> openUrl)
+    {
         Window? window = null;
         var content = BuildContent(entries, updated, openUrl, () => window?.Close());
+        // A fixed width and a resizable height. The width used to come from the content (SizeToContent both ways), so
+        // the window grew sideways whenever an entry opened, and the overlay scrollbar landed on top of the text at
+        // the right edge. Now the width is set and the text wraps to it; the height fits the notes up to most of the
+        // screen, after which the body scrolls between a header and a footer that stay put.
         window = new Window
         {
             Title = $"What's new in Ostraplan v{entries[0].Version}",
-            Owner = owner,
             WindowStartupLocation = WindowStartupLocation.CenterOwner,
-            SizeToContent = SizeToContent.WidthAndHeight,
-            ResizeMode = ResizeMode.NoResize,
+            Width = 720,
+            MinWidth = 480,
+            MinHeight = 260,
+            MaxHeight = Math.Max(360, SystemParameters.WorkArea.Height * 0.85),
+            SizeToContent = SizeToContent.Height,
+            ResizeMode = ResizeMode.CanResize,
             Background = ThemeManager.WindowBg,
-            Content = new ScrollViewer { Content = content, VerticalScrollBarVisibility = ScrollBarVisibility.Auto, MaxHeight = 640 },
+            Content = content,
         };
-        window.ShowDialog();
+        return window;
     }
 
     /// <summary>The window's visual tree, built without a window around it — so the offscreen smoke test can render
@@ -71,54 +88,94 @@ public static class WhatsNewUI
     internal static FrameworkElement BuildContent(
         IReadOnlyList<ReleaseNotes.Entry> entries, bool updated, Action<string> openUrl, Action close)
     {
-        var body = new StackPanel { Margin = new Thickness(24, 20, 24, 20), MaxWidth = 660, Background = ThemeManager.WindowBg };
+        var root = new DockPanel { Background = ThemeManager.WindowBg, LastChildFill = true };
 
-        body.Children.Add(new TextBlock
+        // ---- header: what this is, and the one control that acts on the whole list ----
+        var header = new DockPanel { Margin = new Thickness(24, 18, 24, 10) };
+        var expandAll = new TextBlock { VerticalAlignment = VerticalAlignment.Bottom, Margin = new Thickness(16, 0, 0, 2) };
+        var expandLink = new Hyperlink(new Run("Show all details")) { Foreground = ThemeManager.Accent };
+        expandAll.Inlines.Add(expandLink);
+        DockPanel.SetDock(expandAll, Dock.Right);
+        header.Children.Add(expandAll);
+
+        var heading = new StackPanel();
+        heading.Children.Add(new TextBlock
         {
             Text = updated ? $"Updated to Ostraplan v{entries[0].Version}" : $"Ostraplan v{entries[0].Version}",
-            Foreground = ThemeManager.Ink, FontSize = 17, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap,
+            Foreground = ThemeManager.Ink, FontSize = 18, FontWeight = FontWeights.SemiBold, TextWrapping = TextWrapping.Wrap,
         });
-        if (updated && entries.Count > 1)
-            body.Children.Add(new TextBlock
+        var lede = entries.Count > 1
+            ? $"{entries.Count} releases since you last ran Ostraplan. Click an entry for the details."
+            : ReleaseNotes.DescribeSubtitle(entries[0].Subtitle);
+        if (lede.Length > 0)
+            heading.Children.Add(new TextBlock
             {
-                Text = $"{entries.Count} releases since you last ran Ostraplan. Click an entry for the details.",
-                Foreground = ThemeManager.Dim, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 4, 0, 0),
+                Text = lede, Foreground = ThemeManager.Dim, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, 2, 0, 0),
             });
+        header.Children.Add(heading);
+        DockPanel.SetDock(header, Dock.Top);
+        root.Children.Add(header);
 
+        // ---- footer: pinned, so the buttons are never at the far end of a long catch-up ----
+        var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right };
+        var releases = new Button { Content = "All releases on GitHub", Padding = new Thickness(14, 4, 14, 4) };
+        var closeButton = new Button
+        {
+            Content = "Close", Padding = new Thickness(14, 4, 14, 4), Margin = new Thickness(8, 0, 0, 0), IsCancel = true,
+        };
+        buttons.Children.Add(releases);
+        buttons.Children.Add(closeButton);
+        var footer = new Border
+        {
+            BorderBrush = ThemeManager.PanelBorder, BorderThickness = new Thickness(0, 1, 0, 0),
+            Padding = new Thickness(24, 12, 24, 14), Child = buttons,
+        };
+        DockPanel.SetDock(footer, Dock.Bottom);
+        root.Children.Add(footer);
+
+        // ---- body: the notes. The right margin is wider than the left so the overlay scrollbar never sits on text ----
+        var body = new StackPanel { Margin = new Thickness(24, 0, 36, 16) };
+        var rows = new List<Disclosure>();
         for (var i = 0; i < entries.Count; i++)
         {
             var entry = entries[i];
-            // The lead version is already named in the title above; each one after it needs its own heading, or a
-            // multi-release catch-up reads as one enormous list with no idea where a version ends.
-            if (i > 0)
-                body.Children.Add(new TextBlock
+            // With more than one release each gets its own heading, or a catch-up reads as one long list with no idea
+            // where a version ends. A single release is already named in the window's own heading.
+            if (entries.Count > 1)
+            {
+                var title = new TextBlock
                 {
-                    Text = $"v{entry.Version}", Foreground = ThemeManager.Ink, FontSize = 15,
-                    FontWeight = FontWeights.SemiBold, Margin = new Thickness(0, 24, 0, 0),
-                });
-            if (entry.Subtitle.Length > 0)
-                body.Children.Add(new TextBlock
-                {
-                    Text = entry.Subtitle, Foreground = ThemeManager.Dim, TextWrapping = TextWrapping.Wrap,
-                    Margin = new Thickness(0, 4, 0, 0),
-                });
-            foreach (var block in Render(entry.Body)) body.Children.Add(block);
+                    Foreground = ThemeManager.Ink, TextWrapping = TextWrapping.Wrap, Margin = new Thickness(0, i == 0 ? 4 : 22, 0, 0),
+                };
+                title.Inlines.Add(new Run($"v{entry.Version}") { FontSize = 15, FontWeight = FontWeights.SemiBold });
+                var about = ReleaseNotes.DescribeSubtitle(entry.Subtitle);
+                if (about.Length > 0) title.Inlines.Add(new Run($"   {about}") { Foreground = ThemeManager.Dim });
+                body.Children.Add(title);
+            }
+            foreach (var block in Render(entry.Body, rows)) body.Children.Add(block);
         }
-
-        var buttons = new StackPanel
+        root.Children.Add(new ScrollViewer
         {
-            Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right,
-            Margin = new Thickness(0, 20, 0, 0),
+            Content = body, VerticalScrollBarVisibility = ScrollBarVisibility.Auto,
+            HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled,
+        });
+
+        // The link opens everything until everything is open, then closes it all; a row toggled by hand keeps the
+        // link's wording honest.
+        void SyncLink() =>
+            ((Run)expandLink.Inlines.FirstInline).Text = rows.All(r => r.IsOpen) ? "Hide all details" : "Show all details";
+        if (rows.Count == 0) expandAll.Visibility = Visibility.Collapsed;
+        foreach (var row in rows) row.Toggled += SyncLink;
+        expandLink.Click += (_, _) =>
+        {
+            var open = !rows.All(r => r.IsOpen);
+            foreach (var row in rows) row.Set(open);
+            SyncLink();
         };
-        var releases = new Button { Content = "All releases on GitHub", Padding = new Thickness(14, 4, 14, 4) };
-        var closeButton = new Button { Content = "Close", Padding = new Thickness(14, 4, 14, 4), Margin = new Thickness(8, 0, 0, 0), IsCancel = true };
-        buttons.Children.Add(releases);
-        buttons.Children.Add(closeButton);
-        body.Children.Add(buttons);
 
         releases.Click += (_, _) => openUrl(LatestReleaseUrl);
         closeButton.Click += (_, _) => close();
-        return body;
+        return root;
     }
 
     /// <summary>
@@ -135,7 +192,7 @@ public static class WhatsNewUI
     /// dash. Continuation lines are joined back onto it before anything is measured or emphasised, since a
     /// <c>**bold**</c> run can straddle the wrap.</para>
     /// </summary>
-    private static IEnumerable<UIElement> Render(string markdown)
+    private static IEnumerable<UIElement> Render(string markdown, List<Disclosure> rows)
     {
         var blocks = new List<UIElement>();
         Entry? entry = null;                        // the bullet whose details are still being collected
@@ -146,7 +203,7 @@ public static class WhatsNewUI
         void CloseEntry()
         {
             if (entry is null) return;
-            blocks.Add(EntryRow(entry));
+            blocks.Add(EntryRow(entry, rows));
             entry = null;
         }
 
@@ -174,8 +231,8 @@ public static class WhatsNewUI
                 CloseEntry();
                 blocks.Add(new TextBlock
                 {
-                    Text = trimmed[4..].Trim(), Foreground = ThemeManager.KeyAccent, FontWeight = FontWeights.SemiBold,
-                    Margin = new Thickness(0, 16, 0, 2),
+                    Text = trimmed[4..].Trim().ToUpperInvariant(), Foreground = ThemeManager.KeyAccent,
+                    FontWeight = FontWeights.SemiBold, FontSize = 11, Margin = new Thickness(0, 12, 0, 2),
                 });
                 continue;
             }
@@ -206,37 +263,90 @@ public static class WhatsNewUI
         public List<(string Text, bool Bullet)> Details { get; } = [];
     }
 
+    /// <summary>One entry that folds: whether it is open, and the way to open or close it. The header link drives
+    /// every row through this, and a row toggled by hand reports back so the link's wording follows.</summary>
+    internal sealed class Disclosure(Action<bool> apply)
+    {
+        public bool IsOpen { get; private set; }
+        public event Action? Toggled;
+
+        public void Set(bool open)
+        {
+            if (IsOpen == open) return;
+            IsOpen = open;
+            apply(open);
+        }
+
+        public void Toggle()
+        {
+            Set(!IsOpen);
+            Toggled?.Invoke();
+        }
+    }
+
+    /// <summary>Width of the glyph column every entry row starts with, so leads and their details share one left
+    /// edge whether or not the row folds.</summary>
+    private const double GlyphColumn = 18;
+
     /// <summary>
-    /// An entry as its lead line, with everything else behind a toggle. The lead is the leading <c>**bold**</c>
+    /// An entry as its lead line, with everything else folded under it. The lead is the leading <c>**bold**</c>
     /// run when the entry opens with one, and the whole entry when it does not, in which case there is nothing
     /// left to fold. The lead drops its bold: once it is the only thing on the line, weight adds nothing.
+    ///
+    /// <para>A flat row rather than an <see cref="Expander"/>. Fluent draws each Expander as a padded card with a
+    /// border, so a release of a dozen entries became a dozen stacked boxes, and its header did not wrap a long lead
+    /// to the window, cutting it off instead. Here every row is a chevron (or a bullet, when there is nothing to
+    /// fold) and the lead text wrapping beside it, with the details indented to the same edge underneath.</para>
     /// </summary>
-    private static UIElement EntryRow(Entry entry)
+    private static UIElement EntryRow(Entry entry, List<Disclosure> rows)
     {
         var (lead, rest) = SplitLead(entry.Text);
         var leadBlock = new TextBlock { Foreground = ThemeManager.Ink, TextWrapping = TextWrapping.Wrap, LineHeight = 20 };
         foreach (var run in Inlines(lead)) { run.FontWeight = FontWeights.Normal; leadBlock.Inlines.Add(run); }
+        var folds = rest.Length > 0 || entry.Details.Count > 0;
 
-        if (rest.Length == 0 && entry.Details.Count == 0)
+        var glyph = new TextBlock
         {
-            var row = new DockPanel { Margin = new Thickness(4, 6, 0, 0) };
-            var glyph = new TextBlock
-            {
-                Text = "•", Foreground = ThemeManager.Ink, Width = 20, LineHeight = 20, TextAlignment = TextAlignment.Center,
-            };
-            DockPanel.SetDock(glyph, Dock.Left);
-            row.Children.Add(glyph);
-            row.Children.Add(leadBlock);
-            return row;
-        }
+            Text = folds ? "▸" : "•", Foreground = ThemeManager.Dim, Width = GlyphColumn, LineHeight = 20,
+        };
+        var line = new DockPanel();
+        DockPanel.SetDock(glyph, Dock.Left);
+        line.Children.Add(glyph);
+        line.Children.Add(leadBlock);
 
-        var details = new StackPanel { Margin = new Thickness(0, 2, 0, 6) };
+        if (!folds) return new Border { Child = line, Padding = new Thickness(4, 3, 4, 3), Margin = new Thickness(-4, 1, -4, 0) };
+
+        var details = new StackPanel { Margin = new Thickness(GlyphColumn, 0, 0, 6), Visibility = Visibility.Collapsed };
         if (rest.Length > 0) details.Children.Add(Detail(rest, bullet: false));
         foreach (var (text, bullet) in entry.Details) details.Children.Add(Detail(text, bullet));
-        return new Expander
+
+        var hit = new Border
         {
-            Header = leadBlock, Content = details, Foreground = ThemeManager.Ink, Margin = new Thickness(0, 4, 0, 0),
+            Child = line, Background = Brushes.Transparent, CornerRadius = new CornerRadius(4),
+            Padding = new Thickness(4, 3, 4, 3), Margin = new Thickness(-4, 1, -4, 0),
+            Cursor = Cursors.Hand, Focusable = true,
         };
+        var row = new Disclosure(open =>
+        {
+            details.Visibility = open ? Visibility.Visible : Visibility.Collapsed;
+            glyph.Text = open ? "▾" : "▸";
+        });
+        rows.Add(row);
+
+        hit.MouseEnter += (_, _) => hit.Background = ThemeManager.PanelBg;
+        hit.MouseLeave += (_, _) => hit.Background = Brushes.Transparent;
+        hit.MouseLeftButtonUp += (_, e) => { row.Toggle(); hit.Focus(); e.Handled = true; };
+        hit.KeyDown += (_, e) =>
+        {
+            if (e.Key is not (Key.Enter or Key.Space)) return;
+            row.Toggle();
+            e.Handled = true;
+        };
+
+        var block = new StackPanel();
+        block.Children.Add(hit);
+        block.Children.Add(details);
+        return block;
     }
 
     /// <summary>Split an entry at the end of its opening <c>**bold**</c> run: (lead, body). An entry that does

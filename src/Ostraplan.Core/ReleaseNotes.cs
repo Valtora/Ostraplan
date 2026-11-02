@@ -43,6 +43,27 @@ public static class ReleaseNotes
     }
 
     /// <summary>
+    /// A heading's subtitle as the window shows it: the tagline first, since it is what the release is about, then the
+    /// date written out. The changelog writes <c>2026-10-29, ship files</c>, which is the right order for a file sorted
+    /// by date and the wrong one for a reader, and an ISO date is the one part of it nobody reads at a glance. A
+    /// subtitle in any other shape comes back as written.
+    /// </summary>
+    public static string DescribeSubtitle(string? subtitle)
+    {
+        var text = subtitle?.Trim() ?? "";
+        var comma = text.IndexOf(',');
+        var datePart = comma < 0 ? text : text[..comma];
+        if (!DateOnly.TryParseExact(datePart.Trim(), "yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var when))
+            return text;
+
+        var date = when.ToString("d MMM yyyy", System.Globalization.CultureInfo.InvariantCulture);
+        var tagline = comma < 0 ? "" : text[(comma + 1)..].Trim();
+        if (tagline.Length == 0) return date;
+        return $"{char.ToUpperInvariant(tagline[0])}{tagline[1..]}  ·  {date}";
+    }
+
+    /// <summary>
     /// True when the app has just been updated: it ran once as <paramref name="lastRun"/> and is now a strictly
     /// newer <paramref name="current"/>. A first run records the version and shows nothing (a fresh install has
     /// not updated from anything), and so does a downgrade or a re-run of the same build.

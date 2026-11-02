@@ -79,6 +79,17 @@ public class ReleaseNotesTests
     }
 
     [Fact]
+    public void A_subtitle_reads_tagline_first_with_the_date_written_out()
+    {
+        Assert.Equal("Ship files  ·  29 Oct 2026", ReleaseNotes.DescribeSubtitle("2026-10-29, ship files"));
+        Assert.Equal("Linux under Wine  ·  19 Oct 2026", ReleaseNotes.DescribeSubtitle("2026-10-19, Linux under Wine"));
+        Assert.Equal("3 Jan 2026", ReleaseNotes.DescribeSubtitle("2026-01-03"));
+        Assert.Equal("", ReleaseNotes.DescribeSubtitle(null));
+        // anything not opening with an ISO date is left exactly as the changelog wrote it
+        Assert.Equal("a hotfix, at last", ReleaseNotes.DescribeSubtitle("a hotfix, at last"));
+    }
+
+    [Fact]
     public void The_changelog_ships_inside_the_build()
     {
         // the resource is the whole source of the release notes, and a broken embed would fail silently

@@ -558,6 +558,18 @@ public partial class App : Application
             return;
         }
 
+        // preview render: the What's New window after an update across several releases, light and dark, at rest
+        // and with its first entries opened. Game-free: the notes are the changelog embedded in this build.
+        if (e.Args.Contains("--notessmoke"))
+        {
+            var dir = e.Args.SkipWhile(a => a != "--notessmoke").Skip(1).FirstOrDefault() ?? AppContext.BaseDirectory;
+            Directory.CreateDirectory(dir);
+            try { RenderNotes(dir); }
+            catch (Exception ex) { File.WriteAllText(Path.Combine(dir, "notessmoke-error.txt"), ex.ToString()); }
+            Shutdown(0);
+            return;
+        }
+
         // preview render: the main window's toolbar, light and dark, at three UI scales and several widths, with names
         // beside the icons and without, plus two of its tooltips. Game-free.
         if (e.Args.Contains("--ribbonsmoke"))
@@ -940,6 +952,87 @@ public partial class App : Application
             hub.Content = null;
             var page = new System.Windows.Controls.Border { Background = ThemeManager.WindowBg, Child = content };
             Shot(page, hub.Width, hub.Height, Path.Combine(dir, $"tip-hub-{mode}.png"));
+        }
+    }
+
+    /// <summary>
+    /// <c>--notessmoke</c>: the What's New window as an update across the last three releases opens it. It is the real
+    /// window, shown far off screen without activating, because its size comes from <see cref="SizeToContent"/> and an
+    /// element laid out on its own would be handed a width the window never gives it. Each shot is the window's content
+    /// at the size the window settled on, at rest and then with the first two entries of the lead release opened.
+    /// </summary>
+    private static void RenderNotes(string dir)
+    {
+        var log = WhatsNewUI.Changelog() ?? throw new InvalidOperationException("No changelog embedded in this build");
+        var versions = log.Replace("\r", "").Split('\n')
+            .Where(l => l.StartsWith("## [", StringComparison.Ordinal) && !l.StartsWith("## [Unreleased]", StringComparison.Ordinal))
+            .Select(l => l[4..l.IndexOf(']')]).Take(4).ToList();
+        var entries = ReleaseNotes.Since(log, versions[^1], versions[0]);
+        // Each shot closes its window, and the default shutdown mode would end the app after the first.
+        Current.ShutdownMode = ShutdownMode.OnExplicitShutdown;
+
+        foreach (var mode in new[] { "dark", "light" })
+        {
+            ThemeManager.Apply(mode);
+            var w = WhatsNewUI.Build(entries, updated: true, _ => { });
+            w.WindowStartupLocation = WindowStartupLocation.Manual;
+            w.Left = -10000;
+            w.Top = -10000;
+            w.ShowActivated = false;
+            w.ShowInTaskbar = false;
+            w.Show();
+            try
+            {
+                Capture(w, Path.Combine(dir, $"notes-{mode}.png"));
+                // Open the first two entries the way a click would: the row is the focusable border around a lead.
+                var rows = Descendants(w).OfType<System.Windows.Controls.Border>().Where(b => b.Focusable).Take(2).ToList();
+                foreach (var row in rows)
+                    row.RaiseEvent(new System.Windows.Input.MouseButtonEventArgs(System.Windows.Input.Mouse.PrimaryDevice, 0,
+                        System.Windows.Input.MouseButton.Left) { RoutedEvent = UIElement.MouseLeftButtonUpEvent });
+                Capture(w, Path.Combine(dir, $"notes-{mode}-open.png"));
+            }
+            finally { w.Close(); }
+
+            // Help > View Changelog: one release, opened by hand.
+            var single = WhatsNewUI.Build([entries[0]], updated: false, _ => { });
+            single.WindowStartupLocation = WindowStartupLocation.Manual;
+            single.Left = -10000;
+            single.Top = -10000;
+            single.ShowActivated = false;
+            single.ShowInTaskbar = false;
+            single.Show();
+            try { Capture(single, Path.Combine(dir, $"notes-{mode}-single.png")); }
+            finally { single.Close(); }
+        }
+
+        static void Capture(Window w, string path)
+        {
+            w.UpdateLayout();
+            var root = (FrameworkElement)w.Content;
+            var bmp = new RenderTargetBitmap((int)Math.Ceiling(root.ActualWidth), (int)Math.Ceiling(root.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+            var page = new DrawingVisual();
+            using (var dc = page.RenderOpen())
+            {
+                dc.DrawRectangle(ThemeManager.WindowBg, null, new Rect(0, 0, root.ActualWidth, root.ActualHeight));
+                dc.DrawRectangle(new VisualBrush(root), null, new Rect(0, 0, root.ActualWidth, root.ActualHeight));
+            }
+            bmp.Render(page);
+            var enc = new PngBitmapEncoder();
+            enc.Frames.Add(BitmapFrame.Create(bmp));
+            using var fs = File.Create(path);
+            enc.Save(fs);
+            File.AppendAllText(Path.Combine(Path.GetDirectoryName(path)!, "notes-sizes.txt"),
+                $"{Path.GetFileName(path)}: window {w.ActualWidth:0}x{w.ActualHeight:0}, content {root.ActualWidth:0}x{root.ActualHeight:0}\n");
+        }
+    }
+
+    private static IEnumerable<DependencyObject> Descendants(DependencyObject root)
+    {
+        for (var i = 0; i < VisualTreeHelper.GetChildrenCount(root); i++)
+        {
+            var child = VisualTreeHelper.GetChild(root, i);
+            yield return child;
+            foreach (var d in Descendants(child)) yield return d;
         }
     }
 

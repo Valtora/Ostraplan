@@ -9,6 +9,11 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
+## [Unreleased]
+
+### Fixed
+- **The What's New window no longer cuts off long lines or turns every entry into a box.** Entries are a plain list that opens in place, with Show all details at the top.
+
 ## [1.35.0] 2026-10-29, ship files
 
 ### Added
