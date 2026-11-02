@@ -9,7 +9,7 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
-## [Unreleased]
+## [1.36.0] 2026-11-02, layers
 
 ### Added
 - **A Layers panel at the bottom left of the plan hides or locks each layer.**
