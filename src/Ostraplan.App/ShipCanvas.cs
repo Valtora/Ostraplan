@@ -589,10 +589,24 @@ public sealed class ShipCanvas : FrameworkElement
     // Light Viz renders the game's deferred light pass in software at the native 16 px/tile: the ship's albedo and
     // normal maps are baked to doc-space bitmaps on the UI thread, then a worker runs the exact ported pipeline
     // (VisibilityMesh geometry + LoSPass shading + screen-blend + glow decals) and hands back one frozen bitmap
-    // OnRender scales like a sprite. Pan/zoom never recompute it; only a new scene (edit/scan) does.
+    // OnRender scales like a sprite. Pan/zoom never recompute it; only a new scene (SetLightScene, after a scan) or an
+    // edit the scan skipped (RefreshLightComposite) does.
     private System.Windows.Media.Imaging.BitmapSource? _lightImage;   // the composited lit ship (premultiplied, 16 px/tile), frozen
     private Rect _lightImageRect;        // the doc-tile rect the composite covers
     private int _lightJob;               // monotonic token so a stale worker result can't clobber a newer one
+
+    /// <summary>
+    /// Moves on every change to the ship as drawn: an edit (<see cref="OnContentChanged"/>) or a different
+    /// document. The lit composite records the value it was baked at in <see cref="_litVersion"/>.
+    ///
+    /// <para>The composite has two inputs, the light scene and the drawing of the ship, and used to be rebuilt only
+    /// when a new scene arrived. A scene comes from the window's scan, and the scan is skipped for any edit the
+    /// analysis cannot see (<see cref="ShipDocument.AnalysisKey"/>): a deck item, a spawner, painted wear, a
+    /// draw-order nudge. Each of those changes the picture without changing a light, so Light Viz went on showing
+    /// the ship as it was until the overlay was turned off and on (#79).</para>
+    /// </summary>
+    private long _drawnVersion;
+    private long _litVersion = -1;
     // Simulate: the damage heat map and the ghost strike path. Neither comes from the background analysis scan the
     // other overlays use — damage is a view over session state the user drives one strike at a time, and the ghost
     // path follows the cursor — so both are pushed straight in and neither is baked.
@@ -734,6 +748,7 @@ public sealed class ShipCanvas : FrameworkElement
         StopMark();            // an undo mark points at tiles of the previous design
         ClearWirePick();       // and so is a wiring pick anchored to a part of the previous design
         _staticShip = null;
+        _drawnVersion++;
         InvalidateWear();      // a different design has a different grid anchor, so every world position moves
         ClearAirSelection();
         InvalidateVisual();
@@ -744,6 +759,7 @@ public sealed class ShipCanvas : FrameworkElement
     private void OnContentChanged()
     {
         _staticShip = null;
+        _drawnVersion++;        // the lit composite is now behind too (RefreshLightComposite)
         _oobFaceDirty = true;   // a moved or deleted airlock moves the build envelope
         InvalidateWear();
         ClearAirSelection();
@@ -1243,6 +1259,24 @@ public sealed class ShipCanvas : FrameworkElement
     public void SetLightScene(LightScene scene)
     {
         _lightScene = scene ?? LightScene.Empty;
+        RebuildLightComposite();
+        InvalidateVisual();
+    }
+
+    /// <summary>True while Light Viz is on and its composite was baked from an older drawing of the ship than the
+    /// one in the document (see <see cref="_drawnVersion"/>).</summary>
+    public bool LightCompositeBehind => ShowLight && _litVersion != _drawnVersion;
+
+    /// <summary>
+    /// Rebake the lit composite against the scene it already has, if the ship has been edited since it was baked.
+    /// The window calls this when it skips a scan as redundant: no new scene is coming, so this is the only way an
+    /// edit the analysis cannot see reaches the lit picture. A no-op while Light Viz is off or the composite is level.
+    /// The document does not say what an edit touched, so a rename or a cargo change rebakes too: one bake, after
+    /// the scan's debounce, and only with Light Viz on.
+    /// </summary>
+    public void RefreshLightComposite()
+    {
+        if (!LightCompositeBehind) return;
         RebuildLightComposite();
         InvalidateVisual();
     }
@@ -4348,6 +4382,7 @@ public sealed class ShipCanvas : FrameworkElement
     private void RebuildLightComposite()
     {
         var job = ++_lightJob;
+        _litVersion = _drawnVersion;   // whatever this bakes, it bakes the ship as it stands now
         // Keep the CURRENT composite on screen while the new one bakes off-thread — nulling it here made every edit
         // flash the unlit StaticShip() fallback for a frame or two ("lit -> black -> lit") until the worker returned.
         // The retained frame is at most one edit stale; the worker swaps it in place (guarded by _lightJob). Only the

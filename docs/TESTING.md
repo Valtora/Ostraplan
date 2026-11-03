@@ -98,6 +98,7 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 | Import (template / save) | `TemplateLoaderTests`* | `ShipImportTests`, `ShipSaveImportTests` |
 | Deck items (footprint occupancy, the loose socket law) | `LoosePlacementTests` | `LooseObjectTests` |
 | Rendering | — | `RenderSmokeTests` |
+| Light Viz keeping up with edits the scan skips (a spawner, painted wear, a draw-order nudge) | `LightCompositeTests`† | — |
 | The bake window (what the ship cache may cull) | — | `BakeWindowTests`† |
 | Document tabs (session isolation, the strip, close/cycle) | `DocumentSessionTests`, `MainWindowTabsTests`† | — |
 | Auto-save rotation (per path, per untitled slot) | `AutoSaveTests` | — |

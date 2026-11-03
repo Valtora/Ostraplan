@@ -1449,7 +1449,14 @@ public partial class MainWindow : Window
         // rare case: renaming, cargo, wiring, z-nudges, deck items and painted condition all leave the analysis
         // reading the same design, and each of them used to run the whole thing again.
         var key = ScanKey.For(_doc, Board, _settings);
-        if (key == session.LastScanKey) return;
+        if (key == session.LastScanKey)
+        {
+            // The analysis has not moved, but the picture may have. Light Viz bakes the ship into its composite and
+            // only rebuilds it when a scan hands it a scene, so a spawner placed or deleted, painted wear or a nudge
+            // in the draw order would otherwise stay out of the lit view until it was toggled (#79).
+            session.Board.RefreshLightComposite();
+            return;
+        }
 
         _scanCts?.Cancel();
         var cts = _scanCts = new CancellationTokenSource();

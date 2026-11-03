@@ -9,6 +9,12 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
+## [Unreleased]
+
+### Fixed
+- **Light Viz shows a spawner as soon as you place or delete it.**
+  - Deck items, painted wear and draw-order changes now show in the lit view straight away too, instead of after Light Viz was turned off and on. Thanks to nadir.
+
 ## [1.36.0] 2026-11-02, layers
 
 ### Added
