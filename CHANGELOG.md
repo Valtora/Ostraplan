@@ -9,7 +9,7 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
-## [Unreleased]
+## [1.37.0] 2026-11-03, tool strip
 
 ### Added
 - **A tool strip down the left of the plan holds Select, Place, Pan, Pick and Erase.**
@@ -19,7 +19,7 @@ each release was verified against is recorded in
 
 ### Fixed
 - **Light Viz shows a spawner as soon as you place or delete it.**
-  - Deck items, painted wear and draw-order changes now show in the lit view straight away too, instead of after Light Viz was turned off and on. Thanks to nadir.
+  - Deck items, painted wear and draw-order changes now show in the lit view straight away too. Thanks to nadir.
 - **Holding a pan key while you switch tabs or windows no longer leaves the view panning by itself.** Thanks to nadir.
 - **In Surfaces mode the Layers panel decides whether you see the floors, the walls or both.**
   - Hide or lock Walls & doors to see and click the floor under a wall.
