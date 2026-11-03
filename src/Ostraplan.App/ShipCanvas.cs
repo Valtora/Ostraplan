@@ -479,10 +479,6 @@ public sealed class ShipCanvas : FrameworkElement
     /// See <see cref="SurfacePaintMode"/>.</summary>
     public SurfacePaintMode PaintMode { get; private set; } = SurfacePaintMode.Replace;
 
-    /// <summary>Which layer Surfaces mode treats as the subject (see <see cref="SurfaceFocus"/>) — what stays
-    /// bright, and what a click lands on.</summary>
-    public SurfaceFocus LayerFocus { get; private set; }
-
     /// <summary>The secondary surface brush — the other half of a checkerboard or stripe. Null for a plain
     /// single-brush stroke. Only meaningful alongside a primary <see cref="ArmedPart"/> of the same class.</summary>
     public PartDef? PatternB { get; private set; }
@@ -1020,16 +1016,6 @@ public sealed class ShipCanvas : FrameworkElement
         InvalidateVisual();   // the ghost says whether this tile would take the stroke
     }
 
-    /// <summary>Set which layer is the subject: what stays bright, and what a click lands on. Named for the layer
-    /// rather than plain "focus", which on a <see cref="FrameworkElement"/> already means keyboard focus.</summary>
-    public void SetLayerFocus(SurfaceFocus focus)
-    {
-        if (LayerFocus == focus) return;
-        LayerFocus = focus;
-        _staticShip = null;   // the ghosting is baked into the cached drawing
-        InvalidateVisual();
-    }
-
     /// <summary>The armed brush when it is painting surfaces — Surfaces mode, structural, and a 1×1 wall/floor
     /// skin. Null whenever the stroke should behave exactly as it always has.</summary>
     private PartDef? SurfaceBrush =>
@@ -1049,23 +1035,24 @@ public sealed class ShipCanvas : FrameworkElement
         return def == brush.DefName ? brush : Doc!.Catalog.Lookup(def) ?? brush;
     }
 
-    /// <summary>True while this part should be ghosted: Surfaces mode is on and the current focus isn't on it.</summary>
+    /// <summary>True while this part should be ghosted: Surfaces mode is on and it is not a wall or a floor.</summary>
     private bool IsGhosted(Placement p) =>
-        SurfaceMode && !SurfacePaint.IsFocusLayer(Doc!.Catalog, Doc.Part(p), LayerFocus);
+        SurfaceMode && !SurfacePaint.IsSurfaceLayer(Doc!.Catalog, Doc.Part(p));
 
-    /// <summary>Surfaces mode ghosts everything that isn't the focused deck layer. Loose clutter is never the
-    /// deck, so it ghosts with the rest whatever the focus is.</summary>
+    /// <summary>Surfaces mode ghosts everything that isn't the deck. Loose clutter never is, so it always
+    /// ghosts.</summary>
     private bool IsGhosted(RenderItem item) =>
         item.Placement is { } p ? IsGhosted(p) : SurfaceMode;
 
     /// <summary>
     /// The part a click should land on. In Surfaces mode the ghosted layers are not just dim, they are out of the
-    /// way: the topmost part <b>in focus</b> under the cursor wins, so a floor buried under a bed (or, on the
-    /// Floors focus, under a wall) is one click away instead of a trip through the right-click layer picker.
-    /// Otherwise the ordinary topmost-part hit test.
+    /// way: the topmost wall or floor under the cursor wins, so a floor buried under a bed is one click away instead
+    /// of a trip through the right-click layer picker. The floor under a wall is reached the same way as anywhere
+    /// else, by hiding or locking the walls in the Layers panel, which <see cref="PickPlacementsAt"/> already
+    /// honours. Otherwise the ordinary topmost-part hit test.
     /// </summary>
-    private Placement? SurfaceAwareHit(int x, int y) =>
-        PickPlacementsAt(x, y).FirstOrDefault(p => !SurfaceMode || SurfacePaint.IsFocusLayer(Doc!.Catalog, Doc.Part(p), LayerFocus));
+    internal Placement? SurfaceAwareHit(int x, int y) =>
+        PickPlacementsAt(x, y).FirstOrDefault(p => !SurfaceMode || SurfacePaint.IsSurfaceLayer(Doc!.Catalog, Doc.Part(p)));
 
     /// <summary>
     /// How many times this canvas has thrown away an analysis result it was holding. Every overlay drops its
@@ -2125,7 +2112,7 @@ public sealed class ShipCanvas : FrameworkElement
                     // The pick is the same one the left button makes (SurfaceAwareHit), so in Surfaces mode the
                     // right button reaches the deck under the clutter rather than the clutter. The whole menu
                     // (Rename, View contents, Delete) reads the selection, so picking the topmost part here made
-                    // every one of them act on the fixture standing over the tile. A tile with nothing in focus on
+                    // every one of them act on the fixture standing over the tile. A tile with no wall or floor on
                     // it falls back to the topmost, so the menu still opens on a ghosted stack.
                     if (SelectionCount <= 1 && !stack.Any(p => SelectedIds.Contains(p.Id)))
                     {
@@ -5339,8 +5326,13 @@ public sealed class ShipCanvas : FrameworkElement
     /// <summary>
     /// Draw a run of drawables (placements and loose items alike, in one render order), ghosting the non-deck
     /// layers when Surfaces mode is on. Two passes rather than one opacity push per part, so the ghosted layers
-    /// share a single transparency group. Draw order is layer-major (floors, then walls, then everything above),
-    /// so surfaces are already its prefix and splitting it in two changes nothing but the opacity.
+    /// share a single transparency group.
+    ///
+    /// <para>The deck pass keeps the render order, so walls still draw over the floors under them. The ghosted
+    /// pass goes on top of the whole deck, which is not the render order: a fixture the game draws under a wall
+    /// comes out over it. That is the right way round while the deck is the subject and the rest is faint. It is
+    /// only safe because the deck is never ghosted: when the Surfaces bar could ghost the floors (its old Walls
+    /// focus), the same split drew them over the walls and hid them (#79).</para>
     /// </summary>
     private void DrawItems(DrawingContext dc, IReadOnlyList<RenderItem> ordered, Func<RenderItem, (int X, int Y)> offsetOf)
     {

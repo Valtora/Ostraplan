@@ -99,6 +99,7 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 | Deck items (footprint occupancy, the loose socket law) | `LoosePlacementTests` | `LooseObjectTests` |
 | Rendering | — | `RenderSmokeTests` |
 | Light Viz keeping up with edits the scan skips (a spawner, painted wear, a draw-order nudge) | `LightCompositeTests`† | — |
+| Surfaces mode under the Layers panel (the floor under a locked wall in reach) | `SurfacesViewTests`† | `SurfacesViewTests` (walls still draw over the floors at full ghost) |
 | The bake window (what the ship cache may cull) | — | `BakeWindowTests`† |
 | Document tabs (session isolation, the strip, close/cycle, a pan key held across a switch) | `DocumentSessionTests`, `MainWindowTabsTests`† | — |
 | Auto-save rotation (per path, per untitled slot) | `AutoSaveTests` | — |

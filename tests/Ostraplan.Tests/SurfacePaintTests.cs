@@ -231,27 +231,16 @@ public class SurfacePaintTests
         Assert.True(CheckFit.Check(onFloor, wall, 0, 0, 0, includeEnvelope: false).Ok, "wall onto a floor tile");
     }
 
+    /// <summary>What Surfaces mode keeps bright and clickable. Narrowing it to walls or floors alone is the Layers
+    /// panel's job since the bar's SHOW row was retired (#79).</summary>
     [Fact]
-    public void The_focus_decides_what_is_bright_and_clickable()
+    public void Walls_and_floors_are_the_subject_and_a_fixture_never_is()
     {
         var cat = Cat();
-        var wall = cat.Lookup("Wall")!;
-        var floor = cat.Lookup("Floor")!;
-        var bed = cat.Lookup("Bed")!;
-
-        Assert.True(SurfacePaint.IsFocusLayer(cat, wall, SurfaceFocus.Both));
-        Assert.True(SurfacePaint.IsFocusLayer(cat, floor, SurfaceFocus.Both));
-
-        // Floors focus drops the wall layer too — the only way to see or click a floor under a wall
-        Assert.True(SurfacePaint.IsFocusLayer(cat, floor, SurfaceFocus.Floors));
-        Assert.False(SurfacePaint.IsFocusLayer(cat, wall, SurfaceFocus.Floors));
-
-        Assert.True(SurfacePaint.IsFocusLayer(cat, wall, SurfaceFocus.Walls));
-        Assert.False(SurfacePaint.IsFocusLayer(cat, floor, SurfaceFocus.Walls));
-
-        // a fixture is never the subject, whatever the focus
-        foreach (var f in Enum.GetValues<SurfaceFocus>())
-            Assert.False(SurfacePaint.IsFocusLayer(cat, bed, f));
+        Assert.True(SurfacePaint.IsSurfaceLayer(cat, cat.Lookup("Wall")));
+        Assert.True(SurfacePaint.IsSurfaceLayer(cat, cat.Lookup("Floor")));
+        Assert.False(SurfacePaint.IsSurfaceLayer(cat, cat.Lookup("Bed")));
+        Assert.False(SurfacePaint.IsSurfaceLayer(cat, null));
     }
 
     [Fact]

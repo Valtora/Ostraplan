@@ -15,6 +15,9 @@ each release was verified against is recorded in
 - **Light Viz shows a spawner as soon as you place or delete it.**
   - Deck items, painted wear and draw-order changes now show in the lit view straight away too, instead of after Light Viz was turned off and on. Thanks to nadir.
 - **Holding a pan key while you switch tabs or windows no longer leaves the view panning by itself.** Thanks to nadir.
+- **In Surfaces mode the Layers panel decides whether you see the floors, the walls or both.**
+  - Hide or lock Walls & doors to see and click the floor under a wall.
+  - The Surfaces bar's own Both, Floors and Walls buttons are gone. Thanks to nadir.
 
 ## [1.36.0] 2026-11-02, layers
 

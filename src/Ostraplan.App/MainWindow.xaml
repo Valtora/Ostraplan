@@ -629,16 +629,11 @@
                         <ToggleButton x:Name="PatCols" Content="Columns" Tag="StripesV" Padding="9,3"
                                       Click="OnSurfacePatternClick" ToolTip="Alternate the two brushes column by column"/>
                     </StackPanel>
+                    <!-- There was a SHOW row here (Both, Floors, Walls) that ghosted one deck layer to reach the other.
+                         It read as visibility switches and was not one: it depended on the GHOST slider, so at 100%
+                         Floors left the walls in view and Walls drew the floors over the walls. It also asked the
+                         Layers panel's question with a second answer, so it went, and the panel does it now (#79). -->
                     <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
-                        <TextBlock Text="SHOW" Foreground="{DynamicResource Dim}" FontSize="10" FontWeight="Bold"
-                                   VerticalAlignment="Center" Margin="0,0,5,0"/>
-                        <ToggleButton x:Name="FocusBoth" Content="Both" Tag="Both" Padding="8,3" Margin="0,0,3,0"
-                                      Click="OnSurfaceFocusClick" ToolTip="Walls and floors both bright"/>
-                        <ToggleButton x:Name="FocusFloors" Content="Floors" Tag="Floors" Padding="8,3" Margin="0,0,3,0"
-                                      Click="OnSurfaceFocusClick"
-                                      ToolTip="Ghost the walls too, to see and click the floors under them"/>
-                        <ToggleButton x:Name="FocusWalls" Content="Walls" Tag="Walls" Padding="8,3" Margin="0,0,12,0"
-                                      Click="OnSurfaceFocusClick" ToolTip="Ghost the floors, so a wall run reads on its own"/>
                         <TextBlock Text="PAINT" Foreground="{DynamicResource Dim}" FontSize="10" FontWeight="Bold"
                                    VerticalAlignment="Center" Margin="0,0,5,0"/>
                         <ToggleButton x:Name="ModeReplace" Content="Replace" Tag="Replace" Padding="8,3" Margin="0,0,3,0"
@@ -649,18 +644,21 @@
                         <ToggleButton x:Name="ModeFill" Content="Fill" Tag="Fill" Padding="8,3"
                                       Click="OnSurfaceModeButtonClick" ToolTip="Only lay on bare tiles, never change what is there"/>
                     </StackPanel>
-                    <!-- How visible the ghosted layers are. It lived in the View menu, then briefly on a ▾ beside
-                         the Surfaces button; it belongs here, on the bar that only exists while the mode is on,
-                         beside the SHOW toggles that decide WHAT is ghosted. -->
+                    <!-- How visible everything but the deck is. It lived in the View menu, then briefly on a ▾ beside
+                         the Surfaces button; it belongs here, on the bar that only exists while the mode is on. -->
                     <StackPanel Orientation="Horizontal" Margin="0,6,0,0">
                         <TextBlock Text="GHOST" Foreground="{DynamicResource Dim}" FontSize="10" FontWeight="Bold"
                                    VerticalAlignment="Center" Margin="0,0,5,0"/>
                         <Slider x:Name="SldSurfaceGhost" Width="130" Minimum="0" Maximum="100" VerticalAlignment="Center"
                                 ValueChanged="OnSurfaceGhostSliderChanged"
-                                ToolTip="How visible the ghosted layers are"/>
+                                ToolTip="How visible everything but walls and floors is while you paint. 0% hides it."/>
                         <TextBlock x:Name="TxtSurfaceGhost" VerticalAlignment="Center" Margin="8,0,0,0" MinWidth="38"
                                    Foreground="{DynamicResource Ink}"/>
                     </StackPanel>
+                    <!-- Where the old SHOW row's job went. Held to the note's width below rather than setting the bar's. -->
+                    <TextBlock Text="To see and click the floor under a wall, hide or lock Walls &amp; doors in the Layers panel."
+                               Foreground="{DynamicResource Dim}" FontSize="11" Margin="0,6,0,0"
+                               MaxWidth="420" TextWrapping="Wrap"/>
                     <TextBlock x:Name="TxtSurfaceNote" Foreground="{DynamicResource Dim}" FontSize="11" Margin="0,6,0,0"
                                MaxWidth="420" TextWrapping="Wrap"/>
                 </StackPanel>

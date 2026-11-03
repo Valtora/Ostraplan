@@ -262,12 +262,11 @@ public partial class MainWindow : Window
             // …and the harder one, which lifts the law for every part. Remembered like the above, and announced
             // in the status bar the whole time it is on so it is never in force unnoticed (#67).
             ForcePlace = _settings.ForcePlace,
-            // Surfaces mode's persisted preferences. All three are visible in the Surfaces bar whenever the mode is
-            // on, so a remembered choice explains itself rather than turning up as a brush that won't paint.
+            // Surfaces mode's persisted preferences. Both are visible in the Surfaces bar whenever the mode is on,
+            // so a remembered choice explains itself rather than turning up as a brush that won't paint.
             SurfaceGhostOpacity = _settings.SurfaceGhostOpacity,
         };
         if (Enum.TryParse<SurfacePaintMode>(_settings.SurfacePaintMode, out var paintMode)) board.SetPaintMode(paintMode);
-        if (Enum.TryParse<SurfaceFocus>(_settings.SurfaceFocus, out var focus)) board.SetLayerFocus(focus);
         // The spawners view (#68). App-wide like the backdrop rather than per design: it is about the person
         // looking at the plan, so a design handed to somebody else opens on their own preference.
         board.SetLayers(SavedLayers());
@@ -3729,18 +3728,6 @@ public partial class MainWindow : Window
         UpdateSurfaceBar();
     }
 
-    private void OnSurfaceFocusClick(object sender, RoutedEventArgs e)
-    {
-        if (sender is ToggleButton { Tag: string tag } && Enum.TryParse<SurfaceFocus>(tag, out var focus))
-        {
-            Board.SetLayerFocus(focus);
-            _settings.SurfaceFocus = focus.ToString();
-            _settings.Save();
-        }
-        _surfaceNoteOnce = null;
-        UpdateSurfaceBar();
-    }
-
     /// <summary>The palette thumbnail already built for a part, or null when it has no palette row.</summary>
     private ImageSource? ThumbFor(PartDef? part) =>
         part is null ? null : _allParts.FirstOrDefault(v => v.Part.DefName == part.DefName)?.Thumb;
@@ -3774,9 +3761,6 @@ public partial class MainWindow : Window
         PatRows.IsChecked = Board.Pattern == SurfacePattern.StripesH;
         PatCols.IsChecked = Board.Pattern == SurfacePattern.StripesV;
 
-        FocusBoth.IsChecked = Board.LayerFocus == SurfaceFocus.Both;
-        FocusFloors.IsChecked = Board.LayerFocus == SurfaceFocus.Floors;
-        FocusWalls.IsChecked = Board.LayerFocus == SurfaceFocus.Walls;
         ModeReplace.IsChecked = Board.PaintMode == SurfacePaintMode.Replace;
         ModeBoth.IsChecked = Board.PaintMode == SurfacePaintMode.ReplaceAndFill;
         ModeFill.IsChecked = Board.PaintMode == SurfacePaintMode.Fill;

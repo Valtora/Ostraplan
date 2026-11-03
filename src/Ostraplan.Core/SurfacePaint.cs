@@ -39,26 +39,6 @@ public enum SurfacePaintMode
 }
 
 /// <summary>
-/// Which layer Surfaces mode treats as the subject: what stays bright, and what a click lands on. The wall layer
-/// draws over the floor and wins every hit test, so <see cref="Floors"/> is the only way to see or reach the floor
-/// <b>under</b> a wall — and the shipped ships floor most of their wall tiles, so on an imported ship that is a
-/// large part of the deck. It matters even with the wall standing: a floor's autotile mask reads its four
-/// neighbours' conditions, so whether the floor continues under the wall changes how the visible floor beside it
-/// draws its edge.
-/// </summary>
-public enum SurfaceFocus
-{
-    /// <summary>Walls and floors both bright — the whole deck.</summary>
-    Both,
-
-    /// <summary>Floors bright, walls ghosted with everything else: the under-wall view.</summary>
-    Floors,
-
-    /// <summary>Walls bright, floors ghosted: a wall run read against a dimmed deck.</summary>
-    Walls,
-}
-
-/// <summary>
 /// Surface painting: treating the walls and floors already on the ship as a canvas, and painting a
 /// different skin onto an <b>area</b> of them rather than replacing them by type.
 ///
@@ -78,28 +58,19 @@ public enum SurfaceFocus
 /// </summary>
 public static class SurfacePaint
 {
-    /// <summary>True for a part that draws as the deck itself — a floor or a wall (doors included). This is the
-    /// <b>visibility</b> question the Surfaces view asks, not the paintability one: see <see cref="IsSurfaceBrush"/>.</summary>
+    /// <summary>
+    /// True for a part that draws as the deck itself — a floor or a wall (doors included). This is the
+    /// <b>visibility</b> question the Surfaces view asks, not the paintability one: see <see cref="IsSurfaceBrush"/>.
+    /// What it says yes to stays bright and takes the click; everything else ghosts and steps aside.
+    ///
+    /// <para>Narrowing the deck to one of the two is the Layers panel's job (<see cref="LayerView"/>). The Surfaces
+    /// bar used to carry a SHOW row of its own for it, which ghosted the other layer rather than hiding it, and so
+    /// depended on the ghost slider: at full strength Floors left the walls in view, and Walls drew the ghosted
+    /// floors over the walls and hid them. Two controls for one question gave two answers, so the row was retired
+    /// (#79). Hide or lock the walls in the panel and the floor under them is in view and in reach.</para>
+    /// </summary>
     public static bool IsSurfaceLayer(Catalog catalog, PartDef? part) =>
         part is not null && catalog.RenderLayer(part) is Catalog.LayerFloor or Catalog.LayerWall;
-
-    /// <summary>
-    /// True for a part the current <paramref name="focus"/> treats as the subject: what stays bright, and what a
-    /// click lands on. Everything else ghosts and steps aside, including the wall layer under
-    /// <see cref="SurfaceFocus.Floors"/> — which is the whole point of that focus, since a wall otherwise hides and
-    /// out-hit-tests the floor beneath it.
-    /// </summary>
-    public static bool IsFocusLayer(Catalog catalog, PartDef? part, SurfaceFocus focus)
-    {
-        if (part is null) return false;
-        var layer = catalog.RenderLayer(part);
-        return focus switch
-        {
-            SurfaceFocus.Floors => layer == Catalog.LayerFloor,
-            SurfaceFocus.Walls => layer == Catalog.LayerWall,
-            _ => layer is Catalog.LayerFloor or Catalog.LayerWall,
-        };
-    }
 
     /// <summary>
     /// True for a part that can be used as a surface brush: a 1×1 wall or floor skin. The 1×1 bound is what

@@ -188,9 +188,8 @@ public sealed class AppSettings
     /// <summary>Surfaces mode: what a stroke may do to a tile — <c>Replace</c> (re-skin only, the default),
     /// <c>ReplaceAndFill</c>, or <c>Fill</c>. Stored by name; an unrecognised value falls back to the default.</summary>
     [JsonPropertyName("surfacePaintMode")] public string? SurfacePaintMode { get; set; }
-    /// <summary>Surfaces mode: which layer is the subject — <c>Both</c> (the default), <c>Floors</c> (ghost the
-    /// walls too, to reach the floors under them), or <c>Walls</c>. Stored by name, like the paint mode.</summary>
-    [JsonPropertyName("surfaceFocus")] public string? SurfaceFocus { get; set; }
+    // "surfaceFocus" (the Surfaces bar's SHOW row) was retired in #79 in favour of the Layers panel. A settings file
+    // that still carries it loads fine: unknown keys are ignored.
     /// <summary>WalkViz: count tiles that are not part of the ship as walkable, joining zones that only connect by
     /// an EVA route over the hull. The game does count them (<c>Tile.IsWalkable</c> needs no floor), but left on,
     /// almost every design reads as one zone — so this is off by default and the overlay shows interior routes.</summary>

@@ -2164,16 +2164,16 @@ for the detail work a ship-wide re-skin can't express: checkerboard tiling in a
 bathroom, caution markings around a reactor or a door, an armoured run of wall along
 one flank. It changes two things while it is on, and nothing at all while it is off.
 
-- **Everything outside the focused layer is ghosted**, and steps out of the way of
+- **Everything but walls and floors is ghosted**, and steps out of the way of
   clicks, whichever button you use. The floor under a bed is one click away instead of a
   trip through the right-click layer picker, and right-clicking it opens the menu on *it*
   rather than on the bed, so **Rename…**, **View contents** and **Delete** act on the deck
   you can see rather than on the fixture standing over it. A box-select over the deck
   catches deck. Ghosted parts are still *there*, they just stop being the subject, and the
   right-click picker still lists the whole stack when one of them is what you were after.
-  **SHOW** in the Surfaces bar picks the focus (**Both**, **Floors**, **Walls**; see
-  [floors under walls](#floors-under-walls)), and **View ▸ Surfaces** sets how visible
-  the ghosted layers stay (15% by default; drop it to 0 to hide them outright).
+  **GHOST** in the Surfaces bar sets how visible they stay (15% by default; 0% hides them
+  outright). To narrow the deck to just the floors or just the walls, use the
+  [Layers panel](#the-layers-panel); see [floors under walls](#floors-under-walls).
 - **A 1×1 wall or floor brush re-skins what is already on the tile** instead of being
   refused for landing on it.
 
@@ -2220,10 +2220,11 @@ Ostraplan paints them like any other floor. On a wall tile with a floor beneath,
 (cargo webbing and the like), whose own socket mask forbids walls — the ghost refuses
 it, because the game would.
 
-To *see* and click what you are doing there, set **SHOW** to **Floors**, which ghosts
-the wall layer along with everything else and puts the floor under the cursor within
-reach. **Walls** does the reverse for reading a wall run against a dimmed deck, and
-**Both** is the default.
+To *see* and click what you are doing there, hide **Walls & doors** in the
+[Layers panel](#the-layers-panel), which takes the walls off the plan and puts the floor
+under the cursor within reach. Lock them instead to keep the walls in view and click
+straight through them to the floor. Hiding **Floors** does the reverse, for reading a wall
+run on its own.
 
 Only 1×1 wall and floor skins paint. A stroke therefore runs straight past anything of
 a different shape — a wide door keeps its own def while the wall either side of it
