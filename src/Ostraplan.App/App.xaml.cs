@@ -1041,9 +1041,9 @@ public partial class App : Application
     /// stays in the window rather than being lifted out, because the label switch and the icons are resources the window
     /// and the ribbon hold; it is measured and arranged on its own, the way <c>RibbonLayoutTests</c> does it, and the UI
     /// scale is the same LayoutTransform <see cref="UiScale"/> puts on a window's content. The lock is showing and locked,
-    /// two overlays are on and Undo is greyed, so the checked, disabled and plain states are all in the picture.
-    /// <c>ribbon-tooltips.txt</c> lists every control's tooltip, title first, and <c>ribbon-switch.txt</c> the width at
-    /// which the toolbar fits on one row at each scale.
+    /// two overlays are on and Undo is greyed, so the checked, disabled and plain states are all in the picture. The
+    /// Layers panel and the tool strip are drawn beside it. <c>ribbon-tooltips.txt</c> lists every control's tooltip,
+    /// title first, and <c>ribbon-switch.txt</c> the width at which the toolbar fits on one row at each scale.
     /// </summary>
     private static void RenderRibbon(string dir)
     {
@@ -1117,6 +1117,19 @@ public partial class App : Application
             layers.Margin = margin;
             var badge = (System.Windows.Controls.TextBlock)w.FindName("TxtLayersBadge");
             if (mode == "dark") tips.Add($"LayersBadge: {badge.Text}");
+
+            // The tool strip from the plan's left edge (#79), with the hand taken up so a lit button is in the
+            // picture, and its tooltips in the list with the ribbon's.
+            w.TakeUpTool(PlanTool.Pan);
+            var strip = (System.Windows.Controls.Border)w.FindName("ToolStrip");
+            Invalidate(strip);
+            strip.Measure(new Size(double.PositiveInfinity, double.PositiveInfinity));
+            strip.Arrange(new Rect(strip.DesiredSize));
+            Encode(strip, strip.DesiredSize.Width, strip.DesiredSize.Height, Path.Combine(dir, $"tool-strip-{mode}.png"));
+            if (mode == "dark")
+                foreach (var b in Descendants(strip).OfType<System.Windows.Controls.Primitives.ButtonBase>())
+                    if (b.Name is { Length: > 0 } n) tips.Add($"{n}: {ToolIcon.TipText(b)}");
+            w.TakeUpTool(PlanTool.Select);
 
             if (mode == "dark")
                 foreach (var b in Descendants(w.FindName("Ribbon") as DependencyObject).OfType<System.Windows.Controls.Primitives.ButtonBase>())

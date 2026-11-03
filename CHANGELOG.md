@@ -11,6 +11,12 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **A tool strip down the left of the plan holds Select, Place, Pan, Pick and Erase.**
+  - The lit button is the tool a click uses. Point at one for its key, and the keys work as before.
+  - Pan makes a plain drag move the view, and Pick arms the next part you click.
+  - Erase has moved there from the toolbar. Thanks to nadir.
+
 ### Fixed
 - **Light Viz shows a spawner as soon as you place or delete it.**
   - Deck items, painted wear and draw-order changes now show in the lit view straight away too, instead of after Light Viz was turned off and on. Thanks to nadir.

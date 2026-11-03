@@ -107,6 +107,7 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 | Opening a design that is already open | `DesignPathTests` | — |
 | The tab lock (the stack's backstop, canvas and stack locked together) | `CommandStackReadOnlyTests`, `MainWindowTabsTests`† | — |
 | UI scale (clamp, popup layer) | `SettingsTests`, `UiScalePopupTests`† | — |
+| The tool strip (which tool is lit, the hand, the pick and the eraser putting each other down, a brush in hand) | `ToolStripTests` (the table, and the real window†) | — |
 | Tips (the list's rules, the next tip, when one is due, the settings) | `TipsTests` (the card and the hub†) | — |
 
 `RenderSmokeTests` is mostly smoke — it writes PNGs for eyeballing and asserts only that they are not blank.

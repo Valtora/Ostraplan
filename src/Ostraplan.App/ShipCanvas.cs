@@ -376,6 +376,21 @@ public sealed class ShipCanvas : FrameworkElement
     /// the whole stroke as one undo step. Set by the window, which keeps it exclusive with an armed brush.</summary>
     public bool EraseMode { get; private set; }
 
+    /// <summary>The hand from the tool strip (#79): a left drag pans the view, as Space+drag does. Exclusive with the
+    /// eraser and the pick; the window puts down a brush in hand when it picks this up.</summary>
+    public bool PanTool { get; private set; }
+
+    /// <summary>The pick from the tool strip (#79): the next left click on a part picks it up as the brush, as
+    /// Alt+click does, and the pick is put down with it. A click on bare deck picks nothing and does nothing
+    /// else, so a missed aim never selects or places anything.</summary>
+    public bool PickTool { get; private set; }
+
+    /// <summary>The hand or the pick was picked up or put down (sync the tool strip).</summary>
+    public event Action? ToolChanged;
+
+    /// <summary>The last left press was a pick made with <see cref="PickTool"/>; see the pick in OnMouseDown.</summary>
+    private bool _pickedByTool;
+
     /// <summary>Spawners view: when the scatter square is drawn. See <see cref="SpawnerScatterWhen"/>.</summary>
     public SpawnerScatterWhen ScatterWhen { get; private set; } = SpawnerScatterWhen.Selected;
 
@@ -814,7 +829,7 @@ public sealed class ShipCanvas : FrameworkElement
         }
         ArmedPart = part;
         _armedLoose = loose && part is not null;
-        if (part is not null) SetEraseMode(false);   // a brush in hand puts the eraser down
+        if (part is not null) { SetEraseMode(false); PutDownHandAndPick(); }   // a brush in hand puts the other tools down
         if (part is not null)
         {
             SelectedIds.Clear();
@@ -915,10 +930,49 @@ public sealed class ShipCanvas : FrameworkElement
         if (EraseMode == on) return;
         EraseMode = on;
         _eraseTargets.Clear();
-        Cursor = on ? Cursors.Cross : null;
+        if (on) PutDownHandAndPick();
+        UpdateToolCursor();
         EraseModeChanged?.Invoke();
         InvalidateVisual();
     }
+
+    /// <summary>Pick up the tool strip's hand, or put it down (see <see cref="PanTool"/>).</summary>
+    public void SetPanTool(bool on)
+    {
+        if (PanTool == on) return;
+        if (on) { SetEraseMode(false); PickTool = false; }
+        PanTool = on;
+        UpdateToolCursor();
+        ToolChanged?.Invoke();
+    }
+
+    /// <summary>Pick up the tool strip's pick, or put it down (see <see cref="PickTool"/>).</summary>
+    public void SetPickTool(bool on)
+    {
+        if (PickTool == on) return;
+        if (on) { SetEraseMode(false); PanTool = false; }
+        PickTool = on;
+        UpdateToolCursor();
+        ToolChanged?.Invoke();
+    }
+
+    private void PutDownHandAndPick()
+    {
+        if (!PanTool && !PickTool) return;
+        PanTool = PickTool = false;
+        UpdateToolCursor();
+        ToolChanged?.Invoke();
+    }
+
+    /// <summary>The cursor says what a click will do. One place decides it, so putting one mode down never clears
+    /// the cursor another has just set.</summary>
+    private void UpdateToolCursor() => Cursor =
+        _aiming ? Cursors.Cross
+        : _damageBrush ? Cursors.Pen
+        : EraseMode ? Cursors.Cross
+        : PanTool ? Cursors.SizeAll
+        : PickTool ? Cursors.Hand
+        : null;
 
     /// <summary>The layer a drawable is on.</summary>
     private PlanLayer LayerOf(RenderItem item) => LayerView.Of(Doc!.Catalog, item);
@@ -1132,7 +1186,7 @@ public sealed class ShipCanvas : FrameworkElement
     public void SetDamageBrush(bool on)
     {
         _damageBrush = on;
-        Cursor = on ? System.Windows.Input.Cursors.Pen : null;
+        UpdateToolCursor();
         InvalidateVisual();
     }
 
@@ -1148,7 +1202,7 @@ public sealed class ShipCanvas : FrameworkElement
         _aiming = on;
         _strikePivot = on ? referenceDoc : null;
         if (!on) _ghostPath = null;
-        Cursor = on ? System.Windows.Input.Cursors.Cross : null;
+        UpdateToolCursor();
         InvalidateVisual();
     }
 
@@ -1965,8 +2019,11 @@ public sealed class ShipCanvas : FrameworkElement
         Focus();
         var screen = e.GetPosition(this);
 
+        // The tool strip's hand pans like a held Space, except while a Simulate dialog or the Damage Brush has the
+        // canvas: those took it over on purpose, and Space still pans if you need to.
         if (e.ChangedButton == MouseButton.Middle ||
-            (e.ChangedButton == MouseButton.Left && Keyboard.IsKeyDown(Key.Space)))
+            (e.ChangedButton == MouseButton.Left
+             && (Keyboard.IsKeyDown(Key.Space) || (PanTool && !_aiming && !_damageBrush))))
         {
             _drag = Drag.Pan;
             _dragStartScreen = screen;
@@ -2059,10 +2116,12 @@ public sealed class ShipCanvas : FrameworkElement
         if (e.ChangedButton == MouseButton.Right)
         {
             var rmbCell = CellAt(screen);
-            // Right-click puts the eraser down, the way it drops a held brush.
-            if (EraseMode)
+            // Right-click puts the eraser down, the way it drops a held brush, and the tool strip's hand and pick
+            // the same way.
+            if (EraseMode || PanTool || PickTool)
             {
                 SetEraseMode(false);
+                PutDownHandAndPick();
                 e.Handled = true;
                 return;
             }
@@ -2173,10 +2232,25 @@ public sealed class ShipCanvas : FrameworkElement
 
         // Alt+LMB is the eyedropper: pick the (topmost) part under the cursor as the brush, at its own rotation.
         // Works whether or not something is already armed, and takes priority over placing/selecting so an
-        // Alt-click never edits. A middle click does the same (see OnMouseUp).
-        if (Keyboard.Modifiers.HasFlag(ModifierKeys.Alt) && SurfaceAwareHit(cell.X, cell.Y) is { } pick)
+        // Alt-click never edits. A middle click does the same (see OnMouseUp), and so does one click with the tool
+        // strip's pick, which is put down as it picks. With the pick in hand a click on bare deck does nothing.
+        if ((PickTool || Keyboard.Modifiers.HasFlag(ModifierKeys.Alt)) && SurfaceAwareHit(cell.X, cell.Y) is { } pick)
         {
+            // A pick made with the strip's tool arms a brush, so the second click of a double-click would place
+            // the part straight back on the tile it was picked from. That click is swallowed.
+            _pickedByTool = PickTool;
+            SetPickTool(false);
             BrushPicked?.Invoke(pick.DefName, pick.Rot);
+            e.Handled = true;
+            return;
+        }
+        if (_pickedByTool)
+        {
+            _pickedByTool = false;
+            if (e.ClickCount == 2) { e.Handled = true; return; }
+        }
+        if (PickTool)
+        {
             e.Handled = true;
             return;
         }

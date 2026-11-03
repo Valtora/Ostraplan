@@ -90,6 +90,8 @@ public static class Tips
             TipTag.Basics),
         T("navigate", "WASD pans the plan, faster with Shift held. Q and E turn the view in 90° steps, like the in-game camera.",
             TipTag.Basics, TipTag.Shortcuts),
+        T("tool-strip", "The strip down the left of the plan holds the tools: select, place, pan, pick up a part and erase. The lit one is what a click does.",
+            TipTag.Basics),
         T("controls-list", "F1 lists every control and keybind.",
             TipTag.Basics, TipTag.Shortcuts),
         T("favourites", "Click the ☆ on a palette row to pin the part. Pinned parts and the last eight you placed are on the FAV/REC tab.",

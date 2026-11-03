@@ -191,6 +191,20 @@
             </Style.Resources>
             <Setter Property="Margin" Value="0"/>
         </Style>
+        <!-- The tool strip's buttons (#79): the toolbar's icon toggles stacked in a column. The string template is
+             repeated for the reason given above. Not focusable, so clicking one leaves the keyboard on the plan, and
+             Space, which pans, cannot press the button that was clicked last. -->
+        <Style x:Key="StripToggle" TargetType="ToggleButton" BasedOn="{StaticResource ToolToggle}">
+            <Style.Resources>
+                <DataTemplate DataType="{x:Type sys:String}">
+                    <ContentPresenter Content="{Binding}" ContentTemplate="{StaticResource ToolIconContent}"/>
+                </DataTemplate>
+            </Style.Resources>
+            <Setter Property="Margin" Value="0,0,0,3"/>
+            <Setter Property="HorizontalAlignment" Value="Stretch"/>
+            <Setter Property="HorizontalContentAlignment" Value="Left"/>
+            <Setter Property="Focusable" Value="False"/>
+        </Style>
         <!-- The tab's lock (#74) draws its state: an open padlock while the design can be edited, a closed one while
              it is locked. Set here rather than on the button, since a local value would beat the trigger. The icons
              are DynamicResource because ToolbarIcons.xaml is merged on the ribbon, below this dictionary. -->
@@ -390,9 +404,8 @@
                     <ToggleButton x:Name="BtnSurface" Content="Surfaces" Style="{StaticResource ToolToggle}" Click="OnSurfaceToggleClick"
                             local:ToolIcon.Icon="{StaticResource IconSurfaces}" local:ToolIcon.Title="Surfaces (T)"
                             ToolTip="Ghost all but walls and floors, and paint skins onto the deck."/>
-                    <ToggleButton x:Name="BtnErase" Content="Erase" Style="{StaticResource ToolToggle}" Click="OnEraseToggleClick"
-                            local:ToolIcon.Icon="{StaticResource IconErase}" local:ToolIcon.Title="Erase (X)"
-                            ToolTip="Click or drag to delete the topmost part on each tile, as one undo step. Hidden and locked layers are left alone. Right-click or Esc to stop."/>
+                    <!-- Erase was here until the tool strip down the left of the plan took it with the other tools
+                         that decide what a click does (#79). -->
                     <!-- No keyboard gesture on purpose: this one bypasses the placement law, and the reporter's own
                          argument was that it should take a deliberate click rather than a key nobody meant to press
                          (#67). The status bar carries a red marker for as long as it is on. -->
@@ -575,8 +588,37 @@
                 <RowDefinition Height="Auto"/>
                 <RowDefinition Height="*"/>
             </Grid.RowDefinitions>
+            <!-- The tool strip's column, then the plan. A column of its own rather than one more panel floating over
+                 the canvas: it is always there, so it should never sit over a ship or under the Surfaces bar. -->
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
 
-            <Border x:Name="DocTabBar" Grid.Row="0" Visibility="Collapsed" Padding="6,4,6,0"
+            <!-- The tool strip (#79): what a left click on the plan does, one button per tool, lit for the one in
+                 use (MainWindow.SyncToolStrip). Several were reachable only by a key or a modifier held with the
+                 mouse; the keys still work. Its own column, not the header, which already had to learn to wrap
+                 (#75). Each toggle's Tag is its PlanTool, and its name and key come from PlanTools. -->
+            <Border x:Name="ToolStrip" Grid.Row="1" Grid.Column="0" Padding="4,8,4,8"
+                    Background="{DynamicResource PanelBg}" BorderBrush="{DynamicResource PanelBorder}" BorderThickness="0,0,1,0">
+                <Border.Resources>
+                    <ResourceDictionary Source="ToolbarIcons.xaml"/>
+                </Border.Resources>
+                <StackPanel>
+                    <ToggleButton x:Name="ToolSelect" Content="Select" Tag="Select" Style="{StaticResource StripToggle}"
+                            Click="OnToolStripClick" local:ToolIcon.Icon="{StaticResource IconSelect}"/>
+                    <ToggleButton x:Name="ToolPlace" Content="Place" Tag="Place" Style="{StaticResource StripToggle}"
+                            Click="OnToolStripClick" local:ToolIcon.Icon="{StaticResource IconPlace}"/>
+                    <ToggleButton x:Name="ToolPan" Content="Pan" Tag="Pan" Style="{StaticResource StripToggle}"
+                            Click="OnToolStripClick" local:ToolIcon.Icon="{StaticResource IconPan}"/>
+                    <ToggleButton x:Name="ToolPick" Content="Pick" Tag="Pick" Style="{StaticResource StripToggle}"
+                            Click="OnToolStripClick" local:ToolIcon.Icon="{StaticResource IconPick}"/>
+                    <ToggleButton x:Name="ToolErase" Content="Erase" Tag="Erase" Style="{StaticResource StripToggle}"
+                            Click="OnToolStripClick" local:ToolIcon.Icon="{StaticResource IconErase}"/>
+                </StackPanel>
+            </Border>
+
+            <Border x:Name="DocTabBar" Grid.Row="0" Grid.ColumnSpan="2" Visibility="Collapsed" Padding="6,4,6,0"
                     Background="{DynamicResource PanelBg}"
                     BorderBrush="{DynamicResource PanelBorder}" BorderThickness="0,0,0,1">
                 <ScrollViewer HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled">
@@ -587,12 +629,12 @@
             <!-- Every open design's canvas lives here at once. The active one is Visible and the rest Hidden, not
                  Collapsed: Hidden is still measured and arranged, so a background tab keeps a real size and its
                  zoom, pan and framing stay meaningful, while WPF skips drawing it entirely. -->
-            <Grid x:Name="CanvasHost" Grid.Row="1"/>
+            <Grid x:Name="CanvasHost" Grid.Row="1" Grid.Column="1"/>
 
             <!-- The Surfaces bar: the two brushes a pattern alternates between, and the pattern itself. Shown only
                  while Surfaces mode is on (MainWindow.UpdateSurfaceBar drives every part of it). Slot A is the armed
                  palette brush; slot B is picked by arming the slot, then clicking a palette part. -->
-            <Border x:Name="SurfaceBar" Grid.Row="1" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Top"
+            <Border x:Name="SurfaceBar" Grid.Row="1" Grid.Column="1" Visibility="Collapsed" HorizontalAlignment="Left" VerticalAlignment="Top"
                     Margin="14,10,0,0" Padding="10,8" CornerRadius="6"
                     Background="{DynamicResource PanelBg}" BorderBrush="{DynamicResource PanelBorder}" BorderThickness="1">
                 <StackPanel>
@@ -667,7 +709,7 @@
             <!-- The Layers panel: an eye and a padlock for each layer of the plan (MainWindow.BuildLayersPanel). Bottom
                  left, where nothing else on the canvas is anchored, and foldable to its header so it never has to sit
                  over a ship. Reset only shows while something is off. -->
-            <Border x:Name="LayersPanel" Grid.Row="1" HorizontalAlignment="Left" VerticalAlignment="Bottom"
+            <Border x:Name="LayersPanel" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Left" VerticalAlignment="Bottom"
                     Margin="14,0,0,14" Padding="8,6,8,6" CornerRadius="6"
                     Background="{DynamicResource PanelBg}" BorderBrush="{DynamicResource PanelBorder}" BorderThickness="1">
                 <StackPanel MinWidth="160">
@@ -689,7 +731,7 @@
                 </StackPanel>
             </Border>
 
-            <StackPanel Grid.Row="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,10,14,0">
+            <StackPanel Grid.Row="1" Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Top" Margin="0,10,14,0">
                 <Border x:Name="BadgeWarning" Background="#F0E0A34E" CornerRadius="14" Height="28" MinWidth="28"
                         Visibility="Collapsed" Margin="8,0,0,0">
                     <TextBlock x:Name="BadgeWarningText" Foreground="#FF23262C" FontWeight="Bold" FontSize="14"
@@ -702,11 +744,11 @@
                 </Border>
             </StackPanel>
             <!-- A tip (#39), over the plan's bottom-right corner, where nothing else on the canvas is anchored. -->
-            <local:TipCard x:Name="TipCard" Grid.Row="1" HorizontalAlignment="Right" VerticalAlignment="Bottom"
+            <local:TipCard x:Name="TipCard" Grid.Row="1" Grid.Column="1" HorizontalAlignment="Right" VerticalAlignment="Bottom"
                            Margin="0,0,14,14"/>
 
             <!-- Over the tab strip as well as the canvas: while game data is loading there is nothing to switch to. -->
-            <Border x:Name="LoadingOverlay" Grid.Row="0" Grid.RowSpan="2" Background="#DD1A1C20">
+            <Border x:Name="LoadingOverlay" Grid.Row="0" Grid.RowSpan="2" Grid.ColumnSpan="2" Background="#DD1A1C20">
                 <TextBlock x:Name="TxtLoading" Text="Locating Ostranauts…" Foreground="#FFD8DDE4"
                            FontSize="16" HorizontalAlignment="Center" VerticalAlignment="Center"/>
             </Border>

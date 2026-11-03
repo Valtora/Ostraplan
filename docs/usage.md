@@ -46,9 +46,10 @@ right, but treat a mismatch as "double-check in-game".
 | Region | What's there |
 |---|---|
 | **Palette** (left) | Every buildable part, split into the game's eight tabs (HULL · HVAC · POWR · SENS · CTRL · FURN · APPS · MISC) plus **All**, an **ITEMS** tab for loose floor cargo, a **SPECIAL** tab for the structure the game places but never lets you build, and a **FAV/REC** tab at the front for the parts you pinned and the ones you just placed. Search by friendly or internal name. Modded parts show a small origin badge. |
+| **Tool strip** (left of the canvas) | The tool a left click on the plan uses, lit while it is the one in use. From the top: **Select** (an arrow; **Esc**), **Place** (a brush; lit while a part is armed, and with nothing armed it arms the last part you placed), **Pan** (a hand; a plain drag moves the view, as **Space**+drag does), **Pick** (an eyedropper; the next click on a part arms it, as **Alt+click** does) and **Erase** (an eraser; **X**, see [Selecting & editing](#selecting--editing)). Click the lit Pan, Pick or Erase again, right-click the plan, or press **Esc** to put it down. Point at a button for its key. |
 | **Canvas** (centre) | The tile grid. Place, paint, select, pan and zoom here. A **tab strip** appears above it as soon as a second design is open, and disappears again when you are back to one. |
 | **Inspector** (right) | The selected part's details, ship stats, the **Problems** list, and the **Law report**. |
-| **Toolbar** (top) | The menus and the two reports (**File**, **Design**, **Simulate**, **Ship Rating**, **Diagnostics**, **Help**) are words. Everything else is an icon: point at one for its name and its key, or turn on **Settings ▸ Toolbar labels** to have the names written beside them. The actions, grouped **File · Edit · Design · Analyse**, with the undo and redo arrows and the padlock under Edit, and the bulb for tips (see [Tips](#tips)), the gear for **Settings** and the **Help** menu on the right. Then two groups, divided by what a button does. **Edit modes** change what a click does: **Symmetry** (mirrored triangles; click to cycle the axes), **Surfaces** (stacked layers), **Erase** (an eraser; **X**, see [Selecting & editing](#selecting--editing)), and **Force** (a gavel with a no-entry sign), which stops the placement law refusing anything (see [Force place](#the-law--live-validation)) and puts a red **FORCE PLACE** marker in the status bar for as long as it is on. **Overlays** only change what you see and never affect editing: **Zones** (a dashed square) · **Rooms** (a floor plan) · **Power** (a lightning bolt) · **Light** (a sun) · **Walk** (a walking figure) · **Access** (a pointing hand) · **Wire** (two linked dots) · **Spawners** (boxes). Each highlights in the accent colour while active, and **Light**, **Walk** and **Spawners** carry a **▾** for their own options. **Spawners** is the one that hides rather than adds: it takes the loot spawners off the plan, and its ▾ decides how much of a spawner's scatter square is drawn (see [Loot spawners](#loot-spawners--what-a-ship-arrives-carrying)). **Fit** (four arrows round a square) frames the design. Narrow the window past the point where all of that fits on one line and the two groups drop to a second row of their own, returning beside the actions when there is room again. The design's name sits in the middle, with its make, model and designation underneath once you have set them in **Ship Info**. When a newer release exists it is downloaded in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
+| **Toolbar** (top) | The menus and the two reports (**File**, **Design**, **Simulate**, **Ship Rating**, **Diagnostics**, **Help**) are words. Everything else is an icon: point at one for its name and its key, or turn on **Settings ▸ Toolbar labels** to have the names written beside them. The actions, grouped **File · Edit · Design · Analyse**, with the undo and redo arrows and the padlock under Edit, and the bulb for tips (see [Tips](#tips)), the gear for **Settings** and the **Help** menu on the right. Then two groups, divided by what a button does. **Edit modes** change what a click does: **Symmetry** (mirrored triangles; click to cycle the axes), **Surfaces** (stacked layers), and **Force** (a gavel with a no-entry sign), which stops the placement law refusing anything (see [Force place](#the-law--live-validation)) and puts a red **FORCE PLACE** marker in the status bar for as long as it is on. **Overlays** only change what you see and never affect editing: **Zones** (a dashed square) · **Rooms** (a floor plan) · **Power** (a lightning bolt) · **Light** (a sun) · **Walk** (a walking figure) · **Access** (a pointing hand) · **Wire** (two linked dots) · **Spawners** (boxes). Each highlights in the accent colour while active, and **Light**, **Walk** and **Spawners** carry a **▾** for their own options. **Spawners** is the one that hides rather than adds: it takes the loot spawners off the plan, and its ▾ decides how much of a spawner's scatter square is drawn (see [Loot spawners](#loot-spawners--what-a-ship-arrives-carrying)). **Fit** (four arrows round a square) frames the design. Narrow the window past the point where all of that fits on one line and the two groups drop to a second row of their own, returning beside the actions when there is room again. The design's name sits in the middle, with its make, model and designation underneath once you have set them in **Ship Info**. When a newer release exists it is downloaded in the background and a **Restart to update to vX** button appears in the toolbar; clicking it applies the update and reopens Ostraplan. |
 
 ### Settings
 
@@ -203,14 +204,15 @@ the adjoining tile (or rotate the light to face an existing one) and the flag cl
   step (each tile is placed only where it actually fits; **Esc** cancels). Space that
   opens to vacuum can't be selected, so a fill never leaks out.
 - **Use as brush (eyedropper):** **Alt+click** or **middle-click** a part to arm it, at
-  its own rotation, and keep painting it. A middle *drag* still pans. **Replace with…:** **Ctrl+R** swaps the selection for a
+  its own rotation, and keep painting it, or take up **Pick** in the tool strip and click
+  the part. A middle *drag* still pans. **Replace with…:** **Ctrl+R** swaps the selection for a
   compatible part — one on the same layer and the same size on the deck, so a floor
   swaps for a floor and a 3×3 machine for a 3×3 machine. **Find and Replace All…**
   (right-click ▸ **Replace**) does the same to every copy of that part in the ship at once.
 - **Paint over the deck:** **Surfaces** mode (**T**) lets a wall/floor brush re-skin the
   tile it lands on rather than refusing it, and ghosts everything else out of the way.
   See [Surfaces mode](#surfaces-mode--painting-the-deck).
-- **Erase:** **X**, or **Erase** in the toolbar, picks up the eraser. Click a tile to delete
+- **Erase:** **X**, or **Erase** in the tool strip, picks up the eraser. Click a tile to delete
   the topmost thing on it, or drag to delete the topmost thing on every tile you cross; the
   whole stroke is one undo step, and what it will take is tinted red before you click.
   Hidden and locked layers are out of its reach, so locking the floors and dragging over a
@@ -290,8 +292,9 @@ heading to fold it down when it is in the way.
 ### Navigating
 
 - **Pan:** **WASD**, **Space**+left-drag, or middle-drag (a middle click without a drag is
-  the eyedropper). Hold **Shift** with WASD to pan
-  about three times as fast, which is what makes crossing a station bearable.
+  the eyedropper). With **Pan** taken up in the tool strip, a plain left-drag pans. Hold
+  **Shift** with WASD to pan about three times as fast, which is what makes crossing a
+  station bearable.
 - **Zoom:** mouse wheel (integer 0.125×–8×, crisp pixel art). Zoom right out to
   frame a whole station; zoom in to 8× for tile-precise work.
 - **Rotate the view:** **Q** / **E**, in 90° steps, like the in-game camera. All

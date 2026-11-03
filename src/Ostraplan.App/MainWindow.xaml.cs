@@ -138,6 +138,7 @@ public partial class MainWindow : Window
         RestorePaneWidths();   // the palette / inspector widths the user last dragged, and whether either is hidden
         ApplyToolbarLabels();   // names beside the toolbar's icons, if Settings asks for them
         BuildLayersPanel();     // the eye and padlock rows; SyncLayersChrome fills their state once a design is up
+        BuildToolStrip();       // the tool strip's names and keys; SyncToolStrip lights the tool in use
 
         // The tab the app opens on, built last because activating it touches the timers and the freeze gate above.
         // Its document arrives with the game data (LoadDataAsync); the session has to exist before that, because
@@ -287,7 +288,8 @@ public partial class MainWindow : Window
         board.Disarmed += ClearPaletteSelection;
         board.ContextMenuRequested += OnContextMenuRequested;
         board.BrushPicked += OnArmFromTile;   // Alt+LMB eyedropper
-        board.ArmedChanged += () => { UpdateBrushText(); UpdateSurfaceBar(); };   // slot A is whatever is in hand, however it got there
+        board.ArmedChanged += () => { UpdateBrushText(); UpdateSurfaceBar(); SyncToolStrip(); };   // slot A is whatever is in hand, however it got there
+        board.ToolChanged += SyncToolStrip;             // the tool strip's hand or pick was picked up or put down
         board.LooseContextMenuRequested += OnLooseContextMenuRequested;
         board.BandFilterRequested += OnBandFilterRequested;
         board.GhostReasonChanged += status => TxtGhost.Text =
@@ -312,6 +314,7 @@ public partial class MainWindow : Window
         board.SymmetryChanged += SyncViewToggles;          // M and the axis drag both land on the toolbar button
         board.LinkToggleRequested += OnLinkToggleRequested;   // connect/disconnect two devices via the command stack
         board.ActiveZoneChanged += UpdateZones;   // reflect which zone (if any) is being painted
+        board.ActiveZoneChanged += SyncToolStrip;  // painting a zone is a click the strip has no button for
         board.EditRefused += OnEditRefused;        // a locked design (#74) says why the click did nothing
 
         var session = new DocumentSession { Board = board, UntitledSlot = FreeUntitledSlot() };
@@ -3534,7 +3537,104 @@ public partial class MainWindow : Window
         SyncViewToggles();
     }
 
-    private void OnEraseToggleClick(object sender, RoutedEventArgs e) => ToggleErase();
+    // ---- the tool strip (#79) ----
+
+    private readonly List<(PlanTool Tool, ToggleButton Button)> _toolButtons = [];
+
+    /// <summary>Give each of the strip's buttons its name, key and line of help from <see cref="PlanTools"/>, so the
+    /// strip, its tests and the docs read the same table. The buttons themselves are in the XAML.</summary>
+    private void BuildToolStrip()
+    {
+        _toolButtons.Clear();
+        foreach (var button in new[] { ToolSelect, ToolPlace, ToolPan, ToolPick, ToolErase })
+        {
+            var tool = Enum.Parse<PlanTool>((string)button.Tag);
+            ToolIcon.SetTitle(button, PlanTools.Title(tool));
+            button.ToolTip = PlanTools.Tip(tool);
+            _toolButtons.Add((tool, button));
+        }
+    }
+
+    /// <summary>Light the button for the tool a left click uses now, and none while a click belongs to a wiring pick
+    /// or zone painting. Assigning IsChecked never raises Click, so this cannot re-enter the strip.</summary>
+    private void SyncToolStrip()
+    {
+        if (_sessions.Count == 0) return;
+        var active = PlanTools.Active(Board.EraseMode, Board.PickTool, Board.PanTool, Board.ArmedPart is not null,
+            otherMode: Board.WirePickArmed || Board.ActiveZoneId is not null);
+        foreach (var (tool, button) in _toolButtons) button.IsChecked = tool == active;
+    }
+
+    /// <summary>The lit tool as the strip shows it, for tests.</summary>
+    internal PlanTool? LitTool
+    {
+        get
+        {
+            foreach (var (tool, button) in _toolButtons)
+                if (button.IsChecked == true) return tool;
+            return null;
+        }
+    }
+
+    private void OnToolStripClick(object sender, RoutedEventArgs e)
+    {
+        if (sender is ToggleButton { Tag: string tag } && Enum.TryParse<PlanTool>(tag, out var tool)) TakeUpTool(tool);
+    }
+
+    /// <summary>
+    /// Take up a tool from the strip. Clicking the lit hand, pick or eraser again puts it down. Select puts down
+    /// everything a click could be busy with, the way Esc does a step at a time. The keys reach the same states by
+    /// their own routes, so the strip only ever has to follow them.
+    /// </summary>
+    internal void TakeUpTool(PlanTool tool)
+    {
+        if (_sessions.Count == 0) return;
+        switch (tool)
+        {
+            case PlanTool.Select:
+                Board.SetEraseMode(false);
+                Board.SetPanTool(false);
+                Board.SetPickTool(false);
+                Board.ClearWirePick();
+                if (Board.ActiveZoneId is not null) Board.SetActiveZone(null);
+                if (Board.ArmedPart is not null) { Board.SetArmed(null); ClearPaletteSelection(); }
+                break;
+            case PlanTool.Place:
+                Board.SetPanTool(false);
+                Board.SetPickTool(false);
+                if (Board.ArmedPart is null) ArmLastPart();
+                break;
+            case PlanTool.Pan:
+                if (Board.PanTool) { Board.SetPanTool(false); break; }
+                // A drag is a pan with this in hand, so a brush has nothing left to do and is put down with it.
+                if (Board.ArmedPart is not null) { Board.SetArmed(null); ClearPaletteSelection(); }
+                Board.SetPanTool(true);
+                break;
+            case PlanTool.Pick:
+                Board.SetPickTool(!Board.PickTool);   // the brush in hand, if any, stays until the pick replaces it
+                break;
+            case PlanTool.Erase:
+                ToggleErase();
+                break;
+        }
+        SyncToolStrip();
+        Board.Focus();
+    }
+
+    /// <summary>Place with nothing in hand: arm the part placed most recently, the top of FAV/REC's Recent list.</summary>
+    private void ArmLastPart()
+    {
+        if (_settings.RecentParts.Select(FindPart).OfType<PartVM>().FirstOrDefault() is not { } vm)
+        {
+            FlashHistoryNote("Pick a part in the palette to place it.");
+            return;
+        }
+        // Through the palette where the part is listed, so the row lights and the brush text follows, the same as a
+        // click on it; straight onto the canvas where a search has filtered it out.
+        foreach (var list in _paletteLists)
+            if (list.Items.Contains(vm)) { list.SelectedItem = vm; break; }
+        if (Board.ArmedPart?.DefName != vm.Part.DefName) Board.SetArmed(vm.Part, vm.IsLoose);
+    }
 
     // ---- zones ----
 
@@ -5403,7 +5503,13 @@ public partial class MainWindow : Window
                 e.Handled = OpenSelectedContents();
                 break;
             case Key.Escape:
-                if (Board.EraseMode) Board.SetEraseMode(false);   // put the eraser down before anything else goes
+                // Put the eraser, or the tool strip's hand or pick, down before anything else goes.
+                if (Board.EraseMode || Board.PanTool || Board.PickTool)
+                {
+                    Board.SetEraseMode(false);
+                    Board.SetPanTool(false);
+                    Board.SetPickTool(false);
+                }
                 else if (Board.WirePickArmed)
                 {
                     // A wiring pick is the most transient thing on screen, so Escape drops it before anything
@@ -7319,13 +7425,13 @@ public partial class MainWindow : Window
         BtnAccess.IsChecked = Board.ShowAccess;
         BtnWire.IsChecked = Board.ShowWire;
         BtnSpawners.IsChecked = Board.ShowSpawners;
-        BtnErase.IsChecked = Board.EraseMode;
         BtnSurface.IsChecked = Board.SurfaceMode;
         BtnForce.IsChecked = Board.ForcePlace;
         ForceBadge.Visibility = Board.ForcePlace ? Visibility.Visible : Visibility.Collapsed;
         // Lit whenever any axis is live. The button cycles four states but only reports two, because "mirroring
         // or not" is what the highlight is for; which axes is answered by the axes drawn on the plan.
         BtnSymmetry.IsChecked = Board.SymMode != SymmetryMode.Off;
+        SyncToolStrip();
     }
 
     /// <summary>
@@ -8689,7 +8795,8 @@ public partial class MainWindow : Window
             ("Select loose items", "Box-select, then filter", "Keep or drop the Loose items row in the filter. Ctrl+click a loose item to add or remove it."),
             ("Flood-select", "Alt + double-click", "On a part: select every touching tile of the same type. Ctrl+Alt+double-click adds it."),
             ("Fill a compartment", "Double-click empty space, then Enter", "Select a sealed compartment, arm a part, then press Enter to fill it (Esc to cancel)."),
-            ("Use as brush", "Alt + click / MMB click", "Arm the part under the cursor at its rotation. Also on the right-click menu."),
+            ("Tool strip", "Left of the plan", "Select, place, pan, pick up a part and erase. The lit button is the tool a click uses. Point at one for its key."),
+            ("Use as brush", "Alt + click / MMB click", "Arm the part under the cursor at its rotation. Also the pick in the tool strip, and on the right-click menu."),
             ("Erase", "X", "Click or drag to delete the topmost part on each tile, as one undo step. Skips hidden and locked layers. RMB or Esc puts it down."),
             ("Layers", "Layers panel", "Hide a layer (eye) or lock it (padlock), bottom left of the plan. Either way clicks, boxes and the eraser pass through it."),
             ("Replace with…", "Ctrl+R", "Swap the selection for a part of the same layer and size. Also on the right-click menu."),
@@ -8717,7 +8824,7 @@ public partial class MainWindow : Window
             ("Copy / paste / duplicate", "Ctrl+C / V / D", "Copy · paste at the cursor · duplicate the selection."),
             ("Cancel", "Esc", "Cancel placement, then clear the selection."),
             ("Pan", "W A S D", "Pan the view. Hold Shift to pan faster."),
-            ("Pan (mouse)", "MMB / Space + drag", "Pan the view by dragging."),
+            ("Pan (mouse)", "MMB / Space + drag", "Pan the view by dragging. The hand in the tool strip makes a plain drag pan."),
             ("Rotate view", "Q / E", "Rotate the view CCW / CW."),
             ("Zoom", "Mouse wheel / + −", "Zoom at the cursor (hold Shift for bigger steps); + and − zoom at the centre."),
             ("Fit to ship", "F", "Fit the view to the whole ship."),
