@@ -309,6 +309,37 @@ public class MainWindowTabsTests
         });
     }
 
+    /// <summary>
+    /// A pan key held across a tab switch (#79). Its key-up reaches the canvas now on screen, so the one left behind
+    /// never heard it and went on panning in the background, still moving when its tab came back. Switching away has
+    /// to let go of it, and so does the window losing activation or the keyboard, for every open design.
+    /// </summary>
+    [Fact]
+    public void A_pan_key_held_across_a_tab_switch_stops_the_canvas_left_behind()
+    {
+        RunSta(() =>
+        {
+            var w = new MainWindow();
+            var first = w.ActiveSession;
+            var second = w.CreateSession();
+
+            first.Board.SetPanKey(System.Windows.Input.Key.W, true);
+            Assert.True(first.Board.IsKeyPanning);
+
+            w.ActivateSession(second);
+            Assert.False(first.Board.IsKeyPanning);
+
+            // The window losing activation or keyboard focus lets go on every design, not only the one on screen.
+            first.Board.SetPanKey(System.Windows.Input.Key.A, true);
+            second.Board.SetPanKey(System.Windows.Input.Key.D, true);
+            w.ReleaseHeldKeys();
+            Assert.False(first.Board.IsKeyPanning);
+            Assert.False(second.Board.IsKeyPanning);
+
+            w.Close();
+        });
+    }
+
     /// <summary>Exactly one canvas on screen, and it is the one belonging to <paramref name="expected"/>.</summary>
     private static void AssertOnlyVisible(Grid host, DocumentSession expected)
     {

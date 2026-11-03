@@ -147,7 +147,10 @@ public partial class MainWindow : Window
 
         PreviewKeyDown += OnPreviewKeyDown;
         PreviewKeyUp += OnPreviewKeyUp;
-        Deactivated += (_, _) => Board.ClearPanKeys();   // a KeyUp we never receive must not leave the view drifting
+        // A key-up we never receive must not leave a view drifting: it goes to another app once the window is
+        // deactivated, and to a menu or popup once one of those has the keyboard (#79).
+        Deactivated += (_, _) => ReleaseHeldKeys();
+        IsKeyboardFocusWithinChanged += (_, e) => { if (e.NewValue is false) ReleaseHeldKeys(); };
         Loaded += async (_, _) => await LoadDataAsync();
         Closing += (_, e) =>
         {
@@ -352,7 +355,13 @@ public partial class MainWindow : Window
 
         // Hidden rather than Collapsed: a background tab keeps being measured and arranged, so its zoom and pan stay
         // meaningful and it is ready to draw the instant it comes back. WPF skips rendering it either way.
-        if (_active is not null) _active.Board.Visibility = Visibility.Hidden;
+        // Its held pan keys go with it. The key-up for a key held across the switch reaches the new tab's canvas,
+        // so the old one went on panning out of sight and was still moving when you came back to it (#79).
+        if (_active is not null)
+        {
+            _active.Board.ClearPanKeys();
+            _active.Board.Visibility = Visibility.Hidden;
+        }
         _active = session;
         session.Board.Visibility = Visibility.Visible;
         TxtCell.Text = "—";   // the tile readout belonged to the canvas the cursor was over, which is no longer this one
@@ -5578,6 +5587,13 @@ public partial class MainWindow : Window
     private void OnPreviewKeyUp(object sender, KeyEventArgs e)
     {
         if (e.Key is Key.W or Key.A or Key.S or Key.D) Board.SetPanKey(e.Key, false);
+    }
+
+    /// <summary>Let go of the pan keys held on every open design, not only the one on screen: a canvas left behind
+    /// by a tab switch can still be holding one.</summary>
+    internal void ReleaseHeldKeys()
+    {
+        foreach (var s in _sessions) s.Board.ClearPanKeys();
     }
 
     // ---- inspector ----

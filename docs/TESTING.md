@@ -100,7 +100,7 @@ Only reach for `TestData.RequireGame()` when the assertion truly needs real game
 | Rendering | — | `RenderSmokeTests` |
 | Light Viz keeping up with edits the scan skips (a spawner, painted wear, a draw-order nudge) | `LightCompositeTests`† | — |
 | The bake window (what the ship cache may cull) | — | `BakeWindowTests`† |
-| Document tabs (session isolation, the strip, close/cycle) | `DocumentSessionTests`, `MainWindowTabsTests`† | — |
+| Document tabs (session isolation, the strip, close/cycle, a pan key held across a switch) | `DocumentSessionTests`, `MainWindowTabsTests`† | — |
 | Auto-save rotation (per path, per untitled slot) | `AutoSaveTests` | — |
 | Session restore and backups (what a launch reopens, the lock, pruning) | `SessionStoreTests` | — |
 | Opening a design that is already open | `DesignPathTests` | — |

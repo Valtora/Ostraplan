@@ -1772,7 +1772,11 @@ public sealed class ShipCanvas : FrameworkElement
         }
     }
 
-    /// <summary>Call on window deactivation - a KeyUp we never see would leave the view drifting.</summary>
+    /// <summary>
+    /// Let go of every held pan key. The window calls this whenever the key-up could go somewhere it cannot hear:
+    /// the window losing activation or keyboard focus, and this canvas going into the background behind another
+    /// tab. Without it the view went on panning until the key was pressed again (#79).
+    /// </summary>
     public void ClearPanKeys()
     {
         if (_panKeys.Count == 0) return;
@@ -1780,8 +1784,20 @@ public sealed class ShipCanvas : FrameworkElement
         CompositionTarget.Rendering -= OnPanFrame;
     }
 
+    /// <summary>True while a held pan key is moving the view.</summary>
+    public bool IsKeyPanning => _panKeys.Count > 0;
+
     private void OnPanFrame(object? sender, EventArgs e)
     {
+        // The backstop behind ClearPanKeys: a key the keyboard no longer reports down is let go here, whoever
+        // received its key-up. A missed key-up then costs at most a frame of drift rather than a pan with no end.
+        _panKeys.RemoveWhere(k => !Keyboard.IsKeyDown(k));
+        if (_panKeys.Count == 0)
+        {
+            CompositionTarget.Rendering -= OnPanFrame;
+            return;
+        }
+
         var now = System.Diagnostics.Stopwatch.GetTimestamp();
         var dt = (now - _lastPanTick) / (double)System.Diagnostics.Stopwatch.Frequency;
         _lastPanTick = now;
