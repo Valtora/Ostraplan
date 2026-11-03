@@ -8708,7 +8708,7 @@ public partial class MainWindow : Window
             ("Light overlay", "L", "Show Light Viz: interior lighting from every fixture. The ▾ menu sets the exterior sun and its angle."),
             ("Walk overlay", "K", "Show WalkViz: tiles crew can reach, coloured by connected area, with unusable fittings ringed red. The ▾ menu sets EVA access and Forbid zones."),
             ("Access overlay", "J", "Point at a fitting to see which tiles crew work it from. Select a part to pin its marks. Amber means reachable only from outside the hull."),
-            ("Surfaces mode", "T", "Ghost everything but walls and floors, and paint skins onto the deck. The Surfaces bar sets the brush, pattern and layers."),
+            ("Surfaces mode", "T", "Ghost everything but walls and floors, and paint skins onto the deck. The Surfaces bar sets the brush and pattern. The Layers panel narrows it to walls or floors."),
             ("Wire overlay", "Toolbar toggle", "Show signal wiring: GREEN for a sensor a device follows, VIOLET for a signal box that switches it."),
             ("Spawners view", "Toolbar toggle", "Show or hide loot spawners. They never appear in play. The ▾ menu sets when and how to draw each spawner's scatter square."),
             ("Wiring things up", "Right-click ▸ Wiring…", "Right-click a device, choose Wiring…, then click its partner, or a connected one to disconnect. A pump with no sensor never runs unless forced on."),
