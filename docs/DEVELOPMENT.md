@@ -204,6 +204,16 @@ The release **title is the bare version** and nothing else (`v0.52.0`, not
    gh release edit vX.Y.Z --notes-file <path>
    ```
 
+   The notes always end with this notice, word for word. It goes on the GitHub release
+   only, not in the CHANGELOG, because the What's New window is read by someone already
+   past the warning.
+
+   ```markdown
+   ---
+
+   **The installer and the app are not code-signed.** Windows SmartScreen will warn the first time you run them (choose **More info**, then **Run anyway**), and other antivirus tools may flag them too. This is normal for unsigned binaries and for open-source projects. The full source is in this repository and free to audit, and if you are unsure, you can ask an AI assistant to review it.
+   ```
+
 Installed and portable copies pick the new version up on their next launch, by
 comparing against `releases.win.json`.
 
@@ -258,4 +268,6 @@ files still starts a second window as before. The running window opens what arri
 dialog is up, including a Windows file dialog, which it detects by its own window being
 disabled.
 
-The build is not code-signed, which is why first run can trip SmartScreen.
+The build is not code-signed, so SmartScreen warns on first run and antivirus tools can
+flag it. The README, the usage guide and every release note say so (see
+[Cutting a release](#cutting-a-release)).

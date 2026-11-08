@@ -18,8 +18,9 @@ short tour of the features people tend to miss.
    [Releases](https://github.com/Valtora/Ostraplan/releases) and run it. It installs
    for your user only (no admin, nothing outside your user profile), makes Start-Menu /
    Desktop shortcuts and an Add/Remove Programs entry, and opens the app. It isn't
-   code-signed yet, so Windows SmartScreen may warn once — click **More info ▸ Run
-   anyway**. Prefer not to install? Download `Ostraplan-win-Portable.zip`, unzip it
+   code-signed, so Windows SmartScreen warns the first time (click **More info ▸ Run
+   anyway**) and antivirus tools may flag it. That is normal for unsigned open-source
+   software. Prefer not to install? Download `Ostraplan-win-Portable.zip`, unzip it
    anywhere and run `Ostraplan.exe`. Or build from source
    (`dotnet run --project src\Ostraplan.App`). On Linux, follow [LINUX.md](LINUX.md)
    to run the portable zip under Wine.

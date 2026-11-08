@@ -14,6 +14,8 @@ It is a sibling tool to [**Ostrasort**](https://github.com/Valtora/Ostrasort), t
 
 Download **`Ostraplan-win-Setup.exe`** from the [Releases](https://github.com/Valtora/Ostraplan/releases) page and run it, or take the portable zip beside it. Updates are automatic. See [docs/usage.md](docs/usage.md#getting-started) for the detail, and [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) to build it yourself.
 
+The installer and the app are not code-signed, so Windows SmartScreen will warn the first time you run them and other antivirus tools may flag them. That is normal for unsigned binaries and for open-source projects. Choose **More info**, then **Run anyway**. The source is all here and free to audit, or ask an AI assistant to review it for you.
+
 **Requirements:** Windows, or Linux under Wine (see [docs/LINUX.md](docs/LINUX.md)), and a **local Ostranauts install**, which Ostraplan reads its data and sprites from at runtime. Without the game it has nothing to read and won't work. **No game assets are distributed with the tool.**
 
 ## Documentation
