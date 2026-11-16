@@ -315,7 +315,8 @@ heading to fold it down when it is in the way.
     leaving you to work out. Any airtight tank counts, and every gas in it counts by
     mass, so an O2 tank is reaction mass too.
   - **The big N2 Tank** (Ostranauts 1.1) feeds only where a gas input sits over its middle
-    3×3; the ring of under-floor tiles around it feeds nothing. The 2×2 Kang "2202" regulator
+    3×3; the ring of under-floor tiles around it feeds nothing, and no regulator reaches the
+    very centre. Select the tank to see its eight ports. The 2×2 Kang "2202" regulator
     does this neatly: the half holding its gas input overhangs the tank, and the other half
     stands on floor beside it. A tank that several gas inputs reach counts once.
   - **More thrusters do not buy more delta-v.** The count cancels out of the game's
@@ -1691,7 +1692,13 @@ Three aids for a ship's electrics, all driven by the game's own power model.
   placing it (and when it's selected): a lightning glyph plus **IN** (blue, where it
   draws power) or **OUT** (green, where a source feeds the network). They rotate with
   the part (staying upright), so you can turn a device to line its plug up with a
-  conduit before you place it.
+  conduit before you place it. A part that takes gas, such as an RCS Intake Regulator
+  or an air pump, also shows an amber **GAS** badge with a bubbles glyph at each gas
+  input: the tank or canister that feeds it has to sit under that badge. A tank or
+  canister shows the other end, a round amber port on each tile a gas input can feed it
+  from: the one tile of an RTA, or the eight tiles round the edge of the big N2 Tank's
+  middle. The game marks neither, and lining a badge up with a port is how you plumb
+  the big N2 Tank.
 - **PowerViz overlay** — the **Power** toolbar button or **P**. It floods power from
   every installed generator and battery out along the conduit network: **live runs**
   animate a cyan flow, **orphaned runs** (conduit that reaches no live source) draw

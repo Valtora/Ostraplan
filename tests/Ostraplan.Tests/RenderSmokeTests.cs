@@ -442,6 +442,8 @@ public class RenderSmokeTests
             Collect(VisualTreeHelper.GetDrawing(canvas), Matrix.Identity, glyphs);
 
             Assert.NotEmpty(glyphs);   // a scene with no text at all would pass this test vacuously
+            if (GasPart(g) is not null)   // the gas-input badges are in the scene, so they are held to the rule too
+                Assert.Contains(glyphs, x => string.Concat(x.Run.GlyphRun.Characters) == "GAS");
             foreach (var (run, at) in glyphs)
             {
                 // Upright means the baseline still runs along +x and the ascent still runs up: no rotation and no
@@ -508,12 +510,25 @@ public class RenderSmokeTests
             canvas.SelectedIds.Add(part.Id);
         }
 
+        // ...and a part with gas inputs draws GAS badges through the same pill.
+        if (GasPart(g) is { } gas)
+        {
+            var part = new Placement { DefName = gas.DefName, X = 4, Y = 2 };
+            new PlaceCommand(part).Do(doc);
+            canvas.SelectedIds.Add(part.Id);
+        }
+
         canvas.Measure(new Size(900, 640));
         canvas.Arrange(new Rect(0, 0, 900, 640));
         canvas.FitContent();
         canvas.UpdateLayout();
         return canvas;
     }
+
+    /// <summary>A buildable part with gas inputs, preferring the RCS regulator the badge was added for.</summary>
+    private static PartDef? GasPart((GameEnv Env, DataIndex Index, Catalog Catalog) g) =>
+        g.Catalog.Parts.FirstOrDefault(pd => pd.DefName == "ItmRCSDistro01")
+        ?? g.Catalog.Parts.FirstOrDefault(pd => pd.GasInputPoints.Count > 0);
 
     [SkippableFact]
     public void Render_the_docked_ghost_beside_the_design()

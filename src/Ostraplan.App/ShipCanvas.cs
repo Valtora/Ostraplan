@@ -180,9 +180,12 @@ public sealed class ShipCanvas : FrameworkElement
     private static readonly Brush ConnOutBrush = Frozen(new SolidColorBrush(Color.FromRgb(0x5A, 0xD8, 0x74)));   // output accent (green)
     private static readonly Pen ConnInPen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0x7C, 0xC2, 0xFF)), 1.4));
     private static readonly Pen ConnOutPen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0x84, 0xE6, 0x99)), 1.4));
+    private static readonly Brush ConnGasBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xFF, 0xB0, 0x40)));   // gas-input accent (amber)
+    private static readonly Pen ConnGasPen = Frozen(new Pen(new SolidColorBrush(Color.FromRgb(0xFF, 0xC8, 0x70)), 1.4));
     private static readonly Brush ConnTextBrush = Frozen(new SolidColorBrush(Color.FromRgb(0xF2, 0xF7, 0xFF)));
     private static readonly Typeface ConnTypeface = new(new FontFamily("Segoe UI"), FontStyles.Normal, FontWeights.Bold, FontStretches.Normal);
     private static readonly Geometry BoltGeometry = MakeBolt();
+    private static readonly Geometry BubblesGeometry = MakeBubbles();
     private static readonly Brush PowerWarnBrush = Frozen(new SolidColorBrush(Color.FromArgb(0x55, 0xE0, 0xB0, 0x40)));   // unconnected-plug warning fill
     private static readonly Pen PowerWarnPen = Frozen(new Pen(new SolidColorBrush(Color.FromArgb(0xE0, 0xF0, 0xB8, 0x40)), 2));
 
@@ -278,6 +281,17 @@ public sealed class ShipCanvas : FrameworkElement
                  new Point(0.82, 0.42), new Point(0.53, 0.42)],
                 true, false);
         }
+        g.Freeze();
+        return g;
+    }
+
+    /// <summary>Three rising bubbles in a unit box (0..1, y-down), for the gas-input badges.</summary>
+    private static Geometry MakeBubbles()
+    {
+        var g = new GeometryGroup();
+        g.Children.Add(new EllipseGeometry(new Point(0.32, 0.70), 0.26, 0.26));
+        g.Children.Add(new EllipseGeometry(new Point(0.72, 0.46), 0.20, 0.20));
+        g.Children.Add(new EllipseGeometry(new Point(0.40, 0.16), 0.14, 0.14));
         g.Freeze();
         return g;
     }
@@ -3624,11 +3638,12 @@ public sealed class ShipCanvas : FrameworkElement
             var (bx, by, bw, bh) = Doc.BodyBounds(p);   // outline the above-floor body (3×3 for the tanks), not the 7×7 socket
             (int X, int Y) offset = _drag == Drag.Move && !Doc.IsLocked(p) ? MoveDeltaFor(p) : (0, 0);
             dc.DrawRectangle(null, SelectPen, CellRect(bx + offset.X, by + offset.Y, bw, bh));
-            // connector nubs on a selected powered part, so its plugs/feed are visible for wiring, and the use
-            // point beside them — the game's build cursor draws all three from the same block (#41)
+            // connector nubs on a selected part, so its power plugs/feed and gas inputs are visible for wiring and
+            // plumbing, and the use point beside them — the game's build cursor draws the power pair and the use
+            // point from the same block (#41)
             if (Doc.Part(p) is { } sel)
             {
-                if (sel.IsPowered) DrawConnectorNubs(dc, sel, p.X + offset.X, p.Y + offset.Y, p.Rot);
+                DrawConnectorNubs(dc, sel, p.X + offset.X, p.Y + offset.Y, p.Rot);
                 // Not while the Access overlay is on: that pass already drew every part's use point, and drawing
                 // this one a second time composited its alpha over itself, so the selected part's mark came out
                 // heavier than every other part's and read as a third kind of mark (#63).
@@ -4699,35 +4714,64 @@ public sealed class ShipCanvas : FrameworkElement
     }
 
     /// <summary>
-    /// Draw a part's power connector nubs at their map points, rotated with the part: input plugs (cyan, where the
-    /// device draws from the conduit) and the output feed (green, where a source pushes into it). <paramref
-    /// name="gx"/>/<paramref name="gy"/> is the rotated footprint's top-left doc cell. Mirrors the game's build-
-    /// cursor connector sprites (CanvasManager's PowerInput/PowerOutput grid sprites) so a part can be oriented to
-    /// meet a conduit before it is placed.
+    /// Draw a part's connector nubs at their map points, rotated with the part: power input plugs (blue, where the
+    /// device draws from the conduit), the power output feed (green, where a source pushes into it), gas inputs
+    /// (amber, where an RCS regulator or a pump takes gas from the tank or canister under it), and on a tank or
+    /// canister its gas ports (the tiles one of those inputs can feed it from, <see cref="GasPorts"/>). <paramref
+    /// name="gx"/>/<paramref name="gy"/> is the rotated footprint's top-left doc cell. The power pair mirrors the
+    /// game's build-cursor connector sprites (CanvasManager's PowerInput/PowerOutput grid sprites) so a part can be
+    /// oriented to meet a conduit before it is placed. The game draws no gas-input mark at all, which left the big
+    /// 1.1.0.0 N2 Tank with no visible way to plumb it: the regulator's input has to land on the tank's middle.
     /// </summary>
     private void DrawConnectorNubs(DrawingContext dc, PartDef part, int gx, int gy, int rot)
     {
-        if (!part.IsPowered) return;
         Point At((double X, double Y) px)
         {
             var (tx, ty) = GridMath.MapPoint(px, part.Item.Width, part.Item.Height, rot);
             return new Point(_pan.X + (gx + tx) * Zoom, _pan.Y + (gy + ty) * Zoom);
         }
-        foreach (var pt in part.PowerInputPoints) DrawConnectorBadge(dc, At(pt), isInput: true);
-        if (part.PowerOutputPoint is { } outPt) DrawConnectorBadge(dc, At(outPt), isInput: false);
+        if (part.IsPowered)
+        {
+            foreach (var pt in part.PowerInputPoints) DrawConnectorBadge(dc, At(pt), ConnInBrush, ConnInPen, "IN", BoltGeometry);
+            if (part.PowerOutputPoint is { } outPt) DrawConnectorBadge(dc, At(outPt), ConnOutBrush, ConnOutPen, "OUT", BoltGeometry);
+        }
+        foreach (var pt in part.GasInputPoints) DrawConnectorBadge(dc, At(pt), ConnGasBrush, ConnGasPen, "GAS", BubblesGeometry);
+        // ...and the other end: on a tank or canister, the tiles one of those inputs can feed it from
+        if (Doc is not null)
+            foreach (var (px, py) in GasPorts.Tiles(part, Doc.Catalog, rot))
+                DrawGasPort(dc, new Point(_pan.X + (gx + px + 0.5) * Zoom, _pan.Y + (gy + py + 0.5) * Zoom));
     }
 
     /// <summary>
-    /// Draw a power-connector badge centred on <paramref name="center"/>: a lightning glyph plus an <b>IN</b>/<b>OUT</b>
-    /// label on a dark pill, blue for an input plug, green for an output feed. Stays upright under view rotation and
-    /// drops the label (bolt only) when the zoom is too small for legible text.
+    /// Draw a gas port on a vessel, centred on a port tile (<see cref="GasPorts"/>): a round amber socket holding
+    /// the bubbles glyph, the counterpart of the GAS badge on a regulator's or pump's gas input. A gas input over
+    /// any of these feeds the vessel. Unlabelled, because a big tank carries eight of them; upright under view
+    /// rotation like the badges.
     /// </summary>
-    private void DrawConnectorBadge(DrawingContext dc, Point center, bool isInput)
+    private void DrawGasPort(DrawingContext dc, Point center)
     {
-        var accent = isInput ? ConnInBrush : ConnOutBrush;
-        var border = isInput ? ConnInPen : ConnOutPen;
-        var label = isInput ? "IN" : "OUT";
+        var r = Math.Clamp(Zoom * 0.3, 6, 12);
+        var rotate = ViewRot != 0;
+        if (rotate) dc.PushTransform(new RotateTransform(-ViewRot, center.X, center.Y));
 
+        dc.DrawEllipse(ConnBgBrush, ConnGasPen, center, r, r);
+        var glyph = r * 1.2;
+        dc.PushTransform(new TranslateTransform(center.X - glyph / 2, center.Y - glyph / 2));
+        dc.PushTransform(new ScaleTransform(glyph, glyph));
+        dc.DrawGeometry(ConnGasBrush, null, BubblesGeometry);
+        dc.Pop();
+        dc.Pop();
+
+        if (rotate) dc.Pop();
+    }
+
+    /// <summary>
+    /// Draw a connector badge centred on <paramref name="center"/>: a glyph plus a short label on a dark pill in the
+    /// connector's accent (a bolt and IN/OUT for power, bubbles and GAS for a gas input). Stays upright under view
+    /// rotation and drops the label (glyph only) when the zoom is too small for legible text.
+    /// </summary>
+    private void DrawConnectorBadge(DrawingContext dc, Point center, Brush accent, Pen border, string label, Geometry glyph)
+    {
         var hgt = Math.Clamp(Zoom * 0.5, 13, 24);
         var pad = hgt * 0.2;
         var bolt = hgt * 0.66;
@@ -4746,11 +4790,11 @@ public sealed class ShipCanvas : FrameworkElement
 
         dc.DrawRoundedRectangle(ConnBgBrush, border, rect, hgt * 0.3, hgt * 0.3);
 
-        // the bolt, scaled uniformly from its unit box into a square slot
+        // the glyph, scaled uniformly from its unit box into a square slot
         var by = center.Y - bolt / 2;
         dc.PushTransform(new TranslateTransform(rect.X + pad, by));
         dc.PushTransform(new ScaleTransform(bolt, bolt));
-        dc.DrawGeometry(accent, null, BoltGeometry);
+        dc.DrawGeometry(accent, null, glyph);
         dc.Pop();
         dc.Pop();
 

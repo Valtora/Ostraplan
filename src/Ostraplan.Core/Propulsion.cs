@@ -496,7 +496,8 @@ public static class Propulsion
             else if (feed.DistrosOn == 0)
                 notes.Add($"No reaction mass: {feed.DistrosPresent} RCS distributor{S(feed.DistrosPresent)} installed but switched off.");
             else if (feed.TankCount == 0)
-                notes.Add("No reaction mass: no airtight tank sits on a distributor's gas input. A canister in a rack doesn't count.");
+                notes.Add("No reaction mass: no airtight tank sits on a distributor's gas input (its GAS badges when "
+                          + "selected). A canister in a rack doesn't count.");
             else
                 notes.Add($"No reaction mass: {feed.TankCount} tank{S(feed.TankCount)} plumbed in, all empty.");
         }

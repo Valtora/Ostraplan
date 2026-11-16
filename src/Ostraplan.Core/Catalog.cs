@@ -212,6 +212,14 @@ public sealed record PartDef(
     /// input point or an output point) — i.e. it should show connector nubs and take part in PowerViz.</summary>
     public bool IsPowered => PowerInputPoints.Count > 0 || PowerOutputPoint is not null;
 
+    /// <summary>Where this part takes gas from: every map point whose name contains <c>GasInput</c>, the same test
+    /// <c>Ship.GetRCSRemain</c> and <c>ShipStatus.GetO2UnderPump</c> use (<c>IndexOf("GasInput")</c>). An RCS
+    /// regulator's points are where its fuel tanks have to sit, and an air pump's is where its canister goes.
+    /// Drawn as gas-input badges beside the power ones, because the game marks them nowhere.</summary>
+    public IReadOnlyList<(double X, double Y)> GasInputPoints =>
+        [.. MapPoints.Where(kv => kv.Key.Contains("GasInput", StringComparison.Ordinal))
+            .OrderBy(kv => kv.Key, StringComparer.Ordinal).Select(kv => kv.Value)];
+
     /// <summary>The power-info this part's condowner names through <c>jsonPI</c>, or null when it names none (or
     /// one this install does not define). What <see cref="PowerBudget"/> reads the draw from.</summary>
     public PowerInfoDef? PowerInfo { get; init; }

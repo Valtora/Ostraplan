@@ -202,7 +202,7 @@ public static class Tips
             TipTag.Reports),
         T("delta-v", "More thrusters buy acceleration, not delta-v. Delta-v comes from reaction mass, and from thrusters with a faster exhaust.",
             TipTag.Reports),
-        T("reaction-mass", "Only tanks on an RCS distributor's gas inputs count as reaction mass. A canister in a rack feeds nothing.",
+        T("reaction-mass", "Only tanks under an RCS regulator's GAS badges count as reaction mass. Select the regulator to see them.",
             TipTag.Reports, TipTag.Devices),
         T("diagnostics", "Diagnostics runs the nav console's checklist against the plan, so you find out you forgot the antenna before you build.",
             TipTag.Reports),

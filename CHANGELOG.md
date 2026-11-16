@@ -11,6 +11,11 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **Gas inputs, and the tank ports they feed from, show on the plan while a part is placed or selected.**
+  - RCS Intake Regulators and air pumps show an amber GAS badge at each gas input.
+  - Tanks and canisters show round amber ports where a GAS badge can feed them, so a regulator lines up with the big N2 Tank.
+
 ### Fixed
 - **RCS acceleration, delta-v and the Maneuver grade follow each thruster's exhaust speed, as in Ostranauts 1.1.**
   - The Chimera goes twice as far on a tank as the S-Lift, and a mix of thrusters averages them.
