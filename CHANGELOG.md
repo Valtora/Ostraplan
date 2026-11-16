@@ -9,7 +9,7 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
-## [Unreleased]
+## [1.38.0] 2026-11-16, Ostranauts 1.1
 
 ### Added
 - **Gas inputs, and the tank ports they feed from, show on the plan while a part is placed or selected.**
