@@ -316,6 +316,11 @@ heading to fold it down when it is in the way.
     mass, so an O2 tank is reaction mass too.
   - **More thrusters do not buy more delta-v.** The count cancels out of the game's
     own maths: delta-v is reaction mass over ship mass, and thrusters buy acceleration.
+  - **A faster exhaust buys both.** From Ostranauts 1.1 each RCS thruster has an exhaust
+    speed, and the average across the ship's thrusters scales acceleration, delta-v and the
+    Maneuver grade together. The Miura "Chimera" exhausts at twice the S-Lift's speed, so it
+    goes twice as far on the same tank; the Washburne at 0.9 trades range for its higher
+    thrust. The report says when the average is not the standard one.
   - Torch thrust and burn time both scale with the reactor's pellet ceiling, so a laser
     array with no capacitor driving it, or a pellet feeder with no fuel regulator, adds
     nothing. The report names whichever side is capping you.

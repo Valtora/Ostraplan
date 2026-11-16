@@ -341,7 +341,7 @@ public sealed class RatingReportWindow : ReportWindow
         body.Children.Add(slots);
         var rating = report.Rating;
         var maneuverDetail = rating.RcsThrust > 0
-            ? $"Maneuver is mass ÷ RCS thrust = {rating.Mass / rating.RcsThrust:#,0.#} " +
+            ? $"Maneuver is mass ÷ RCS thrust = {rating.ManeuverRatio:#,0.#} " +
               "(A under 300, B 500, C 750, D 1,500)."
             : "Maneuver is O: no RCS thrusters installed.";   // mass has its own slot above
         body.Children.Add(new TextBlock
@@ -519,7 +519,10 @@ public sealed class RatingReportWindow : ReportWindow
                     thrusters += $" Reaction mass {p.RcsReactionMass:#,0.#} of {p.RcsReactionMassMax:#,0.#} kg;"
                         + $" brim-full that is {Speed(p.RcsDeltaVFull)}.";
                 lines.Add(thrusters);
-                lines.Add("More thrusters add acceleration, not delta-v.");
+                lines.Add(p.RcsExhaustFactor != 1
+                    ? $"More thrusters add acceleration, not delta-v. These exhaust at {p.RcsExhaustFactor:0.##}× the "
+                      + "standard speed on average, which scales both."
+                    : "More thrusters add acceleration, not delta-v.");
             }
             if (p.HasTorchFigures)
                 lines.Add($"Torch: {p.TorchThrustNewtons / 1000:#,0} kN at full cycle."

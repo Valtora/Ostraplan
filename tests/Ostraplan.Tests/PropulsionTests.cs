@@ -33,8 +33,9 @@ public class PropulsionTests(ITestOutputHelper output)
     /// checked without a ship.</summary>
     private static PropulsionEstimate Est(
         double partsMass = 0, double rcsThrust = 0, double reactionMass = 0, double reactionMassMax = 0,
-        double ve = 0, double pelletMax = 0, double d2o = 0, double he3 = 0, double extra = 0) =>
-        new(partsMass, 0, extra, rcsThrust, 0, 0, 0, 0, reactionMass, reactionMassMax,
+        double ve = 0, double pelletMax = 0, double d2o = 0, double he3 = 0, double extra = 0,
+        int clustersOn = 0, double exhaustSum = 0) =>
+        new(partsMass, 0, extra, rcsThrust, 0, clustersOn, exhaustSum, 0, 0, 0, reactionMass, reactionMassMax,
             ve > 0, ve, pelletMax, 0, 0, 0, 0, d2o, he3, [], []);
 
     // ---- constants ----
@@ -95,6 +96,31 @@ public class PropulsionTests(ITestOutputHelper output)
         Assert.Equal(few.RcsDeltaV, many.RcsDeltaV, 6);
         Assert.Equal(10 * few.RcsAccelG, many.RcsAccelG, 6);   // ...while acceleration scales exactly with count
         _out.WriteLine($"2 clusters: {few.RcsAccelG:0.000} G · 20 clusters: {many.RcsAccelG:0.000} G · both {few.RcsDeltaV:0.0} m/s");
+    }
+
+    /// <summary>
+    /// From 1.1.0.0 every RCS acceleration is multiplied by the switched-on clusters' mean
+    /// <c>StatThrustExhaustV</c> (<c>Ship.RCSAccelMax</c>), while the burn rate stays <c>0.728 × fRCSCount</c>. The
+    /// factor therefore reaches delta-v too: a ship of Chimeras (2.0) goes twice as far on the same tank as a ship
+    /// of S-Lifts (1.0) with the same thrust strength.
+    /// </summary>
+    [Fact]
+    public void Exhaust_factor_scales_acceleration_and_delta_v()
+    {
+        var lifts = Est(partsMass: 50_000, rcsThrust: 4, reactionMass: 500, clustersOn: 4, exhaustSum: 4);
+        var chimeras = Est(partsMass: 50_000, rcsThrust: 4, reactionMass: 500, clustersOn: 4, exhaustSum: 8);
+
+        Assert.Equal(1, lifts.RcsExhaustFactor);
+        Assert.Equal(2, chimeras.RcsExhaustFactor);
+        Assert.Equal(2 * lifts.RcsAccelG, chimeras.RcsAccelG, 9);
+        Assert.Equal(2 * lifts.RcsDeltaV, chimeras.RcsDeltaV, 9);
+
+        // the mean is per cluster, not per unit of strength: one S-Lift (1.0) beside one Chimera (2.0) is 1.5
+        Assert.Equal(1.5, Est(rcsThrust: 2.25, clustersOn: 2, exhaustSum: 3).RcsExhaustFactor, 9);
+
+        // nothing to average leaves the acceleration unscaled, which is also how the game reads a pre-1.1 save
+        Assert.Equal(1, Est(rcsThrust: 1).RcsExhaustFactor);
+        Assert.Equal(57293.6003858369, Est(rcsThrust: 1, clustersOn: 1, exhaustSum: 1).RcsThrustNewtons, 6);
     }
 
     /// <summary>Extra haul mass scales acceleration and delta-v <b>once</b>. The nav console's Reserves module
@@ -371,6 +397,42 @@ public class PropulsionTests(ITestOutputHelper output)
 
         Assert.Equal(rating.RcsThrust, p.RcsThrust, 9);
         Assert.Equal(3, p.RcsClustersPresent);
+    }
+
+    /// <summary>
+    /// The 1.1.0.0 clusters against their real defs: strength and exhaust both come through the catalog, a mixed
+    /// fit averages the exhaust per cluster the way <c>Ship.AddICO</c> sums it, and the Maneuver grade divides by
+    /// the same scaled thrust the propulsion figures use.
+    /// </summary>
+    [SkippableFact]
+    public void New_clusters_carry_their_exhaust_factor()
+    {
+        var g = TestData.RequireGame();
+        const string chimera = "ItmRCSCluster04";
+        RequireDefs(g.Catalog, Cluster, chimera);
+
+        var liftDef = g.Catalog.ByDefName[Cluster].StartingCondValues;
+        var chimeraDef = g.Catalog.ByDefName[chimera].StartingCondValues;
+        var chimeraExhaust = chimeraDef.GetValueOrDefault("StatThrustExhaustV", 1);
+        Skip.If(chimeraExhaust == 1, $"{chimera} declares no exhaust factor of its own in this install");
+
+        var doc = new ShipDocument(g.Catalog);
+        Place(doc, Cluster, 10, 10);
+        Place(doc, chimera, 14, 10);
+        var grid = ShipGrid.FromDocument(doc, g.Catalog);
+        var p = Propulsion.Estimate(doc, grid, g.Catalog);
+        var rating = Rating.Calculate(grid, RoomBuilder.Build(grid), g.Catalog);
+
+        var exhaust = liftDef.GetValueOrDefault("StatThrustExhaustV", 1) + chimeraExhaust;
+        _out.WriteLine($"S-Lift + Chimera: strength {p.RcsThrust}, exhaust factor {p.RcsExhaustFactor:0.###}, "
+                       + $"{p.RcsThrustNewtons / 1000:0.0} kN");
+        Assert.Equal(2, p.RcsClustersOn);
+        Assert.Equal(liftDef.GetValueOrDefault("StatThrustStrength", 1) + chimeraDef.GetValueOrDefault("StatThrustStrength", 1),
+            p.RcsThrust, 9);
+        Assert.Equal(exhaust, p.RcsExhaustSum, 9);
+        Assert.Equal(exhaust / 2, p.RcsExhaustFactor, 9);
+        Assert.Equal(p.RcsExhaustFactor, rating.RcsExhaust, 9);
+        Assert.Equal(rating.Mass / (p.RcsThrust * p.RcsExhaustFactor), rating.ManeuverRatio, 9);
     }
 
     /// <summary>

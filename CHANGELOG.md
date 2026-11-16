@@ -9,6 +9,13 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
+## [Unreleased]
+
+### Fixed
+- **RCS acceleration, delta-v and the Maneuver grade follow each thruster's exhaust speed, as in Ostranauts 1.1.**
+  - The Chimera goes twice as far on a tank as the S-Lift, and a mix of thrusters averages them.
+  - Exported ships carry the figures Ostranauts 1.1 needs to fly them before they fully load.
+
 ## [1.37.0] 2026-11-03, tool strip
 
 ### Added

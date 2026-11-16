@@ -570,7 +570,9 @@ public static class ShipExport
         //   * fShallowMass is what Ship.Mass returns until the ship is fully loaded, so a zero mass gives the
         //     flight model a divide-by-zero and shows "Mass: 0 (kg)" on the chargen/broker spec sheet;
         //   * fRCSCount/nRCSDistroCount together GATE RCS flight (Ship.Maneuver bails outright when either is
-        //     zero), so a shallow AI or vendor-docked copy could not manoeuvre at all;
+        //     zero), so a shallow AI or vendor-docked copy could not manoeuvre at all. From 1.1.0.0 the same guard
+        //     also refuses a zero fRCSExhaustV, and RCSAccelMax scales by fRCSExhaustV / nRCSCountRaw, so both
+        //     are baked beside the count the way Ship.GetJSON writes them (an older build skips the two fields);
         //   * the torch block is what "Torch Drive: Yes/No" reads.
         // Every figure here is the one the game's own accessor would produce, mapped in Propulsion.
         var prop = Propulsion.Estimate(doc, grid, catalog);
@@ -617,6 +619,8 @@ public static class ShipExport
             FShallowRCSRemass = prop.RcsReactionMass,        // Ship.GetRCSRemain
             FShallowRCSRemassMax = prop.RcsReactionMassMax,  // Ship.GetRCSMax
             NRCSCount = prop.RcsThrust,                      // Ship.fRCSCount (Σ StatThrustStrength, not a headcount)
+            NRCSCountRaw = prop.RcsClustersOn,               // Ship.nRCSCountRaw (the headcount)
+            NRCSExhaustV = prop.RcsExhaustSum,               // Ship.fRCSExhaustV (Σ StatThrustExhaustV)
             NRCSDistroCount = prop.RcsDistrosPresent,        // counted on install, independent of power state
             // A template's reactor is unlit, but every core torch ship still ships bFusionTorch true with its
             // thrust/pellet figures baked: shallow, the block IS the ship's torch capability, and FusionIC
@@ -1156,6 +1160,12 @@ public sealed class ExportedShip
     [JsonPropertyName("fEpochNextGrav")] public double FEpochNextGrav { get; set; }
     [JsonPropertyName("fBreakInMultiplier")] public double FBreakInMultiplier { get; set; }
     [JsonPropertyName("nRCSCount")] public double NRCSCount { get; set; }
+
+    /// <summary>The switched-on RCS cluster headcount, and below it their summed exhaust factor: the 1.1.0.0
+    /// fields <c>RCSAccelMax</c> scales by and <c>Ship.Maneuver</c> refuses to fly without. LitJson skips a field
+    /// its type lacks, so a build before 1.1.0.0 reads the file as if neither were there.</summary>
+    [JsonPropertyName("nRCSCountRaw")] public int NRCSCountRaw { get; set; }
+    [JsonPropertyName("nRCSExhaustV")] public double NRCSExhaustV { get; set; }
     [JsonPropertyName("fShallowRotorStrength")] public double FShallowRotorStrength { get; set; }
     [JsonPropertyName("nRCSDistroCount")] public int NRCSDistroCount { get; set; }
     [JsonPropertyName("fAeroCoefficient")] public double FAeroCoefficient { get; set; }

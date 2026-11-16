@@ -46,11 +46,38 @@ public class ShipShallowStateTests
         Assert.True(ship.FShallowMass > 0);   // a hull of walls and floor plates is never massless
         Assert.Equal(prop.PartsMass + prop.LooseMass, ship.FShallowMass, 6);
         Assert.Equal(prop.RcsThrust, ship.NRCSCount, 6);
+        Assert.Equal(prop.RcsClustersOn, ship.NRCSCountRaw);
+        Assert.Equal(prop.RcsExhaustSum, ship.NRCSExhaustV, 6);
         Assert.Equal(prop.RcsDistrosPresent, ship.NRCSDistroCount);
         Assert.Equal(prop.RcsReactionMass, ship.FShallowRCSRemass, 6);
         Assert.Equal(prop.RcsReactionMassMax, ship.FShallowRCSRemassMax, 6);
         Assert.Equal(prop.HasTorchFigures, ship.BFusionTorch);
         Assert.Equal(prop.PelletMax, ship.FFusionPelletMax, 6);
+    }
+
+    /// <summary>
+    /// From 1.1.0.0 <c>Ship.Maneuver</c> also refuses RCS flight on a zero <c>fRCSExhaustV</c>, and
+    /// <c>RCSAccelMax</c> scales by <c>fRCSExhaustV / nRCSCountRaw</c>, so a shallow copy needs both baked beside
+    /// <c>nRCSCount</c> exactly as <c>Ship.GetJSON</c> writes them.
+    /// </summary>
+    [SkippableFact]
+    public void Export_bakes_the_rcs_headcount_and_exhaust_sum()
+    {
+        var g = TestData.RequireGame();
+        if (!Ready(g)) return;
+        const string chimera = "ItmRCSCluster04";
+        var cluster = g.Catalog.ByDefName.ContainsKey(chimera) ? chimera : "ItmRCSCluster01";
+        Skip.IfNot(g.Catalog.ByDefName.ContainsKey(cluster), "no RCS cluster in this install");
+
+        var doc = BuildHull(g.Catalog);
+        new PlaceCommand(new Placement { DefName = cluster, X = 10, Y = 3 }).Do(doc);
+        new PlaceCommand(new Placement { DefName = cluster, X = 14, Y = 3 }).Do(doc);
+        var (ship, _, _) = ShipExport.Build(doc, g.Catalog, RoomCertifier.LoadSpecs(g.Index), "Shallow Test");
+
+        var each = g.Catalog.ByDefName[cluster].StartingCondValues.GetValueOrDefault("StatThrustExhaustV", 1);
+        Assert.Equal(2, ship.NRCSCountRaw);
+        Assert.Equal(2 * each, ship.NRCSExhaustV, 6);
+        Assert.True(ship.NRCSCount > 0);
     }
 
     [SkippableFact]

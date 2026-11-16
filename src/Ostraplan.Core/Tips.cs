@@ -200,7 +200,7 @@ public static class Tips
             TipTag.Reports),
         T("dead-weight", "Dead weight to haul, beside the Ship Rating's propulsion figures, models a ship under tow or a hold of salvage.",
             TipTag.Reports),
-        T("delta-v", "More thrusters buy acceleration, not delta-v. Delta-v is reaction mass over ship mass.",
+        T("delta-v", "More thrusters buy acceleration, not delta-v. Delta-v comes from reaction mass, and from thrusters with a faster exhaust.",
             TipTag.Reports),
         T("reaction-mass", "Only tanks on an RCS distributor's gas inputs count as reaction mass. A canister in a rack feeds nothing.",
             TipTag.Reports, TipTag.Devices),

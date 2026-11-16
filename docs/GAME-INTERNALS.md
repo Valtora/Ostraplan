@@ -1111,7 +1111,7 @@ Six slots; the cutoffs are hardcoded in the DLL (unit-pinned, version-sensitive)
 | 0 | Epoch | Timestamp at rating time |
 | 1 | Condition A–E | Mean of `clamp01(1 − StatDamage/StatDamageMax)` over installed parts. Cutoffs: ≤0.5 E, ≤0.8 D, ≤0.95 C, ≤0.99 B, else A. A pristine ship grades **A** |
 | 2 | Room count | Number of rooms whose matched spec ≠ `Blank` |
-| 3 | Maneuver | `mass / fRCSCount`, where `fRCSCount = Σ StatThrustStrength` over installed RCS clusters (`TIsRCSClusterAudioEmitter`) and `mass = Σ StatMass`. 0 RCS → `O`; else `<300 A, <500 B, <750 C, <1500 D, else E` |
+| 3 | Maneuver | `mass / (fRCSCount × fRCSExhaustV / count)`, where `fRCSCount = Σ StatThrustStrength` and `fRCSExhaustV = Σ StatThrustExhaustV` over installed RCS clusters (`TIsRCSClusterAudioEmitter`), each defaulting to 1 when undeclared, and `mass = Σ StatMass`. The exhaust term is from 1.1.0.0 and is 1 for S-Lifts. 0 RCS → `O`; else `<300 A, <500 B, <750 C, <1500 D, else E` |
 | 4 | Size class | Grid area `nCols·nRows`: `<250 Small, <900 Medium, <1600 Lunamax, <2300 Ceresmax, <3000 Titanmax, <3700 Very Large, else Ultra Large` |
 | 5 | Unused | Pass-through |
 
@@ -2047,6 +2047,8 @@ actually has that system.
 | `fShallowMass` | `Ship.Mass` (Σ `StatMass` over top-level COs, no `IsInstalled` filter) | `Ship.Mass` while shallow (+ cargo mass); "Mass: (kg)" on the chargen/kiosk spec sheet |
 | `fShallowRCSRemass` / `…Max` | `GetRCSRemain()` / `GetRCSMax()` | the AI fuel-request path |
 | `nRCSCount` | `fRCSCount` (Σ `StatThrustStrength`, **not** a headcount) | `Ship.Maneuver`; "RCS Count" on the spec sheet |
+| `nRCSCountRaw` (1.1.0.0) | `nRCSCountRaw` (the switched-on cluster headcount) | `RCSAccelMax`'s exhaust factor |
+| `nRCSExhaustV` (1.1.0.0) | `fRCSExhaustV` (Σ `StatThrustExhaustV`, 1 per cluster without one) | `RCSAccelMax`'s exhaust factor; `Ship.Maneuver` |
 | `nRCSDistroCount` | counted on distributor install, ignoring power state | `Ship.Maneuver` |
 | `bFusionTorch` | `bFusionReactorRunning` | "Torch Drive: Yes/No"; AI interregional routing; sensor signature |
 | `fFusionThrustMax` / `fFusionPelletMax` / `fShallowFusionRemain` | `FusionIC` | the nav console's course plot and reactant clock |
@@ -2054,7 +2056,10 @@ actually has that system.
 Two of these are load-bearing rather than cosmetic. `Ship.Mass` returns `fShallowMass`
 verbatim while shallow, so a zero divides through every acceleration the flight model
 computes; and `Ship.Maneuver` **returns without thrusting** when `fRCSCount == 0` or
-`nRCSDistroCount == 0`, so a shallow ship with a zeroed pair cannot manoeuvre at all.
+`nRCSDistroCount == 0` (and, from 1.1.0.0, `fRCSExhaustV == 0`), so a shallow ship with a zeroed
+pair cannot manoeuvre at all. Of the 239 core templates in 1.1.0.0, 37 carry `nRCSExhaustV` and 32
+`nRCSCountRaw`; LitJson's reader skips a field its type lacks, so writing them costs an older build
+nothing.
 
 A template's reactor is unlit, yet every core torch ship still ships `bFusionTorch: true`
 with its thrust and pellet figures baked. Shallow, this block **is** the ship's stated
@@ -2934,22 +2939,31 @@ UI exposes them, which is why a planner has to recompute the lot.
 ### RCS
 
 ```
-RCSAccelMax        = 100f * (0.728f * fRCSCount) * 5.26077E-09f / massIncludingDockedShips   [AU/s²]
+RCSAccelMax        = 100f * (0.728f * fRCSCount) * 5.26077E-09f
+                     * (fRCSExhaustV / nRCSCountRaw)          // 1.1.0.0; skipped when either is 0
+                     / massIncludingDockedShips                                               [AU/s²]
 DeltaVRemainingRCS = RCSAccelMax * GetRCSRemain() / 0.7279999852180481 / fRCSCount           [AU/s]
 ```
 
 `fRCSCount` is `Σ StatThrustStrength` over installed, non-`IsOff` clusters
 (`TIsRCSClusterAudioEmitter`) — the **same** number behind the Maneuver grade (§10).
+`fRCSExhaustV` sums `StatThrustExhaustV` over the same clusters and `nRCSCountRaw` counts them,
+each cluster without the stat adding 1 (`Ship.AddICO`), so the factor is their **mean** exhaust.
+The burn rate in `Ship.Maneuver` stays `0.728 × fRCSCount × throttle`, untouched by the factor.
 Accelerations render as G with `/ 6.6845869117759804E-12 / 9.81`; distances render
 through `MathUtils.GetDistUnits`, which takes AU.
 
+The 1.1.0.0 clusters (strength / exhaust): S-Lift `ItmRCSCluster01` 1.0 / 1.0, Washburne
+`…02` 1.5 / 0.9, CL-03 `…03` 1.75 / 1.25, Chimera `…04` 1.25 / 2.0.
+
 Collapsed, with mass in kg:
 
-- **thrust** = `57 293.6 N` per unit of `StatThrustStrength` (each core cluster declares 1.0)
-- **delta-v** = `78 700.0 m/s × reactionMass / mass`
+- **thrust** = `57 293.6 N` per unit of `StatThrustStrength`, times the mean exhaust factor
+- **delta-v** = `78 700.0 m/s × mean exhaust factor × reactionMass / mass`
 
-**The thruster count cancels out of delta-v.** Fitting more clusters buys acceleration
-and no range whatever. And gas mass never enters `StatMass` (`GasContainer` tracks
+**The thruster count cancels out of delta-v.** Fitting more clusters of a kind buys
+acceleration and no range whatever. The exhaust factor does not cancel, so a faster-exhaust
+cluster buys both, and mixing kinds averages them per cluster, not per unit of thrust. And gas mass never enters `StatMass` (`GasContainer` tracks
 `fGasMass` separately and writes no cond), so burning reaction mass does not lighten the
 ship: the model is linear, not a rocket equation.
 

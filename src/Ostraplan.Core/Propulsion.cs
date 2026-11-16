@@ -19,6 +19,11 @@ namespace Ostraplan.Core;
 /// (<c>TIsRCSClusterAudioEmitter</c>) — the game's <c>fRCSCount</c>, and the same figure behind the Maneuver grade.</param>
 /// <param name="RcsClustersPresent">Installed RCS clusters ignoring their power state, so an all-Off design
 /// can be told apart from one with no thrusters at all.</param>
+/// <param name="RcsClustersOn">Installed, switched-on RCS clusters: the game's <c>nRCSCountRaw</c>, a headcount
+/// (<c>aRCSThrusters.Count</c>) rather than a strength.</param>
+/// <param name="RcsExhaustSum">Σ <c>StatThrustExhaustV</c> over the same clusters, 1 for a cluster that declares
+/// none: the game's <c>fRCSExhaustV</c> (from 1.1.0.0). Divided by <paramref name="RcsClustersOn"/> it is the
+/// mean exhaust factor every RCS acceleration is multiplied by.</param>
 /// <param name="RcsDistrosOn">Installed, switched-on RCS distributors (<c>TIsRCSDistroInstalledOn</c>) — the
 /// parts whose <c>GasInput</c> points define what is actually plumbed in.</param>
 /// <param name="RcsDistrosPresent">Installed RCS distributors ignoring their power state.</param>
@@ -34,7 +39,7 @@ namespace Ostraplan.Core;
 /// <param name="ReactantHe3">Σ <c>StatSolidHe3</c> over the ship's <c>ItmCanisterLHe02</c> tanks.</param>
 public sealed record PropulsionEstimate(
     double PartsMass, double LooseMass, double ExtraMass,
-    double RcsThrust, int RcsClustersPresent,
+    double RcsThrust, int RcsClustersPresent, int RcsClustersOn, double RcsExhaustSum,
     int RcsDistrosOn, int RcsDistrosPresent, int RcsTankCount,
     double RcsReactionMass, double RcsReactionMassMax,
     bool HasReactor, double FusionVe, double PelletMax,
@@ -50,18 +55,25 @@ public sealed record PropulsionEstimate(
     /// can follow a slider without re-analysing the ship.</summary>
     public PropulsionEstimate WithExtraMass(double kg) => this with { ExtraMass = Math.Max(0, kg) };
 
+    /// <summary>The mean exhaust factor of the switched-on clusters, <c>fRCSExhaustV / nRCSCountRaw</c>: 1 for the
+    /// S-Lift and for any cluster that declares no <c>StatThrustExhaustV</c>, 2 for a ship of Chimeras. The game
+    /// applies it only when both numbers are non-zero, and leaves the acceleration unscaled otherwise.</summary>
+    public double RcsExhaustFactor => RcsClustersOn > 0 && RcsExhaustSum != 0 ? RcsExhaustSum / RcsClustersOn : 1;
+
     /// <summary>Total RCS thrust in newtons. Each unit of <see cref="RcsThrust"/> is ~57.3 kN
-    /// (the game's <c>100 × 0.728 × 5.26077e-9</c> AU/s² per unit mass, converted out of AU).</summary>
+    /// (the game's <c>100 × 0.728 × 5.26077e-9</c> AU/s² per unit mass, converted out of AU), scaled by
+    /// <see cref="RcsExhaustFactor"/> the way <c>Ship.RCSAccelMax</c> scales it.</summary>
     public double RcsThrustNewtons => Propulsion.RcsAccelScale * (Propulsion.RcsMassFlow * RcsThrust)
-                                      * Propulsion.RcsAccelConst / Propulsion.AuPerMetre;
+                                      * Propulsion.RcsAccelConst / Propulsion.AuPerMetre * RcsExhaustFactor;
 
     /// <summary>Peak RCS acceleration in G — <c>Ship.RCSAccelMax</c> rendered the way the nav console
     /// renders an acceleration (<c>/ 6.684587e-12 / 9.81</c>).</summary>
     public double RcsAccelG => Mass > 0 ? RcsThrustNewtons / Mass / Propulsion.StandardGravity : 0;
 
     /// <summary>Delta-v available on the reaction mass aboard, m/s — <c>Ship.DeltaVRemainingRCS</c>.
-    /// The thruster count cancels out of the game's expression, so delta-v is set purely by reaction
-    /// mass over ship mass: more thrusters buy acceleration, never range.</summary>
+    /// The thruster count cancels out of the game's expression, so delta-v is set by reaction mass over ship
+    /// mass and the clusters' mean exhaust factor: more thrusters of a kind buy acceleration, never range, but
+    /// a faster-exhaust kind buys both.</summary>
     public double RcsDeltaV => DeltaVFor(RcsReactionMass);
 
     /// <summary>Delta-v with every feed tank brim-full of N2 — <c>Ship.DeltaVMaxRCS</c>.</summary>
@@ -118,17 +130,20 @@ public sealed record PropulsionEstimate(
 }
 
 /// <summary>
-/// Ports the game's propulsion maths (verified 1.0.0.7): the RCS acceleration and delta-v the nav
-/// console's Reserves module shows, and the torch acceleration and reactant clock its Course Plot and
-/// Torch Drive modules show. None of it is surfaced anywhere but that one console in game, which is why
+/// Ports the game's propulsion maths (verified 1.0.0.7; the RCS exhaust factor 1.1.0.0): the RCS acceleration
+/// and delta-v the nav console's Reserves module shows, and the torch acceleration and reactant clock its Course
+/// Plot and Torch Drive modules show. None of it is surfaced anywhere but that one console in game, which is why
 /// a planner has to recompute it.
 ///
 /// <para><b>RCS</b> (<c>Ship.RCSAccelMax</c> / <c>DeltaVRemainingRCS</c>). Thrust is
-/// <c>100 × (0.728 × fRCSCount) × 5.26077e-9</c> AU/s² per unit mass, where <c>fRCSCount</c> sums
-/// <c>StatThrustStrength</c> over installed, switched-on clusters. Delta-v divides that by
-/// <c>0.728 × fRCSCount</c> again, so the count cancels and delta-v reduces to a fixed exhaust velocity
-/// (~78.7 km/s) times reaction mass over ship mass. Gas mass never enters <c>StatMass</c>, so burning
-/// reaction mass does not lighten the ship: the game's delta-v is linear, not a rocket equation.</para>
+/// <c>100 × (0.728 × fRCSCount) × 5.26077e-9 × (fRCSExhaustV / nRCSCountRaw)</c> AU/s² per unit mass, where
+/// <c>fRCSCount</c> sums <c>StatThrustStrength</c> over installed, switched-on clusters and the last factor is
+/// their mean <c>StatThrustExhaustV</c> (1.1.0.0 added it; a cluster without the stat counts 1, so a design of
+/// S-Lifts reads exactly as it did before). Delta-v divides that by <c>0.728 × fRCSCount</c> again, so the
+/// count cancels and delta-v reduces to ~78.7 km/s times the mean exhaust factor times reaction mass over ship
+/// mass. Burn rate is <c>0.728 × fRCSCount</c> whatever the exhaust, which is what makes a faster-exhaust
+/// cluster go further on the same tank. Gas mass never enters <c>StatMass</c>, so burning reaction mass does
+/// not lighten the ship: the game's delta-v is linear, not a rocket equation.</para>
 ///
 /// <para><b>Reaction mass</b> (<c>Ship.GetRCSRemain</c> / <c>GetRCSMax</c>) is not "the N2 aboard". It is the
 /// gas in containers found at an installed, switched-on RCS <b>distributor</b>'s <c>GasInput</c> map points.
@@ -249,13 +264,13 @@ public static class Propulsion
             if (catalog.Lookup(loose.DefName) is { } def)
                 looseMass += def.StartingCondValues.GetValueOrDefault("StatMass") * Math.Max(1, loose.Quantity);
 
-        var (rcsThrust, clustersOn, clustersPresent) = MeasureThrusters(grid, catalog);
+        var (rcsThrust, rcsExhaust, clustersOn, clustersPresent) = MeasureThrusters(grid, catalog);
         var feed = MeasureFeed(grid, catalog);
         var torch = MeasureTorch(grid, catalog);
 
         return new PropulsionEstimate(
             partsMass, looseMass, doc.ExtraMassKg,
-            rcsThrust, clustersPresent,
+            rcsThrust, clustersPresent, clustersOn, rcsExhaust,
             feed.DistrosOn, feed.DistrosPresent, feed.TankCount, feed.ReactionMass, feed.ReactionMassMax,
             torch.HasReactor, torch.Ve, torch.PelletMax,
             torch.Lasers, torch.Capacitors, torch.Feeders, torch.Regulators,
@@ -266,20 +281,33 @@ public static class Propulsion
 
     // --- RCS
 
-    private static (double Thrust, int On, int Present) MeasureThrusters(ShipGrid grid, Catalog catalog)
+    private static (double Thrust, double Exhaust, int On, int Present) MeasureThrusters(ShipGrid grid, Catalog catalog)
     {
-        double thrust = 0;
+        double thrust = 0, exhaust = 0;
         int on = 0, present = 0;
         foreach (var p in grid.Parts)
         {
             if (Fires(RcsClusterTrigger, p, catalog)) present++;
             if (!Fires(RcsClusterOnTrigger, p, catalog)) continue;
             on++;
-            // Ship.AddICO: StatThrustStrength when the cluster declares one, else a flat 1.
-            thrust += p.Part.StartingCondValues.TryGetValue("StatThrustStrength", out var t) ? t : 1.0;
+            thrust += ThrustStrength(p.Part);
+            exhaust += ExhaustFactor(p.Part);
         }
-        return (thrust, on, present);
+        return (thrust, exhaust, on, present);
     }
+
+    /// <summary>A cluster's contribution to <c>fRCSCount</c>, as <c>Ship.AddICO</c> reads it: its
+    /// <c>StatThrustStrength</c> when it declares one, else a flat 1. Shared with <see cref="Rating"/>, whose
+    /// Maneuver grade divides by the same sum.</summary>
+    internal static double ThrustStrength(ResolvedPart cluster) =>
+        cluster.StartingCondValues.TryGetValue("StatThrustStrength", out var t) ? t : 1.0;
+
+    /// <summary>A cluster's contribution to <c>fRCSExhaustV</c>, read the same way: its <c>StatThrustExhaustV</c>
+    /// when it declares one, else 1. Builds before 1.1.0.0 apply no factor at all, so this matches them only for
+    /// clusters that declare 1 or nothing; the S-Lift, the one stock cluster those builds ship, declares 1 in
+    /// 1.1.0.0.</summary>
+    internal static double ExhaustFactor(ResolvedPart cluster) =>
+        cluster.StartingCondValues.TryGetValue("StatThrustExhaustV", out var v) ? v : 1.0;
 
     private readonly record struct FeedScan(
         int DistrosOn, int DistrosPresent, int TankCount, double ReactionMass, double ReactionMassMax);
