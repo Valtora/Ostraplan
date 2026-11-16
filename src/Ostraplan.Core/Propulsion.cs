@@ -27,8 +27,8 @@ namespace Ostraplan.Core;
 /// <param name="RcsDistrosOn">Installed, switched-on RCS distributors (<c>TIsRCSDistroInstalledOn</c>) — the
 /// parts whose <c>GasInput</c> points define what is actually plumbed in.</param>
 /// <param name="RcsDistrosPresent">Installed RCS distributors ignoring their power state.</param>
-/// <param name="RcsTankCount">Feed positions matched: how many (distributor, GasInput point, container) hits the
-/// scan found. Not a distinct-tank count — the game does not de-duplicate (see <see cref="Propulsion"/>).</param>
+/// <param name="RcsTankCount">Distinct containers found at the distributors' GasInput points. From 1.1.0.0 the game
+/// counts a tank once however many points or distributors reach it (see <see cref="Propulsion"/>).</param>
 /// <param name="RcsReactionMass">The gas mass those containers hold now — <c>Ship.GetRCSRemain</c>.</param>
 /// <param name="RcsReactionMassMax">What they would hold brim-full of N2 — <c>Ship.GetRCSMax</c>.</param>
 /// <param name="FusionVe">The reactor's exhaust velocity <c>StatICVe</c> in m/s, read from its ignited
@@ -149,7 +149,9 @@ public sealed record PropulsionEstimate(
 /// gas in containers found at an installed, switched-on RCS <b>distributor</b>'s <c>GasInput</c> map points.
 /// A canister in a rack feeds nothing. Any airtight container qualifies (<c>TIsRCSValidInput</c> requires
 /// <c>IsAirtight</c> and forbids <c>IsHuman</c>/<c>IsSystem</c>) and <i>all</i> its gases count by mass, so an
-/// O2 tank is reaction mass too; capacity, however, is always priced as if the tank were full of N2.</para>
+/// O2 tank is reaction mass too; capacity, however, is always priced as if the tank were full of N2. A tank is
+/// found where its <b>body</b> is (the sprite the game's raycast hits), so the 1.1.0.0 N2 Tank feeds only from
+/// its 3×3 middle, never from the under-floor ring around it, and it counts once however many points reach it.</para>
 ///
 /// <para><b>Torch</b> (<c>FusionIC.Fusion</c> + <c>Ship.GetMaxTorchThrust</c>). Thrust and burn rate both scale
 /// with <c>StatICPellMax</c> = <c>2 × min(min(feeders, 2×regulators), min(lasers, 2×capacitors))</c>, computed
@@ -317,15 +319,17 @@ public static class Propulsion
     /// <c>Ship.GetRCSRemain</c> / <c>GetRCSMax</c> do.
     ///
     /// <para>Two faithfulness notes. The game finds the container by <b>raycast</b>
-    /// (<c>GetCOsAtWorldCoords1</c>), which a headless planner cannot reproduce; footprint coverage is the
-    /// closest stand-in and is exact for the 1×1 RTAs that actually feed an RCS system (the same approximation
-    /// <see cref="ShipValue.CountO2Pumps"/> makes). And the game de-duplicates nothing: a tank spanning two
-    /// GasInput points, or shared between two distributors, is counted once per hit. That double count is in
-    /// <c>GetRCSRemain</c> itself, which the flight model reads, so it is reproduced rather than corrected.</para>
+    /// (<c>GetCOsAtWorldCoords1</c>) against item colliders, and an item's collider is scaled to its sprite
+    /// (<c>Item</c> sets its transform to the texture's size in tiles). <see cref="BodyIndex"/> stands in for that:
+    /// it is the whole footprint for an ordinary part and the 3×3 body for the big tanks, whose 7×7 socket grid is
+    /// mostly under-floor reservation the ray passes through. And from 1.1.0.0 the game counts each container
+    /// <b>once</b> across every point and distributor (<c>GetRCSRemain</c> keeps a seen-list), where earlier builds
+    /// counted it once per hit; a 3×3 tank is easily reached by two points, so this matters.</para>
     /// </summary>
     private static FeedScan MeasureFeed(ShipGrid grid, Catalog catalog)
     {
-        var byTile = FootprintIndex(grid);
+        var byTile = BodyIndex(grid, catalog);
+        var seen = new HashSet<PlacedPart>(ReferenceEqualityComparer.Instance);
         int distrosOn = 0, distrosPresent = 0, tanks = 0;
         double remain = 0, max = 0;
 
@@ -344,6 +348,7 @@ public static class Propulsion
                 foreach (var tank in here)
                 {
                     if (ReferenceEquals(tank, distro) || !Fires(RcsFeedTrigger, tank, catalog)) continue;
+                    if (!seen.Add(tank)) continue;   // already counted through another point or distributor
                     tanks++;
                     remain += GasMass(tank.Part);
                     max += FullN2Mass(tank.Part);
@@ -437,7 +442,7 @@ public static class Propulsion
     /// </summary>
     internal static (List<PlacedPart> Modules, int Points) CoreModules(ShipGrid grid, PlacedPart core, Catalog catalog)
     {
-        var byTile = FootprintIndex(grid);
+        var byTile = BodyIndex(grid, catalog);   // FusionIC finds modules by the same raycast as the RCS feed
         var modules = new List<PlacedPart>();
         var points = 0;
         // FusionIC.Init walks Module01..Module32, stopping at the first name the core does not declare.
@@ -554,19 +559,22 @@ public static class Propulsion
 
     // --- shared helpers
 
-    /// <summary>Tile index → the parts whose <b>socket footprint</b> covers it. The planner's stand-in for the
-    /// game's collider raycast at a map point.</summary>
-    private static Dictionary<int, List<PlacedPart>> FootprintIndex(ShipGrid grid)
+    /// <summary>Tile index → the parts whose <b>body</b> covers it (<see cref="Catalog.BodyBox"/>). The planner's
+    /// stand-in for the game's collider raycast at a map point: <c>Item</c> scales its transform, and with it the
+    /// box collider, to its sprite, which for an ordinary part is the whole footprint and for the big tanks is the
+    /// 3×3 middle of a 7×7 socket grid. The 1.1.0.0 core ships plumb their N2 Tanks on that middle.</summary>
+    private static Dictionary<int, List<PlacedPart>> BodyIndex(ShipGrid grid, Catalog catalog)
     {
         var byTile = new Dictionary<int, List<PlacedPart>>();
         foreach (var p in grid.Parts)
         {
-            var (w, h) = GridMath.Size(p.Part.Item.Width, p.Part.Item.Height, p.Rot);
+            var (fw, fh) = GridMath.Size(p.Part.Item.Width, p.Part.Item.Height, p.Rot);
+            var (bx, by, w, h) = catalog.Lookup(p.Part.DefName) is { } def ? catalog.BodyBox(def, p.Rot) : (0, 0, fw, fh);
             for (var dy = 0; dy < h; dy++)
             for (var dx = 0; dx < w; dx++)
             {
-                var col = p.TopLeftCol + dx;
-                var row = p.TopLeftRow + dy;
+                var col = p.TopLeftCol + bx + dx;
+                var row = p.TopLeftRow + by + dy;
                 if (!grid.InBounds(col, row)) continue;
                 var idx = grid.Index(col, row);
                 if (!byTile.TryGetValue(idx, out var list)) byTile[idx] = list = [];

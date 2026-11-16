@@ -242,6 +242,46 @@ public class PropulsionTests(ITestOutputHelper output)
         Assert.Equal(0, away.RcsTankCount);
     }
 
+    /// <summary>
+    /// The 1.1.0.0 N2 Tank against the real defs. Its 7×7 socket grid is a 3×3 body inside an under-floor ring,
+    /// and the game's raycast hits only the body, so a gas input over the ring feeds nothing. Two inputs over the
+    /// body count the tank once, as <c>GetRCSRemain</c>'s seen-list does from 1.1.0.0.
+    /// </summary>
+    [SkippableFact]
+    public void The_n2_tank_feeds_from_its_body_and_counts_once()
+    {
+        var g = TestData.RequireGame();
+        const string bigTank = "ItmCanisterN2Big";
+        RequireDefs(g.Catalog, Distro, Cluster, bigTank);
+
+        // Tank at (20,20): footprint (20..26, 20..26), body (22..24, 22..24). Distro01's inputs are the cardinal
+        // neighbours of its centre, which sits at its own top-left + (1,1).
+        var ring = new ShipDocument(g.Catalog);
+        Place(ring, Cluster, 40, 40);
+        Place(ring, bigTank, 20, 20);
+        Place(ring, Distro, 20, 22);         // centre (21,23): east input (22,23) on the body, west (20,23) on the ring
+        var oneSide = Measure(ring, g.Catalog);
+        Assert.Equal(1, oneSide.RcsTankCount);
+        var full = oneSide.RcsReactionMass;
+        _out.WriteLine($"{bigTank} plumbed: {full:#,0} kg of {oneSide.RcsReactionMassMax:#,0} kg");
+        Assert.True(full > 15_000, $"a full N2 Tank should carry ~19 t of N2, got {full:0}");
+
+        // a second distributor over the body from the other side reaches the same tank: still one tank
+        Place(ring, Distro, 24, 22);         // centre (25,23): west input (24,23) on the body
+        var twoSides = Measure(ring, g.Catalog);
+        Assert.Equal(1, twoSides.RcsTankCount);
+        Assert.Equal(full, twoSides.RcsReactionMass, 3);
+
+        // a distributor whose inputs land only on the under-floor ring feeds nothing
+        var outer = new ShipDocument(g.Catalog);
+        Place(outer, Cluster, 40, 40);
+        Place(outer, bigTank, 20, 20);
+        Place(outer, Distro, 19, 19);        // centre (20,20): inputs (20,19) off, (21,20) ring, (20,21) ring, (19,20) off
+        var ringOnly = Measure(outer, g.Catalog);
+        Assert.Equal(0, ringOnly.RcsTankCount);
+        Assert.Equal(0, ringOnly.RcsReactionMass);
+    }
+
     /// <summary>An RTA spawns essentially brim-full, so a freshly designed ship's remaining and maximum
     /// reaction mass agree to within a rounding of the authored fill. The two are computed by completely
     /// different routes (summed <c>StatGasMol*</c> against <c>StatGasPressureMax × StatVolume</c> priced as N2),

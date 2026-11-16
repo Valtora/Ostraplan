@@ -16,6 +16,8 @@ each release was verified against is recorded in
   - The Chimera goes twice as far on a tank as the S-Lift, and a mix of thrusters averages them.
   - Exported ships carry the figures Ostranauts 1.1 needs to fly them before they fully load.
 - **The power budget reads an RTG as the 15 kW generator it is in Ostranauts 1.1.**
+- **RCS reaction mass counts each tank once, and the big N2 Tank only from its middle, as in Ostranauts 1.1.**
+  - To plumb an N2 Tank, put an RCS Intake Regulator's gas input over its middle 3×3, as the Pequod Titan Refit does.
 
 ## [1.37.0] 2026-11-03, tool strip
 

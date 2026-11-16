@@ -2992,11 +2992,20 @@ containers found there (`TIsRCSValidInput` = requires `IsAirtight`, forbids `IsH
   × the N2 molar mass, whatever the tank actually holds. That matches a fuel-kiosk refill.
 - `ItmRCSDistro01` is a **3×3 socket grid whose adds are centre-only**, with its four
   `GasInput` points on the cardinal neighbours of its centre — cells its own mask leaves
-  Blank, so a 1×1 RTA legally occupies one. `ItmRCSDistro02` has a single point at `(8,8)`.
-- **The game de-duplicates nothing.** A tank spanning two GasInput points, or shared
-  between two distributors, is counted once per hit. That double count is in
-  `GetRCSRemain` itself, which the flight model reads, so it is behaviour and not a
-  display artefact.
+  Blank, so a 1×1 RTA legally occupies one. `ItmRCSDistro02` has a single point at `(8,8)`:
+  its top row is Blank and overhangs whatever the point is meant to reach, while its bottom
+  row stands on floor.
+- **Each container counts once (1.1.0.0).** `GetRCSRemain`, `GetRCSMax` and
+  `NavModReserves.GetRCSRemain` keep a seen-list across every point of every distributor.
+  Builds before 1.1.0.0 counted a tank once per hit, so a tank spanning two GasInput points,
+  or shared between two distributors, counted twice there.
+- **The raycast hits the sprite.** `GetCOsAtWorldCoords1` raycasts item colliders, and
+  `Item` scales its transform (and so its box collider) to its texture size over 16 px. For
+  an ordinary part that is the footprint; for the big tanks it is the 3×3 middle of the 7×7
+  socket grid, the under-floor ring being reservation only. The 1.1.0.0 `ItmCanisterN2Big`
+  (N2 Tank, 686,600 mol, ~19.2 t of N2 full) is plumbed that way in the core ships: in the
+  Pequod Titan Refit two `ItmRCSDistro02` overhang its body from either side, so it counts
+  once, not twice.
 
 > **`NavModReserves` double-scales the docked ratio.** `GetDeltaVRemaining(bAllowDocked:
 > true)` multiplies `DeltaVRemainingRCS` by `Mass / totalDockedMass` — but `RCSAccelMax`,

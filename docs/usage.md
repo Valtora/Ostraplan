@@ -314,6 +314,10 @@ heading to fold it down when it is in the way.
     inputs. A canister in a rack feeds nothing, which the report tells you rather than
     leaving you to work out. Any airtight tank counts, and every gas in it counts by
     mass, so an O2 tank is reaction mass too.
+  - **The big N2 Tank** (Ostranauts 1.1) feeds only where a gas input sits over its middle
+    3×3; the ring of under-floor tiles around it feeds nothing. The 2×2 Kang "2202" regulator
+    does this neatly: the half holding its gas input overhangs the tank, and the other half
+    stands on floor beside it. A tank that several gas inputs reach counts once.
   - **More thrusters do not buy more delta-v.** The count cancels out of the game's
     own maths: delta-v is reaction mass over ship mass, and thrusters buy acceleration.
   - **A faster exhaust buys both.** From Ostranauts 1.1 each RCS thruster has an exhaust
