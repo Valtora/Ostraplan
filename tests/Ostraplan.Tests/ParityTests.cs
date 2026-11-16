@@ -66,6 +66,25 @@ public class ParityTests(ITestOutputHelper output)
     internal static IReadOnlySet<int> StaleVoidRooms(string file) =>
         StaleBakes.Keys.Where(k => k.File == file).Select(k => k.Room).ToHashSet();
 
+    /// <summary>
+    /// Templates whose baked <c>aRooms</c> tile indices were computed on a grid of a different width from the one
+    /// the file now declares, keyed by file to the width the bake used. The template was resized after its rooms
+    /// were baked, so every stored index lands on the wrong tile; read at the bake's own width, the stored rooms
+    /// match the port on every interior tile. The game rebuilds rooms from the tiles on load, so a player never
+    /// sees the stale bake.
+    ///
+    /// <para>The stored indices are remapped through that width rather than the ship being excluded, so the rest of
+    /// the gate (room shapes, void flags, certification) still holds. An entry fails and asks to be pruned once the
+    /// game rebakes the template at its current width.</para>
+    /// </summary>
+    internal static readonly Dictionary<string, (int Width, string Why)> BakedWidths = new()
+    {
+        ["02Indy.json"] = (39, "1.1.0.0 declares 40 columns; the stored rooms are a 39-column bake"),
+        ["Station_EVAC.json"] = (43, "1.1.0.0 declares 69x43; the stored rooms are a 43-column bake"),
+    };
+
+    internal static int? BakedWidth(string file) => BakedWidths.TryGetValue(file, out var w) ? w.Width : null;
+
     [SkippableFact]
     public void Rooms_parity_across_all_core_templates()
     {
@@ -76,6 +95,7 @@ public class ParityTests(ITestOutputHelper output)
         var unexpected = new List<string>();
         var excludedSeen = new List<string>();
         var staleSeen = new HashSet<string>();
+        var widthSeen = new HashSet<string>();
         foreach (var (file, ship) in CoreShips(g.Env))
         {
             total++;
@@ -83,7 +103,14 @@ public class ParityTests(ITestOutputHelper output)
             var partition = RoomBuilder.Build(grid);
             var stale = StaleVoidRooms(file);
             if (stale.Count > 0) staleSeen.Add(file);
-            var diff = RoomParity.Compare(grid, partition, ship, out _, stale);
+            var width = BakedWidth(file);
+            if (width is not null)
+            {
+                widthSeen.Add(file);
+                if (RoomParity.Compare(grid, partition, ship, out _, stale) is null)
+                    unexpected.Add($"{file}: its stored rooms now match at the declared width, so prune it from BakedWidths");
+            }
+            var diff = RoomParity.Compare(grid, partition, ship, out _, stale, width);
             if (diff is null) passed++;
             else if (RoomExclusions.ContainsKey(file)) excludedSeen.Add($"{file}: {diff}");
             else unexpected.Add($"{file} ({ship.Name}): {diff}");
@@ -99,6 +126,8 @@ public class ParityTests(ITestOutputHelper output)
         // and the stale-bake list against templates the game has since removed
         var gone = StaleBakes.Keys.Select(k => k.File).Distinct().Where(f => !staleSeen.Contains(f)).ToList();
         Assert.True(gone.Count == 0, $"StaleBakes names templates the corpus no longer has, so prune them: {string.Join(", ", gone)}");
+        var goneWidths = BakedWidths.Keys.Where(f => !widthSeen.Contains(f)).ToList();
+        Assert.True(goneWidths.Count == 0, $"BakedWidths names templates the corpus no longer has, so prune them: {string.Join(", ", goneWidths)}");
     }
 
     [SkippableFact]
@@ -121,7 +150,8 @@ public class ParityTests(ITestOutputHelper output)
             var partition = RoomBuilder.Build(grid);
             RoomCertifier.CertifyAll(partition, specs, g.Catalog);
             var stale = StaleVoidRooms(file);
-            if (RoomParity.Compare(grid, partition, ship, out var map, stale) is not null) continue;   // covered by rooms test
+            if (RoomParity.Compare(grid, partition, ship, out var map, stale, BakedWidth(file)) is not null)
+                continue;   // covered by rooms test
 
             foreach (var (m, s) in map)
             {
@@ -163,19 +193,28 @@ internal static class RoomParity
     /// <summary>Null if the room partition (tile sets) and Void flags match; else a one-line
     /// diff. On success <paramref name="my2st"/> maps each recomputed room index to its
     /// stored counterpart (for spec comparison). Stored rooms in <paramref name="staleVoid"/>
-    /// (<see cref="ParityTests.StaleBakes"/>) are held to sealed rather than to their baked flag.</summary>
+    /// (<see cref="ParityTests.StaleBakes"/>) are held to sealed rather than to their baked flag, and a
+    /// <paramref name="bakedWidth"/> (<see cref="ParityTests.BakedWidths"/>) reads the stored tile indices at the
+    /// width they were baked at instead of the grid's own.</summary>
     public static string? Compare(ShipGrid grid, RoomPartition partition, ShipTemplate ship, out Dictionary<int, int> my2st,
-        IReadOnlySet<int>? staleVoid = null)
+        IReadOnlySet<int>? staleVoid = null, int? bakedWidth = null)
     {
         my2st = [];
         var n = grid.TileCount;
+
+        int Tile(int t)
+        {
+            if (bakedWidth is not { } w || t < 0) return t;
+            int col = t % w, row = t / w;
+            return grid.InBounds(col, row) ? grid.Index(col, row) : -1;
+        }
 
         // stored tile → room index
         var stored = new int[n];
         System.Array.Fill(stored, -1);
         for (var s = 0; s < ship.Rooms.Count; s++)
-            foreach (var t in ship.Rooms[s].TileIndices)
-                if (t >= 0 && t < n) stored[t] = s;
+            foreach (var t0 in ship.Rooms[s].TileIndices)
+                if (Tile(t0) is var t && t >= 0 && t < n) stored[t] = s;
 
         var mine = partition.TileRoom;
 
