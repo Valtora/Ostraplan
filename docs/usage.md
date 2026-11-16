@@ -1731,6 +1731,8 @@ generator joined by conduit, with the devices that draw from it.
   90% in 38 minutes and 99% in 77, from empty.
 - **Station generators** (a residence's power uplink) supply about 3.6 MW and cover any
   ordinary load.
+- **An RTG** (the RC-5, from Ostranauts 1.1) supplies a steady 15 kW or so, enough for
+  three heaters. A network whose load stays under that never runs down.
 - **Times are game time** at normal speed. Battery capacity follows painted condition.
 
 It is a budget, not a run. Each figure is the game's own rate summed once, and endurance is

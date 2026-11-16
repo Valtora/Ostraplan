@@ -1487,6 +1487,19 @@ A core moves through three condowner forms, each step a `CondOwner.ModeSwitch`:
 ticks `Power`, draws 504 kW and switches itself to Batt, and with no `FusionIC` nothing ever
 lights it.
 
+### RTGs (1.1.0.0)
+
+`ItmRTG01` ("RC-5 Radioisotope Thermoelectric Generator", built from the POWR menu) is
+`IsPowerGen` and `IsPowerStorage` with a
+`PowerOutput` point, holds 0.004167 kWh (`StatPower` = `StatPowerMax`), and its `PowerRTG01`
+ticker applies `CONDTickPowerRTG01` (`StatPower=1.0x1`, the same grant as the station's) every
+0.000278 h. The difference is the ticker's `strCondLootCoeff: StatPowerMax`:
+`CondOwner.UpdateManualDeferred` passes `GetCondAmount(strCondLootCoeff)` to `ParseCondLoot`,
+which multiplies every unit by it, and by 0 when the holder lacks the condition. So the RTG
+refills its 0.004167 kWh each period, a sustained **~15 kW**. Read without the coefficient it
+would pass for a 3.6 MW station generator. It also carries a `Heater` update command and
+`IsReadyRecharge`, neither of which the budget models.
+
 > **Ported in Ostraplan:** `PowerBudget` (the steady draw, capacity, networks, the core's
 > states, Battery Mode, billing and recharge), shown by `PowerWindow` (Design ▸ Power
 > Budget). It sums and divides and stops there: nothing is stepped forward in time.

@@ -659,6 +659,12 @@ public sealed class Catalog
     /// divided by its <c>fPeriod</c>, which the game keeps in hours. This is how a station generator supplies
     /// power without a reactor behind it: <c>ItmReactorIC02Ignition</c> ticks <c>PowerFusionICStation</c>, which
     /// adds 1 kWh every 0.000278 h, so 3.6 MW. Zero for anything that is not refilled this way.
+    ///
+    /// <para>A ticker that names a <c>strCondLootCoeff</c> has its grant multiplied by the def's own amount of that
+    /// condition (<c>CondOwner.UpdateManualDeferred</c> passes <c>GetCondAmount(strCondLootCoeff)</c> to
+    /// <c>ParseCondLoot</c>), and by zero when the def lacks it. The 1.1.0.0 RTG is the case that needs it: its
+    /// <c>PowerRTG01</c> grants the same 1 kWh as the station's, scaled by its 0.004167 <c>StatPowerMax</c>, so
+    /// about 15 kW where a plain read gives 3.6 MW.</para>
     /// </summary>
     public double TickerPowerSupplyKw(PartDef part)
     {
@@ -668,9 +674,12 @@ public sealed class Catalog
             var period = Json.Dbl(tmpl, "fPeriod");
             if (period <= 0 || Json.Str(tmpl, "strCondLoot") is not { } lootName
                 || !Loots.TryGetValue(lootName, out var loot)) continue;
+            var coeff = Json.Str(tmpl, "strCondLootCoeff") is { Length: > 0 } coeffCond
+                ? part.StartingCondValues.GetValueOrDefault(coeffCond)
+                : 1.0;
             foreach (var group in loot.CoUnits)
                 if (group.Count > 0 && group[0] is { Name: "StatPower", Positive: true } unit)
-                    kw += unit.Min / period;
+                    kw += unit.Min * coeff / period;
         }
         return kw;
     }

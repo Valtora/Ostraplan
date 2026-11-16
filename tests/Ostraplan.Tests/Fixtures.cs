@@ -27,7 +27,24 @@ public sealed class Fixtures
     private readonly Dictionary<string, ParallaxDef> _parallaxDefs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, InteractionDef> _interactionDefs = new(StringComparer.Ordinal);
     private readonly Dictionary<string, JsonElement> _gpmTemplates = new(StringComparer.Ordinal);
+    private readonly Dictionary<string, JsonElement> _tickers = new(StringComparer.Ordinal);
     private readonly Dictionary<string, SlotDef> _slots = new(StringComparer.Ordinal);
+
+    /// <summary>Register a ticker (data/tickers) and the cond loot it applies every <paramref name="periodHours"/>,
+    /// parsed into units the way a real loot is. <paramref name="coeffCond"/> is the ticker's
+    /// <c>strCondLootCoeff</c>: the holder's own amount of that condition scales every grant. A part names the
+    /// ticker through <see cref="Part"/>'s <c>tickers</c> argument.</summary>
+    public Fixtures Ticker(string name, double periodHours, string coeffCond, params string[] lootConds)
+    {
+        var loot = "CONDTick" + name;
+        _loots[loot] = new LootDef(loot, lootConds, []) { CoUnits = LootUnit.ParseGroups(lootConds) };
+        _tickers[name] = JsonSerializer.SerializeToElement(new Dictionary<string, object?>
+        {
+            ["strName"] = name, ["strCondLoot"] = loot, ["strCondLootCoeff"] = coeffCond,
+            ["fPeriod"] = periodHours, ["bRepeat"] = true,
+        });
+        return this;
+    }
 
     /// <summary>Register a GUI-prop-map template (data/guipropmaps): the flat key/value <c>dictGUIPropMap</c> a
     /// named panel expands to. A part declares which templates it uses via <see cref="Part"/>'s <c>gpm</c>
@@ -361,6 +378,7 @@ public sealed class Fixtures
         ParallaxDefs = _parallaxDefs,
         InteractionDefs = _interactionDefs,
         GpmTemplates = _gpmTemplates,
+        TickerTemplates = _tickers,
         Warnings = [],
     };
 

@@ -80,6 +80,32 @@ public class PowerBudgetTests
         Assert.False(net.Sustained);
     }
 
+    /// <summary>
+    /// A generator whose ticker names a <c>strCondLootCoeff</c> supplies the grant times its own amount of that
+    /// condition, as <c>CondOwner.UpdateManualDeferred</c> applies it. The 1.1.0.0 RTG is built this way: 1 kWh
+    /// scaled by its 0.004167 kWh <c>StatPowerMax</c> every 0.000278 h, about 15 kW. Read without the coefficient it
+    /// passes for a 3.6 MW station generator.
+    /// </summary>
+    [Fact]
+    public void A_ticker_coefficient_scales_a_generators_supply()
+    {
+        const double rtgKwh = 0.004167, period = 0.000278;
+        var cat = Base()
+            .Ticker("PowerRTG", period, "StatPowerMax", "StatPower=1.0x1")
+            .Part("Rtg", tileConds: ["IsPowerPath"], startingConds: ["IsInstalled", "IsPowerGen", "IsPowerStorage"],
+                category: "POWR", powerOutput: (0, 0), tickers: ["PowerRTG"],
+                condValues: new Dictionary<string, double> { ["StatPower"] = rtgKwh, ["StatPowerMax"] = rtgKwh })
+            .Build();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Rtg", 0, 0), Fixtures.P("Cond", 1, 0), Fixtures.P("Heater", 2, 0));
+
+        Assert.Equal(rtgKwh / period, cat.TickerPowerSupplyKw(cat.Lookup("Rtg")!), 9);   // about 15 kW
+        var net = Assert.Single(Measure(cat, doc).Networks);
+        var rtg = Assert.Single(net.Generators);
+        Assert.Equal(rtgKwh / period, rtg.Kw!.Value, 9);
+        Assert.True(net.Sustained);   // 15 kW covers a 3.96 kW heater
+        Assert.Empty(net.Batteries);
+    }
+
     [Fact]
     public void Painted_condition_scales_battery_capacity()
     {
@@ -476,6 +502,21 @@ public class PowerBudgetTests
         var coils = c.Lookup("ItmFusionFieldCoils01")!;
         Assert.Empty(coils.PowerInputPoints);
         Assert.NotEmpty(coils.PowerDrawPoints);
+    }
+
+    /// <summary>The RC-5 RTG against its real ticker and power-info: a supply of about 15 kW, never the 3.6 MW of
+    /// the station generator whose 1 kWh ticker grant it shares.</summary>
+    [SkippableFact]
+    public void The_rtg_supplies_its_rated_power()
+    {
+        var g = TestData.RequireGame();
+        var rtg = g.Catalog.Lookup("ItmRTG01");
+        Skip.If(rtg is null, "no ItmRTG01 in this install (it arrived in Ostranauts 1.1.0.0)");
+
+        var kw = g.Catalog.TickerPowerSupplyKw(rtg!);
+        _out.WriteLine($"ItmRTG01 supplies {kw:0.00} kW");
+        Assert.Equal(rtg!.StartingCondValues["StatPowerMax"] / 0.000278, kw, 6);
+        Assert.InRange(kw, 10, 20);
     }
 
     [SkippableTheory]
