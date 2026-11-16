@@ -39,22 +39,20 @@ dotnet run --project src\Ostraplan.App     # build and launch
 dotnet build Ostraplan.slnx                # build everything
 ```
 
-> **Build the solution, not the app project.** `dotnet build` aimed straight at
-> `src\Ostraplan.App\Ostraplan.App.csproj` can fail with
-> `error BG1002: File '…\obj\Debug\net10.0-windows\App.baml' cannot be found.` It is a
-> WPF markup-compile quirk in App.xaml's baml pass, not a code error, and clearing
-> `obj`/`bin` does not reliably clear it. Building `Ostraplan.slnx` or the test project
-> works, and both pull App and Core in as dependencies. If a XAML-only incremental
-> build of the solution hits it anyway, delete `src\Ostraplan.App\obj` and
-> `src\Ostraplan.App\bin` and rebuild.
->
-> A bare `dotnet test` can trip it too, because its restore properties re-trigger the
-> markup compile. Build the test project first, then run with `--no-build`:
->
-> ```powershell
-> dotnet build tests\Ostraplan.Tests\Ostraplan.Tests.csproj
-> dotnet test tests\Ostraplan.Tests\Ostraplan.Tests.csproj --no-build
-> ```
+> **App.xaml is a Page, and that is set by a property.** `Program.Main` is the entry point, so
+> App.xaml must not be the `ApplicationDefinition`, which would generate a second `Main`. The
+> project turns `EnableDefaultApplicationDefinition` off and lets the SDK's `*.xaml` glob pick
+> App.xaml up as a Page. Keep it a property. It used to be an `ApplicationDefinition Remove`
+> plus a `Page Include`, and WPF's markup compile builds a temporary copy of the project
+> (`*_wpftmp.csproj`, beside the real one) that keeps property groups but drops those items.
+> Any design-time build that loaded the copy, which the C# Dev Kit in VS Code does from the
+> workspace, compiled App.xaml as the `ApplicationDefinition` into the shared `obj` folder in
+> the middle of a real build. That is where the intermittent
+> `error BG1002: File '…\App.baml' cannot be found` and `CS1061: 'App' does not contain a
+> definition for 'InitializeComponent'` came from, on any build route, `dotnet test`
+> included. If either comes back, check that App.xaml is still a Page in every evaluation:
+> `dotnet msbuild src\Ostraplan.App\Ostraplan.App.csproj -getItem:ApplicationDefinition`
+> should list nothing.
 
 The app takes a few developer flags, each of which renders something and exits:
 
