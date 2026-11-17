@@ -9,7 +9,7 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
-## [Unreleased]
+## [1.38.1] 2026-11-17, micrometeoroids
 
 ### Added
 - **Simulate ▸ Micrometeoroid Strike has a Random strike button that fires one the way the game does.**
