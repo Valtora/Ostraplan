@@ -7,9 +7,9 @@ namespace Ostraplan.Tests;
 /// The micrometeoroid solver (§26): the ray, the pool, and what one strike costs a part.
 ///
 /// <para>Nearly all of it is game-free, because the geometry and the arithmetic are the port and the game data only
-/// supplies the numbers. The figures pinned here come off the 1.0.0.11 decompile: 55 environmental damage, a
-/// multiplier of closing speed over 750 m/s floored at 0.5, and a ray that aims at world origin rather than at the
-/// ship.</para>
+/// supplies the numbers. The strength figures come off the 1.0.0.11 decompile and still hold at 1.1.0.1: 55
+/// environmental damage and a multiplier of closing speed over 750 m/s floored at 0.5. The aim comes off 1.1.0.1: a
+/// ray through a random tile of the grid on a random heading, reaching a full grid diagonal either side.</para>
 /// </summary>
 public class MicrometeoroidTests
 {
@@ -80,37 +80,12 @@ public class MicrometeoroidTests
         Assert.Equal(550.0, MicrometeoroidStrike.WorstCasePool(7500), 6);
     }
 
-    // ---- the anchor ----
+    // ---- the game's aim ----
 
-    [Fact]
-    public void An_unexported_design_converges_one_tile_off_its_top_left_corner()
-    {
-        var cat = WallCat();
-        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 5, 7), Fixtures.P("Wall", 9, 11));
-
-        var anchor = MicrometeoroidStrike.AnchorFor(doc);
-
-        // Both write paths anchor a fresh ship at the export grid origin, which is the bounding box minus its
-        // one-tile pad — so the convergence point is always just outside the hull for a ship Ostraplan makes.
-        Assert.Equal(StrikeFrame.AsExported, anchor.Frame);
-        Assert.Equal(4, anchor.DocX, 6);
-        Assert.Equal(6, anchor.DocY, 6);
-    }
-
-    [Fact]
-    public void An_imported_ship_keeps_the_anchor_it_arrived_with()
-    {
-        var cat = WallCat();
-        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 5, 7));
-
-        var anchor = MicrometeoroidStrike.AnchorFor(doc, (12, 3));
-
-        Assert.Equal(StrikeFrame.AsImported, anchor.Frame);
-        Assert.Equal(12, anchor.DocX, 6);
-        Assert.Equal(3, anchor.DocY, 6);
-    }
-
-    // ---- the ray ----
+    /// <summary>A small hull with empty space inside its bounding box: walls at (3,3) and (8,5), so the padded grid
+    /// runs from (2,2) to (9,6), 8 by 5.</summary>
+    private static ShipDocument Hull(Catalog cat) =>
+        Fixtures.Doc(cat, Fixtures.P("Wall", 3, 3), Fixtures.P("Wall", 8, 5));
 
     [Theory]
     [InlineData(0)]
@@ -119,71 +94,149 @@ public class MicrometeoroidTests
     [InlineData(180)]
     [InlineData(271)]
     [InlineData(359)]
-    public void Every_ray_passes_through_the_anchor(double angle)
+    public void Every_game_ray_passes_through_the_centre_of_its_target_tile(double angle)
     {
-        var cat = WallCat();
-        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 3, 3), Fixtures.P("Wall", 8, 5));
-        var anchor = MicrometeoroidStrike.AnchorFor(doc);
+        var doc = Hull(WallCat());
 
-        var (start, end) = MicrometeoroidStrike.GameRayFor(doc, anchor, angle);
+        // A wall, empty space inside the hull, and the margin: the game aims at any of them alike.
+        foreach (var target in new[] { (3, 3), (5, 4), (2, 2), (9, 6) })
+        {
+            var ray = MicrometeoroidStrike.GameRayFor(doc, target, angle)!;
 
-        // This is the aim bug, and it is the whole reason the origin is not a free parameter: the game normalises
-        // the START position rather than the offset from the ship, so every ray it fires runs through world origin.
-        var dist = PointToSegment((anchor.DocX, anchor.DocY), start, end);
-        Assert.True(dist < 1e-6, $"angle {angle} passed {dist:F4} tiles from the anchor");
+            var dist = PointToSegment(target, ray.StartDoc, ray.EndDoc);
+            Assert.True(dist < 1e-9, $"angle {angle} passed {dist:F4} tiles from {target}");
+            // And through its middle: the game starts one diagonal out and runs two.
+            Assert.Equal(target.Item1, (ray.StartDoc.X + ray.EndDoc.X) / 2, 9);
+            Assert.Equal(target.Item2, (ray.StartDoc.Y + ray.EndDoc.Y) / 2, 9);
+        }
     }
 
     [Fact]
-    public void The_ray_starts_outside_the_ship_and_is_long_enough_to_cross_it()
+    public void Every_game_ray_comes_in_from_beyond_the_grid_and_leaves_beyond_it()
     {
-        var cat = WallCat();
-        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 10, 10));
-        var anchor = MicrometeoroidStrike.AnchorFor(doc);
+        var doc = Hull(WallCat());
+        // The padded grid's outer edge in the centre frame: tile centres 2..9 and 2..6, half a tile beyond each.
+        const double left = 1.5, right = 9.5, top = 1.5, bottom = 6.5;
+        bool Outside((double X, double Y) p) => p.X < left || p.X > right || p.Y < top || p.Y > bottom;
+        var diagonal = Math.Sqrt(8 * 8 + 5 * 5);
 
-        // 45° is the degenerate angle for a square ship, which fires nothing — see the test below. Any other
-        // angle gives the full ray.
-        var (start, end) = MicrometeoroidStrike.GameRayFor(doc, anchor, 30);
-        var len = Math.Sqrt(Math.Pow(end.X - start.X, 2) + Math.Pow(end.Y - start.Y, 2));
-
-        // length = 2r where r is the half-diagonal of the padded grid (13x13 here).
-        var r = Math.Sqrt(6.5 * 6.5 + 6.5 * 6.5);
-        Assert.Equal(2 * r, len, 6);
+        // Every tile, every 15 degrees. The ray reaches one full grid diagonal either side of its target, so from
+        // any tile at any angle it starts in space and ends in space.
+        for (var x = 2; x <= 9; x++)
+            for (var y = 2; y <= 6; y++)
+                for (var angle = 0.0; angle < 360; angle += 15)
+                {
+                    var ray = MicrometeoroidStrike.GameRayFor(doc, (x, y), angle)!;
+                    Assert.True(Outside(ray.StartDoc), $"({x},{y}) at {angle} starts inside the grid");
+                    Assert.True(Outside(ray.EndDoc), $"({x},{y}) at {angle} ends inside the grid");
+                    var len = Math.Sqrt(Math.Pow(ray.EndDoc.X - ray.StartDoc.X, 2)
+                                        + Math.Pow(ray.EndDoc.Y - ray.StartDoc.Y, 2));
+                    Assert.Equal(2 * diagonal, len, 9);
+                }
     }
 
     [Fact]
-    public void One_angle_per_ship_is_a_ray_the_game_never_fires()
+    public void The_game_angle_comes_in_from_the_top_and_turns_clockwise()
     {
-        var cat = WallCat();
-        // A square design puts that angle at exactly 45°: the ray's start lands ON the convergence point, and
-        // Unity's normalized returns zero below its epsilon rather than a unit vector, so RaycastAll travels
-        // nowhere. It is a fact about the game's own aiming, which is why it survives the move to drawn paths —
-        // the reference overlay must not draw a ray the game would not fire.
-        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 10, 10));
-        var anchor = MicrometeoroidStrike.AnchorFor(doc);
+        // The roll is negated before it is used, so AngleAxis(−θ)·up is (sin θ, cos θ) with world y up. On the plan,
+        // whose rows run down, that puts 0 above the target and 90 to its right.
+        var doc = Hull(WallCat());
 
-        var (start, end) = MicrometeoroidStrike.GameRayFor(doc, anchor, 45);
+        var fromTop = MicrometeoroidStrike.GameRayFor(doc, (5, 4), 0)!;
+        Assert.Equal(5, fromTop.StartDoc.X, 9);
+        Assert.True(fromTop.StartDoc.Y < 4);
 
-        Assert.Equal(start, end);
+        var fromRight = MicrometeoroidStrike.GameRayFor(doc, (5, 4), 90)!;
+        Assert.Equal(4, fromRight.StartDoc.Y, 9);
+        Assert.True(fromRight.StartDoc.X > 5);
     }
 
     [Fact]
-    public void A_drawn_path_may_go_anywhere_the_game_could_not()
+    public void A_drawn_line_strikes_exactly_what_the_game_ray_along_it_strikes()
     {
         var cat = WallCat();
-        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 20, 20));
-        var anchor = MicrometeoroidStrike.AnchorFor(doc);
+        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 3, 2), Fixtures.P("Wall", 6, 4));
+        var ray = MicrometeoroidStrike.GameRayFor(doc, (3, 2), 123.69)!;   // along the line through all three
 
-        // This wall is far from the convergence point and no real micrometeoroid would ever reach it at this
-        // heading. Drawing through it still resolves, because the question "what would a hit here cost" is worth
-        // answering even when the game cannot ask it.
-        var r = MicrometeoroidStrike.Fire(doc, (18.0, 20.0), (22.0, 20.0), 750, new DamageState());
+        var game = MicrometeoroidStrike.Fire(doc, ray.StartDoc, ray.EndDoc, 750, new DamageState());
+        // The same line dragged from the middle wall outwards. The strike still comes in from space on the near
+        // side and reaches the wall behind where the drag began, which is what the game's ray does.
+        var drawn = MicrometeoroidStrike.Fire(doc, (3.0, 2.0), ray.EndDoc, 750, new DamageState());
 
-        Assert.False(r.Missed);
-        Assert.Equal(10, r.Delivered, 6);
-        // The reference ray is still available and still runs through the anchor, which is what tells the user
-        // this was a hypothetical.
-        var (gs, ge) = MicrometeoroidStrike.GameRayFor(doc, anchor, 30);
-        Assert.True(PointToSegment((anchor.DocX, anchor.DocY), gs, ge) < 1e-6);
+        Assert.Equal(3, game.Hits.Count);
+        Assert.Equal(game.Hits.Select(h => h.PlacementId), drawn.Hits.Select(h => h.PlacementId));
+    }
+
+    [Fact]
+    public void A_strike_comes_in_from_beyond_the_grid_wherever_the_drag_began()
+    {
+        // A drag started between two walls used to start the strike there, and the wall behind it was never
+        // reached. No real micrometeoroid starts inside a hull, so the strike now runs the whole line from space,
+        // in the direction drawn.
+        var cat = WallCat();
+        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0), Fixtures.P("Wall", 5, 0), Fixtures.P("Wall", 10, 0));
+        var ids = doc.Placements.Select(p => p.Id).ToArray();
+
+        var east = MicrometeoroidStrike.Fire(doc, (6.0, 0.0), (7.0, 0.0), 750, new DamageState());
+        Assert.Equal(ids, east.Hits.Select(h => h.PlacementId));
+
+        // Drawn the other way, it comes in from the other side.
+        var west = MicrometeoroidStrike.Fire(doc, (7.0, 0.0), (6.0, 0.0), 750, new DamageState());
+        Assert.Equal(Enumerable.Reverse(ids), west.Hits.Select(h => h.PlacementId));
+    }
+
+    [Fact]
+    public void A_random_strike_can_target_any_tile_of_the_grid_margin_included()
+    {
+        // A single 1x1 part sits in a 3x3 grid. The game picks from every cell of it, not only the occupied one, so
+        // eight targets in nine are empty space.
+        var doc = Fixtures.Doc(WallCat(), Fixtures.P("Wall", 0, 0));
+        var rng = new Random(1101);
+        var seen = new HashSet<(int, int)>();
+
+        for (var i = 0; i < 2000; i++)
+        {
+            var ray = MicrometeoroidStrike.RandomGameRay(doc, rng)!;
+            Assert.InRange(ray.Target.X, -1, 1);
+            Assert.InRange(ray.Target.Y, -1, 1);
+            Assert.InRange(ray.AngleDeg, 0.0, 360.0);
+            // Every random ray is the game ray for the tile and angle it rolled, nothing improvised.
+            Assert.Equal(MicrometeoroidStrike.GameRayFor(doc, ray.Target, ray.AngleDeg), ray);
+            seen.Add(ray.Target);
+        }
+
+        Assert.Equal(9, seen.Count);
+    }
+
+    [Fact]
+    public void Where_the_ship_came_from_no_longer_moves_a_strike()
+    {
+        // Until 1.1.0.1 every ray aimed at world origin, so a ship imported from a save and the same layout drawn
+        // here took different strikes. The aim is now relative to the grid alone.
+        var cat = WallCat();
+        var drawn = Hull(cat);
+        var imported = Hull(cat);
+        imported.SourceShipPos = (-40, 17);
+
+        for (var angle = 0.0; angle < 360; angle += 30)
+        {
+            var a = MicrometeoroidStrike.GameRayFor(drawn, (5, 4), angle)!;
+            var b = MicrometeoroidStrike.GameRayFor(imported, (5, 4), angle)!;
+            Assert.Equal(a, b);
+            Assert.Equal(
+                MicrometeoroidStrike.Fire(drawn, a.StartDoc, a.EndDoc, 750, new DamageState()).Hits.Count,
+                MicrometeoroidStrike.Fire(imported, b.StartDoc, b.EndDoc, 750, new DamageState()).Hits.Count);
+        }
+    }
+
+    [Fact]
+    public void An_empty_design_has_nothing_to_aim_at()
+    {
+        var doc = Fixtures.Doc(WallCat());
+
+        Assert.Null(MicrometeoroidStrike.GameRayFor(doc, (0, 0), 45));
+        Assert.Null(MicrometeoroidStrike.RandomGameRay(doc, new Random(1)));
+        Assert.True(MicrometeoroidStrike.Fire(doc, (-3.0, 0.0), (3.0, 0.0), 750, new DamageState()).Missed);
     }
 
     // ---- what it hits ----
@@ -193,7 +246,6 @@ public class MicrometeoroidTests
     {
         var cat = WallCat();
         var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0));
-        var anchor = MicrometeoroidStrike.AnchorFor(doc);
         var state = new DamageState();
 
         // A pool of 55 against a wall whose whole chain is 30. The physics hit list is built before anything
@@ -215,7 +267,6 @@ public class MicrometeoroidTests
     {
         var cat = WallCat();
         var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 0, 0));
-        var anchor = MicrometeoroidStrike.AnchorFor(doc);
         var state = new DamageState();
         var p = doc.Placements[0];
         var path = Through(p);

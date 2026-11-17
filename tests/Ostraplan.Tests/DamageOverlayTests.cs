@@ -147,33 +147,6 @@ public class DamageOverlayTests
         Assert.Equal("Wall", doc.Placements[0].DefName);
     }
 
-    [Fact]
-    public void An_authored_design_falls_back_to_the_export_frame()
-    {
-        var cat = Cat();
-        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 5, 5));
-
-        Assert.Null(doc.SourceShipPos);
-        Assert.Equal(StrikeFrame.AsExported, MicrometeoroidStrike.AnchorFor(doc).Frame);
-    }
-
-    [Fact]
-    public void An_imported_design_uses_its_own_anchor_without_being_asked()
-    {
-        var cat = Cat();
-        var doc = Fixtures.Doc(cat, Fixtures.P("Wall", 5, 5));
-        // What TemplateImport records: the source ship's vShipPos, in document coords.
-        doc.SourceShipPos = (7, 11);
-
-        var anchor = MicrometeoroidStrike.AnchorFor(doc);
-
-        // No caller has to remember to pass it, which is what stops an imported ship being measured in the frame
-        // it will only have once it is exported.
-        Assert.Equal(StrikeFrame.AsImported, anchor.Frame);
-        Assert.Equal(7, anchor.DocX, 6);
-        Assert.Equal(11, anchor.DocY, 6);
-    }
-
     // ---- the projected hull ----
 
     [Fact]

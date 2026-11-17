@@ -258,7 +258,7 @@ public static class Tips
             TipTag.Cargo),
         T("spawner-seed", "Running a loot spawner reports the seed it used. Type it back in to get exactly the same roll again.",
             TipTag.Cargo),
-        T("strike", "Simulate ▸ Micrometeoroid Strike: drag a line across the plan to fire, and see what breaks. The damage is never saved.",
+        T("strike", "Simulate ▸ Micrometeoroid Strike: drag a line across the plan to fire, or press Random strike to fire one the way the game does. The damage is never saved.",
             TipTag.Simulate),
         T("weapon-impact", "Simulate ▸ Weapon Impact fires any weapon your install declares. A missile can take a wall from whole to gone in one shot.",
             TipTag.Simulate),

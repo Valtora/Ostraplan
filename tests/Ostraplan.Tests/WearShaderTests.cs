@@ -147,7 +147,7 @@ public class WearShaderTests
     public void The_position_offset_is_the_footprint_centre_with_world_y_flipped()
     {
         // Section 7's inverse mapping: fX = col + (wr/2 - 0.5), fY = -(row + (hr/2 - 0.5)).
-        var anchor = new StrikeAnchor(0, 0, StrikeFrame.AsExported);
+        var anchor = new WorldAnchor(0, 0, WorldFrame.AsExported);
 
         var (x1, y1, z1) = WearShader.PositionOffset(4, 6, 1, 1, 1.0, anchor);
         Assert.Equal(4.0, x1, 6);
@@ -163,15 +163,56 @@ public class WearShaderTests
     [Fact]
     public void The_anchor_shifts_the_whole_pattern()
     {
-        // A design measured in the wrong frame does not fail, it wears like a different ship. This is the same
-        // exported-vs-imported distinction a micrometeoroid strike converges on.
-        var exported = new StrikeAnchor(0, 0, StrikeFrame.AsExported);
-        var imported = new StrikeAnchor(-12, 5, StrikeFrame.AsImported);
+        // A design measured in the wrong frame does not fail, it wears like a different ship: the noise is sampled
+        // in world space, and the two frames put world origin in different places.
+        var exported = new WorldAnchor(0, 0, WorldFrame.AsExported);
+        var imported = new WorldAnchor(-12, 5, WorldFrame.AsImported);
 
         var a = WearShader.PositionOffset(4, 6, 1, 1, 1.0, exported);
         var b = WearShader.PositionOffset(4, 6, 1, 1, 1.0, imported);
         Assert.NotEqual(a.X, b.X, 6);
         Assert.NotEqual(a.Y, b.Y, 6);
+    }
+
+    private static Catalog WallCat() => new Fixtures()
+        .Part("Wall", startingConds: ["IsInstalled", "IsWall"])
+        .Build();
+
+    [Fact]
+    public void An_authored_design_anchors_one_tile_off_its_top_left_corner()
+    {
+        var doc = Fixtures.Doc(WallCat(), Fixtures.P("Wall", 5, 7), Fixtures.P("Wall", 9, 11));
+
+        var anchor = WorldAnchor.For(doc);
+
+        // Both write paths anchor a fresh ship at the export grid origin, which is the bounding box minus its
+        // one-tile pad, so world origin is always just outside the hull for a ship Ostraplan makes.
+        Assert.Null(doc.SourceShipPos);
+        Assert.Equal(WorldFrame.AsExported, anchor.Frame);
+        Assert.Equal(4, anchor.DocX, 6);
+        Assert.Equal(6, anchor.DocY, 6);
+    }
+
+    [Fact]
+    public void An_imported_design_uses_its_own_anchor_without_being_asked()
+    {
+        var doc = Fixtures.Doc(WallCat(), Fixtures.P("Wall", 5, 5));
+        // What TemplateImport records: the source ship's vShipPos, in document coords.
+        doc.SourceShipPos = (7, 11);
+
+        var anchor = WorldAnchor.For(doc);
+
+        // No caller has to remember to pass it, which is what stops an imported ship being measured in the frame
+        // it will only have once it is exported.
+        Assert.Equal(WorldFrame.AsImported, anchor.Frame);
+        Assert.Equal(7, anchor.DocX, 6);
+        Assert.Equal(11, anchor.DocY, 6);
+
+        // An explicit position wins over the document's own.
+        var given = WorldAnchor.For(doc, (12, 3));
+        Assert.Equal(WorldFrame.AsImported, given.Frame);
+        Assert.Equal(12, given.DocX, 6);
+        Assert.Equal(3, given.DocY, 6);
     }
 
     // ---- the sample decision ----

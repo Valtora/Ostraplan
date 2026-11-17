@@ -625,11 +625,11 @@ design and mark every part they damage. Both open the same window on
 a different tab. **Simulate ▸ Damage Brush…** is the other half of the menu and works the other
 way round: it paints condition onto the design and keeps it.
 
-**Drag a line across the plan** to aim. The line sets where the strike comes in and the heading
-it travels on, and it carries on along that heading until it hits something or leaves the ship,
-however short the drag. So how far you pull decides the angle and nothing else, and the aim past
-the end of the drag is drawn faintly so a hit landing beyond it is not a surprise. Let go and it
-fires. Drag another to fire again. Damage builds up across strikes and is
+**Drag a line across the plan** to aim. The line sets the heading the strike travels on, and it
+carries on along that heading until it hits something or leaves the ship, however short the drag.
+So how far you pull decides the angle and nothing else, and the aim past the end of the drag is
+drawn faintly so a hit landing beyond it is not a surprise. A weapon's shot starts where the drag
+starts; a micrometeoroid comes in from beyond the ship (see below). Let go and it fires. Drag another to fire again. Damage builds up across strikes and is
 **never saved**: it lives beside the design, not in it, so closing the window or pressing
 **Start over** puts the ship back to pristine. Your `.oplan` is untouched throughout.
 
@@ -689,18 +689,17 @@ fires. Drag another to fire again. Damage builds up across strikes and is
 
 Draw the aim, set the **strike strength**, and it fires on release.
 
-- **You can draw paths the game itself cannot fire, and that is deliberate.** In Ostranauts every
-  micrometeoroid runs through one fixed point, marked with a crosshair on the plan. That is the
-  game aiming at world origin rather than at the ship, and it means real strikes only ever arrive
-  along lines through that marker. Drawing through it shows you what actually happens to this
-  hull; drawing anywhere else answers the more useful design question, "what would a hit *here*
-  cost me". A part no line through the marker reaches is one the game will never chip, so the
-  marker is worth a glance before you trust a worrying result.
-- **Where the marker sits depends on where the ship came from.** A design imported from a save
-  or a template keeps its own, which for most ships is somewhere inside the hull. A design you
-  authored here has none yet, so the window uses the one it will get when Ostraplan exports it,
-  just outside the top-left corner. If you want to know whether the ship you are *flying* is
-  vulnerable, import it from your save rather than measuring the copy you drew.
+- **Every line you draw is a strike the game can fire.** In Ostranauts a micrometeoroid comes in
+  from space through a random tile of the ship, from a random direction, and carries on out the
+  far side. So the strike crosses the whole ship along your line, in the direction you drew it,
+  whether the drag started outside the hull or in the middle of it. The arrowhead on the plan
+  shows which way it is travelling.
+- **Random strike fires one the way the game does.** It picks a tile and a direction at random,
+  draws the line through that tile and fires along it. Any tile of the ship's grid can be picked,
+  including empty space and the margin round the hull, so now and then a random strike misses
+  altogether, as it would in game. Press **Fire** to hit the same line again, or **Random strike**
+  for another. A run of them shows what a long trip does to the hull, except that each one hits
+  at the strength on the slider rather than at a roll below it.
 - **Strike strength is measured in damage**, because damage is what a hull meets, and the range
   is the one the game allows for a micrometeoroid. It is read out of your install rather than
   hard-coded: the bottom is the floor the game clamps to, and the top is the fastest strike any

@@ -207,7 +207,7 @@ public static class TemplateImport
         {
             Kind = DocumentKindGuess.FromDesignation(tmpl.Designation),
             // The anchor this ship already has, in the document coords TemplateTile is about to place parts in.
-            // See ShipDocument.SourceShipPos: it is what decides where micrometeoroids converge on this hull.
+            // See ShipDocument.SourceShipPos: it is what places world origin, and so the wear pattern, on this hull.
             SourceShipPos = (-tmpl.VShipPosX, tmpl.VShipPosY),
         };
         var skipped = new Dictionary<string, int>(StringComparer.Ordinal);

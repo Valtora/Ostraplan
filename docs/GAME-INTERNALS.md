@@ -3760,8 +3760,11 @@ and what it writes is a state the game reproduces exactly on load, per the round
 
 ## 26. Ship damage (micrometeoroids, weapons and collisions)
 
-**Verified against game `1.0.0.17`.** Both damage paths were re-read against that decompile
-for the `FindPointsOfImpact` change below; the live-data figures here are pinned by
+**Verified against game `1.0.0.17`, and the micrometeoroid path against `1.1.0.1`.** Both
+damage paths were re-read against the 1.0.0.17 decompile for the `FindPointsOfImpact` change
+below. 1.1.0.1 changed where a micrometeoroid is aimed ("Micrometeoroids no longer always
+target the center of the ship"), so the spawn sites, the aim, `DamageRay` and point defence
+were re-read against it; only the aim had changed. The live-data figures here are pinned by
 `WeaponImpactTests` and `MicrometeoroidTests`, which run against the installed game.
 
 Ostranauts has **two damage systems**, not one. They live in the same class
@@ -3924,41 +3927,47 @@ strike's strength is random even at a fixed speed. Pinning it to 1.0 is what "ma
 strength" means; the worst-case structural pool is therefore `55 × fMult`, from 28 at the
 floor to about 563 in the stratosphere.
 
-#### The ray always passes through world origin
+#### The ray passes through a random tile
+
+As of 1.1.0.1, `StarSystem.SpawnMicroMeteoroid` and `DamageSystem.DamageRayRandom` aim like
+this:
 
 ```
-half     = (nCols/2, −nRows/2)
-r        = |half|
-vStart   = vShipPos + half + AngleAxis(θ, forward) * up * r
-DamageRay(vStart, −vStart.normalized, r * 2, ...)
+θ       = Rand(0, 360, Flat)                         // also what point defence is offered
+fAngle  = −θ
+target  = GetRandomTile1(bWalkable: false).tf.position, z = 0
+          // a ship with no tiles: vShipPos + (nCols/2, −nRows/2)
+D       = sqrt(nCols² + nRows²)
+u       = AngleAxis(fAngle, forward) * up            // (sin θ, cos θ), world y up
+DamageRay(target + u·D, −u, 2D, ...)
 ```
 
-The direction normalises `vStart` itself rather than `vStart − centre`, so the ray is aimed
-at **world (0,0)**, not at the ship. Item world position is `vShipPos + (col, −row)`, which
-`GetTileIndexAtWorldCoords` and `GetWorldCoordsAtTileIndex1` both assert and `MoveShip`
-maintains, so world origin is grid tile:
+`GetRandomTile1` with `bWalkable: false` returns a uniformly random entry of `aTiles`, and
+`aTiles` is the whole grid: `TileUtils.PadTilemap` fills every cell of the `nCols × nRows`
+rectangle, blank space and the one-tile margin included (§18). So the target is any cell of
+the padded grid with equal odds, whether or not anything stands on it, and the ray passes
+through that cell's centre, `vShipPos + (col, −row)`.
 
-```
-convergenceTile = ( col = −vShipPos.x , row = vShipPos.y )
-```
+`D` is the grid's **full** diagonal, so a ray that starts `D` out from any cell starts beyond
+the grid, and at length `2D` it always leaves by the far side. Every strike crosses the whole
+ship from space to space, which means any line across the hull is one the game can fire. The
+negated roll only decides which side a strike comes from: at `θ = 0` it comes in from the top
+of the plan, and it moves clockwise round the plan as `θ` grows. `θ` is uniform, so the sign
+changes which angle names a direction but not which strikes happen.
 
-`vShipPos` is serialised per ship in `JsonShip`, first set from the top-left tile
-coordinates of the first item placed, translated by `MoveShip` and transformed by
-`RotateCW`. It is not the centre and nothing keeps it near one. Measured across the 220
-core ship objects that carry it:
+The same function aims the `AModeCollision` strikes in `CollisionManager` and
+`AModeDerelictBreakIn` in `Ship`, so those changed with it. Ostraplan simulates neither.
 
-| | |
-|---|---|
-| convergence tile inside the grid | 188 (85%) |
-| convergence tile **outside the hull** | 32 (15%), including `Babak` and `Babak Refit` |
-| median offset from ship centre, as a fraction of the half-diagonal | 0.41 |
-| ships offset by more than half the half-diagonal | 37% |
-| ships where `\|centre\| > r`, so the `2r` ray cannot reach origin from some angles | 9 |
-
-So micrometeoroid exposure is a **fan through one fixed point**, not an even sweep, and for
-the chargen starter that point is fourteen tiles off the port side. This reads as an
-oversight rather than a design, but it is what 1.0.0.11 does, and any honest per-angle
-answer has to reproduce it.
+> **Before 1.1.0.1 every ray passed through world origin.** The aim was
+> `vStart = vShipPos + half + AngleAxis(θ, forward) * up * r`, with `half = (nCols/2, −nRows/2)`,
+> `r = |half|`, and a direction of `−vStart.normalized`. That normalises the start position
+> rather than its offset from the ship, so every ray ran through world `(0,0)`, which is grid
+> tile `(−vShipPos.x, vShipPos.y)`. `vShipPos` is not kept anywhere near the centre, so across the
+> 220 core ships that point sat inside the grid 85% of the time and outside the hull on 32 of
+> them, both Babaks included, and the chargen starter took every strike through a point fourteen
+> tiles off its port side. Exposure was a fan through one fixed point, and a ship's anchor decided
+> which of its parts could be hit at all. None of that holds now: the aim is relative to the grid
+> alone, and `vShipPos` no longer has any effect on a strike.
 
 #### The collider is the sprite rectangle, exactly
 
@@ -4291,25 +4300,12 @@ cell using the part's own ship attack, or `DefaultExplosion` when it declares no
 
 ### What a planner cannot reproduce exactly
 
-- **Every strike is a random draw.** `GetDmgAmount`'s mid-biased roll on the meteoroid
-  path, `AddVariance`'s aim scatter on the projectile path, the fire roll, and the 50%
-  point-defence bypass are all live RNG. A plan can only answer for a pinned worst case.
+- **Every strike is a random draw.** `GetDmgAmount`'s mid-biased roll and the target tile
+  and heading on the meteoroid path, `AddVariance`'s aim scatter on the projectile path, the
+  fire roll, and the 50% point-defence bypass are all live RNG. A plan can only answer for a
+  pinned worst case, or roll the aim one strike at a time.
 - **Crew wounds are out of scope.** The blunt and cut pools exist to hurt people
   (`Wound.Damage`, `GetWoundLocation`), and a design has no crew.
-- **`vShipPos` moves at runtime.** `MoveShip` and `RotateCW` both rewrite it, so a ship's
-  convergence tile is a property of its current world anchor and not only of its layout. A
-  design can report the anchor its own template or save carries, which is what it will
-  spawn with, and nothing beyond that.
-
-> **A ship Ostraplan writes gets a NEW convergence point, and it lands outside the hull.**
-> `ShipExport` anchors the file at `vShipPos = (0,0)` and the game re-seeds the anchor off the
-> first item on load, so world origin falls on the export grid's own origin — the bounding box
-> minus its one-tile pad. Every exported ship therefore converges just off its top-left corner,
-> where 85% of the shipped fleet converges *inside* the hull. That is not a defect of the export:
-> it makes such a ship take **fewer** micrometeoroid hits than a stock one, because most angles
-> now miss. It does mean a design imported from a save must be measured in the frame it arrived
-> with (`ShipDocument.SourceShipPos`) rather than the one it would be exported into, or the
-> answer describes a different ship from the one the player is flying.
 - **Fire propagates.** It is modelled here as one step from the triggering hit; the game
   keeps burning afterwards, which is simulation and excluded by the same rule as gas flow
   and crew pathing. Chain explosions are a different case, and are not modelled at all
@@ -4371,13 +4367,16 @@ would only be a mode to remove later.
 > heat overlay scaled green at zero, amber past `DataCO.Health` and red past
 > `DataCO.GetMaxHealth`, and one `DamageState` that accumulates across strikes beside the
 > document rather than in it. The two solvers stay separate because the two models are.
-> **The path is drawn by the user, not aimed by the game.** Everything a ray does once drawn is
-> ported exactly, but where it may go is not constrained: a planner that could only fire the
-> rays the game rolls could not answer "what would a hit here cost", which is the question a
-> design is being checked against. `GameRayFor` still exposes the game's own aiming, and the
-> canvas marks the convergence point, so the difference is visible rather than hidden.
-> The randomness is not reproduced: the roll is pinned to its worst case, aim variance is
-> off, and the fire chance is not rolled at all (§26 "What a planner cannot reproduce").
+> **A micrometeoroid is aimed by a drawn line or by the game's own roll.** Since 1.1.0.1 any
+> line across the hull is a strike the game can fire, so a drawn line is resolved as one: it
+> crosses the whole grid in the direction drawn, wherever the drag began. **Random strike**
+> rolls the tile and heading the way `DamageRayRandom` does (`MicrometeoroidStrike.RandomGameRay`,
+> on `GameRayFor`). A weapon's path is still the user's to draw and starts where the drag
+> starts, which is more freedom than the game gives an attacker and is the point: a designer
+> needs to ask what a hit *here* would cost.
+> The rest of the randomness is not reproduced: the strength roll is pinned to its worst case,
+> aim variance is off, and the fire chance is not rolled at all (§26 "What a planner cannot
+> reproduce").
 > **A chain that ends in loose debris ends the part.** The game names what a bin or a tank
 > leaves behind (`ItmScrapTrash`, `ItmScrapAluminum`), so "did the break form resolve" cannot
 > tell a wall becoming a damaged wall from a rack becoming a pile of metal. `Catalog.IsInstalledForm`
@@ -4604,9 +4603,9 @@ has no branch for.
   the whole break chain (`DataCO.GetMaxHealth`). Both hit the player's loaded ship (§26).
 - **The damage collider is the SPRITE rect, not the footprint**: every item is `prefabQuad`, whose
   BoxCollider is `1×1` scaled by `vScale`, so a 7×7 tank presents a 3×3 target (§26, §4).
-- **Every micrometeoroid ray passes through world origin**: `−vStart.normalized` aims at `(0,0)`,
-  i.e. grid tile `(−vShipPos.x, vShipPos.y)`, which is off-centre on most ships and outside the hull
-  on 32 of the 220 core ships including both Babaks (§26).
+- **A micrometeoroid ray passes through a random tile of the padded grid** on a random heading,
+  reaching one full grid diagonal either side, so it always crosses the whole ship. Before 1.1.0.1
+  every ray aimed at world origin instead, grid tile `(−vShipPos.x, vShipPos.y)` (§26).
 - **Micrometeoroid strength is closing speed / 750 m/s**, floored at 0.5 and uncapped;
   `5.013440329548757E-09` is `ATC_SPEED_LIMIT`. Only Earth declares `fMicrometeoroidChance` (§26).
 - **A blast damages its impact cell twice**: the cell list is seeded with the impact point and the

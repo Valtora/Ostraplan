@@ -1,28 +1,21 @@
 namespace Ostraplan.Core;
 
-/// <summary>Where the frame a strike is measured in came from, which decides the convergence point and so the
-/// whole answer. Reported alongside every result because the two frames disagree.</summary>
-public enum StrikeFrame
-{
-    /// <summary>The frame the ship will have once Ostraplan puts it in the game. Both write paths anchor a fresh
-    /// ship at the export grid's own origin, which is the bounding box minus its one-tile pad, so the convergence
-    /// point lands just outside the top-left corner of the hull.</summary>
-    AsExported,
-
-    /// <summary>The frame the ship already has, carried in from the save or template it was imported out of. This
-    /// is the honest answer for "is the ship I am flying vulnerable", and it is usually somewhere else entirely:
-    /// on the shipped fleet the convergence point sits inside the hull 85% of the time.</summary>
-    AsImported,
-}
-
 /// <summary>
-/// The fixed point every micrometeoroid ray passes through, in <b>document</b> tile coords, plus where that came
-/// from. See <see cref="MicrometeoroidStrike"/> for why a strike has one at all.
+/// One ray as the game aims it: through the centre of <see cref="Target"/>, coming in from
+/// <see cref="AngleDeg"/>, from <see cref="StartDoc"/> to <see cref="EndDoc"/>. See
+/// <see cref="MicrometeoroidStrike.GameRayFor"/>.
 ///
 /// <para>Centre frame, like the rest of the solver (<see cref="TileFrame"/>): drawing this on the canvas takes a
-/// <see cref="TileFrame.CentreToCorner"/> first, or the marker lands half a tile off the point it names.</para>
+/// <see cref="TileFrame.CentreToCorner"/> first, or the line lands half a tile off the one the game fires.</para>
 /// </summary>
-public sealed record StrikeAnchor(double DocX, double DocY, StrikeFrame Frame);
+/// <param name="Target">The grid tile the ray passes through, in document tile coords. Any tile of the padded grid,
+/// empty space included.</param>
+/// <param name="AngleDeg">The game's roll, 0 to 360. At 0 the strike comes in from the top of the plan.</param>
+/// <param name="StartDoc">Where the ray starts: one full grid diagonal out from the target, so always beyond the
+/// grid.</param>
+/// <param name="EndDoc">Where it stops: one full grid diagonal past the target, so always beyond the far side.</param>
+public sealed record GameRay(
+    (int X, int Y) Target, double AngleDeg, (double X, double Y) StartDoc, (double X, double Y) EndDoc);
 
 /// <summary>One part the ray reached, and what the strike did to it.</summary>
 /// <param name="PlacementId">The document placement hit, so the canvas can tint the right part.</param>
@@ -33,12 +26,13 @@ public sealed record StrikeAnchor(double DocX, double DocY, StrikeFrame Frame);
 /// for destroyed: a break into loose debris is named and is still the end of the part (see
 /// <see cref="DamageState.Apply"/>).</param>
 /// <param name="Destroyed">True when the ship has lost the part outright, whether or not the wreckage has a name.</param>
-/// <param name="Distance">Distance along the ray to the part's collider, for ordering and for drawing.</param>
+/// <param name="Distance">Distance along the strike to the part's collider, measured from where the strike starts
+/// beyond the edge of the grid. What the hits are ordered by.</param>
 public sealed record StrikeHit(
     Guid PlacementId, string FromDef, double Absorbed, bool Broke, string? ToDef, bool Destroyed, double Distance);
 
 /// <summary>The result of one strike. <see cref="StartDoc"/> and <see cref="EndDoc"/> are the line as it was
-/// drawn; the strike itself runs along that heading until it leaves the design, so a hit past
+/// drawn; the strike itself crosses the whole grid along that line, so a hit before <see cref="StartDoc"/> or past
 /// <see cref="EndDoc"/> is expected rather than a fault (see <see cref="MicrometeoroidStrike.Fire"/>).</summary>
 public sealed record StrikeResult(
     double SpeedMs,
@@ -58,7 +52,8 @@ public sealed record StrikeResult(
 
 /// <summary>
 /// A micrometeoroid strike against a design, ported from <c>StarSystem.SpawnMicroMeteoroid</c> →
-/// <c>DamageSystem.DamageRayRandom</c> → <c>DamageRay</c> (§26 of docs/GAME-INTERNALS.md, verified 1.0.0.11).
+/// <c>DamageSystem.DamageRayRandom</c> → <c>DamageRay</c> (§26 of docs/GAME-INTERNALS.md, the aim verified against
+/// 1.1.0.1).
 ///
 /// <para><b>This is not the weapon solver.</b> The game runs two unrelated damage systems and a micrometeoroid
 /// takes the physics one: a Unity raycast against per-item colliders, ordered by distance, where each part absorbs
@@ -69,10 +64,12 @@ public sealed record StrikeResult(
 /// whose unit BoxCollider is scaled by the sprite (see <see cref="SpriteExtent"/>). And a raycast returns one hit
 /// per collider, so a multi-tile part absorbs once however many of its tiles the ray crosses.</para>
 ///
-/// <para><b>Every ray passes through one fixed point.</b> The game aims at world origin rather than at the ship
-/// (<c>-vStart.normalized</c> normalises the start position itself), so the origin is not a free parameter: the
-/// angle is. That point is wherever the ship's <c>vShipPos</c> anchor puts it, which is why a strike needs a
-/// <see cref="StrikeAnchor"/> and why the answer differs between the ship as imported and as exported.</para>
+/// <para><b>Every ray crosses the whole ship.</b> Since 1.1.0.1 the game aims each strike through the centre of a
+/// random tile of the grid on a random heading, starting and stopping one full grid diagonal either side of it, so
+/// a strike always comes in from space and leaves into space. Any line across the hull is therefore a strike the
+/// game can fire, which is why a drawn line is resolved the same way (<see cref="Fire"/>). Before 1.1.0.1 every ray
+/// aimed at world origin instead, one fixed point per ship set by its <c>vShipPos</c> anchor; nothing here depends
+/// on the anchor any more.</para>
 /// </summary>
 public static class MicrometeoroidStrike
 {
@@ -217,43 +214,19 @@ public static class MicrometeoroidStrike
         Math.Clamp(damage / DamageEnv * AtcSpeedLimit, MinClosingSpeedMs, MaxClosingSpeedMs);
 
     /// <summary>
-    /// Where this design's rays converge, in document tile coords.
-    ///
-    /// <para>Prefer <paramref name="importedShipPos"/> when the design came in from a save or template: that is the
-    /// anchor the ship already has and the answer for the ship the player is actually flying. With none, fall back
-    /// to the frame Ostraplan will write, which both export paths anchor at the grid origin — the bounding box
-    /// minus its one-tile pad — putting the convergence point just outside the top-left corner.</para>
-    /// </summary>
-    public static StrikeAnchor AnchorFor(ShipDocument doc, (double DocX, double DocY)? importedShipPos = null)
-    {
-        ArgumentNullException.ThrowIfNull(doc);
-        // The document's own import provenance is the default source, so no caller has to remember to pass it and
-        // an imported ship cannot silently be measured in the wrong frame.
-        if ((importedShipPos ?? doc.SourceShipPos) is { } a)
-            return new StrikeAnchor(a.Item1, a.Item2, StrikeFrame.AsImported);
-        var b = doc.Bounds();
-        return b is null
-            ? new StrikeAnchor(0, 0, StrikeFrame.AsExported)
-            : new StrikeAnchor(b.Value.MinX - 1, b.Value.MinY - 1, StrikeFrame.AsExported);
-    }
-
-    /// <summary>
-    /// Fire one strike along the path <paramref name="startDoc"/> → <paramref name="endDoc"/> and resolve it
+    /// Fire one strike along the line <paramref name="startDoc"/> → <paramref name="endDoc"/> and resolve it
     /// against <paramref name="state"/>, which is mutated: a strike leaves damage behind, and drawing the same
     /// line twice is how a wall goes from whole to damaged to gone. Pass a fresh <see cref="DamageState"/> for a
     /// single-strike worst case.
     ///
-    /// <para><b>The path is whatever you draw.</b> The game itself can only produce paths through one fixed point
-    /// (see <see cref="AnchorFor"/> and <see cref="GameRayFor"/>), but a planner that could only show those could
-    /// not answer "what if it came in here instead", which is the question a designer actually has. What the ray
-    /// does once it is drawn is the game's own arithmetic, exactly.</para>
-    ///
-    /// <para><b>The line is an aim, not a segment.</b> It sets a start and a heading, and the ray then runs far
-    /// enough to leave the design whatever the drag was. Stopping it where the mouse came up made the answer turn
-    /// on how far someone happened to pull, so the same strike down the same line reached a part or did not
-    /// according to a gesture. The game's own rays are sized to cross the whole grid rather than to any drawn
-    /// distance, so a pointer is the closer reading of them. Only the <b>direction</b> and the start come from the
-    /// drag; <see cref="StrikeResult.EndDoc"/> still reports where it was released.</para>
+    /// <para><b>The two points set a line and a direction, and nothing else.</b> The strike comes in along that line
+    /// from beyond the grid, travelling from <paramref name="startDoc"/> towards <paramref name="endDoc"/>, and
+    /// carries on until it leaves the far side, which is the only kind of ray the game fires (see
+    /// <see cref="GameRayFor"/>). Where the line was started and how far it was dragged decide nothing. Stopping at
+    /// the release point made the answer turn on how far someone happened to pull, and starting at the press point
+    /// let a strike begin inside the hull and skip every part behind it, which no real strike can do.
+    /// <see cref="StrikeResult.StartDoc"/> and <see cref="StrikeResult.EndDoc"/> still report the line as it was
+    /// given.</para>
     ///
     /// <para><b>The path is in the centre frame</b> (<see cref="TileFrame"/>): an integer is a tile's centre, not
     /// its corner, because that is the frame the colliders below are built in. A caller holding canvas coordinates
@@ -273,7 +246,7 @@ public static class MicrometeoroidStrike
         var mult = MultiplierFor(speed);
         var pool = WorstCasePool(speed);
 
-        var geom = RayThrough(startDoc, endDoc, Reach(doc, startDoc));
+        var geom = Across(doc, startDoc, endDoc);
         var hits = new List<StrikeHit>();
         var remaining = pool;
 
@@ -301,119 +274,107 @@ public static class MicrometeoroidStrike
     }
 
     /// <summary>
-    /// The path the <b>game</b> would fire at a given angle — reference only, and no longer how a strike is aimed.
+    /// The ray the <b>game</b> fires through one tile at one angle, reproducing <c>DamageRayRandom</c> as of
+    /// 1.1.0.1:
+    /// <code>
+    /// target = GetRandomTile1(bWalkable: false).position    // any grid cell, empty space included
+    /// D      = sqrt(nCols² + nRows²)                        // the whole grid's diagonal
+    /// u      = AngleAxis(−θ, forward) · up                  // the roll is negated first
+    /// DamageRay(target + u·D, −u, 2D, ...)
+    /// </code>
+    /// So the ray passes through the target tile's centre, starts and stops one grid diagonal either side of it,
+    /// and crosses the whole grid from any tile at any angle.
     ///
-    /// <para>Kept because it is the one thing a free-drawn line cannot tell you: where real micrometeoroids
-    /// actually go on this hull. Every one of them runs through <see cref="AnchorFor"/>, so a part no such ray
-    /// reaches is one the game will never chip, however badly a hand-drawn path treats it.</para>
+    /// <para>Null for an empty design, which has no grid. The game falls back to the grid's centre when a ship has
+    /// no tiles, but a design with none has nothing for the ray to reach either way.</para>
     /// </summary>
-    public static ((double X, double Y) StartDoc, (double X, double Y) EndDoc) GameRayFor(
-        ShipDocument doc, StrikeAnchor anchor, double angleDeg)
+    /// <param name="target">The tile to aim through, in document tile coords. Not required to be on the grid, so a
+    /// caller can ask about any line; <see cref="RandomGameRay"/> only ever picks one that is.</param>
+    /// <param name="angleDeg">The game's roll. At 0 the strike comes in from the top of the plan, and a larger angle
+    /// moves where it comes from clockwise round the plan as drawn.</param>
+    public static GameRay? GameRayFor(ShipDocument doc, (int X, int Y) target, double angleDeg)
     {
         ArgumentNullException.ThrowIfNull(doc);
-        ArgumentNullException.ThrowIfNull(anchor);
-        var g = Geometry(doc, anchor, angleDeg);
-        return (g.StartDoc, g.EndDoc);
+        if (Grid(doc) is not { } g) return null;
+        var d = Diagonal(g);
+        var (ux, uy) = SourceDirection(angleDeg);
+        return new GameRay(target, angleDeg,
+            (target.X + ux * d, target.Y + uy * d),
+            (target.X - ux * d, target.Y - uy * d));
     }
 
     /// <summary>
-    /// A ray from one document point through another. <paramref name="length"/> overrides how far it travels,
-    /// which is what turns a drawn segment into an aim; leave it null to run exactly to <paramref name="endDoc"/>,
-    /// as the game's own reference ray does (<see cref="Geometry"/> sizes that one itself).
+    /// One strike aimed the way the game aims it: a tile of the padded grid chosen uniformly, and a heading
+    /// uniform round the circle.
+    ///
+    /// <para>The game's pick is <c>Ship.GetRandomTile1(bWalkable: false)</c>, which takes any entry of
+    /// <c>aTiles</c>, and <c>aTiles</c> is every cell of the grid (<c>TileUtils.PadTilemap</c> fills the whole
+    /// rectangle) rather than only the occupied ones. So the margin and the empty space inside the bounding box are
+    /// as likely a target as the reactor, and a strike through a corner at a grazing angle crosses nothing at
+    /// all.</para>
     /// </summary>
-    private static Ray RayThrough(
-        (double X, double Y) startDoc, (double X, double Y) endDoc, double? length = null)
+    public static GameRay? RandomGameRay(ShipDocument doc, Random rng)
     {
-        double dx = endDoc.X - startDoc.X, dy = endDoc.Y - startDoc.Y;
-        var len = Math.Sqrt(dx * dx + dy * dy);
-        // A drag that never moved describes no heading, so there is nothing to aim along and the strike misses.
-        // That is separate from the length override, which only says how far a real heading runs.
-        return len <= 1e-9
-            ? new Ray(startDoc.X, startDoc.Y, 0, 0, 0, startDoc, endDoc)
-            : new Ray(startDoc.X, startDoc.Y, dx / len, dy / len, length ?? len, startDoc, endDoc);
-    }
-
-    /// <summary>How far a ray must run from <paramref name="start"/> to be certain of leaving the design: the
-    /// distance to the furthest corner of the padded bounding box. Bounded by the ship rather than literally
-    /// infinite, so the slab tests keep working in finite numbers and a hit's <c>Distance</c> stays meaningful.
-    /// Zero for an empty design, where a ray has nothing to cross and nothing to hit.</summary>
-    private static double Reach(ShipDocument doc, (double X, double Y) start)
-    {
-        if (doc.Bounds() is not { } b) return 0;
-        var far = 0.0;
-        foreach (var (cx, cy) in new[]
-                 {
-                     (b.MinX - 1.0, b.MinY - 1.0), (b.MaxX + 1.0, b.MinY - 1.0),
-                     (b.MinX - 1.0, b.MaxY + 1.0), (b.MaxX + 1.0, b.MaxY + 1.0),
-                 })
-        {
-            var d = Math.Sqrt((cx - start.X) * (cx - start.X) + (cy - start.Y) * (cy - start.Y));
-            if (d > far) far = d;
-        }
-        return far;
+        ArgumentNullException.ThrowIfNull(doc);
+        ArgumentNullException.ThrowIfNull(rng);
+        if (Grid(doc) is not { } g) return null;
+        var target = (g.X0 + rng.Next(g.Cols), g.Y0 + rng.Next(g.Rows));
+        return GameRayFor(doc, target, rng.NextDouble() * 360.0);
     }
 
     // ---- geometry ----
 
-    /// <summary>A path across the plan in <b>document</b> tile coords. Everything downstream works in this one
-    /// frame; the world/anchor frame exists only inside <see cref="Geometry"/>, which is the only place the game's
-    /// own aiming is reproduced.</summary>
-    private readonly record struct Ray(
-        double StartX, double StartY, double DirX, double DirY, double Length,
-        (double X, double Y) StartDoc, (double X, double Y) EndDoc);
+    /// <summary>A ray across the plan in <b>document</b> tile coords, centre frame.</summary>
+    private readonly record struct Ray(double StartX, double StartY, double DirX, double DirY, double Length);
+
+    /// <summary>The grid the game builds for a design, as its top-left tile and its size in document tile coords.
+    /// The bounding box plus a one-tile margin all round (§18), whatever frame the items are expressed in, so the
+    /// extent comes from the content and not from any anchor.</summary>
+    private readonly record struct GridBox(int X0, int Y0, int Cols, int Rows);
+
+    private static GridBox? Grid(ShipDocument doc) =>
+        doc.Bounds() is { } b
+            ? new GridBox(b.MinX - 1, b.MinY - 1, b.MaxX - b.MinX + 3, b.MaxY - b.MinY + 3)
+            : null;
+
+    /// <summary>The game's <c>Mathf.Sqrt(nCols * nCols + nRows * nRows)</c>: the whole grid's diagonal, and how far
+    /// a ray reaches either side of the tile it is aimed through.</summary>
+    private static double Diagonal(GridBox g) => Math.Sqrt((double)g.Cols * g.Cols + (double)g.Rows * g.Rows);
+
+    /// <summary>The unit vector from the target towards where a strike comes from, in document coords. The game's
+    /// <c>AngleAxis(−θ, forward) · up</c> is <c>(sin θ, cos θ)</c> with world y up, so <c>(sin θ, −cos θ)</c> once
+    /// document rows run down.</summary>
+    private static (double X, double Y) SourceDirection(double angleDeg)
+    {
+        var rad = angleDeg * Math.PI / 180.0;
+        return (Math.Sin(rad), -Math.Cos(rad));
+    }
 
     /// <summary>
-    /// The ray, reproducing <c>DamageRayRandom</c>:
-    /// <code>
-    /// half   = (nCols/2, −nRows/2);  r = |half|
-    /// vStart = vShipPos + half + AngleAxis(θ) · up · r
-    /// dir    = −normalize(vStart);   length = 2r
-    /// </code>
-    /// World coords are the anchor-relative frame: <c>world = (docX − anchorX, −(docY − anchorY))</c>, so world
-    /// origin IS the anchor and normalising the start position aims at it, exactly as the game does.
+    /// The ray a strike along a line travels: in from beyond the grid, across it in the direction from
+    /// <paramref name="startDoc"/> to <paramref name="endDoc"/>, and out the far side.
+    ///
+    /// <para>Built the way the game builds its own, from a point on the line out one full grid diagonal either way.
+    /// The point taken is the one nearest the grid's centre, which is within half a diagonal of every part of the
+    /// grid the line crosses, so the ray clears the grid with half a diagonal to spare at each end.</para>
     /// </summary>
-    private static Ray Geometry(ShipDocument doc, StrikeAnchor anchor, double angleDeg)
+    private static Ray Across(ShipDocument doc, (double X, double Y) startDoc, (double X, double Y) endDoc)
     {
-        var (cx, cy, r) = CentreAndRadius(doc, anchor);
+        double dx = endDoc.X - startDoc.X, dy = endDoc.Y - startDoc.Y;
+        var len = Math.Sqrt(dx * dx + dy * dy);
+        // A drag that never moved describes no line, and an empty design has no grid to cross. Either way the
+        // strike reaches nothing.
+        if (len <= 1e-9 || Grid(doc) is not { } g) return new Ray(startDoc.X, startDoc.Y, 0, 0, 0);
 
-        // Quaternion.AngleAxis(θ, forward) * Vector3.up is (−sin θ, cos θ) — a CCW turn of +y about +z.
-        var rad = angleDeg * Math.PI / 180.0;
-        var sx = cx - Math.Sin(rad) * r;
-        var sy = cy + Math.Cos(rad) * r;
-
-        var mag = Math.Sqrt(sx * sx + sy * sy);
-        // One angle per ship starts the ray exactly ON the anchor, and there the game fires nothing: Unity's
-        // Vector3.normalized returns zero below its epsilon rather than a unit vector, and RaycastAll along a zero
-        // direction hits nothing at all. Reproduced rather than papered over — inventing a direction here would
-        // manufacture a strike the game never delivers. It is reachable: for a square ship it is exactly 45°.
-        if (mag <= 1e-9) return RayThrough(ToDoc(sx, sy, anchor), ToDoc(sx, sy, anchor));
-
-        var len = 2 * r;
-        var (dx, dy) = (-sx / mag, -sy / mag);
-        return RayThrough(ToDoc(sx, sy, anchor), ToDoc(sx + dx * len, sy + dy * len, anchor));
+        var (ux, uy) = (dx / len, dy / len);
+        // Tile centres run from X0 to X0 + Cols − 1, so the middle of the grid is half that span in.
+        var cx = g.X0 + (g.Cols - 1) / 2.0;
+        var cy = g.Y0 + (g.Rows - 1) / 2.0;
+        var t = (cx - startDoc.X) * ux + (cy - startDoc.Y) * uy;
+        var (mx, my) = (startDoc.X + ux * t, startDoc.Y + uy * t);
+        var d = Diagonal(g);
+        return new Ray(mx - ux * d, my - uy * d, ux, uy, 2 * d);
     }
-
-    /// <summary>The ship centre in world coords and the half-diagonal the ray's start swings on — the game's
-    /// <c>vShipPos + (nCols/2, −nRows/2)</c> and <c>|(nCols/2, −nRows/2)|</c>. Shared by the forward geometry and
-    /// by <see cref="AngleFrom"/>, so the drag and the strike can never disagree about where the circle is.
-    /// <para>The grid the game builds is the bounding box plus a one-tile margin (§18) whatever frame the items are
-    /// expressed in, so the extent comes from the content and not from the anchor.</para></summary>
-    private static (double CX, double CY, double R) CentreAndRadius(ShipDocument doc, StrikeAnchor anchor)
-    {
-        var b = doc.Bounds();
-        var (nCols, nRows) = b is null ? (1, 1) : (b.Value.MaxX - b.Value.MinX + 3, b.Value.MaxY - b.Value.MinY + 3);
-        var (ox, oy) = ToWorld(b is null ? 0 : b.Value.MinX - 1, b is null ? 0 : b.Value.MinY - 1, anchor);
-        double halfX = nCols / 2.0, halfY = -(nRows / 2.0);
-        return (ox + halfX, oy + halfY, Math.Sqrt(halfX * halfX + halfY * halfY));
-    }
-
-    /// <summary>Document tile coords → the anchor-relative world frame (+y up, like the game).</summary>
-    private static (double X, double Y) ToWorld(double docX, double docY, StrikeAnchor a) =>
-        (docX - a.DocX, -(docY - a.DocY));
-
-    /// <summary>The inverse, for handing geometry back to the canvas.</summary>
-    private static (double X, double Y) ToDoc(double worldX, double worldY, StrikeAnchor a) =>
-        (worldX + a.DocX, a.DocY - worldY);
 
     /// <summary>
     /// Every placement whose collider the ray crosses, nearest first — the ordered <c>Physics.RaycastAll</c> hit
@@ -475,11 +436,5 @@ public static class MicrometeoroidStrike
         near = Math.Max(near, t0);
         far = Math.Min(far, t1);
         return near <= far;
-    }
-
-    private static double Norm360(double deg)
-    {
-        var d = deg % 360.0;
-        return d < 0 ? d + 360.0 : d;
     }
 }

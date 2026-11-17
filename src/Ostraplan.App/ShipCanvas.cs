@@ -637,7 +637,6 @@ public sealed class ShipCanvas : FrameworkElement
     // path follows the cursor — so both are pushed straight in and neither is baked.
     private DamageOverlay _damageOverlay = DamageOverlay.Empty;
     private (Point Start, Point End)? _ghostPath;      // doc coords; drawn while a Simulate dialog is aiming
-    private Point? _strikePivot;                       // doc coords; the fixed point every micrometeoroid converges on
     private bool _aiming;                              // a Simulate dialog owns the cursor: draw paths, do not edit
     private Point? _aimStart;                          // doc coords; where the current strike path was begun
 
@@ -1209,29 +1208,32 @@ public sealed class ShipCanvas : FrameworkElement
     public event Action<Point, Point, bool>? StrikePathDrawn;
 
     /// <summary>Hand the canvas to a Simulate dialog, or give it back. While aiming, dragging draws the strike path
-    /// instead of placing or selecting anything, and <paramref name="referenceDoc"/> (when given) marks where the
-    /// game's own micrometeoroids would converge.</summary>
-    public void SetAiming(bool on, Point? referenceDoc = null)
+    /// instead of placing or selecting anything.</summary>
+    public void SetAiming(bool on)
     {
         _aiming = on;
-        _strikePivot = on ? referenceDoc : null;
         if (!on) _ghostPath = null;
         UpdateToolCursor();
         InvalidateVisual();
     }
 
-    /// <summary>The ghost strike path to draw, in document coords, or null for none.</summary>
+    /// <summary>The ghost strike path to draw, in document coords, or null for none. An arrowhead at its end shows
+    /// which way the shot travels.</summary>
     /// <param name="extend">Carry the line on past the end of the drag, faintly, to the edge of the view. Both
     /// solvers treat a drawn line as an aim rather than a path, so a strike goes on until it leaves the ship;
     /// without the extension a hit landing past the drag looks like it went somewhere nobody pointed.</param>
-    public void SetGhostPath((Point Start, Point End)? path, bool extend = false)
+    /// <param name="extendBehind">Carry it back past the start of the drag as well. A micrometeoroid crosses the
+    /// whole ship along the line, so a hit behind where the drag began is expected and has to look it.</param>
+    public void SetGhostPath((Point Start, Point End)? path, bool extend = false, bool extendBehind = false)
     {
         _ghostPath = path;
         _ghostExtends = extend;
+        _ghostExtendsBehind = extendBehind;
         InvalidateVisual();
     }
 
     private bool _ghostExtends;
+    private bool _ghostExtendsBehind;
 
     /// <summary>Push the damage heat map. Cheap and unbaked: it is a handful of parts, not a station's worth of
     /// room cells, and it changes only when the user fires.</summary>
@@ -4405,47 +4407,45 @@ public sealed class ShipCanvas : FrameworkElement
         return b;
     }
 
-    /// <summary>The strike being aimed: the pivot every micrometeoroid converges on, and the ghost path through it.
-    /// Drawn while a Simulate dialog owns the cursor and never otherwise.</summary>
+    /// <summary>The strike being aimed, as a ghost path with an arrowhead for the way it travels. Drawn while a
+    /// Simulate dialog owns the cursor and never otherwise.</summary>
     private void DrawGhostPath(DrawingContext dc)
     {
-        if (!_aiming) return;
+        if (!_aiming || _ghostPath is not { } path) return;
 
-        if (_ghostPath is { } path)
+        var a = new Point(_pan.X + path.Start.X * Zoom, _pan.Y + path.Start.Y * Zoom);
+        var b = new Point(_pan.X + path.End.X * Zoom, _pan.Y + path.End.Y * Zoom);
+        double dx = b.X - a.X, dy = b.Y - a.Y;
+        var len = Math.Sqrt(dx * dx + dy * dy);
+        if (len > 1e-6)
         {
-            var a = new Point(_pan.X + path.Start.X * Zoom, _pan.Y + path.Start.Y * Zoom);
-            var b = new Point(_pan.X + path.End.X * Zoom, _pan.Y + path.End.Y * Zoom);
+            var (ux, uy) = (dx / len, dy / len);
             // The aim beyond the drag, drawn first so the drag itself stays the brighter of the two. Run far
             // enough to leave any view: the shot stops when it leaves the ship, not when the line runs out.
+            var far = (ActualWidth + ActualHeight) * 2 + 1000;
             if (_ghostExtends)
-            {
-                double dx = b.X - a.X, dy = b.Y - a.Y;
-                var len = Math.Sqrt(dx * dx + dy * dy);
-                if (len > 1e-6)
-                {
-                    var far = (ActualWidth + ActualHeight) * 2 + 1000;
-                    dc.DrawLine(GhostAimPen, b, new Point(b.X + dx / len * far, b.Y + dy / len * far));
-                }
-            }
-            dc.DrawLine(GhostPen, a, b);
-        }
+                dc.DrawLine(GhostAimPen, b, new Point(b.X + ux * far, b.Y + uy * far));
+            if (_ghostExtendsBehind)
+                dc.DrawLine(GhostAimPen, a, new Point(a.X - ux * far, a.Y - uy * far));
 
-        // Where the game's OWN micrometeoroids converge. Not a constraint on what you may draw — it is the one
-        // thing a hand-drawn line cannot tell you, since a part no real ray reaches is one the game will never chip.
-        if (_strikePivot is { } reference)
-        {
-            var c = new Point(_pan.X + reference.X * Zoom, _pan.Y + reference.Y * Zoom);
-            var rad = Math.Max(4, Zoom * 0.35);
-            dc.DrawEllipse(null, PivotPen, c, rad, rad);
-            dc.DrawLine(PivotPen, new Point(c.X - rad * 1.6, c.Y), new Point(c.X + rad * 1.6, c.Y));
-            dc.DrawLine(PivotPen, new Point(c.X, c.Y - rad * 1.6), new Point(c.X, c.Y + rad * 1.6));
+            // With the line running off both edges, nothing else on it says which way the shot is going.
+            var size = Math.Clamp(Zoom * 0.45, 7, 14);
+            const double spread = 0.45;   // radians either side of the shaft
+            foreach (var turn in new[] { spread, -spread })
+            {
+                var (c, s) = (Math.Cos(turn), Math.Sin(turn));
+                var (bx, by) = (-ux * c + uy * s, -ux * s - uy * c);
+                dc.DrawLine(GhostArrowPen, b, new Point(b.X + bx * size, b.Y + by * size));
+            }
         }
+        dc.DrawLine(GhostPen, a, b);
     }
 
     private static readonly Pen GhostPen = FrozenDashedPen(Color.FromArgb(220, 255, 240, 120), 2, 6, 4);
     /// <summary>The aim past the end of the drag: the same line, said more quietly.</summary>
     private static readonly Pen GhostAimPen = FrozenDashedPen(Color.FromArgb(90, 255, 240, 120), 1.5, 3, 7);
-    private static readonly Pen PivotPen = FrozenPen(Color.FromArgb(230, 255, 240, 120), 1.5);
+    /// <summary>The arrowhead: the ghost's colour, solid so the head reads at any zoom.</summary>
+    private static readonly Pen GhostArrowPen = FrozenPen(Color.FromArgb(220, 255, 240, 120), 2);
 
     private static Pen FrozenPen(Color c, double thickness)
     {
@@ -5496,16 +5496,15 @@ public sealed class ShipCanvas : FrameworkElement
 
     /// <summary>
     /// Where world origin sits in document coordinates, for the wear shader's world-space noise (see
-    /// <see cref="WearShader.PositionOffset"/>). The same anchor a micrometeoroid converges on, and for the same
-    /// reason: a design drawn here will sit at the export grid's origin, while one imported from a save already
-    /// has a frame of its own, and the two wear differently.
+    /// <see cref="WearShader.PositionOffset"/>). A design drawn here will sit at the export grid's origin, while
+    /// one imported from a save already has a frame of its own, and the two wear differently.
     ///
     /// <para>Cached because it is a property of the document rather than of a frame, and recomputing it per
     /// sprite would walk every placement to find the bounds.</para>
     /// </summary>
-    private StrikeAnchor? _wearAnchor;
+    private WorldAnchor? _wearAnchor;
 
-    private StrikeAnchor WearAnchor => _wearAnchor ??= MicrometeoroidStrike.AnchorFor(Doc!);
+    private WorldAnchor WearAnchor => _wearAnchor ??= WorldAnchor.For(Doc!);
 
     /// <summary>Drop the cached anchor and bound the bake. The anchor moves whenever the design's bounds do, and
     /// every part's world position moves with it, so it cannot be held across an edit.</summary>

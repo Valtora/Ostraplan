@@ -9,6 +9,17 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
+## [Unreleased]
+
+### Added
+- **Simulate ▸ Micrometeoroid Strike has a Random strike button that fires one the way the game does.**
+  - It picks a tile of the ship and a direction at random, so now and then a strike misses, as in game.
+
+### Fixed
+- **Micrometeoroid strikes cross the whole ship along the line you draw, as in Ostranauts 1.1.0.1.**
+  - A drag started inside the hull still hits the parts behind it, and an arrowhead shows which way the strike travels.
+  - The plan no longer marks a point every strike passes through, because in Ostranauts 1.1.0.1 there is none.
+
 ## [1.38.0] 2026-11-16, Ostranauts 1.1
 
 ### Added

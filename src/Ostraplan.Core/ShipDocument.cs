@@ -379,11 +379,12 @@ public sealed class ShipDocument
     /// Where the ship this design was imported from had its grid anchor (<c>vShipPos</c>), expressed in
     /// <b>document</b> tile coords, or null for a design authored here.
     ///
-    /// <para>Only one thing reads it, and it is the reason it exists: micrometeoroid strikes all converge on the
-    /// tile at world origin, which the anchor decides (§26). An imported ship's convergence point is wherever its
-    /// save or template put it — inside the hull for 85% of the shipped fleet — while a design Ostraplan exports
-    /// gets a fresh anchor at the export grid's origin, just outside the corner. Reporting one for the other would
-    /// answer the wrong question for someone checking the ship they are actually flying.</para>
+    /// <para>It places world origin, which the game samples some things against rather than the grid
+    /// (<see cref="WorldAnchor"/>): the wear shader's noise is the reader. An imported ship's world origin is
+    /// wherever its save or template put it, inside the hull for 85% of the shipped fleet, while a design Ostraplan
+    /// exports gets a fresh anchor at the export grid's origin, just outside the corner. Measuring one in the other's
+    /// frame describes a different ship from the one the player is flying. Micrometeoroids used to read it too, when
+    /// every strike aimed at world origin; since Ostranauts 1.1.0.1 they do not (§26).</para>
     ///
     /// <para>Import-time provenance, deliberately <b>not</b> persisted in the <c>.oplan</c>: it describes the ship
     /// the design came out of rather than the design, and a reopened file is on its way to being exported afresh,

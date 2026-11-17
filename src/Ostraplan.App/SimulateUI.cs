@@ -118,12 +118,21 @@ public sealed class SimulateWindow : Window
     /// and a user firing repeatedly at one line will start several, which can finish in any order.</summary>
     private int _falloutGeneration;
 
-    private StrikeAnchor _anchor;
-
-    /// <summary>The drawn path, in the canvas's own <b>corner</b> frame (<see cref="TileFrame"/>) — the frame the
-    /// ghost line is drawn in and the one the coordinates are reported in, so both match the tile readout in the
-    /// status bar. It is converted to the solver's centre frame at the moment of firing and nowhere else.</summary>
+    /// <summary>The aim, drawn or rolled, in the canvas's own <b>corner</b> frame (<see cref="TileFrame"/>): the
+    /// frame the ghost line is drawn in and the one the coordinates are reported in, so both match the tile readout
+    /// in the status bar. It is converted to the solver's centre frame at the moment of firing and nowhere else.</summary>
     private ((double X, double Y) Start, (double X, double Y) End)? _path;
+
+    /// <summary>The tile the game picked when <see cref="_path"/> came from <see cref="FireRandom"/>, so the readout
+    /// can name it. Null for a drawn line.</summary>
+    private (int X, int Y)? _randomTarget;
+
+    private readonly Button _random = new()
+    {
+        Content = "Random strike", Padding = new Thickness(12, 4, 12, 4), Margin = new Thickness(8, 0, 0, 0),
+        ToolTip = "Fire one micrometeoroid the way the game does: through a random tile, from a random direction.",
+    };
+
     private int _shots;
     private SimulateMode _mode = SimulateMode.Micrometeoroid;
 
@@ -131,7 +140,6 @@ public sealed class SimulateWindow : Window
     {
         _board = board;
         _doc = doc;
-        _anchor = MicrometeoroidStrike.AnchorFor(doc);
 
         // A declared height rather than SizeToContent, because two list-shaped panels live in here and a window
         // that sizes to its content has no ceiling of its own (CONVENTIONS.md). Resizable on top of that: how much
@@ -180,7 +188,7 @@ public sealed class SimulateWindow : Window
 
         Loaded += (_, _) =>
         {
-            _board.SetAiming(true, PivotForCanvas());
+            _board.SetAiming(true);
             UpdateLabels();
         };
         Closed += (_, _) =>
@@ -203,7 +211,11 @@ public sealed class SimulateWindow : Window
         _mode = mode;
         _meteoroidPanel.Visibility = IsMicrometeoroid ? Visibility.Visible : Visibility.Collapsed;
         _weaponPanel.Visibility = IsMicrometeoroid ? Visibility.Collapsed : Visibility.Visible;
+        _random.Visibility = IsMicrometeoroid ? Visibility.Visible : Visibility.Collapsed;
         Title = IsMicrometeoroid ? "Simulate — Micrometeoroid strike" : "Simulate — Weapon impact";
+        // The two solvers read the same line differently behind its start, so the ghost has to be redrawn for the
+        // one now pointed at it.
+        ShowGhost();
         UpdateLabels();
     }
 
@@ -232,6 +244,7 @@ public sealed class SimulateWindow : Window
 
         var fire = new Button { Content = "Fire", Padding = new Thickness(18, 4, 18, 4), IsDefault = true };
         fire.Click += (_, _) => Fire();
+        _random.Click += (_, _) => FireRandom();
         var clear = new Button
         {
             Content = "Start over", Padding = new Thickness(12, 4, 12, 4), Margin = new Thickness(8, 0, 0, 0),
@@ -250,6 +263,7 @@ public sealed class SimulateWindow : Window
             Orientation = Orientation.Horizontal, Margin = new Thickness(12, 4, 12, 12),
         };
         buttons.Children.Add(fire);
+        buttons.Children.Add(_random);
         buttons.Children.Add(clear);
 
         _resultLine.Foreground = Ink;
@@ -414,19 +428,26 @@ public sealed class SimulateWindow : Window
     /// what makes the tool feel like aiming rather than filling in a form.</summary>
     private void OnPathDrawn(Point start, Point end, bool committed)
     {
-        // Both solvers read a drawn line as an aim rather than a path, so the canvas carries it on past the drag.
-        _board.SetGhostPath((start, end), extend: true);
         _path = ((start.X, start.Y), (end.X, end.Y));
+        _randomTarget = null;
+        ShowGhost();
         UpdateLabels();
         if (committed) Fire();
     }
 
-    /// <summary>The convergence marker where the canvas wants it. The anchor is a solver-frame point and the canvas
-    /// draws in its own frame, so this is the one crossing on the way out.</summary>
-    private Point PivotForCanvas()
+    /// <summary>
+    /// Put the aim on the plan the way the solver pointed at it will read it.
+    ///
+    /// <para>Both solvers read a line as an aim rather than a path, so the canvas carries it on past the drag. A
+    /// micrometeoroid also runs it back past the start, because it crosses the whole ship along the line from space
+    /// to space, so a hit behind where the drag began is part of the same strike.</para>
+    /// </summary>
+    private void ShowGhost()
     {
-        var (x, y) = TileFrame.CentreToCorner((_anchor.DocX, _anchor.DocY));
-        return new Point(x, y);
+        if (_path is not { } p) return;
+        _board.SetGhostPath(
+            (new Point(p.Start.X, p.Start.Y), new Point(p.End.X, p.End.Y)),
+            extend: true, extendBehind: IsMicrometeoroid);
     }
 
     /// <summary>The drawn path in the frame the solvers read. Both of them measure against colliders centred on a
@@ -456,17 +477,42 @@ public sealed class SimulateWindow : Window
         _damageReset.IsEnabled = Math.Abs(_damage.Value - MicrometeoroidStrike.StandardDamage) >= 0.5;
 
         // A drawn line sets a heading, not a distance: it carries on to the far side of the ship, so how far you
-        // drag decides the angle and nothing else. Both solvers read it that way.
-        _pathLabel.Text = _path is { } p
-            ? $"Aim: ({p.Start.X:0.0}, {p.Start.Y:0.0}) → ({p.End.X:0.0}, {p.End.Y:0.0}).  "
-              + "Press Fire to hit it again, or drag a new one."
-            : "Drag a line across the plan to aim, and release to fire. The shot continues along the line until "
-              + "it hits something or leaves the ship.";
-
-        _board.SetAiming(true, IsMicrometeoroid ? PivotForCanvas() : null);
+        // drag decides the angle and nothing else. Both solvers read it that way, and a micrometeoroid also comes in
+        // from the near side whatever the drag's start.
+        _pathLabel.Text = (_path, _randomTarget) switch
+        {
+            ({ }, { } t) when IsMicrometeoroid =>
+                $"Random strike through tile ({t.X}, {t.Y}).  Press Fire to hit the same line again, or drag a new one.",
+            ({ } p, _) => $"Aim: ({p.Start.X:0.0}, {p.Start.Y:0.0}) → ({p.End.X:0.0}, {p.End.Y:0.0}).  "
+                          + "Press Fire to hit it again, or drag a new one.",
+            _ when IsMicrometeoroid =>
+                "Drag a line across the plan to aim, and release to fire. A micrometeoroid crosses the whole ship "
+                + "along the line, in the direction you drew it.",
+            _ => "Drag a line across the plan to aim, and release to fire. The shot continues along the line until "
+                 + "it hits something or leaves the ship.",
+        };
     }
 
     // ---- firing ----
+
+    /// <summary>
+    /// Fire one micrometeoroid aimed the way the game aims it: through a random tile of the ship's grid, from a
+    /// random direction, at the strength on the slider.
+    ///
+    /// <para>The line becomes the aim, from where it comes in to the tile it was aimed through, so Fire repeats it
+    /// and the plan shows which tile was picked. The strength is still the top of the game's roll, like a drawn
+    /// line's: only where it lands is random.</para>
+    /// </summary>
+    private void FireRandom()
+    {
+        if (!IsMicrometeoroid) return;
+        if (MicrometeoroidStrike.RandomGameRay(_doc, Random.Shared) is not { } ray) return;
+        _path = (TileFrame.CentreToCorner(ray.StartDoc), TileFrame.CentreToCorner((ray.Target.X, ray.Target.Y)));
+        _randomTarget = ray.Target;
+        ShowGhost();
+        UpdateLabels();
+        Fire();
+    }
 
     private void Fire()
     {

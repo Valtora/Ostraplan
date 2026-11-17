@@ -167,13 +167,13 @@ public static class WearShader
     /// the frame wrong does not fail, it just draws a different ship's wear. Note the Y negation — document rows
     /// run down and world Y runs up — and that the centre offsets use the <b>rotated</b> footprint.</para>
     ///
-    /// <para><paramref name="anchor"/> is where world origin falls in document coordinates, and is the same
-    /// <see cref="StrikeAnchor"/> a strike converges on, for the same reason: a design drawn here will sit at the
-    /// export grid's origin, while one imported from a save already has a frame of its own. A ship measured in
-    /// the wrong one wears plausibly and differently from the ship in the player's save.</para>
+    /// <para><paramref name="anchor"/> is where world origin falls in document coordinates
+    /// (<see cref="WorldAnchor"/>). A design drawn here will sit at the export grid's origin, while one imported
+    /// from a save already has a frame of its own, and a ship measured in the wrong one wears plausibly and
+    /// differently from the ship in the player's save.</para>
     /// </summary>
     public static (double X, double Y, double Z) PositionOffset(
-        double docX, double docY, int rotatedW, int rotatedH, double zScale, StrikeAnchor anchor)
+        double docX, double docY, int rotatedW, int rotatedH, double zScale, WorldAnchor anchor)
     {
         ArgumentNullException.ThrowIfNull(anchor);
         var col = docX - anchor.DocX;
