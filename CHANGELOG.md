@@ -9,7 +9,7 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
-## [Unreleased]
+## [1.38.2] 2026-11-23, docked hull swaps
 
 ### Fixed
 - **A ship moved onto a new hull while docked lines up with the station's airlock when the save loads.**
