@@ -866,6 +866,91 @@ public class SaveEditInjectSyntheticTests
         Assert.Equal(41.5, (double)((JsonArray)ship["aCOs"]!)[0]!["fFuel"]!);
     }
 
+    // ---- the docking record ----
+
+    private const string Primary = "ItmDockSys02Closed";
+    private const string Secondary = "ItmDockSys03Closed";
+
+    private static Catalog DockCatalog() => new Fixtures()
+        .Floor("Floor")
+        .Trig(ProblemScan.DocksysTrigger, reqs: ["IsDockSys", "IsInstalled"])
+        .Part(Primary, startingConds: ["IsDockSys", "IsInstalled"])
+        .Part(Secondary, startingConds: ["IsDockSys", "IsInstalled", ProblemScan.TypeBCond])
+        .Build();
+
+    /// <summary>A ship docked to OKLG by its airlock <c>old</c> and moored to a buoy, the way the game saves it.</summary>
+    private static SaveShipContext DockedContext()
+    {
+        var ctx = Context(
+            new JsonArray(Item("a", "Floor", 101, 199), Item("old", Primary, 102, 199)),
+            new JsonArray(Co("a", "Floor"), Co("old", Primary)),
+            new() { ["a"] = new OriginPart(1, 1, 0, []), ["old"] = new OriginPart(2, 1, 0, []) });
+        var ship = ctx.ShipRecord.AsObject();
+        ship["aDocked"] = new JsonObject { ["old"] = "OKLG", ["MP|I|m1"] = "BUOY" };
+        ship["aDockingPorts"] = new JsonArray("old", "MP|I|m1");
+        ship["strPrimaryDockingPortID"] = "old";
+        return ctx;
+    }
+
+    private static string IdOf(JsonObject ship, string def) =>
+        (string)Items(ship).Single(o => (string)o["strName"]! == def)["strID"]!;
+
+    [Fact]
+    public void A_hull_swap_while_docked_moves_the_dock_onto_the_new_airlock()
+    {
+        // The reported case: a design that never came from this ship replaces it while it sits at a station. The
+        // old airlock goes, the new one arrives with a fresh strID, and a record still naming the old one leaves
+        // the game unable to snap the ship to the station's collar on load.
+        var cat = DockCatalog();
+        var doc = Fixtures.Doc(cat,
+            new Placement { DefName = "Floor", X = 1, Y = 1 },
+            new Placement { DefName = Secondary, X = 3, Y = 1 },
+            new Placement { DefName = Primary, X = 2, Y = 1 });
+
+        var (ship, report) = SaveEdit.BuildInjectedShip(doc, DockedContext(), cat, NoSpecs);
+
+        var primary = IdOf(ship, Primary);
+        var secondary = IdOf(ship, Secondary);
+        Assert.DoesNotContain("old", ItemIds(ship));
+        var docked = ship["aDocked"]!.AsObject();
+        Assert.Equal(new[] { "MP|I|m1", primary }.Order(StringComparer.Ordinal), docked.Select(kv => kv.Key).Order(StringComparer.Ordinal));
+        Assert.Equal("OKLG", (string)docked[primary]!);
+        Assert.Equal("BUOY", (string)docked["MP|I|m1"]!);
+        Assert.Equal([primary, secondary, "MP|I|m1"], ship["aDockingPorts"]!.AsArray().Select(n => (string)n!));
+        Assert.Equal(primary, (string)ship["strPrimaryDockingPortID"]!);
+        Assert.DoesNotContain(report.Warnings, w => w.StartsWith("Undocked", StringComparison.Ordinal));
+    }
+
+    [Fact]
+    public void An_edit_that_keeps_the_airlock_writes_the_docking_record_verbatim()
+    {
+        var cat = DockCatalog();
+        var ctx = DockedContext();
+        var before = ctx.ShipRecord.DeepClone().AsObject();
+        var doc = Fixtures.Doc(cat,
+            new Placement { DefName = "Floor", X = 1, Y = 1, OriginStrID = "a" },
+            new Placement { DefName = Primary, X = 2, Y = 1, OriginStrID = "old" });
+
+        var (ship, _) = SaveEdit.BuildInjectedShip(doc, ctx, cat, NoSpecs);
+
+        foreach (var key in new[] { "aDocked", "aDockingPorts", "strPrimaryDockingPortID" })
+            Assert.True(JsonNode.DeepEquals(before[key], ship[key]), key);
+    }
+
+    [Fact]
+    public void A_design_with_no_airlock_lets_go_of_the_dock_and_says_so()
+    {
+        var cat = DockCatalog();
+        var doc = Fixtures.Doc(cat, new Placement { DefName = "Floor", X = 1, Y = 1, OriginStrID = "a" });   // airlock gone
+
+        var (ship, report) = SaveEdit.BuildInjectedShip(doc, DockedContext(), cat, NoSpecs);
+
+        Assert.Equal(["MP|I|m1"], ship["aDocked"]!.AsObject().Select(kv => kv.Key));
+        Assert.Equal(["MP|I|m1"], ship["aDockingPorts"]!.AsArray().Select(n => (string)n!));
+        Assert.Equal("", (string)ship["strPrimaryDockingPortID"]!);
+        Assert.Contains(report.Warnings, w => w.StartsWith("Undocked from OKLG", StringComparison.Ordinal));
+    }
+
     /// <summary>The same fixture as <see cref="Context"/>, but with the ship record's <c>aCOs</c> empty and the COs
     /// reached the way the import reaches them when the player is elsewhere: through <c>CosById</c>, named by
     /// <c>RelocatedCoIds</c>.</summary>

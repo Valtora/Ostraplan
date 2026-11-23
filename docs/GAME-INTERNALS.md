@@ -834,6 +834,29 @@ docksys item strIDs, primary / non-TypeB first, TypeB last) and
 > **Ported in Ostraplan:** `ShipExport` bakes both. `ItmDockSys02Closed` is the
 > non-TypeB primary, `ItmDockSys03Closed` is TypeB.
 
+### A docked ship is re-docked on load by the port strID it saved
+
+A save records a dock on both ships, by item strID: `aDocked` maps each of **our** ports
+to the RegID clamped to it (`Dictionary<string, string>`; mooring points are keyed
+`MP|…`, `MP|I|…` when incoming). On a Full load `Ship.InitDocking` walks that map and
+calls `CrewSim.DockShip(this, theirRegID, them.GetPortIdForDockedShip(ourRegID),
+ourPortId)`, which docks and then calls `PositionShipsAtAirlock`. That looks up **both**
+port IDs among each ship's `IsDockSys` condowners and moves the incoming ship so the two
+airlocks meet. If either ID names no such condowner it returns false, logs `"Target: X,
+No matching docking port found! PortID them:… PortID us:…"`, and leaves the ship where
+its saved position put it. The ship still counts as docked (`Dock` has already run), so
+nothing on screen says the dock failed; the airlocks are simply out of line and neither
+works. Verified against 1.1.0.5.
+
+So **any save write that removes the airlock a ship is docked by must re-key `aDocked`**
+to an airlock that survives. The game never re-derives the key from geometry.
+
+> **Ported in Ostraplan:** `SaveEdit.RepointDocking` moves each stale `aDocked` key to a
+> surviving port (primary first), rebuilds `aDockingPorts` and `strPrimaryDockingPortID`
+> when they name a removed port, and drops a dock it cannot re-key, with a warning. Until
+> 1.38.2 these fields were copied verbatim, so swapping a docked ship onto another hull
+> left it docked by an airlock that no longer existed.
+
 ### A boarded ship needs `Boarding` / `NotBoarding` spawn points
 
 A person delivered to a ship — off the P.A.S.S. ferry, or via a skywalk — is placed

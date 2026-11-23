@@ -1319,6 +1319,11 @@ see [Apartments](#apartments).
   lists exactly what before anything is written. This is how you move a live ship onto a
   different hull — take the Edelweiss template, or any design you've drawn, and put your
   crew and cargo on it — without redrawing the layout by hand.
+- **A docked ship stays docked by an airlock it still has.** The game re-docks a ship on
+  load by the airlock it was docked with, so when the write removes that airlock (a new
+  hull, or the airlock deleted and placed again) the dock moves to the design's Primary
+  Airlock, and the ship lines up with the station when the save loads. A design with no
+  airlock free to dock by is undocked instead, and **Review** warns you.
 - The ship's **identity is editable** here, and it is written onto the ship. The import
   seeds it from the ship's own record, so **Ship Info** and **The ship** open on what the
   ship really is (make, model, year, designation, description) rather than on blanks.

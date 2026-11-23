@@ -48,7 +48,8 @@ public sealed record InjectReport(
 /// load skips any item lacking one), deleted parts (and their cargo) dropped; <c>aRooms</c>/<c>aRating</c>/grid
 /// are recomputed by the P2 engine, and every
 /// other field — crew, world position, docking, economy — is preserved verbatim off the retained
-/// record. The ship's flavour identity is preserved too <b>unless</b> the caller passes one to write
+/// record, except that a docking entry naming an airlock the edit removed is moved to one that survives
+/// (see <see cref="RepointDocking"/>). The ship's flavour identity is preserved too <b>unless</b> the caller passes one to write
 /// (see <see cref="ApplyIdentity"/>). Then it writes to a <b>copy</b> of the save (the original is never
 /// opened for writing).
 ///
@@ -560,10 +561,13 @@ public static class SaveEdit
         ship["bPrefill"] = true;
         const bool atmosphereFilled = true;
 
+        var dockWarnings = RepointDocking(ship, catalog);
+
         Validate(ship, ctx, dropSet);
 
-        var warnings = ProblemScan.Scan(doc, catalog)
-            .Select(pr => $"{pr.Title}: {pr.Detail}")
+        // A lost dock leads: Review lists only the first few warnings, and this one is about the save, not the design.
+        var warnings = dockWarnings
+            .Concat(ProblemScan.Scan(doc, catalog).Select(pr => $"{pr.Title}: {pr.Detail}"))
             .ToList();
 
         var report = new InjectReport(
@@ -766,6 +770,78 @@ public static class SaveEdit
     }
 
     /// <summary>Hard integrity checks — throw to abort the whole inject before anything is written.</summary>
+    /// <summary>
+    /// Point the ship's docking record at airlocks it still has. Returns a warning per dock that had to be let go.
+    ///
+    /// <para>The record is copied over verbatim with every other field, and it names airlocks <b>by strID</b>:
+    /// <c>aDocked</c> maps each of our ports to the ship clamped to it, <c>aDockingPorts</c> lists the ports a
+    /// shallow load exposes, and <c>strPrimaryDockingPortID</c> is the one the Comms screen docks by. An edit that
+    /// drops the airlock the ship is docked by (a different hull, or the airlock deleted and placed again) gives the
+    /// new airlock a new strID, and nothing else changes it. On a Full load <c>Ship.InitDocking</c> re-docks through
+    /// <c>CrewSim.DockShip</c> with the stale ID, <c>PositionShipsAtAirlock</c> finds no such port and logs "No
+    /// matching docking port found!", and the ship stays where the old hull's airlock was: still counted as docked,
+    /// with the new airlock off the station's collar and unusable. See GAME-INTERNALS §6.</para>
+    ///
+    /// <para>So each stale <c>aDocked</c> key moves to a surviving port the record does not already use, primary
+    /// first, and the game then snaps the ship to that port on load. A dock with no free port left is dropped: the
+    /// other ship's own entry then fails its lookup and the game removes it, leaving both undocked rather than
+    /// clamped together through nothing. Mooring entries (<c>MP|…</c>) name a mooring point, not an airlock, and
+    /// are left alone. A record whose ports all survived is not touched, so an ordinary edit writes it verbatim.</para>
+    /// </summary>
+    private static List<string> RepointDocking(JsonObject ship, Catalog catalog)
+    {
+        static bool IsMooring(string id) => id.StartsWith("MP|", StringComparison.Ordinal);
+
+        // The installed ports, in the order the game registers them: non-TypeB first, the primary-class port at
+        // the head (the same rule ShipExport bakes a new ship with).
+        var ports = new List<(string Id, bool TypeB, bool Primary)>();
+        foreach (var it in Arr(ship, "aItems"))
+        {
+            if (Str(it, "strParentID") is not null || Str(it, "strID") is not { } id) continue;
+            var part = Str(it, "strName") is { } def ? catalog.Lookup(def) : null;
+            var primary = catalog.IsPrimaryDocksys(part);
+            if (part is null || !(primary || ProblemScan.IsDocksys(part, catalog))) continue;
+            ports.Add((id, part.StartingConds.Contains(ProblemScan.TypeBCond), primary));
+        }
+        var primaryId = ports.FirstOrDefault(p => p.Primary).Id ?? ports.FirstOrDefault(p => !p.TypeB).Id ?? ports.FirstOrDefault().Id;
+        var ordered = ports.Where(p => !p.TypeB).Concat(ports.Where(p => p.TypeB))
+            .Select(p => p.Id).OrderBy(id => id == primaryId ? 0 : 1).ToList();
+        var surviving = ordered.ToHashSet(StringComparer.Ordinal);
+
+        var warnings = new List<string>();
+        if (ship["aDocked"] is JsonObject docked && docked.Any(kv => !IsMooring(kv.Key) && !surviving.Contains(kv.Key)))
+        {
+            var used = docked.Select(kv => kv.Key).Where(surviving.Contains).ToHashSet(StringComparer.Ordinal);
+            var free = new Queue<string>(ordered.Where(id => !used.Contains(id)));
+            var rebuilt = new JsonObject();
+            foreach (var (key, value) in docked.ToList())
+            {
+                if (IsMooring(key) || surviving.Contains(key)) rebuilt[key] = value?.DeepClone();
+                else if (free.TryDequeue(out var port)) rebuilt[port] = value?.DeepClone();
+                else warnings.Add($"Undocked from {value?.GetValue<string>() ?? "another ship"}: the design has no free airlock to stay docked by.");
+            }
+            ship["aDocked"] = rebuilt;
+        }
+
+        if (ship["aDockingPorts"] is JsonArray listed)
+        {
+            var listedIds = listed.Select(n => n?.GetValue<string>()).OfType<string>().ToList();
+            var current = listedIds.Where(id => !IsMooring(id)).ToList();
+            if (current.Any(id => !surviving.Contains(id)) || ordered.Any(id => !current.Contains(id)))
+            {
+                var rebuilt = new JsonArray();
+                foreach (var id in ordered) rebuilt.Add(id);
+                foreach (var id in listedIds.Where(IsMooring)) rebuilt.Add(id);
+                ship["aDockingPorts"] = rebuilt;
+            }
+        }
+
+        if (Str(ship, "strPrimaryDockingPortID") is { Length: > 0 } chosen && !IsMooring(chosen) && !surviving.Contains(chosen))
+            ship["strPrimaryDockingPortID"] = primaryId ?? "";
+
+        return warnings;
+    }
+
     private static void Validate(JsonObject ship, SaveShipContext ctx, HashSet<string> dropSet)
     {
         var itemIds = new HashSet<string>(StringComparer.Ordinal);

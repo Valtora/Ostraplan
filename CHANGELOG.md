@@ -9,6 +9,13 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
+## [Unreleased]
+
+### Fixed
+- **A ship moved onto a new hull while docked lines up with the station's airlock when the save loads.**
+  - The same goes for a docked ship whose airlock you delete and place again.
+  - If the design has no airlock left to dock by, the ship is undocked instead, and Review says so.
+
 ## [1.38.1] 2026-11-17, micrometeoroids
 
 ### Added
