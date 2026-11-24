@@ -9,6 +9,13 @@ Ostraplan validates ships by *porting* Ostranauts' own logic; the game version
 each release was verified against is recorded in
 [docs/GAME-INTERNALS.md](docs/GAME-INTERNALS.md) (**1.0.0.13**).
 
+## [Unreleased]
+
+### Fixed
+- **Picking a part on a hidden layer shows that layer, so nothing is placed out of sight.**
+  - Before, the part vanished as it landed, and the brush was refused over hidden parts the status bar then named.
+  - A paste shows the layers it lands on, and hiding the layer of the part in hand puts it down. Thanks to nighoggDatatype.
+
 ## [1.38.2] 2026-11-23, docked hull swaps
 
 ### Fixed

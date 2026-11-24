@@ -283,6 +283,12 @@ selection when you switch it off. Neither changes the design. The placement law 
 a hidden wall, so a part refused over one is refused for a reason you cannot see until you
 show the layer again, and Export and the ship's portrait include every layer.
 
+Nothing is placed on a hidden layer. Picking a part from the palette shows the layer it goes
+on, so arming a conduit with **Conduits** hidden turns the conduits back on, and a paste
+does the same for whatever it lands. Hiding the layer of the part in hand puts the part
+down. A locked layer is still drawn, so a part on it stays in hand and its padlock is left
+alone.
+
 The state is remembered between sessions and applies to every open design. While any layer
 is hidden or locked the status bar says so in amber, for example **LAYERS: WALLS & DOORS
 HIDDEN**, and **Reset** at the top of the panel shows and unlocks everything. The

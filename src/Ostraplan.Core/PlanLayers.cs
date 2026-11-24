@@ -24,6 +24,9 @@ public enum PlanLayer
 /// cannot reach can be changed by a gesture. Neither changes the design: the placement law still sees a hidden
 /// wall, an export still writes it, and the mod's ship portrait still draws it.</para>
 ///
+/// <para>Nothing is laid on a hidden layer either. Arming a brush or pasting shows the layers the parts land on
+/// (<see cref="Showing"/>), and hiding the layer of the brush in hand puts the brush down (#80).</para>
+///
 /// <para>Immutable, so a canvas can hand its state to the window and the window can hand it to settings without
 /// either worrying about the other changing it underneath them.</para>
 /// </summary>
@@ -55,6 +58,20 @@ public sealed class LayerView
 
     public LayerView WithHidden(PlanLayer layer, bool hidden) => With(_hidden, layer, hidden, h => new LayerView(h, _locked));
     public LayerView WithLocked(PlanLayer layer, bool locked) => With(_locked, layer, locked, l => new LayerView(_hidden, l));
+
+    /// <summary>
+    /// This state with every one of <paramref name="layers"/> shown, locks left as they are. The same instance when
+    /// none of them was hidden, so a caller can tell by reference whether anything changed.
+    ///
+    /// <para>For the gestures that lay parts down (arming a brush, a paste): a part laid on a hidden layer would
+    /// vanish as it landed, and the placement law would refuse the brush over parts nobody can see (#80), so the
+    /// layer comes back into view first.</para>
+    /// </summary>
+    public LayerView Showing(IEnumerable<PlanLayer> layers)
+    {
+        if (!layers.Any(_hidden.Contains)) return this;
+        return new LayerView(_hidden.Except(layers), _locked);
+    }
 
     private LayerView With(HashSet<PlanLayer> set, PlanLayer layer, bool on, Func<HashSet<PlanLayer>, LayerView> make)
     {
@@ -90,13 +107,21 @@ public sealed class LayerView
     };
 
     /// <summary>The layer an installed part belongs to, from its render layer.</summary>
-    public static PlanLayer Of(Catalog catalog, Placement p) => catalog.RenderLayer(catalog.Lookup(p.DefName)) switch
+    public static PlanLayer Of(Catalog catalog, Placement p) => Of(catalog, catalog.Lookup(p.DefName));
+
+    /// <summary>The layer a part lands on when it is installed, from its render layer.</summary>
+    public static PlanLayer Of(Catalog catalog, PartDef? part) => catalog.RenderLayer(part) switch
     {
         Catalog.LayerFloor => PlanLayer.Floors,
         Catalog.LayerWall => PlanLayer.Walls,
         Catalog.LayerConduit => PlanLayer.Conduits,
         _ => PlanLayer.Fixtures,
     };
+
+    /// <summary>The layer a brush lays its part on: the part's own layer, or Loose items for a brush that drops
+    /// the part on the deck as cargo. The palette has no spawner brush, so a brush is never on Spawners.</summary>
+    public static PlanLayer OfBrush(Catalog catalog, PartDef part, bool loose) =>
+        loose ? PlanLayer.Loose : Of(catalog, part);
 
     /// <summary>The layer a deck item belongs to: a spawner is an editor object standing for cargo, so it has a row
     /// of its own, the same split the box-select filter makes.</summary>

@@ -288,7 +288,7 @@ public partial class MainWindow : Window
         board.Disarmed += ClearPaletteSelection;
         board.ContextMenuRequested += OnContextMenuRequested;
         board.BrushPicked += OnArmFromTile;   // Alt+LMB eyedropper
-        board.ArmedChanged += () => { UpdateBrushText(); UpdateSurfaceBar(); SyncToolStrip(); };   // slot A is whatever is in hand, however it got there
+        board.ArmedChanged += () => { RevealBrushLayer(board); UpdateBrushText(); UpdateSurfaceBar(); SyncToolStrip(); };   // slot A is whatever is in hand, however it got there
         board.ToolChanged += SyncToolStrip;             // the tool strip's hand or pick was picked up or put down
         board.LooseContextMenuRequested += OnLooseContextMenuRequested;
         board.BandFilterRequested += OnBandFilterRequested;
@@ -3406,6 +3406,44 @@ public partial class MainWindow : Window
         _settings.Save();
         SyncLayersChrome();
         SyncViewToggles();
+        PutDownHiddenBrushes(view);
+    }
+
+    /// <summary>The layer the brush in <paramref name="board"/>'s hand lays its part on, or null with nothing in
+    /// hand.</summary>
+    private static PlanLayer? BrushLayer(ShipCanvas board) =>
+        board.ArmedPart is { } part && board.Doc is { } doc ? LayerView.OfBrush(doc.Catalog, part, board.ArmedLoose) : null;
+
+    /// <summary>
+    /// Show the layer a brush just picked up lays its part on (#80). Painting onto a hidden layer was blind: the
+    /// part vanished as it landed, and the placement law refused the brush over parts nobody could see while the
+    /// status bar named them. The eye flips and the LAYERS marker updates, so the change is in view.
+    /// </summary>
+    private void RevealBrushLayer(ShipCanvas board)
+    {
+        if (BrushLayer(board) is { } layer) RevealLayers([layer]);
+    }
+
+    /// <summary>Show <paramref name="layers"/> on every open design, and remember it, if any of them is hidden.</summary>
+    private void RevealLayers(IEnumerable<PlanLayer> layers)
+    {
+        var view = Board.Layers.Showing(layers);
+        if (!ReferenceEquals(view, Board.Layers)) ApplyLayers(view);
+    }
+
+    /// <summary>
+    /// Hiding the layer of the brush in hand puts the brush down, the other half of <see cref="RevealBrushLayer"/>:
+    /// otherwise the eye would take the layer away under a brush still painting onto it. A brush on a layer that is
+    /// only locked stays in hand, since a locked layer is still drawn and painting onto it is not blind.
+    /// </summary>
+    private void PutDownHiddenBrushes(LayerView view)
+    {
+        foreach (var session in _sessions)
+        {
+            if (BrushLayer(session.Board) is not { } layer || !view.IsHidden(layer)) continue;
+            session.Board.SetArmed(null);
+            if (session.Board == Board) ClearPaletteSelection();
+        }
     }
 
     /// <summary>
@@ -4764,6 +4802,11 @@ public partial class MainWindow : Window
         cmds.AddRange(looseClones.Select(c => (IDocCommand)new PlaceLooseCommand(c)));
         if (cmds.Count == 0) { ReportLooseSkipped(skipped); return; }
         _stack.Push(_doc, new CompositeCommand(cmds));
+
+        // A paste onto a hidden layer would land out of sight and out of reach of the selection below, so the layers
+        // it lands on come back into view first (#80). The clipboard outlives a layer being hidden, which is how it
+        // can hold one.
+        RevealLayers(clones.Select(c => LayerView.Of(_doc.Catalog, c)).Concat(looseClones.Select(LayerView.Of)));
 
         // hand the copies to the user's cursor, both halves, so the paste can be dragged into place as one thing
         Board.SetSelection(clones, looseClones);

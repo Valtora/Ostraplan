@@ -36,6 +36,43 @@ public class PlanLayerTests
     }
 
     [Fact]
+    public void A_brush_lays_its_part_on_the_part_s_layer_or_on_the_deck_as_cargo()
+    {
+        var cat = Catalog();
+        Assert.Equal(PlanLayer.Conduits, LayerView.OfBrush(cat, cat.ByDefName["Conduit"], loose: false));
+        Assert.Equal(PlanLayer.Walls, LayerView.OfBrush(cat, cat.ByDefName["Door"], loose: false));
+        Assert.Equal(PlanLayer.Fixtures, LayerView.OfBrush(cat, cat.ByDefName["Bed"], loose: false));
+        Assert.Equal(PlanLayer.Loose, LayerView.OfBrush(cat, cat.ByDefName["Widget"], loose: true));
+    }
+
+    [Fact]
+    public void Showing_a_layer_unhides_it_and_leaves_its_lock_alone()
+    {
+        // Arming a brush shows the layer it paints on (#80). The lock is a separate question: a locked layer is
+        // drawn, so painting onto it is not blind and its padlock stays as the user set it.
+        var view = LayerView.Default.WithHidden(PlanLayer.Conduits, true).WithLocked(PlanLayer.Conduits, true)
+            .WithHidden(PlanLayer.Walls, true);
+
+        var shown = view.Showing([PlanLayer.Conduits]);
+
+        Assert.False(shown.IsHidden(PlanLayer.Conduits));
+        Assert.True(shown.IsLocked(PlanLayer.Conduits));
+        Assert.True(shown.IsHidden(PlanLayer.Walls));
+        Assert.True(view.IsHidden(PlanLayer.Conduits));   // the original state is untouched
+    }
+
+    [Fact]
+    public void Showing_layers_already_in_view_hands_back_the_same_state()
+    {
+        // The window only reapplies and saves the layer state when this returns a different instance, so arming a
+        // brush on a visible layer must not look like a change.
+        var view = LayerView.Default.WithHidden(PlanLayer.Walls, true);
+        Assert.Same(view, view.Showing([PlanLayer.Conduits, PlanLayer.Floors]));
+        Assert.Same(view, view.Showing([]));
+        Assert.Same(LayerView.Default, LayerView.Default.Showing([PlanLayer.Loose]));
+    }
+
+    [Fact]
     public void Hidden_and_locked_are_both_out_of_reach_and_only_hidden_is_out_of_sight()
     {
         var view = LayerView.Default.WithHidden(PlanLayer.Walls, true).WithLocked(PlanLayer.Floors, true);
