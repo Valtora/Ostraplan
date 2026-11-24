@@ -5,14 +5,15 @@ comes from the community: Windows is still the platform every release is built a
 gets checked when someone reports a problem. Bug reports from Linux are welcome. Please say you are on
 Linux and include the details listed under [Reporting a problem](#reporting-a-problem).
 
-These steps were tested on Ubuntu 24.04 with Wine 9.0 and Ostraplan 1.31.1. The Fedora and Arch commands
-are the usual equivalents and have not been tested.
+These steps were tested on a fresh Ubuntu 26.04 with Wine 10.0 and Ostraplan 1.38.2, and before that on
+Ubuntu 24.04 with Wine 9.0 and Ostraplan 1.31.1. The Fedora and Arch commands are the usual equivalents and
+have not been tested.
 
 ## What you need
 
 - **Ostranauts installed through Steam.** The game has no native Linux build, so Steam runs it through
   Proton. Ostraplan reads the game's data from that install.
-- **Wine 9.0 or newer, with 32-bit support.** Ostraplan itself is 64-bit, but the small launcher and
+- **Wine 9.0 or newer, both 64-bit and 32-bit.** Ostraplan itself is 64-bit, but the small launcher and
   updater that come with it are 32-bit.
 - **winetricks**, to install the fonts Ostraplan needs.
 
@@ -23,8 +24,11 @@ Debian and Ubuntu need the 32-bit architecture turned on before 32-bit Wine can 
 ```bash
 sudo dpkg --add-architecture i386
 sudo apt update
-sudo apt install wine wine32:i386 winetricks
+sudo apt install wine wine64 wine32:i386 winetricks
 ```
+
+Name `wine64` as well. The `wine` package needs only one of `wine64` and `wine32`, so asking for
+`wine32:i386` alone leaves out the 64-bit Wine that Ostraplan runs in.
 
 Fedora:
 
@@ -48,11 +52,23 @@ you run under Wine.
 ```bash
 export WINEPREFIX="$HOME/.local/share/wineprefixes/ostraplan"
 export WINEARCH=win64
+mkdir -p "$HOME/.local/share/wineprefixes"
 wineboot --init
 ```
 
 If Wine offers to install Mono or Gecko, you can cancel both: Ostraplan uses neither. The prefix already
 reports itself as Windows 10, so there is nothing to change in `winecfg`.
+
+If `wineboot` stops with `WINEARCH set to win64 but '...' is a 32-bit installation`, the 64-bit Wine is
+missing. Install it, delete the half-made prefix, and run this step again:
+
+```bash
+sudo apt install wine64
+rm -rf "$HOME/.local/share/wineprefixes/ostraplan"
+```
+
+Do not work around it with `WINEARCH=win32`. Ostraplan cannot run in a 32-bit prefix, and the launcher
+stops with `Bad EXE format`.
 
 ## 3. Install the fonts
 
