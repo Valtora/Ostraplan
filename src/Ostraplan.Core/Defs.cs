@@ -74,6 +74,11 @@ public sealed record ItemDef(
     /// and <see cref="WearShader.WearColor"/> decides what that resolves to.</summary>
     public string? DmgColor { get; init; }
 
+    /// <summary>The flipbook layout when <c>strImg</c> is an animation sheet (<c>objAnimation</c>), or null for an
+    /// ordinary sprite. A cooverlay skin's own animation replaces this one (see <see cref="CoOverlayDef.Animation"/>).
+    /// Every consumer of the texture draws frame 0 and sizes the part by one cell; see <see cref="SpriteAnimation"/>.</summary>
+    public SpriteAnimation? Animation { get; init; }
+
     public static ItemDef Parse(JsonElement e) => new(
         Json.Str(e, "strName") ?? "",
         Json.Str(e, "strImg") ?? "",
@@ -93,6 +98,7 @@ public sealed record ItemDef(
         Wear = WearFields.Parse(e),
         ImgDamaged = Json.Str(e, "strImgDamaged"),
         DmgColor = Json.Str(e, "strDmgColor"),
+        Animation = SpriteAnimation.Parse(e),
     };
 }
 
@@ -407,6 +413,11 @@ public sealed record CoOverlayDef(
     /// why the branded walls all read the base 24. See <see cref="Catalog"/>'s cond-loot application.</summary>
     public string? CondLoot { get; init; }
 
+    /// <summary>The skin's own flipbook (<c>objAnimation</c>), or null. <c>COOverlay.Init</c> hands it to
+    /// <c>Item.SetAlt</c> with the skin's <c>strImg</c>, so a skin can animate a base that does not: the base
+    /// heater's sprite is a still, Heater Model B's is a 4×4 sheet of glow frames.</summary>
+    public SpriteAnimation? Animation { get; init; }
+
     public static CoOverlayDef Parse(JsonElement e) => new(
         Json.Str(e, "strName") ?? "",
         Json.Str(e, "strNameFriendly"),
@@ -421,6 +432,7 @@ public sealed record CoOverlayDef(
         InteractionReplacements = Pairs(Json.StrArray(e, "aInteractionsReplace")),
         ImgDamaged = Json.Str(e, "strImgDamaged"),
         DmgColor = Json.Str(e, "strDmgColor"),
+        Animation = SpriteAnimation.Parse(e),
     };
 
     /// <summary>Read a flat alternating <c>[from, to, from, to, …]</c> array as pairs, dropping a trailing odd

@@ -19,8 +19,46 @@ public sealed class SpriteCache
 
     public BitmapSource Missing { get; } = MakeMissing();
 
+    /// <summary>The part's sprite as the canvas draws it: the whole texture, or frame 0 of an animated part's
+    /// flipbook (<see cref="SpriteAnimation"/>), which every caller wants rather than the sheet itself.</summary>
     public BitmapSource Sprite(PartDef part) =>
-        (part.SpriteAbs is null ? null : Load(part.SpriteAbs)) ?? Missing;
+        (part.SpriteAbs is null ? null : FirstFrame(part, part.SpriteAbs)) ?? Missing;
+
+    private readonly Dictionary<(string Path, string Frame), BitmapSource> _frames = new();
+
+    /// <summary>
+    /// <paramref name="absPath"/> as the part's material shows it: frame 0's crop for an animated part, the whole
+    /// image otherwise. The crop is the albedo's, taken in normalised texture coordinates, because
+    /// <c>DataHandler.GetMaterialSheet</c> applies one scale and offset to every texture on the material: the
+    /// damaged sheet is cut at the same place as the sprite.
+    /// </summary>
+    private BitmapSource? FirstFrame(PartDef part, string absPath)
+    {
+        var bmp = Load(absPath);
+        if (bmp is null || part.Item.Animation is not { } anim || part.SpriteAbs is null) return bmp;
+        if (Load(part.SpriteAbs) is not { } albedo) return bmp;
+        if (anim.FirstFrame(albedo.PixelWidth, albedo.PixelHeight, part.Item.Width, part.Item.Height)
+            is not { } f) return bmp;
+
+        var key = (absPath, $"{albedo.PixelWidth}x{albedo.PixelHeight}:{f.X},{f.Y},{f.W},{f.H}");
+        lock (_gate)
+        {
+            if (_frames.TryGetValue(key, out var hit)) return hit;
+        }
+        // Scale the albedo's rect onto this texture, which may be a different size (a damaged sheet need not match).
+        var sx = bmp.PixelWidth / (double)albedo.PixelWidth;
+        var sy = bmp.PixelHeight / (double)albedo.PixelHeight;
+        var x = (int)Math.Round(f.X * sx);
+        var y = (int)Math.Round(f.Y * sy);
+        var w = Math.Min(bmp.PixelWidth - x, Math.Max(1, (int)Math.Round(f.W * sx)));
+        var h = Math.Min(bmp.PixelHeight - y, Math.Max(1, (int)Math.Round(f.H * sy)));
+        if (w <= 0 || h <= 0) return bmp;
+
+        var cell = new CroppedBitmap(bmp, new Int32Rect(x, y, w, h));
+        cell.Freeze();
+        lock (_gate) { _frames[key] = cell; }
+        return cell;
+    }
 
     /// <summary>
     /// A non-sheet sprite's own size in tiles = round(texturePx / 16), min 1 —
@@ -38,8 +76,11 @@ public sealed class SpriteCache
     public (int W, int H) SpriteTiles(PartDef part)
     {
         if (part.SpriteAbs is not { } path) return SpriteExtent.Unknown;
-        if (Load(path) is { } bmp) return SpriteExtent.FromPixels(bmp.PixelWidth, bmp.PixelHeight);
-        return SpriteExtent.Tiles(path);
+        if (Load(path) is { } bmp)
+            return part.Item.Animation is { } anim
+                ? anim.Tiles(bmp.PixelWidth, bmp.PixelHeight)
+                : SpriteExtent.FromPixels(bmp.PixelWidth, bmp.PixelHeight);
+        return part.Item.Animation is not null ? SpriteExtent.Tiles(part) : SpriteExtent.Tiles(path);
     }
 
     /// <summary>Cell size in px follows GetMaterialSheet: footprint tiles x 16.</summary>
@@ -211,7 +252,11 @@ public sealed class SpriteCache
     {
         ArgumentNullException.ThrowIfNull(part);
         var plain = Sprite(part);
-        var frame = WearShader.Frame.Sprite(part.Item.Width, part.Item.Height);
+        // An animated part's material comes from GetMaterialSheet like an autotile cell's does, so its wear is
+        // quantised on the whole sheet's texel grid rather than the frame's.
+        var frame = part.Item.Animation is not null && part.SpriteAbs is not null && Load(part.SpriteAbs) is { } sheet
+            ? WearShader.Frame.SheetCell(part.Item.Width, part.Item.Height, sheet.PixelWidth, sheet.PixelHeight)
+            : WearShader.Frame.Sprite(part.Item.Width, part.Item.Height);
         return Worn(plain, part, frame, condition, worldX, worldY, catalog, col: -1, row: -1) ?? plain;
     }
 
@@ -258,7 +303,7 @@ public sealed class SpriteCache
         // scaled to its own size, which is what keeps a damaged sheet aligned with the cell being drawn.
         byte[]? dmgPx = null;
         int dw = 0, dh = 0;
-        if (part.SpriteDamagedAbs is not null && Load(part.SpriteDamagedAbs) is { } dmgSrc)
+        if (part.SpriteDamagedAbs is not null && FirstFrame(part, part.SpriteDamagedAbs) is { } dmgSrc)
         {
             var dmgBgra = new FormatConvertedBitmap(dmgSrc, PixelFormats.Bgra32, null, 0);
             dw = dmgBgra.PixelWidth;

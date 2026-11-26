@@ -521,6 +521,22 @@ For most parts these are equal (a 1×1 wall is 16×16 px; a 3×5 bed is 48×80 p
   whole inner 7×7, so the game genuinely requires a **7×7 sealed-floor pad** to
   place one.
 
+**Animated parts measure one frame, not the texture.** A def (item or cooverlay skin) with an
+`objAnimation` has a flipbook for `strImg`, and `Item.SetData` / `Item.SetAlt` run
+`Item.SetupAnimation` ahead of both the sheet and the plain-sprite branches. It sets
+`vScale = round(texturePx / nSheetColumns|nSheetRows / 16)`, min 1, and cuts the frame out through
+`DataHandler.GetMaterialSheet`, whose cell is the **footprint** (`tiles × 16` px). Frame 0 is cell
+`(nSheetRows − 1) × nSheetColumns` in Unity's bottom-up order (`ConvertArrayIndexToTopLeftIndex`),
+which is the image's top-left cell. The same scale and offset go on `_BumpMap` and `_DmgTex`, so a
+damaged sheet is cut at the same place. `ItmHeater02` (Heater Model B, a skin over `ItmHeater01`) is
+the first stock part with one: a 128×128 sheet, 4×4 cells, 8 frames, on a 2×2 footprint. Read
+without the animation it draws as an 8×8-tile picture of the whole sheet.
+
+> **Ported in Ostraplan:** `SpriteAnimation` (frame 0 and its `vScale`), read off both
+> `ItemDef` and `CoOverlayDef`; `SpriteCache.Sprite` hands out frame 0 and `SpriteExtent.Tiles`
+> sizes the part, which is also its damage collider (§26). Ostraplan draws a still, so the game's
+> random even starting frame (`bRandomStartingFrame`) is not modelled.
+
 The correct rule: render the sprite at `vScale` centred on the footprint, but keep
 the **footprint at the socket grid** for placement. Shrinking the footprint to 3×3
 would allow placement in a gap the game refuses — a false positive.
@@ -4001,9 +4017,9 @@ Every item is instantiated from one prefab (`DataHandler` builds `strType == "it
 and sets `localScale = (vScale.x, vScale.y, 1)`.
 
 So the world collider is `vScale` tiles wide by `vScale` tiles high, centred on the item's
-transform. `vScale` is the sprite in tiles, `textureSize / 16` clamped to at least 1, or
-exactly `1 × 1` for any sprite-sheet item, which covers every autotiled wall and floor
-(§4). It is **not** the socket footprint, so the 7×7 tanks present a 3×3 target.
+transform. `vScale` is the sprite in tiles, `textureSize / 16` clamped to at least 1, one
+flipbook cell for an animated part, or exactly `1 × 1` for any sprite-sheet item, which
+covers every autotiled wall and floor (§4). It is **not** the socket footprint, so the 7×7 tanks present a 3×3 target.
 
 Two consequences fall out of the z arithmetic:
 
@@ -4668,6 +4684,7 @@ sets), giving a 220-ship rooms **and** certification gate. Only **Babak / Babak 
 | Placement law (`Item.CheckFit`) | ported | `CheckFit`, `ProblemScan`, `ShipCanvas` |
 | Airlock envelope (mating face) | ported | `ProblemScan.TryGetFace` |
 | Footprint + sprite scale (`SetData`) | ported | `Defs.ItemDef`, `SpriteCache.SpriteTiles` |
+| Animated sprite, frame 0 (`SetupAnimation`) | ported | `SpriteAnimation`, `SpriteCache.Sprite` |
 | Autotile (`SetSpriteSheetIndex`) | ported | `Autotile` |
 | Mask rotation (`RotateTilesCW`) | ported | `GridMath.Rotate` |
 | `CondTrigger.Triggered` — reachable branches (bAND, OR, nested, forbids) | ported | `CondEval` (CO-level); presence path in `TileConds` |

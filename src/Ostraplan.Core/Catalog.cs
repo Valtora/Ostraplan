@@ -1557,6 +1557,10 @@ public sealed class Catalog
             item = item with { ImgDamaged = overlay!.ImgDamaged! };
         if (!string.IsNullOrWhiteSpace(overlay?.DmgColor))
             item = item with { DmgColor = overlay!.DmgColor! };
+        // A skin's flipbook goes to Item.SetAlt in the same call, and SetupAnimation then runs on the skin's sheet.
+        // Dropping it is what drew Heater Model B as its whole 4×4 sheet (8×8 tiles) instead of one 2×2 frame.
+        if (overlay?.Animation is { } anim)
+            item = item with { Animation = anim };
 
         var friendly =
             !string.IsNullOrWhiteSpace(overlay?.NameFriendly) ? overlay!.NameFriendly! :

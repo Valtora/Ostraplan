@@ -30,15 +30,22 @@ public static class SpriteExtent
 
     /// <summary>
     /// The part's sprite size in tiles, exactly as <c>Item.SetData</c> derives <c>vScale</c>:
-    /// <c>1 × 1</c> for a sprite-sheet part (walls, floors, anything autotiled — the game hard-sets it and never
-    /// looks at the texture), otherwise <c>max(round(texturePx / 16), 1)</c> per axis.
+    /// one cell of the flipbook for an animated part, <c>1 × 1</c> for a sprite-sheet part (walls, floors, anything
+    /// autotiled — the game hard-sets it and never looks at the texture), otherwise
+    /// <c>max(round(texturePx / 16), 1)</c> per axis.
     ///
-    /// <para>The game has a third branch for an animated def, which divides the texture by the animation's rows and
-    /// columns first. No shipped item def declares <c>objAnimation</c> (0 of 1,034 on stock 1.0.0.11), so it is not
-    /// modelled; a mod that used one would read one tile too large per axis here.</para>
+    /// <para>An animated part (<see cref="SpriteAnimation"/>) is checked first, as <c>Item.SetData</c> does: its
+    /// texture is a flipbook, and one cell of it is the sprite. Measuring the whole sheet made Heater Model B an
+    /// 8×8 target for a micrometeoroid instead of a 2×2 one.</para>
     /// </summary>
     public static (int W, int H) Tiles(PartDef part)
     {
+        if (part.Item.Animation is { } anim)
+        {
+            if (part.SpriteAbs is not { } sheet) return Unknown;
+            var (pw, ph) = PixelSize(sheet);
+            return pw > 0 && ph > 0 ? anim.Tiles(pw, ph) : Unknown;
+        }
         // A sheet part's scale never depends on its texture: Item.SetData sets vScale.x = vScale.y = 1 outright,
         // because the sheet holds every autotile variant side by side and one cell is one tile.
         if (part.Item.HasSpriteSheet) return (1, 1);

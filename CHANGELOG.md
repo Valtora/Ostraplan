@@ -15,6 +15,9 @@ each release was verified against is recorded in
 - **Picking a part on a hidden layer shows that layer, so nothing is placed out of sight.**
   - Before, the part vanished as it landed, and the brush was refused over hidden parts the status bar then named.
   - A paste shows the layers it lands on, and hiding the layer of the part in hand puts it down. Thanks to nighoggDatatype.
+- **Heater Model B draws as one 2×2 heater, not as its whole animation sheet.**
+  - It is the first part with an animated sprite, and Ostraplan now shows its first frame, in the palette too.
+  - A micrometeoroid strike also treats it as 2×2 rather than 8×8. Thanks to Slomes.
 
 ## [1.38.2] 2026-11-23, docked hull swaps
 
