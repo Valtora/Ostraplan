@@ -11,6 +11,8 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+## [1.39.0] 2026-11-26, search exclusions
+
 ### Added
 - **Part searches take more than one word, and `-word` leaves parts out.**
   - `rcs -loose` lists the RCS parts without their loose forms, and words match in any order.
