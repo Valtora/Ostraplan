@@ -18,6 +18,8 @@ each release was verified against is recorded in
 - **Heater Model B draws as one 2×2 heater, not as its whole animation sheet.**
   - It is the first part with an animated sprite, and Ostraplan now shows its first frame, in the palette too.
   - A micrometeoroid strike also treats it as 2×2 rather than 8×8. Thanks to Slomes.
+- **Light Viz shades themed parts with their own surface detail.**
+  - A themed wall, floor or device used its plain version's normal map, so light picked out the wrong relief on 408 of them.
 
 ## [1.38.2] 2026-11-23, docked hull swaps
 

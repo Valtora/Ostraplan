@@ -135,9 +135,16 @@ public sealed class SpriteCache
     private readonly Dictionary<(string Path, int Rot, int Col, int Row), BitmapSource> _normCells = new();
 
     /// <summary>The part's normal-map sprite with its vectors pre-rotated for <paramref name="rot"/> (the canvas
-    /// rotates the pixels), or null when the item has no normal map on disk (drawn as flat).</summary>
-    public BitmapSource? NormalSprite(PartDef part, int rot) =>
-        part.SpriteNormAbs is null ? null : LoadNorm(part.SpriteNormAbs, GridMath.Norm(rot));
+    /// rotates the pixels), or null when the item has no normal map on disk (drawn as flat). An animated part's is
+    /// frame 0, cut where its sprite is: the game puts one texture scale and offset on <c>_BumpMap</c> and
+    /// <c>_MainTex</c> alike.</summary>
+    public BitmapSource? NormalSprite(PartDef part, int rot)
+    {
+        if (part.SpriteNormAbs is not { } path) return null;
+        if (part.Item.Animation is null) return LoadNorm(path, GridMath.Norm(rot));
+        // Keyed apart from the whole-image entry: the same file could be a still for another part.
+        return LoadNorm(path, GridMath.Norm(rot), "|frame0", () => FirstFrame(part, path));
+    }
 
     /// <summary>Sheet-cell crop of the normal map (sheet items never rotate), or null when absent. The cell
     /// rect comes from the ALBEDO footprint (the game samples _BumpMap with the albedo UVs).</summary>
@@ -161,14 +168,15 @@ public sealed class SpriteCache
         return cell;
     }
 
-    private BitmapSource? LoadNorm(string absPath, int rot)
+    private BitmapSource? LoadNorm(string absPath, int rot, string variant = "", Func<BitmapSource?>? source = null)
     {
+        var key = (absPath + variant, rot);
         lock (_gate)
         {
-            if (_norms.TryGetValue((absPath, rot), out var hit)) return hit;
+            if (_norms.TryGetValue(key, out var hit)) return hit;
         }
         BitmapSource? result = null;
-        if (Load(absPath) is { } src)
+        if ((source is null ? Load(absPath) : source()) is { } src)
         {
             var bgra = new FormatConvertedBitmap(src, PixelFormats.Bgra32, null, 0);
             int w = bgra.PixelWidth, h = bgra.PixelHeight;
@@ -191,7 +199,7 @@ public sealed class SpriteCache
             wb.Freeze();
             result = wb;
         }
-        if (result is not null) lock (_gate) { _norms[(absPath, rot)] = result; }   // a failed load is retried (#57)
+        if (result is not null) lock (_gate) { _norms[key] = result; }   // a failed load is retried (#57)
         return result;
     }
 

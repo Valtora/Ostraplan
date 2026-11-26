@@ -527,8 +527,8 @@ For most parts these are equal (a 1×1 wall is 16×16 px; a 3×5 bed is 48×80 p
 `vScale = round(texturePx / nSheetColumns|nSheetRows / 16)`, min 1, and cuts the frame out through
 `DataHandler.GetMaterialSheet`, whose cell is the **footprint** (`tiles × 16` px). Frame 0 is cell
 `(nSheetRows − 1) × nSheetColumns` in Unity's bottom-up order (`ConvertArrayIndexToTopLeftIndex`),
-which is the image's top-left cell. The same scale and offset go on `_BumpMap` and `_DmgTex`, so a
-damaged sheet is cut at the same place. `ItmHeater02` (Heater Model B, a skin over `ItmHeater01`) is
+which is the image's top-left cell. The same scale and offset go on `_BumpMap` and `_DmgTex`, so the
+normal and damaged sheets are cut at the same place. `ItmHeater02` (Heater Model B, a skin over `ItmHeater01`) is
 the first stock part with one: a 128×128 sheet, 4×4 cells, 8 frames, on a 2×2 footprint. Read
 without the animation it draws as an 8×8-tile picture of the whole sheet.
 
@@ -1980,7 +1980,11 @@ in [section 1](#the-gpu-shaders)).
   _LightFalloff = 3`, `Z = _LightZ = 0.25`: `L = normalize(−u.x·F, −u.y·F, F·Z)`, `atten
   = 1/(F²(|u|² + Z²) + 0.1)`, `diffuse = max(0, N·L)` where N comes from the **normal
   RT** (`strImgNorm` through `ShaderSetup.NormalPNGtoDXTnm`: `nx = 2·png.r − 1`, `ny =
-  2·png.g − 1`, z forced 1, unnormalised). Contribution = `albedo × colour.rgb × colour.a
+  2·png.g − 1`, z forced 1, unnormalised). A cooverlay skin's own `strImgNorm` replaces the
+  base item's (`COOverlay.Init` → `Item.SetAlt`), except `"blank"`, where the copied
+  material keeps the base's `_BumpMap`; a skin naming none gets the game's "missing"
+  placeholder, which Ostraplan does not model and keeps the base's instead (`CoOverlayDef.ImgNorm`).
+  Contribution = `albedo × colour.rgb × colour.a
   × cookie.a × diffuse × atten`, clamped 8-bit per light. `fLightZ` / `nLightFalloff` are
   **not** cosmetic — they are the falloff. Item lights never carry cookies (only crew LOS
   / VFX do).

@@ -31,8 +31,8 @@ public sealed record PartDef(
 {
     /// <summary>The item's normal-map PNG resolved on disk (<c>strImgNorm</c>), or null when it names none/"blank"
     /// or the file is missing. Light Viz shades N·L against it, exactly like the game's deferred normal RT.
-    /// Note a cooverlay skin keeps its <b>base</b> item's normal map (the game's <c>JsonCOOverlay</c> overrides
-    /// only <c>strImg</c>).</summary>
+    /// A cooverlay skin that names its own normal map wears it; one that names none, or <c>"blank"</c>, keeps its
+    /// base item's (see <see cref="CoOverlayDef.ImgNorm"/>).</summary>
     public string? SpriteNormAbs { get; init; }
 
     /// <summary>The item's damaged-overlay PNG resolved on disk (<c>strImgDamaged</c>), or null when it names
@@ -1557,6 +1557,9 @@ public sealed class Catalog
             item = item with { ImgDamaged = overlay!.ImgDamaged! };
         if (!string.IsNullOrWhiteSpace(overlay?.DmgColor))
             item = item with { DmgColor = overlay!.DmgColor! };
+        // Its normal map likewise, except that "blank" keeps the base's (see CoOverlayDef.ImgNorm).
+        if (overlay?.ImgNorm is { } norm && !string.IsNullOrWhiteSpace(norm) && norm != "blank")
+            item = item with { ImgNorm = norm };
         // A skin's flipbook goes to Item.SetAlt in the same call, and SetupAnimation then runs on the skin's sheet.
         // Dropping it is what drew Heater Model B as its whole 4×4 sheet (8×8 tiles) instead of one 2×2 frame.
         if (overlay?.Animation is { } anim)

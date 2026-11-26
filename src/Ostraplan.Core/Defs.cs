@@ -401,6 +401,17 @@ public sealed record CoOverlayDef(
     /// <inheritdoc cref="ImgDamaged"/>
     public string? DmgColor { get; init; }
 
+    /// <summary>
+    /// The skin's own normal map (<c>strImgNorm</c>), which <c>COOverlay.Init</c> hands to <c>Item.SetAlt</c> with
+    /// the sprite. 1,197 core skins name one, and 408 of those differ from their base item's.
+    ///
+    /// <para>Where the skin says <c>"blank"</c> the base's normal map stands: <c>DataHandler.GetMaterial</c> builds
+    /// the skin's material as a copy of the renderer's current one and only sets <c>_BumpMap</c> for a named
+    /// image. Five skins name none at all, and there the game loads its "missing" placeholder as the bump map;
+    /// Ostraplan keeps the base's instead, since modelling a placeholder's normals would draw nothing meaningful.</para>
+    /// </summary>
+    public string? ImgNorm { get; init; }
+
     /// <summary>Interaction substitutions this skin applies over its base condowner's <c>aInteractions</c>
     /// (<c>aInteractionsReplace</c>, flat <c>[from, to]</c> pairs — the game's <c>JsonCOOverlay.mapIAReplaces</c>,
     /// applied by <c>COOverlay.Init</c>). Empty for a skin that keeps the base's interactions.</summary>
@@ -432,6 +443,7 @@ public sealed record CoOverlayDef(
         InteractionReplacements = Pairs(Json.StrArray(e, "aInteractionsReplace")),
         ImgDamaged = Json.Str(e, "strImgDamaged"),
         DmgColor = Json.Str(e, "strDmgColor"),
+        ImgNorm = Json.Str(e, "strImgNorm"),
         Animation = SpriteAnimation.Parse(e),
     };
 
