@@ -1156,7 +1156,7 @@ public partial class MainWindow : Window
 
     private void RefreshPalette()
     {
-        var search = TxtSearch.Text.Trim();
+        var search = SearchQuery.Parse(TxtSearch.Text);
         // What "All" means depends on whether the user is searching, and the two answers are both right.
         //
         // Browsing, it is the buildable catalogue: the loose universe is thousands of items and the non-buildable
@@ -1165,8 +1165,9 @@ public partial class MainWindow : Window
         //
         // Searching, "All" has to mean all of it. Somebody who types "spawner" and gets nothing under All has been
         // told the app does not have one, which is false: it was two tabs away the whole time. A search is already
-        // the user narrowing the list, so there is nothing left to drown.
-        var searching = search.Length > 0;
+        // the user narrowing the list, so there is nothing left to drown. A loose form that gets in the way is one
+        // "-loose" away, which is why the search takes exclusions rather than All going back to hiding ITEMS.
+        var searching = !search.IsEmpty;
         _syncingPalette = true;
         foreach (var list in _paletteLists)
         {
@@ -1197,7 +1198,10 @@ public partial class MainWindow : Window
 
     /// <summary>Repopulate the ★ tab's two groups from the saved lists (order preserved), applying the current
     /// search filter, and hide any empty group's header — showing the onboarding hint only when both are empty.</summary>
-    private void RefreshQuickLists(string search)
+    private void RefreshQuickLists(string text) => RefreshQuickLists(SearchQuery.Parse(text));
+
+    /// <inheritdoc cref="RefreshQuickLists(string)"/>
+    private void RefreshQuickLists(SearchQuery search)
     {
         if (_favList is null || _recentList is null) return;
 

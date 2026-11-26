@@ -33,10 +33,12 @@ public sealed class PartVM(PartDef part, ImageSource thumb, bool isLoose = false
     /// <summary>The star drawn on the row: filled when pinned, hollow otherwise (the template colours/fades each).</summary>
     public string FavGlyph => _isFavorite ? "★" : "☆";
 
-    public bool Matches(string search) =>
-        search.Length == 0
-        || Part.Friendly.Contains(search, StringComparison.OrdinalIgnoreCase)
-        || Part.DefName.Contains(search, StringComparison.OrdinalIgnoreCase);
+    /// <summary>The search box's text against this part's friendly and internal names: every word in any order,
+    /// and none of the <c>-word</c>s (see <see cref="SearchQuery"/>).</summary>
+    public bool Matches(string search) => Matches(SearchQuery.Parse(search));
+
+    /// <inheritdoc cref="Matches(string)"/>
+    public bool Matches(SearchQuery query) => query.Matches(Part.Friendly, Part.DefName);
 
     public event PropertyChangedEventHandler? PropertyChanged;
 }

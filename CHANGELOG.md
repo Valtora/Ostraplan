@@ -11,6 +11,11 @@ each release was verified against is recorded in
 
 ## [Unreleased]
 
+### Added
+- **Part searches take more than one word, and `-word` leaves parts out.**
+  - `rcs -loose` lists the RCS parts without their loose forms, and words match in any order.
+  - Works in the palette, Add Cargo, Replace with… and the re-skin picker. Thanks to Slomes.
+
 ### Fixed
 - **Picking a part on a hidden layer shows that layer, so nothing is placed out of sight.**
   - Before, the part vanished as it landed, and the brush was refused over hidden parts the status bar then named.

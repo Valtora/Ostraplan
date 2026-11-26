@@ -73,6 +73,7 @@ public sealed class AddCargoDialog : Window
         _search.BorderBrush = PanelBorder;
         _search.Padding = new Thickness(4, 2, 4, 2);
         _search.TextChanged += (_, _) => Populate();
+        _search.ToolTip = "Words match in any order, and -word leaves out items naming it: canister -damaged";
         searchRow.Children.Add(_search);
         root.Children.Add(searchRow);
 
@@ -191,11 +192,8 @@ public sealed class AddCargoDialog : Window
 
     private void Populate()
     {
-        var term = _search.Text.Trim();
-        var matches = _offered.Where(p =>
-            term.Length == 0
-            || p.Friendly.Contains(term, StringComparison.OrdinalIgnoreCase)
-            || p.DefName.Contains(term, StringComparison.OrdinalIgnoreCase)).ToList();
+        var query = SearchQuery.Parse(_search.Text);
+        var matches = _offered.Where(p => query.Matches(p.Friendly, p.DefName)).ToList();
 
         _list.Items.Clear();
         foreach (var part in matches.Take(MaxRows))

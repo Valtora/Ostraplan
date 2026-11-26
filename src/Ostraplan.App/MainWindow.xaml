@@ -557,7 +557,8 @@
                 BorderBrush="{DynamicResource PanelBorder}" BorderThickness="0,0,1,0">
             <DockPanel>
                 <TextBox x:Name="TxtSearch" DockPanel.Dock="Top" Margin="0,0,0,6" Padding="4,3"
-                         TextChanged="OnSearchChanged" ToolTip="Search parts by name"/>
+                         TextChanged="OnSearchChanged"
+                         ToolTip="Search parts by name. Words match in any order, and -word leaves out parts naming it: rcs -loose"/>
                 <!-- The category strip is a row of ToggleButtons, NOT a TabControl, and that is a fix rather than
                      a preference. WPF's TabControl lays wrapped headers out with a TabPanel, which reorders its
                      rows so the row holding the SELECTED header sits against the content. With twelve categories
